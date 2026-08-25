@@ -13,3 +13,23 @@ Route::post('/octane-smoke/pass-through', static function (Request $request) {
 })->withoutMiddleware([
     ValidateCsrfToken::class,
 ]);
+
+Route::get('/http-smoke/worker', static fn () => response('http-worker'));
+
+Route::post('/http-smoke/pass-through', static function (Request $request) {
+    return response($request->getContent());
+})->withoutMiddleware([
+    ValidateCsrfToken::class,
+]);
+
+Route::post('/http-smoke/receiver', static function (Request $request) {
+    $recordPath = getenv('WEB_RELAY_HTTP_RECEIVER_FILE');
+
+    if (is_string($recordPath) && $recordPath !== '') {
+        file_put_contents($recordPath, $request->getContent()."\n".(string) $request->header('X-Webhook-Forwarder-Delivery-Id')."\n", LOCK_EX);
+    }
+
+    return response()->noContent();
+})->withoutMiddleware([
+    ValidateCsrfToken::class,
+]);

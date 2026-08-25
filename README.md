@@ -509,5 +509,12 @@ Run the real Octane worker smoke test using the included minimal Laravel host:
 bash scripts/octane-smoke.sh
 ```
 
+Run the non-RoadRunner HTTP runtime smoke test. It starts Laravel with PHP's
+built-in HTTP server, then starts Go as the public edge:
+
+```bash
+bash scripts/http-smoke.sh
+```
+
 Set `WEB_RELAY_OCTANE_APP_PATH` when testing an application-owned Laravel host
 instead of the fixture.

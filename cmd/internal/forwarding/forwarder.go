@@ -83,10 +83,6 @@ func (f *Forwarder) dialContext(ctx context.Context, network, address string) (n
 	return nil, fmt.Errorf("target %s resolves only to blocked addresses", host)
 }
 
-func isAllowedTargetAddress(address net.IP) bool {
-	return address.IsGlobalUnicast() && !address.IsPrivate() && !address.IsLoopback() && !address.IsLinkLocalUnicast() && !address.IsUnspecified()
-}
-
 func (f *Forwarder) Forward(req ForwardRequest) {
 	f.totalRequests.Add(1)
 
