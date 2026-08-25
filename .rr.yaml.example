@@ -14,7 +14,13 @@ http:
   middleware: ["web_relay", "gzip"]
   max_request_size: 10
   pool:
+    # A fixed pool stays warm; do not enable a dynamic allocator that can scale
+    # the PHP control plane to zero when predictable ingress latency matters.
     num_workers: 4
+    # Recycle workers periodically without cold-starting the entire pool.
+    max_jobs: 1000
+    allocate_timeout: 10s
+    destroy_timeout: 10s
 
 logs:
   level: "info"

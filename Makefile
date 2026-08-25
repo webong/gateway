@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-php test-octane vet
+.PHONY: build test test-go test-php test-octane benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 
@@ -16,6 +16,12 @@ test-php:
 
 test-octane:
 	bash scripts/octane-smoke.sh
+
+benchmark:
+	go run $(GOFLAGS) ./cmd/benchmark $(ARGS)
+
+benchmark-php:
+	vendor/bin/pest -c phpunit.benchmark.xml.dist
 
 vet:
 	go vet $(GOFLAGS) ./...

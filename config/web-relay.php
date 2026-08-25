@@ -19,4 +19,22 @@ return [
     // Bearer token accepted by the PHP-owned endpoint and subscription
     // registry API. Management endpoints fail closed until it is configured.
     'registry_token' => (string) env('REGISTRY_TOKEN', ''),
+
+    'cache' => [
+        // Use a shared store such as Redis in production so every warm PHP
+        // worker observes generation-based invalidation immediately.
+        'enabled' => (bool) env('WEB_RELAY_CACHE_ENABLED', true),
+        'store' => env('WEB_RELAY_CACHE_STORE'),
+        'prefix' => (string) env('WEB_RELAY_CACHE_PREFIX', 'web-relay'),
+
+        // Path bindings opt in through CacheablePathResolver. Registry route
+        // snapshots cache endpoint identity and database-backed destinations.
+        'path_ttl' => (int) env('WEB_RELAY_PATH_CACHE_TTL', 300),
+        'route_ttl' => (int) env('WEB_RELAY_ROUTE_CACHE_TTL', 30),
+        'missing_ttl' => (int) env('WEB_RELAY_MISSING_CACHE_TTL', 5),
+
+        // Custom providers may select destinations from request payload or
+        // headers, so they remain uncached unless the host explicitly opts in.
+        'custom_providers' => (bool) env('WEB_RELAY_CACHE_CUSTOM_PROVIDERS', false),
+    ],
 ];

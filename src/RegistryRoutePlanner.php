@@ -6,6 +6,7 @@ namespace Webong\WebRelay;
 
 use InvalidArgumentException;
 use RuntimeException;
+use Webong\WebProxy\DestinationRecord;
 use Webong\WebProxy\DispatchWebhookProxyDestination;
 use Webong\WebProxy\Enums\WebhookProxyTargetType;
 use Webong\WebProxy\WebProxyChannelManager;
@@ -33,28 +34,17 @@ final class RegistryRoutePlanner implements RoutePlanner
         private readonly WebProxyRegistryManager $registryManager,
         private readonly WebProxyChannelManager $channelManager,
         private readonly SubscriptionMatcher $subscriptionMatcher,
+        private readonly RegistryRouteCache $routeCache,
         private readonly ?DispatchWebhookProxyDestination $destinationDispatcher = null,
     ) {
     }
 
     public function plan(IngressRequest $request): RoutePlan
     {
-        $binding = $this->pathResolver->resolve($request);
+        $binding = $this->routeCache->resolvePath($this->pathResolver, $request);
 
         if ($binding === null) {
             return RoutePlan::passThrough();
-        }
-
-        $resolved = $this->registryManager->resolveByKey(
-            $binding->endpointKey,
-            $this->channelManager->registries($binding->channel),
-        );
-
-        if ($resolved === null) {
-            return RoutePlan::respond(new Response(
-                statusCode: 404,
-                body: 'Registered endpoint not found.',
-            ));
         }
 
         $route = new WebhookRoute(
@@ -66,15 +56,52 @@ final class RegistryRoutePlanner implements RoutePlanner
         );
         $payload = $route->payload;
         $headers = $route->headers;
-        $destinations = $resolved->registrar->provider()->destinationsFor(
-            $resolved->endpoint->record,
-            $route,
+        $registries = $this->channelManager->registries($binding->channel);
+        $cachedRoute = $this->routeCache->resolveRoute(
+            endpointKey: $binding->endpointKey,
+            registries: $registries,
+            scope: $route->scope,
+            routeKey: $route->key,
+            loader: function () use ($binding, $registries, $route): CachedRegistryRoute {
+                $resolved = $this->registryManager->resolveByKey($binding->endpointKey, $registries);
+
+                if ($resolved === null) {
+                    return CachedRegistryRoute::missing();
+                }
+
+                $provider = $resolved->registrar->provider();
+
+                return CachedRegistryRoute::found(
+                    registry: $resolved->registry,
+                    endpointId: $resolved->endpoint->record->id,
+                    endpointKey: $resolved->endpoint->record->endpoint_key,
+                    destinations: $provider->destinationsFor(
+                        $resolved->endpoint->record,
+                        $route,
+                    )->values()->all(),
+                    cacheable: $this->routeCache->supportsProvider($provider),
+                );
+            },
         );
+
+        if (! $cachedRoute->found) {
+            return RoutePlan::respond(new Response(
+                statusCode: 404,
+                body: 'Registered endpoint not found.',
+            ));
+        }
+
+        $provider = $this->registryManager->registry($cachedRoute->registry)->provider();
+        $destinations = $cachedRoute->destinations;
 
         $reply = null;
         $relays = [];
 
         foreach ($destinations as $destination) {
+            if (! $destination instanceof DestinationRecord) {
+                throw new RuntimeException('Registry route cache returned an invalid destination.');
+            }
+
             if (! $this->matchesMetadata($destination->metadata, $binding->destinationMetadata)) {
                 continue;
             }
@@ -89,7 +116,7 @@ final class RegistryRoutePlanner implements RoutePlanner
                 }
 
                 $this->destinationDispatcher->handle(
-                    provider: $resolved->registrar->provider(),
+                    provider: $provider,
                     destination: $destination,
                     sourceUrl: $this->sourceUrl($request),
                     payload: $payload,
@@ -133,8 +160,8 @@ final class RegistryRoutePlanner implements RoutePlanner
             reply: $reply,
             relays: $relays,
             metadata: [
-                'endpoint_id' => $resolved->endpoint->record->id,
-                'endpoint_key' => $resolved->endpoint->record->endpoint_key,
+                'endpoint_id' => $cachedRoute->endpointId,
+                'endpoint_key' => $cachedRoute->endpointKey,
             ],
         );
     }

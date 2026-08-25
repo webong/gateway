@@ -15,6 +15,7 @@ final readonly class SubscribeEndpoint
     public function __construct(
         private WebProxyRegistryManager $registryManager,
         private WebProxyChannelManager $channelManager,
+        private ?RegistryRouteCache $routeCache = null,
     ) {
     }
 
@@ -47,6 +48,9 @@ final readonly class SubscribeEndpoint
             }
         }
 
-        return $resolved->endpoint->attach($subscription->toDestinationDefinition());
+        $destination = $resolved->endpoint->attach($subscription->toDestinationDefinition());
+        $this->routeCache?->invalidateEndpoint($resolved->endpoint->record->endpoint_key);
+
+        return $destination;
     }
 }

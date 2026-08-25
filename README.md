@@ -118,6 +118,11 @@ http:
   middleware: ["web_relay", "gzip"]
 ```
 
+The example keeps a fixed PHP pool warm and recycles individual workers after
+`max_jobs` requests. Size `num_workers` from measured concurrent planner load;
+avoid a dynamic allocator that scales the pool to zero when predictable
+latency matters.
+
 Then start the embedded host from the repository root:
 
 ```bash
@@ -167,9 +172,57 @@ that prefix.
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - standalone shutdown timeout (default `30s`)
 
+PHP-side cache settings:
+
+- `WEB_RELAY_CACHE_ENABLED` - enables registry route caching (default `true`)
+- `WEB_RELAY_CACHE_STORE` - Laravel cache store; use a shared store such as
+  Redis when multiple warm workers or application instances are running
+- `WEB_RELAY_PATH_CACHE_TTL` - path-binding TTL in seconds (default `300`)
+- `WEB_RELAY_ROUTE_CACHE_TTL` - endpoint/subscription snapshot TTL (default
+  `30`)
+- `WEB_RELAY_MISSING_CACHE_TTL` - negative lookup TTL (default `5`)
+- `WEB_RELAY_CACHE_PREFIX` - cache-key prefix (default `web-relay`)
+- `WEB_RELAY_CACHE_CUSTOM_PROVIDERS` - opt custom `web-proxy` providers into
+  route caching (default `false`)
+
 `standalone` mode has no PHP planner wired by itself. Use `http` when Laravel
 is hosted separately, or `roadrunner` when the Go process should own the
 RoadRunner lifecycle.
+
+## Performance benchmarks
+
+Run the isolated PHP planner benchmark with a warm path/route cache and 100
+subscriptions (half matching the request):
+
+```bash
+make benchmark-php
+```
+
+Change the workload without editing the test:
+
+```bash
+WEB_RELAY_BENCH_SUBSCRIBERS=500 \
+WEB_RELAY_BENCH_ITERATIONS=1000 \
+make benchmark-php
+```
+
+The benchmark reports mean, p50, p95, and p99 planner latency. It deliberately
+does not impose a timing assertion because CI hardware is not a production
+capacity target.
+
+For end-to-end latency through the public Go ingress, prepare a route with the
+subscriber count being tested, start the selected runtime, then run:
+
+```bash
+make benchmark ARGS='-url https://relay.example.test/provider/events/app-123 \
+  -requests 5000 -concurrency 50 \
+  -header "X-Event-Type: message.created"'
+```
+
+The load tool reports throughput, HTTP status counts, errors, and mean/p50/p95/
+p99/max latency. Use non-matching rules to measure ingress plus PHP planning
+without outbound network variance; use matching rules and a controlled sink to
+measure the complete relay path.
 
 ## PHP control plane
 
@@ -253,6 +306,54 @@ final class ApplicationPathResolver implements PathResolver
 The resolver is the application's route-binding seam. It can use Laravel
 routes or a PHP-owned path registry; no Go migration or fixed `/webhook`
 prefix is required.
+
+### Registry route caching
+
+The bundled planner caches two portable layers:
+
+1. application path bindings (`path -> endpoint key`); and
+2. database-backed `endpoint/scope/key -> active destinations` snapshots.
+
+Provider objects, signing credentials, request bodies, and validation results
+are never cached. Match rules still run for every ingress request, so cached
+subscriptions cannot bypass request-specific matching.
+
+Path caching is intentionally opt-in because an application resolver may use
+headers or body fields. Implement `CacheablePathResolver` and return a key
+containing every request attribute that can change its result:
+
+```php
+use Webong\WebRelay\Contracts\CacheablePathResolver;
+use Webong\WebRelay\Protocol\IngressRequest;
+
+final class ApplicationPathResolver implements CacheablePathResolver
+{
+    public function cacheKey(IngressRequest $request): string
+    {
+        return implode('|', [$request->method, $request->host, $request->path]);
+    }
+
+    // resolve(...) remains the same as above.
+}
+```
+
+`EndpointController` and `SubscribeEndpoint` rotate cache generations after
+successful writes. If application code mutates `web-proxy` directly, invalidate
+the affected snapshot explicitly:
+
+```php
+use Webong\WebRelay\RegistryRouteCache;
+
+app(RegistryRouteCache::class)->invalidateEndpoint($endpointKey);
+app(RegistryRouteCache::class)->invalidatePaths(); // when path ownership changed
+```
+
+Generation keys make invalidation visible to every worker when the configured
+Laravel cache store is shared. Cached entries have bounded TTLs and cache
+backend failures fall through to the registry. Custom endpoint providers are
+not cached by default because they may select destinations from payloads or
+headers; opt them in only when `destinationsFor()` is stable for an endpoint,
+scope, and route key.
 
 ## Selective subscriptions
 

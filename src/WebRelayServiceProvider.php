@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\WebRelay;
 
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 use Webong\WebRelay\Contracts\PathResolver;
@@ -14,6 +15,28 @@ final class WebRelayServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/web-relay.php', 'web-relay');
+
+        $this->app->singleton(RegistryRouteCache::class, function (): RegistryRouteCache {
+            $enabled = (bool) config('web-relay.cache.enabled', true);
+            $cache = null;
+
+            if ($enabled && $this->app->bound(CacheFactory::class)) {
+                $store = config('web-relay.cache.store');
+                $cache = $this->app->make(CacheFactory::class)->store(
+                    is_string($store) && $store !== '' ? $store : null,
+                );
+            }
+
+            return new RegistryRouteCache(
+                cache: $cache,
+                enabled: $enabled,
+                pathTtl: max(0, (int) config('web-relay.cache.path_ttl', 300)),
+                routeTtl: max(0, (int) config('web-relay.cache.route_ttl', 30)),
+                missingTtl: max(0, (int) config('web-relay.cache.missing_ttl', 5)),
+                prefix: (string) config('web-relay.cache.prefix', 'web-relay'),
+                cacheCustomProviders: (bool) config('web-relay.cache.custom_providers', false),
+            );
+        });
 
         $this->app->bind(PathResolver::class, function (): PathResolver {
             $resolver = config('web-relay.path_resolver');

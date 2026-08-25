@@ -35,6 +35,11 @@ abstract class TestCase extends Orchestra
                 'prefix' => '',
                 'foreign_key_constraints' => true,
             ],
+            'cache.default' => 'array',
+            'cache.stores.array' => [
+                'driver' => 'array',
+                'serialize' => true,
+            ],
             'web-proxy.base_url' => 'https://relay.example.test',
             'web-proxy.defaults.channel' => 'default',
             'web-proxy.defaults.registry' => 'local',
@@ -58,6 +63,11 @@ abstract class TestCase extends Orchestra
             ],
             'web-relay.path_resolver' => Support\TestPathResolver::class,
             'web-relay.registry_token' => 'registry-secret',
+            'web-relay.cache.enabled' => true,
+            'web-relay.cache.store' => 'array',
+            'web-relay.cache.path_ttl' => 300,
+            'web-relay.cache.route_ttl' => 300,
+            'web-relay.cache.missing_ttl' => 30,
         ]);
     }
 

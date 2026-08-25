@@ -4,9 +4,8 @@
          bootstrap="vendor/autoload.php"
          colors="true">
     <testsuites>
-        <testsuite name="Web Relay">
-            <directory>tests</directory>
-            <exclude>tests/Benchmark</exclude>
+        <testsuite name="Web Relay benchmark">
+            <directory>tests/Benchmark</directory>
         </testsuite>
     </testsuites>
     <php>

@@ -19,6 +19,7 @@ final readonly class EndpointController
         private ValidationFactory $validator,
         private EndpointRegistry $endpoints,
         private RegistryRequestAuthenticator $authenticator,
+        private RegistryRouteCache $routeCache,
     ) {
     }
 
@@ -50,7 +51,7 @@ final readonly class EndpointController
         }
 
         try {
-            $endpoint = $this->endpoints->ensure(new EndpointDefinition(
+            $definition = new EndpointDefinition(
                 client: $input['client'],
                 externalId: $input['external_id'],
                 signingSecret: $input['signing_secret'] ?? null,
@@ -61,13 +62,21 @@ final readonly class EndpointController
                 callbackUrl: $input['callback_url'] ?? null,
                 registry: $input['registry'] ?? null,
                 metadata: $input['metadata'] ?? [],
-            ));
+            );
+            $previous = $this->endpoints->find($definition);
+            $endpoint = $this->endpoints->ensure($definition);
         } catch (InvalidArgumentException|RuntimeException $exception) {
             return response()->json([
                 'message' => 'The endpoint is invalid.',
                 'errors' => ['endpoint' => [$exception->getMessage()]],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
+
+        if ($previous !== null) {
+            $this->routeCache->invalidateEndpoint($previous->record->endpoint_key);
+        }
+        $this->routeCache->invalidateEndpoint($endpoint->record->endpoint_key);
+        $this->routeCache->invalidatePaths();
 
         return response()->json([
             'id' => $endpoint->record->id,
