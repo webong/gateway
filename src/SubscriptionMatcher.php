@@ -7,6 +7,7 @@ namespace Webong\WebRelay;
 use InvalidArgumentException;
 use Webong\WebRelay\Protocol\IngressRequest;
 use Webong\WebRelay\Protocol\MatchRules;
+use Webong\WebRelay\Protocol\SubscriptionState;
 
 final readonly class SubscriptionMatcher
 {
@@ -18,6 +19,10 @@ final readonly class SubscriptionMatcher
     /** @param array<string, mixed> $metadata */
     public function matches(IngressRequest $request, array $metadata): bool
     {
+        if (SubscriptionState::status($metadata) !== SubscriptionState::ACTIVE) {
+            return false;
+        }
+
         $stored = $metadata[MatchRules::METADATA_KEY] ?? null;
 
         // Destinations created before match rules existed retain their original

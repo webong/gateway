@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/webong/web-relay/blob/main/docs/schemas/subscription-match-patch-v1.schema.json",
+  "title": "Web Relay incremental subscription match patch v1",
+  "description": "Canonical request for PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}/match.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "operations"],
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "channel": {
+      "type": ["string", "null"],
+      "maxLength": 255
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/addOperation"
+          },
+          {
+            "$ref": "#/$defs/removeOperation"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "field": {
+      "$ref": "subscription-v1.schema.json#/$defs/fieldName"
+    },
+    "rules": {
+      "oneOf": [
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "subscription-v1.schema.json#/$defs/rule"
+          }
+        },
+        {
+          "$ref": "subscription-v1.schema.json#/$defs/pipeRules"
+        }
+      ]
+    },
+    "addOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "field", "rules"],
+      "properties": {
+        "op": {
+          "const": "add"
+        },
+        "field": {
+          "$ref": "#/$defs/field"
+        },
+        "rules": {
+          "$ref": "#/$defs/rules"
+        }
+      }
+    },
+    "removeOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "field"],
+      "properties": {
+        "op": {
+          "const": "remove"
+        },
+        "field": {
+          "$ref": "#/$defs/field"
+        },
+        "rules": {
+          "$ref": "#/$defs/rules"
+        }
+      }
+    }
+  }
+}

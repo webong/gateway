@@ -73,6 +73,7 @@ it('benchmarks cached planning with realistic subscription counts', function ():
         return $values[$index];
     };
     $mean = array_sum($samples) / count($samples);
+    $p95 = $percentile($samples, 0.95);
 
     fwrite(STDOUT, sprintf(
         "\nplanner benchmark: subscribers=%d matches=%d iterations=%d mean=%.3fms p50=%.3fms p95=%.3fms p99=%.3fms\n",
@@ -81,7 +82,20 @@ it('benchmarks cached planning with realistic subscription counts', function ():
         $iterations,
         $mean,
         $percentile($samples, 0.50),
-        $percentile($samples, 0.95),
+        $p95,
         $percentile($samples, 0.99),
     ));
+
+    $targetRps = max(0, (int) getenv('WEB_RELAY_BENCH_TARGET_RPS'));
+    if ($targetRps > 0) {
+        $headroom = max(1.0, (float) (getenv('WEB_RELAY_BENCH_HEADROOM') ?: 1.5));
+        $workers = max(1, (int) ceil($targetRps * ($p95 / 1000) * $headroom));
+
+        fwrite(STDOUT, sprintf(
+            "capacity estimate: target=%dreq/s headroom=%.2fx recommended_warm_workers=%d\n",
+            $targetRps,
+            $headroom,
+            $workers,
+        ));
+    }
 });

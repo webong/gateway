@@ -28,6 +28,24 @@ final readonly class SubscriptionController
         }
 
         $input = $request->json()->all();
+        if (array_diff(array_keys($input), [
+            'subscriber_id',
+            'subscription_id',
+            'type',
+            'webhook_group',
+            'routing_scope',
+            'routing_key',
+            'url',
+            'channel',
+            'metadata',
+            'match',
+        ]) !== []) {
+            return response()->json([
+                'message' => 'The subscription is invalid.',
+                'errors' => ['subscription' => ['The request contains unsupported properties.']],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
         $validator = $this->validator->make($input, [
             'subscriber_id' => ['required', 'string', 'max:255'],
             'subscription_id' => ['sometimes', 'string', 'max:255'],
@@ -86,15 +104,10 @@ final readonly class SubscriptionController
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        return response()->json([
-            'id' => $destination->id,
-            'endpoint_key' => $endpointKey,
-            'subscriber_id' => $definition->subscriberId,
-            'subscription_id' => $definition->subscriptionId,
-            'type' => $definition->type,
-            'url' => $definition->url,
-            'match' => $definition->match->toArray(),
-        ], Response::HTTP_CREATED);
+        $resource = new SubscriptionResource($endpointKey, $destination);
+
+        return response()->json($resource->toArray(), Response::HTTP_CREATED)
+            ->header('ETag', $resource->etag());
     }
 
 }

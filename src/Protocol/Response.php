@@ -19,7 +19,9 @@ final readonly class Response
     {
         return [
             'status_code' => $this->statusCode,
-            'headers' => $this->headers,
+            // Empty PHP arrays encode as JSON lists. The bridge contract is a
+            // string-to-list map, so preserve an empty JSON object for Go.
+            'headers' => $this->headers === [] ? (object) [] : $this->headers,
             'body' => base64_encode($this->body),
         ];
     }

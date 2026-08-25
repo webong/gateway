@@ -9,6 +9,7 @@ use Webong\WebProxy\WebProxyChannelManager;
 use Webong\WebProxy\WebProxyRegistryManager;
 use Webong\WebProxy\WebhookRoute;
 use Webong\WebRelay\Exceptions\EndpointNotFoundException;
+use Webong\WebRelay\Protocol\SubscriptionState;
 
 final readonly class SubscribeEndpoint
 {
@@ -39,7 +40,8 @@ final readonly class SubscribeEndpoint
                     payload: [],
                 ),
             )->first(static fn (DestinationRecord $destination): bool =>
-                ($destination->metadata['delivery_mode'] ?? 'relay') === 'reply'
+                SubscriptionState::status($destination->metadata) === SubscriptionState::ACTIVE
+                && ($destination->metadata['delivery_mode'] ?? 'relay') === 'reply'
                 && ($destination->owner_id !== $subscription->subscriberId
                     || $destination->registration_id !== $subscription->subscriptionId));
 

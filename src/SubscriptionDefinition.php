@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use Webong\WebProxy\DestinationDefinition;
 use Webong\WebProxy\Enums\WebhookProxyTargetType;
 use Webong\WebRelay\Protocol\MatchRules;
+use Webong\WebRelay\Protocol\SubscriptionState;
 
 /**
  * PHP-facing subscription DSL. It compiles to the same destination metadata
@@ -73,6 +74,8 @@ final readonly class SubscriptionDefinition
                 'subscriber_id' => $this->subscriberId,
                 'delivery_mode' => $this->type,
                 MatchRules::METADATA_KEY => $this->match->toArray(),
+                SubscriptionState::STATUS_METADATA_KEY => SubscriptionState::ACTIVE,
+                SubscriptionState::REVISION_METADATA_KEY => SubscriptionState::newRevision(),
             ],
             allowsMultipleSubscribers: true,
         );
@@ -101,7 +104,7 @@ final readonly class SubscriptionDefinition
 
         foreach (array_keys($this->metadata) as $key) {
             if (! is_string($key)
-                || str_starts_with($key, '_web_relay')
+                || str_starts_with($key, '_')
                 || in_array($key, ['subscriber_id', 'delivery_mode'], true)) {
                 throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
             }

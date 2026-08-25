@@ -37,4 +37,13 @@ return [
         // headers, so they remain uncached unless the host explicitly opts in.
         'custom_providers' => (bool) env('WEB_RELAY_CACHE_CUSTOM_PROVIDERS', false),
     ],
+
+    'mutations' => [
+        // Conditional subscription writes use a route-scoped atomic lock plus
+        // If-Match revisions. Use the same shared Redis store as route caching
+        // when multiple workers or application instances are running.
+        'lock_store' => env('WEB_RELAY_MUTATION_LOCK_STORE', env('WEB_RELAY_CACHE_STORE')),
+        'lock_seconds' => (int) env('WEB_RELAY_MUTATION_LOCK_SECONDS', 10),
+        'lock_wait_seconds' => (int) env('WEB_RELAY_MUTATION_LOCK_WAIT_SECONDS', 5),
+    ],
 ];

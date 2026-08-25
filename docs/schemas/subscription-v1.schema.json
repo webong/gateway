@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/webong/web-relay/blob/main/docs/schemas/subscription-v1.schema.json",
+  "title": "Web Relay subscription JSON DSL v1",
+  "description": "Canonical request for POST /registry/endpoints/{endpointKey}/subscriptions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "subscriber_id",
+    "webhook_group",
+    "routing_scope",
+    "routing_key",
+    "url"
+  ],
+  "properties": {
+    "subscriber_id": {
+      "$ref": "#/$defs/requiredIdentifier"
+    },
+    "subscription_id": {
+      "$ref": "#/$defs/requiredIdentifier"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["relay", "reply"],
+      "default": "relay"
+    },
+    "webhook_group": {
+      "$ref": "#/$defs/requiredIdentifier"
+    },
+    "routing_scope": {
+      "$ref": "#/$defs/requiredIdentifier"
+    },
+    "routing_key": {
+      "$ref": "#/$defs/requiredIdentifier"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "channel": {
+      "type": ["string", "null"],
+      "maxLength": 255
+    },
+    "metadata": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "anyOf": [
+            {
+              "enum": ["subscriber_id", "delivery_mode"]
+            },
+            {
+              "pattern": "^_"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true,
+      "default": {}
+    },
+    "match": {
+      "$ref": "#/$defs/match"
+    }
+  },
+  "$defs": {
+    "requiredIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": ".*\\S.*"
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "rules"],
+      "properties": {
+        "version": {
+          "const": "v1"
+        },
+        "rules": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "$ref": "#/$defs/rule"
+                }
+              },
+              {
+                "$ref": "#/$defs/pipeRules"
+              }
+            ]
+          },
+          "default": {}
+        }
+      }
+    },
+    "ruleName": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "array",
+        "bail",
+        "between",
+        "boolean",
+        "declined",
+        "ends_with",
+        "filled",
+        "in",
+        "integer",
+        "list",
+        "max",
+        "min",
+        "not_in",
+        "nullable",
+        "numeric",
+        "present",
+        "required",
+        "size",
+        "starts_with",
+        "string"
+      ]
+    },
+    "fieldName": {
+      "type": "string",
+      "anyOf": [
+        {
+          "enum": ["method", "scheme", "host", "path", "headers", "query", "body"]
+        },
+        {
+          "pattern": "^(headers|query|body)\\.[A-Za-z0-9_*-]+(?:\\.[A-Za-z0-9_*-]+)*$"
+        }
+      ]
+    },
+    "rule": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(accepted|array|bail|between|boolean|declined|ends_with|filled|in|integer|list|max|min|not_in|nullable|numeric|present|required|size|starts_with|string)(:.*)?$"
+    },
+    "pipeRules": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16399,
+      "pattern": "^(?=[\\s\\S]{1,1024}(?:\\||$))(accepted|array|bail|between|boolean|declined|ends_with|filled|in|integer|list|max|min|not_in|nullable|numeric|present|required|size|starts_with|string)(:[^|]*)?(\\|(?=[\\s\\S]{1,1024}(?:\\||$))(accepted|array|bail|between|boolean|declined|ends_with|filled|in|integer|list|max|min|not_in|nullable|numeric|present|required|size|starts_with|string)(:[^|]*)?){0,15}$"
+    }
+  }
+}

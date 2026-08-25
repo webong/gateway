@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/webong/web-relay/blob/main/docs/schemas/subscription-update-v1.schema.json",
+  "title": "Web Relay subscription update v1",
+  "description": "Request for PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}. Requires the current ETag in If-Match.",
+  "type": "object",
+  "additionalProperties": false,
+  "minProperties": 1,
+  "properties": {
+    "url": {"type": "string", "format": "uri", "pattern": "^https?://"},
+    "type": {"type": "string", "enum": ["relay", "reply"]},
+    "channel": {"type": ["string", "null"], "maxLength": 255},
+    "metadata": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "anyOf": [
+            {"enum": ["subscriber_id", "delivery_mode"]},
+            {"pattern": "^_"}
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "anyOf": [
+    {"required": ["url"]},
+    {"required": ["type"]},
+    {"required": ["metadata"]}
+  ]
+}

@@ -9,11 +9,20 @@ use Webong\WebRelay\Protocol\Delivery;
 use Webong\WebRelay\Protocol\IngressRequest;
 use Webong\WebRelay\Protocol\Response;
 use Webong\WebRelay\Protocol\RoutePlan;
+use Webong\WebRelay\RegistryRoutePlanner;
 
 final class HttpSmokePlanner implements RoutePlanner
 {
+    public function __construct(private readonly RegistryRoutePlanner $registryPlanner)
+    {
+    }
+
     public function plan(IngressRequest $request): RoutePlan
     {
+        if ($request->path === '/http-smoke/registry-ingress') {
+            return $this->registryPlanner->plan($request);
+        }
+
         if ($request->path === '/http-smoke/relay') {
             $receiver = getenv('WEB_RELAY_HTTP_RECEIVER_URL');
 

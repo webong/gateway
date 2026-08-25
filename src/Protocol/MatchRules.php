@@ -103,6 +103,11 @@ final readonly class MatchRules
         ];
     }
 
+    public static function normalizeFieldName(string $field): string
+    {
+        return self::normalizeField($field);
+    }
+
     /**
      * @param array<string, mixed> $rules
      * @return array<string, list<string>>

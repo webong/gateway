@@ -8,6 +8,7 @@ use Webong\WebProxy\EnsureEndpoint;
 use Webong\WebProxy\Models\WebProxyDestination;
 use Webong\WebProxy\Models\WebProxyEndpoint;
 use Webong\WebRelay\Protocol\IngressRequest;
+use Webong\WebRelay\Protocol\SubscriptionState;
 use Webong\WebRelay\RegistryRoutePlanner;
 use Webong\WebRelay\RegistryRouteCache;
 use Webong\WebRelay\SubscribeEndpoint;
@@ -34,6 +35,11 @@ function relayEndpoint(): Endpoint
     TestPathResolver::$endpointKey = $endpoint->record->endpoint_key;
 
     return $endpoint;
+}
+
+function subscriptionEtag(WebProxyDestination $destination): string
+{
+    return SubscriptionState::etag(SubscriptionState::revision($destination->metadata ?? []));
 }
 
 it('registers endpoints through the PHP-owned registry API', function (): void {
@@ -88,7 +94,9 @@ it('registers the canonical match rules through remote HTTP JSON', function (): 
         ],
     );
 
-    $response->assertCreated();
+    $response->assertCreated()
+        ->assertHeader('ETag', SubscriptionState::etag($response->json('revision')))
+        ->assertJsonPath('status', 'active');
     expect($response->json('match.rules'))->toBe([
         'headers.x-event-type' => ['required', 'in:message.created'],
         'body.account.id' => ['required', 'in:account-42'],
@@ -140,6 +148,289 @@ it('returns only subscriptions whose rules match to the Go route plan', function
         ->and($plan->relays)->toHaveCount(1)
         ->and($plan->relays[0]->subscriberId)->toBe('matching')
         ->and($plan->relays[0]->url)->toBe('https://matching.example.test/webhooks/meta');
+});
+
+it('patches subscription rules incrementally and invalidates the cached route', function (): void {
+    $endpoint = relayEndpoint();
+    $destination = app(SubscribeEndpoint::class)->handle(
+        $endpoint->record->endpoint_key,
+        SubscriptionDefinition::matching(
+            subscriberId: 'incremental',
+            subscriptionId: 'incremental-messages',
+            webhookGroup: 'meta',
+            routingScope: 'application',
+            routingKey: 'app-123',
+            url: 'https://incremental.example.test/webhooks/meta',
+            rules: ['body.account.id' => ['required', 'string', 'in:account-42']],
+        ),
+    );
+    $planner = app(RegistryRoutePlanner::class);
+    $request = static fn (string $account, string $delivery): IngressRequest => new IngressRequest(
+        deliveryId: $delivery,
+        method: 'POST',
+        host: 'relay.example.test',
+        path: '/provider/events/app-123',
+        rawQuery: '',
+        headers: [],
+        body: json_encode(['account' => ['id' => $account]], JSON_THROW_ON_ERROR),
+    );
+
+    // Prime the route cache with the original rule set.
+    expect($planner->plan($request('account-42', 'before-patch'))->relays)->toHaveCount(1);
+
+    $this->withToken('registry-secret')
+        ->withHeader('If-Match', subscriptionEtag(WebProxyDestination::query()->findOrFail($destination->id)))
+        ->patchJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions/'.$destination->id.'/match',
+        [
+            'version' => 'v1',
+            'operations' => [
+                [
+                    'op' => 'remove',
+                    'field' => 'body.account.id',
+                    'rules' => ['in:account-42'],
+                ],
+                [
+                    'op' => 'add',
+                    'field' => 'body.account.id',
+                    'rules' => ['in:account-99'],
+                ],
+            ],
+        ],
+    )->assertOk()->assertJsonPath('match.rules', [
+        'body.account.id' => ['required', 'string', 'in:account-99'],
+    ]);
+
+    expect($planner->plan($request('account-42', 'old-value'))->immediateResponse?->statusCode)->toBe(204)
+        ->and($planner->plan($request('account-99', 'new-value'))->relays)->toHaveCount(1);
+
+    expect(WebProxyDestination::query()->findOrFail($destination->id)->metadata['_web_relay_match']['rules'])
+        ->toBe(['body.account.id' => ['required', 'string', 'in:account-99']]);
+});
+
+it('rejects unsafe incremental match rules', function (): void {
+    $endpoint = relayEndpoint();
+    $destination = app(SubscribeEndpoint::class)->handle(
+        $endpoint->record->endpoint_key,
+        SubscriptionDefinition::matching(
+            subscriberId: 'incremental',
+            subscriptionId: 'incremental-messages',
+            webhookGroup: 'meta',
+            routingScope: 'application',
+            routingKey: 'app-123',
+            url: 'https://incremental.example.test/webhooks/meta',
+            rules: [],
+        ),
+    );
+
+    $this->withToken('registry-secret')
+        ->withHeader('If-Match', subscriptionEtag(WebProxyDestination::query()->findOrFail($destination->id)))
+        ->patchJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions/'.$destination->id.'/match',
+        [
+            'version' => 'v1',
+            'operations' => [[
+                'op' => 'add',
+                'field' => 'body.account.id',
+                'rules' => ['exists:accounts,id'],
+            ]],
+        ],
+    )->assertUnprocessable()
+        ->assertJsonPath('errors.match.0', 'Match rule [exists] is not allowed.');
+});
+
+it('does not patch a destination through a different endpoint', function (): void {
+    $endpoint = relayEndpoint();
+    $destination = app(SubscribeEndpoint::class)->handle(
+        $endpoint->record->endpoint_key,
+        SubscriptionDefinition::matching(
+            subscriberId: 'endpoint-owner',
+            subscriptionId: 'endpoint-owner-messages',
+            webhookGroup: 'meta',
+            routingScope: 'application',
+            routingKey: 'app-123',
+            url: 'https://endpoint-owner.example.test/webhooks/meta',
+            rules: [],
+        ),
+    );
+    $other = app(EnsureEndpoint::class)->handle(new EndpointDefinition(
+        client: 'relay-test',
+        externalId: 'other-provider-app',
+        signingSecret: 'other-secret',
+        verificationToken: 'other-token',
+        endpointKey: 'other-endpoint',
+        credentialOwnerId: 'other-owner',
+        managed: false,
+    ));
+
+    $this->withToken('registry-secret')
+        ->withHeader('If-Match', subscriptionEtag(WebProxyDestination::query()->findOrFail($destination->id)))
+        ->patchJson(
+        '/registry/endpoints/'.$other->record->endpoint_key.'/subscriptions/'.$destination->id.'/match',
+        [
+            'version' => 'v1',
+            'operations' => [[
+                'op' => 'add',
+                'field' => 'body.kind',
+                'rules' => ['required'],
+            ]],
+        ],
+    )->assertNotFound();
+});
+
+it('manages the complete subscription lifecycle with route-scoped listings and revisions', function (): void {
+    $endpoint = relayEndpoint();
+    $destination = app(SubscribeEndpoint::class)->handle(
+        $endpoint->record->endpoint_key,
+        SubscriptionDefinition::matching(
+            subscriberId: 'managed-subscriber',
+            subscriptionId: 'managed-subscription',
+            webhookGroup: 'meta',
+            routingScope: 'application',
+            routingKey: 'app-123',
+            url: 'https://before.example.test/webhooks/meta',
+            rules: [],
+            metadata: ['team' => 'platform'],
+        ),
+    );
+    $base = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $etag = subscriptionEtag(WebProxyDestination::query()->findOrFail($destination->id));
+
+    $this->withToken('registry-secret')
+        ->getJson($base.'?routing_scope=application&routing_key=app-123')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $destination->id)
+        ->assertJsonPath('data.0.status', 'active');
+
+    $show = $this->withToken('registry-secret')->getJson($base.'/'.$destination->id);
+    $show->assertOk()
+        ->assertHeader('ETag', $etag)
+        ->assertJsonPath('metadata.team', 'platform');
+
+    $updated = $this->withToken('registry-secret')
+        ->withHeader('If-Match', $etag)
+        ->patchJson($base.'/'.$destination->id, [
+            'url' => 'https://after.example.test/webhooks/meta',
+            'metadata' => ['team' => null, 'environment' => 'production'],
+        ]);
+    $updated->assertOk()
+        ->assertJsonPath('url', 'https://after.example.test/webhooks/meta')
+        ->assertJsonMissingPath('metadata.team')
+        ->assertJsonPath('metadata.environment', 'production');
+    $updatedEtag = $updated->headers->get('ETag');
+    expect($updatedEtag)->not->toBe($etag);
+
+    $this->withToken('registry-secret')
+        ->withHeader('If-Match', $etag)
+        ->patchJson($base.'/'.$destination->id, ['url' => 'https://stale.example.test'])
+        ->assertStatus(412)
+        ->assertHeader('ETag', $updatedEtag)
+        ->assertJsonPath('current_revision', $updated->json('revision'));
+
+    $planner = app(RegistryRoutePlanner::class);
+    $request = new IngressRequest(
+        deliveryId: 'lifecycle-active',
+        method: 'POST',
+        host: 'relay.example.test',
+        path: '/provider/events/app-123',
+        rawQuery: '',
+        headers: [],
+        body: '{}',
+    );
+    expect($planner->plan($request)->relays[0]->url)->toBe('https://after.example.test/webhooks/meta');
+
+    $paused = $this->withToken('registry-secret')
+        ->withHeader('If-Match', $updatedEtag)
+        ->patchJson($base.'/'.$destination->id.'/status', ['status' => 'paused']);
+    $paused->assertOk()->assertJsonPath('status', 'paused');
+    expect($planner->plan($request)->immediateResponse?->statusCode)->toBe(204);
+
+    $active = $this->withToken('registry-secret')
+        ->withHeader('If-Match', $paused->headers->get('ETag'))
+        ->patchJson($base.'/'.$destination->id.'/status', ['status' => 'active']);
+    $active->assertOk()->assertJsonPath('status', 'active');
+    expect($planner->plan($request)->relays)->toHaveCount(1);
+
+    $removed = $this->withToken('registry-secret')
+        ->withHeader('If-Match', $active->headers->get('ETag'))
+        ->deleteJson($base.'/'.$destination->id);
+    $removed->assertNoContent();
+    expect($planner->plan($request)->immediateResponse?->statusCode)->toBe(204);
+
+    $this->withToken('registry-secret')
+        ->getJson($base.'?routing_scope=application&routing_key=app-123')
+        ->assertOk()
+        ->assertJsonCount(0, 'data');
+    $this->withToken('registry-secret')
+        ->getJson($base.'?routing_scope=application&routing_key=app-123&include_removed=true')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.status', 'removed');
+
+    $reactivated = $this->withToken('registry-secret')
+        ->withHeader('If-Match', $removed->headers->get('ETag'))
+        ->patchJson($base.'/'.$destination->id.'/status', ['status' => 'active']);
+    $reactivated->assertOk()->assertJsonPath('status', 'active');
+    expect($planner->plan($request)->relays)->toHaveCount(1);
+});
+
+it('requires an If-Match revision for subscription mutations', function (): void {
+    $endpoint = relayEndpoint();
+    $destination = app(SubscribeEndpoint::class)->handle(
+        $endpoint->record->endpoint_key,
+        SubscriptionDefinition::matching(
+            subscriberId: 'conditional',
+            subscriptionId: 'conditional-subscription',
+            webhookGroup: 'meta',
+            routingScope: 'application',
+            routingKey: 'app-123',
+            url: 'https://conditional.example.test/webhooks/meta',
+            rules: [],
+        ),
+    );
+
+    $this->withToken('registry-secret')->patchJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions/'.$destination->id.'/match',
+        [
+            'version' => 'v1',
+            'operations' => [[
+                'op' => 'add',
+                'field' => 'body.kind',
+                'rules' => ['required'],
+            ]],
+        ],
+    )->assertStatus(428);
+});
+
+it('does not reactivate a reply after another active reply takes the route', function (): void {
+    $endpoint = relayEndpoint();
+    $subscriptions = app(SubscribeEndpoint::class);
+    $definition = static fn (string $subscriber): SubscriptionDefinition => SubscriptionDefinition::matching(
+        subscriberId: $subscriber,
+        subscriptionId: $subscriber.'-reply',
+        webhookGroup: 'meta',
+        routingScope: 'application',
+        routingKey: 'app-123',
+        url: "https://{$subscriber}.example.test/webhooks/meta",
+        rules: [],
+        type: 'reply',
+    );
+    $first = $subscriptions->handle($endpoint->record->endpoint_key, $definition('first-paused'));
+    $base = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions/';
+
+    $paused = $this->withToken('registry-secret')
+        ->withHeader('If-Match', subscriptionEtag(WebProxyDestination::query()->findOrFail($first->id)))
+        ->patchJson($base.$first->id.'/status', ['status' => 'paused']);
+    $paused->assertOk();
+
+    $subscriptions->handle($endpoint->record->endpoint_key, $definition('second-active'));
+
+    $this->withToken('registry-secret')
+        ->withHeader('If-Match', $paused->headers->get('ETag'))
+        ->patchJson($base.$first->id.'/status', ['status' => 'active'])
+        ->assertUnprocessable()
+        ->assertJsonPath('errors.subscription.0', 'This route already has a synchronous reply subscription.');
 });
 
 it('caches application path bindings across payloads', function (): void {

@@ -16,6 +16,9 @@ http:
   pool:
     # A fixed pool stays warm; do not enable a dynamic allocator that can scale
     # the PHP control plane to zero when predictable ingress latency matters.
+    # Start with ceil(target_rps * measured_p95_seconds * 1.5), then cap and
+    # validate against the container's CPU and memory. Four is a conservative
+    # example for a small deployment, not a universal production value.
     num_workers: 4
     # Recycle workers periodically without cold-starting the entire pool.
     max_jobs: 1000

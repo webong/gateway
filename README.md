@@ -184,6 +184,10 @@ PHP-side cache settings:
 - `WEB_RELAY_CACHE_PREFIX` - cache-key prefix (default `web-relay`)
 - `WEB_RELAY_CACHE_CUSTOM_PROVIDERS` - opt custom `web-proxy` providers into
   route caching (default `false`)
+- `WEB_RELAY_MUTATION_LOCK_STORE` - shared cache store used for conditional
+  subscription mutations; defaults to `WEB_RELAY_CACHE_STORE`
+- `WEB_RELAY_MUTATION_LOCK_SECONDS` - route lock lease (default `10`)
+- `WEB_RELAY_MUTATION_LOCK_WAIT_SECONDS` - lock wait before `503` (default `5`)
 
 `standalone` mode has no PHP planner wired by itself. Use `http` when Laravel
 is hosted separately, or `roadrunner` when the Go process should own the
@@ -206,6 +210,19 @@ WEB_RELAY_BENCH_ITERATIONS=1000 \
 make benchmark-php
 ```
 
+Estimate a starting warm-worker count for a measured target rate with 50%
+headroom:
+
+```bash
+WEB_RELAY_BENCH_SUBSCRIBERS=500 \
+WEB_RELAY_BENCH_TARGET_RPS=200 \
+make benchmark-php
+```
+
+The estimate uses `ceil(target requests/sec × measured p95 seconds ×
+headroom)`. Treat it as a starting point, then validate CPU, memory, queueing,
+and tail latency on production-shaped infrastructure.
+
 The benchmark reports mean, p50, p95, and p99 planner latency. It deliberately
 does not impose a timing assertion because CI hardware is not a production
 capacity target.
@@ -223,6 +240,15 @@ The load tool reports throughput, HTTP status counts, errors, and mean/p50/p95/
 p99/max latency. Use non-matching rules to measure ingress plus PHP planning
 without outbound network variance; use matching rules and a controlled sink to
 measure the complete relay path.
+
+The HTTP runtime smoke can run that ingress benchmark against its real Go →
+Laravel → registry path before teardown:
+
+```bash
+WEB_RELAY_HTTP_BENCHMARK_REQUESTS=1000 \
+WEB_RELAY_HTTP_BENCHMARK_CONCURRENCY=20 \
+bash scripts/http-smoke.sh
+```
 
 ## PHP control plane
 
@@ -360,6 +386,17 @@ scope, and route key.
 Subscriptions may carry versioned, Laravel-shaped rules over the normalized
 ingress document. Rules are evaluated by PHP before it returns a route plan,
 so Go receives only the reply and relay destinations that matched.
+
+The complete normative reference is
+[`docs/subscription-dsl-v1.md`](docs/subscription-dsl-v1.md). Its
+machine-readable JSON Schema is
+[`docs/schemas/subscription-v1.schema.json`](docs/schemas/subscription-v1.schema.json).
+Incremental `add`/`remove` operations are available through
+`PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}/match`
+and are described in the same reference. The registry API also supports
+route-scoped listing, inspection, URL/metadata/type updates, pause/reactivate,
+and recoverable removal. Mutations use ETag/`If-Match` revisions and a shared
+route lock to prevent lost updates.
 
 The matching document contains `method`, `scheme`, `host`, `path`, `headers`,
 `query`, and `body`. Header names are normalized to lowercase. A single header

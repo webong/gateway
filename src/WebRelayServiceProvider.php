@@ -86,6 +86,27 @@ final class WebRelayServiceProvider extends ServiceProvider
             $this->app['router']
                 ->post('/registry/endpoints/{endpointKey}/subscriptions', SubscriptionController::class)
                 ->name('registry.subscriptions.store');
+            $this->app['router']
+                ->get('/registry/endpoints/{endpointKey}/subscriptions', [SubscriptionManagementController::class, 'index'])
+                ->name('registry.subscriptions.index');
+            $this->app['router']
+                ->get('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}', [SubscriptionManagementController::class, 'show'])
+                ->name('registry.subscriptions.show');
+            $this->app['router']
+                ->patch('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}', [SubscriptionManagementController::class, 'update'])
+                ->name('registry.subscriptions.update');
+            $this->app['router']
+                ->patch('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/status', [SubscriptionManagementController::class, 'status'])
+                ->name('registry.subscriptions.status');
+            $this->app['router']
+                ->delete('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}', [SubscriptionManagementController::class, 'destroy'])
+                ->name('registry.subscriptions.destroy');
+            $this->app['router']
+                ->patch(
+                    '/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/match',
+                    SubscriptionMatchController::class,
+                )
+                ->name('registry.subscriptions.match.patch');
         });
     }
 }

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/webong/web-relay/blob/main/docs/schemas/subscription-status-v1.schema.json",
+  "title": "Web Relay subscription status update v1",
+  "description": "Request for PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}/status. Requires the current ETag in If-Match.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status"],
+  "properties": {
+    "status": {"type": "string", "enum": ["active", "paused"]},
+    "channel": {"type": ["string", "null"], "maxLength": 255}
+  }
+}
