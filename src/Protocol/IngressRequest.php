@@ -18,6 +18,9 @@ final readonly class IngressRequest
         public array $headers,
         public string $body,
         public string $scheme = 'https',
+        public string $protocol = 'http',
+        public string $event = 'request',
+        public string $sessionId = '',
     ) {
     }
 
@@ -59,6 +62,9 @@ final readonly class IngressRequest
             rawQuery: self::string($payload, 'raw_query', ''),
             headers: $headers,
             body: $body,
+            protocol: self::string($payload, 'protocol', 'http'),
+            event: self::string($payload, 'event', 'request'),
+            sessionId: self::string($payload, 'session_id', ''),
         );
     }
 

@@ -105,6 +105,31 @@ PHP normally returns only destination metadata in a plan. Go fills in the
 original request body and headers when it materializes each delivery, avoiding
 one additional copy of a large payload per subscriber.
 
+## Net gateway contract
+
+The current HTTP bridge remains compatible with `RoutePlan v1`, but every HTTP
+ingress now carries optional protocol metadata:
+
+- `protocol=http`
+- `event=request`
+- `session_id` when a future long-lived adapter has a connection identity
+
+The Go bridge also defines a protocol-neutral `GatewayEvent` and
+`GatewayDecision` contract for future WebSocket and SMTP adapters. Their
+payloads are base64 encoded, and their destinations use a typed protocol and
+target instead of assuming every destination is an HTTP URL.
+
+The planned ownership boundary is:
+
+- Go owns sockets, TLS, protocol parsing, session lifecycle, streaming,
+  backpressure, and outbound delivery.
+- PHP owns authentication, validation, registry lookup, subscriber resolution,
+  and protocol-specific route policy.
+
+The HTTP planner is intentionally not replaced yet. WebSocket and SMTP
+adapters can adopt `ProtocolPlanner` and `GatewayDecision` without changing
+existing Laravel `RoutePlanner` implementations.
+
 ### RoadRunner configuration
 
 Copy `.rr.yaml.example` to `.rr.yaml` and set the PHP worker command. Use the

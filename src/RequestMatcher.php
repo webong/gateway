@@ -33,6 +33,9 @@ final readonly class RequestMatcher
         parse_str($request->rawQuery, $query);
 
         return [
+            'protocol' => $request->protocol,
+            'event' => $request->event,
+            'session_id' => $request->sessionId,
             'method' => $request->method,
             'scheme' => $request->scheme,
             'host' => $request->host,

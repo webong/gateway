@@ -32,6 +32,9 @@ var (
 // JSON bridge safely. PHP decides what the path means.
 type IngressRequest struct {
 	DeliveryID string              `json:"delivery_id"`
+	Protocol   Protocol            `json:"protocol,omitempty"`
+	Event      EventKind           `json:"event,omitempty"`
+	SessionID  string              `json:"session_id,omitempty"`
 	Method     string              `json:"method"`
 	Scheme     string              `json:"scheme,omitempty"`
 	Host       string              `json:"host,omitempty"`

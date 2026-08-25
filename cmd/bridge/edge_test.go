@@ -59,7 +59,7 @@ func TestEdgePlansInPHPAndExecutesInGo(t *testing.T) {
 	if record.Code != http.StatusAccepted || record.Body.String() != "reply" {
 		t.Fatalf("expected proxied reply, got %d %q", record.Code, record.Body.String())
 	}
-	if planned.Scheme != "http" || planned.Host != "hooks.example.test" || planned.Path != "/customer-defined/provider/opaque-value" || planned.RawQuery != "source=test" || planned.DeliveryID == "" {
+	if planned.Protocol != ProtocolHTTP || planned.Event != EventRequest || planned.Scheme != "http" || planned.Host != "hooks.example.test" || planned.Path != "/customer-defined/provider/opaque-value" || planned.RawQuery != "source=test" || planned.DeliveryID == "" {
 		t.Fatalf("planner received incomplete ingress request: %+v", planned)
 	}
 	if planned.Headers["X-Webhook-Forwarder-Delivery-Id"][0] != planned.DeliveryID {

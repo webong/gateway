@@ -49,6 +49,8 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	headers["X-Webhook-Forwarder-Delivery-Id"] = []string{deliveryID(r, body)}
 	ingress := IngressRequest{
 		DeliveryID: headers["X-Webhook-Forwarder-Delivery-Id"][0],
+		Protocol:   ProtocolHTTP,
+		Event:      EventRequest,
 		Method:     r.Method,
 		Scheme:     requestScheme(r),
 		Host:       r.Host,
