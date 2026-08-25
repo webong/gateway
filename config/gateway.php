@@ -11,6 +11,11 @@ return [
     // path_resolver is configured.
     'planner' => env('GATEWAY_PLANNER'),
 
+    // Optional planner for protocol-neutral events such as SMTP and
+    // WebSocket. When omitted, the registry route planner is adapted when a
+    // path resolver is configured.
+    'protocol_planner' => env('GATEWAY_PROTOCOL_PLANNER'),
+
     // The host Laravel application owns this resolver. It may use Laravel
     // routes, a database, or provider-specific path registration.
     'path_resolver' => env('GATEWAY_PATH_RESOLVER'),

@@ -4,6 +4,17 @@
 			file {$APP_PUBLIC_PATH}/frankenphp-worker.php
 		}
 	}
+
+	# The SMTP app is a sibling TCP listener in the same FrankenPHP binary.
+	# It calls the loopback PHP-only site below for protocol planning.
+	gateway_smtp {
+		listen :2525
+		planner_url http://127.0.0.1:8081
+		internal_token {$GATEWAY_INTERNAL_TOKEN}
+		hostname {$GATEWAY_SMTP_HOSTNAME:gateway.local}
+		max_message_size 10485760
+		max_recipients 100
+	}
 }
 
 {$SERVER_NAME:localhost} {
@@ -20,6 +31,19 @@
 			max_queue_size 1000
 		}
 
+		php_server {
+			index frankenphp-worker.php
+			try_files {path} frankenphp-worker.php
+			resolve_root_symlink
+		}
+	}
+}
+
+# Private PHP bridge used by the sibling SMTP app. Keep this bound to
+# loopback; the Laravel controller still validates the internal token.
+127.0.0.1:8081 {
+	root * {$APP_PUBLIC_PATH}
+	route {
 		php_server {
 			index frankenphp-worker.php
 			try_files {path} frankenphp-worker.php

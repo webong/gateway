@@ -114,9 +114,12 @@ ingress now carries optional protocol metadata:
 - `session_id` when a future long-lived adapter has a connection identity
 
 The Go bridge also defines a protocol-neutral `GatewayEvent` and
-`GatewayDecision` contract for future WebSocket and SMTP adapters. Their
-payloads are base64 encoded, and their destinations use a typed protocol and
-target instead of assuming every destination is an HTTP URL.
+`GatewayDecision` contract for session-oriented protocols. SMTP is implemented
+through the maintained [`emersion/go-smtp`](https://github.com/emersion/go-smtp)
+server library; the gateway supplies only its backend/session hooks. WebSocket
+can adopt the same contract later. Payloads are base64 encoded, and
+destinations use a typed protocol and target instead of assuming every
+destination is an HTTP URL.
 
 The planned ownership boundary is:
 
@@ -125,9 +128,9 @@ The planned ownership boundary is:
 - PHP owns authentication, validation, registry lookup, subscriber resolution,
   and protocol-specific route policy.
 
-The HTTP planner is intentionally not replaced yet. WebSocket and SMTP
-adapters can adopt `ProtocolPlanner` and `GatewayDecision` without changing
-existing Laravel `RoutePlanner` implementations.
+The existing HTTP planner remains on `RoutePlanner` for compatibility. SMTP
+uses `ProtocolPlanner` and `GatewayDecision` without changing existing
+Laravel `RoutePlanner` implementations.
 
 ### RoadRunner configuration
 
@@ -179,6 +182,38 @@ network edge, while Laravel owns application routing and the control plane.
 The backend URL may contain a path prefix; the planner route is appended to
 that prefix.
 
+### SMTP listener
+
+SMTP is available in `http` mode. `cmd/proxy` starts the Go HTTP edge and the
+SMTP listener as sibling listeners, while both use the same PHP control-plane
+bridge. The SMTP protocol itself is provided by
+[`emersion/go-smtp`](https://pkg.go.dev/github.com/emersion/go-smtp), including
+ESMTP parsing, message framing, limits, graceful shutdown, and optional
+STARTTLS support. The gateway adapter handles session metadata, calls PHP for
+the decision, and queues the resolved HTTP subscriber deliveries.
+
+```bash
+export GATEWAY_RUNTIME=http
+export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
+export GATEWAY_SMTP_ADDR=':2525'
+export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
+go run ./cmd/proxy
+```
+
+Each accepted SMTP transaction is sent to
+`POST /_internal/gateway/event` as a protocol-neutral event. PHP validates the
+message, matches the agnostic endpoint/subscriber registry using the first
+recipient as the route key, and returns `accept`, `reject`, or `deliver`. A
+`deliver` decision is executed by Go through the normal outbound HTTP worker
+pool. `GATEWAY_SMTP_ADDR` is rejected in RoadRunner and standalone modes;
+embedded Caddy/FrankenPHP deployments use the `gateway_smtp` app below.
+
+The current adapter does not advertise SMTP AUTH because credential ownership
+has not yet been defined in the PHP control plane. STARTTLS becomes available
+when a TLS configuration is wired into the listener; the underlying library
+already provides the protocol implementation.
+
 ### Go configuration
 
 - `GATEWAY_RUNTIME` - `roadrunner`, `http`, or `standalone` (default
@@ -193,6 +228,13 @@ that prefix.
 - `MAX_BODY_SIZE` - ingress and planner response limit (default `10MB`)
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - standalone shutdown timeout (default `30s`)
+- `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` mode
+- `GATEWAY_SMTP_HOSTNAME` - SMTP greeting/domain (default `gateway.local`)
+- `GATEWAY_SMTP_MAX_MESSAGE_SIZE` - accepted message limit (default `10MB`)
+- `GATEWAY_SMTP_MAX_RECIPIENTS` - recipients per transaction (default `100`)
+- `GATEWAY_SMTP_READ_TIMEOUT`, `GATEWAY_SMTP_WRITE_TIMEOUT` - SMTP socket
+  timeouts
+- `GATEWAY_SMTP_PLANNER_TIMEOUT` - PHP planning timeout (default `30s`)
 
 PHP-side cache settings:
 
@@ -511,13 +553,18 @@ tenant model, a `/webhook` prefix, or a Go-side registry schema. Endpoint and
 destination storage are provided by the configured `webong/web-proxy`
 registry; its Laravel migrations remain PHP-owned.
 
-## Internal planner route
+## Internal planner routes
 
 The service provider registers `POST /_internal/gateway/plan`. In
 `roadrunner` mode, Go/RoadRunner intercepts that path before it can become a
 public Laravel route. In `http` mode, the Go edge blocks the path publicly and
 calls it only on the configured Laravel backend. The controller requires a
 non-empty `GATEWAY_INTERNAL_TOKEN` matching the Go process.
+
+The same provider registers `POST /_internal/gateway/event` for session-oriented
+protocols such as SMTP. It uses the same internal token and is intended to be
+reachable only from the Go listener or the loopback PHP bridge in the Caddy
+deployment.
 
 When embedding RoadRunner in Go, configure the PHP worker command as
 `vendor/bin/roadrunner-worker` with `APP_BASE_PATH` pointing at the Laravel
@@ -566,6 +613,14 @@ For a custom FrankenPHP Docker image, add the same module to the builder's
 The Caddy handler is compiled into the binary; it is not loaded dynamically at
 runtime. The handler owns its Go delivery worker pool and drains it during a
 Caddy configuration reload.
+
+The same custom binary also contains the `gateway.smtp` Caddy app module. It
+starts a sibling TCP listener from the FrankenPHP/Caddy process, but SMTP does
+not pass through `php_server`; it calls the configured private `planner_url`
+and then uses the same Go delivery pool. The example file binds that PHP bridge
+to `127.0.0.1:8081` and configures it with `gateway_smtp` in the global block.
+This provides the second deployment shape without duplicating the SMTP server
+or protocol implementation.
 
 ## Tests
 

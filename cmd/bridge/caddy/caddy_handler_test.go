@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/cmd/bridge"
 )
@@ -17,6 +18,41 @@ import (
 type recordingExecutor struct {
 	delivered []bridge.Delivery
 	queued    []bridge.Delivery
+}
+
+func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
+	value, err := parseSMTPApp(caddyfile.NewTestDispenser(`gateway_smtp {
+	listen :2526
+	planner_url http://127.0.0.1:8081
+	internal_token test-token
+	hostname smtp.example.test
+	max_message_size 2048
+	max_recipients 4
+	read_timeout 2m
+}`), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	app, ok := value.(httpcaddyfile.App)
+	if !ok || app.Name != "gateway.smtp" {
+		t.Fatalf("unexpected Caddy app value: %#v", value)
+	}
+
+	var config SMTPApp
+	if err := json.Unmarshal(app.Value, &config); err != nil {
+		t.Fatal(err)
+	}
+	if config.Listen != ":2526" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "test-token" || config.MaxMessageSize != 2048 || config.MaxRecipients != 4 {
+		t.Fatalf("unexpected parsed SMTP app: %+v", config)
+	}
+}
+
+func TestSMTPAppRequiresPlannerAndToken(t *testing.T) {
+	app := &SMTPApp{Listen: ":2525", MaxMessageSize: 1, MaxLineSize: 1, MaxRecipients: 1, MaxWorkers: 1, MaxQueueSize: 1, MaxIdleConns: 1, MaxConnsPerHost: 1, ReadTimeout: 1, WriteTimeout: 1, PlannerTimeout: 1, RequestTimeout: 1, IdleConnTimeout: 1}
+	if err := app.Validate(); err == nil {
+		t.Fatal("expected missing SMTP planner URL and token to fail validation")
+	}
 }
 
 func (e *recordingExecutor) Deliver(_ context.Context, delivery bridge.Delivery) (bridge.Response, error) {

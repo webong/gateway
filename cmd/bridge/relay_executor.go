@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"strings"
 
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/workers"
@@ -44,6 +45,25 @@ func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 		RequestBody: append([]byte(nil), delivery.Body...),
 		Method:      delivery.Method,
 		RawQuery:    delivery.RawQuery,
+		Headers:     cloneRelayHeaders(delivery.Headers),
+	})
+}
+
+func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
+	if e == nil || e.workerPool == nil || delivery.Protocol != ProtocolHTTP || strings.TrimSpace(delivery.Target) == "" {
+		return false
+	}
+
+	method := delivery.Attributes["method"]
+	if method == "" {
+		method = "POST"
+	}
+
+	return e.workerPool.Submit(forwarding.ForwardRequest{
+		TargetURL:   delivery.Target,
+		RequestBody: append([]byte(nil), delivery.Payload...),
+		Method:      method,
+		RawQuery:    delivery.Attributes["raw_query"],
 		Headers:     cloneRelayHeaders(delivery.Headers),
 	})
 }

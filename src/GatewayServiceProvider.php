@@ -8,6 +8,7 @@ use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
 
 final class GatewayServiceProvider extends ServiceProvider
@@ -70,6 +71,24 @@ final class GatewayServiceProvider extends ServiceProvider
 
             return $resolved;
         });
+
+        $this->app->bind(ProtocolPlanner::class, function (): ProtocolPlanner {
+            $configuredPlanner = config('gateway.protocol_planner');
+            $configuredResolver = config('gateway.path_resolver');
+            $planner = $configuredPlanner
+                ?: (is_string($configuredResolver) && $configuredResolver !== '' ? RegistryProtocolPlanner::class : null);
+
+            if (! is_string($planner) || $planner === '') {
+                throw new RuntimeException('Configure gateway.protocol_planner or gateway.path_resolver for protocol events.');
+            }
+
+            $resolved = $this->app->make($planner);
+            if (! $resolved instanceof ProtocolPlanner) {
+                throw new RuntimeException("Gateway protocol planner [{$planner}] must implement ProtocolPlanner.");
+            }
+
+            return $resolved;
+        });
     }
 
     public function boot(): void
@@ -80,6 +99,7 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->booted(function (): void {
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
+            $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']
                 ->post('/registry/endpoints', EndpointController::class)
                 ->name('registry.endpoints.store');

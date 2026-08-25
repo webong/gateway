@@ -91,6 +91,19 @@ type Executor interface {
 	Enqueue(Delivery) bool
 }
 
+// ProtocolPlanner is the protocol-neutral control-plane seam used by
+// session-oriented adapters such as SMTP and WebSocket.
+type ProtocolPlanner interface {
+	PlanEvent(context.Context, GatewayEvent) (GatewayDecision, error)
+}
+
+// GatewayExecutor executes protocol-neutral deliveries resolved by PHP. The
+// current transport implementation accepts HTTP destinations; other network
+// protocols can add their own executor without changing the event contract.
+type GatewayExecutor interface {
+	EnqueueGateway(GatewayDelivery) bool
+}
+
 func (p RoutePlan) Validate() error {
 	if p.Version != ProtocolVersion {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidPlan, p.Version)

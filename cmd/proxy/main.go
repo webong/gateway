@@ -12,6 +12,7 @@ import (
 
 	bridge "github.com/webong/gateway/cmd/bridge"
 	roadrunner "github.com/webong/gateway/cmd/bridge/roadrunner"
+	smtpgateway "github.com/webong/gateway/cmd/bridge/smtp"
 	relayconfig "github.com/webong/gateway/cmd/internal/config"
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/logging"
@@ -147,6 +148,9 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
+	if config.SMTPAddress != "" && config.Runtime != "http" {
+		return fmt.Errorf("GATEWAY_SMTP_ADDR requires GATEWAY_RUNTIME=http; embedded Caddy uses gateway_smtp instead")
+	}
 	server := NewServer(config, logger)
 	switch config.Runtime {
 	case "roadrunner":
@@ -161,19 +165,26 @@ func run() error {
 }
 
 func runStandalone(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	serverErrors := make(chan error, 1)
+	return runServices(config, server, logger, nil)
+}
+
+func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger, smtpServer *smtpgateway.Server) error {
+	serverErrors := make(chan error, 2)
 	go func() { serverErrors <- server.Start() }()
+	if smtpServer != nil {
+		go func() { serverErrors <- smtpServer.ListenAndServe() }()
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	var listenerErr error
 	select {
 	case <-sigChan:
 		logger.Info("Received shutdown signal")
 	case err := <-serverErrors:
-		if err != nil && err != http.ErrServerClosed {
-			return fmt.Errorf("server failed: %w", err)
+		if err != nil && err != http.ErrServerClosed && err != smtpgateway.ErrServerClosed {
+			listenerErr = err
 		}
-		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
@@ -181,6 +192,14 @@ func runStandalone(config *relayconfig.Config, server *Server, logger *logging.L
 
 	if err := server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown error: %w", err)
+	}
+	if smtpServer != nil {
+		if err := smtpServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("SMTP shutdown error: %w", err)
+		}
+	}
+	if listenerErr != nil {
+		return fmt.Errorf("gateway listener failed: %w", listenerErr)
 	}
 
 	logger.Info("Server stopped gracefully")
@@ -205,7 +224,36 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	server.SetRelayHandler(runtime.Handler(edge))
 	logger.Info("Using HTTP Laravel backend at %s", config.LaravelBackendURL)
 
-	return runStandalone(config, server, logger)
+	protocolPlanner, err := bridge.NewHTTPProtocolPlanner(
+		config.LaravelBackendURL,
+		client,
+		config.MaxBodySize,
+		config.InternalToken,
+	)
+	if err != nil {
+		server.workerPool.Shutdown()
+		return fmt.Errorf("failed to initialize HTTP protocol planner: %w", err)
+	}
+
+	var smtpServer *smtpgateway.Server
+	if config.SMTPAddress != "" {
+		smtpServer, err = smtpgateway.NewServer(smtpgateway.Config{
+			Address:        config.SMTPAddress,
+			Hostname:       config.SMTPHostname,
+			MaxMessageSize: config.SMTPMaxMessageSize,
+			MaxRecipients:  config.SMTPMaxRecipients,
+			ReadTimeout:    config.SMTPReadTimeout,
+			WriteTimeout:   config.SMTPWriteTimeout,
+			PlannerTimeout: config.SMTPPlannerTimeout,
+		}, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
+		if err != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize SMTP listener: %w", err)
+		}
+		logger.Info("Using SMTP listener on %s", config.SMTPAddress)
+	}
+
+	return runServices(config, server, logger, smtpServer)
 }
 
 func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *logging.Logger) error {

@@ -8,8 +8,8 @@ use Webong\Gateway\Protocol\GatewayDecision;
 use Webong\Gateway\Protocol\GatewayEvent;
 
 /**
- * Future protocol-neutral planner boundary for WebSocket and SMTP adapters.
- * HTTP remains on RoutePlanner until its v1 contract is intentionally retired.
+ * Protocol-neutral planner boundary for session-oriented adapters such as
+ * WebSocket and SMTP. HTTP remains on RoutePlanner for compatibility.
  */
 interface ProtocolPlanner
 {

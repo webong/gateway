@@ -24,6 +24,13 @@ type Config struct {
 	IdleConnTimeout      time.Duration
 	LogLevel             string
 	ShutdownTimeout      time.Duration
+	SMTPAddress          string
+	SMTPHostname         string
+	SMTPMaxMessageSize   int64
+	SMTPMaxRecipients    int
+	SMTPReadTimeout      time.Duration
+	SMTPWriteTimeout     time.Duration
+	SMTPPlannerTimeout   time.Duration
 }
 
 func LoadConfig() (*Config, error) {
@@ -52,6 +59,13 @@ func LoadConfig() (*Config, error) {
 		IdleConnTimeout:      getEnvDuration("IDLE_CONN_TIMEOUT", 90*time.Second),
 		LogLevel:             getEnv("LOG_LEVEL", "debug"),
 		ShutdownTimeout:      getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
+		SMTPAddress:          getEnv("GATEWAY_SMTP_ADDR", ""),
+		SMTPHostname:         getEnv("GATEWAY_SMTP_HOSTNAME", "gateway.local"),
+		SMTPMaxMessageSize:   getEnvInt64("GATEWAY_SMTP_MAX_MESSAGE_SIZE", 10*1024*1024),
+		SMTPMaxRecipients:    getEnvInt("GATEWAY_SMTP_MAX_RECIPIENTS", 100),
+		SMTPReadTimeout:      getEnvDuration("GATEWAY_SMTP_READ_TIMEOUT", 5*time.Minute),
+		SMTPWriteTimeout:     getEnvDuration("GATEWAY_SMTP_WRITE_TIMEOUT", 30*time.Second),
+		SMTPPlannerTimeout:   getEnvDuration("GATEWAY_SMTP_PLANNER_TIMEOUT", 30*time.Second),
 	}, nil
 }
 

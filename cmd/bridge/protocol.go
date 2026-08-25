@@ -44,9 +44,10 @@ func (k EventKind) Validate() error {
 	}
 }
 
-// GatewayEvent is the protocol-neutral event contract for future network
-// adapters. Payload is base64 encoded by encoding/json. Route is an HTTP path,
-// WebSocket path/channel, or SMTP domain/mailbox depending on Protocol.
+// GatewayEvent is the protocol-neutral event contract for session-oriented
+// network adapters. Payload is base64 encoded by encoding/json. Route is an
+// HTTP path, WebSocket path/channel, or SMTP domain/mailbox depending on
+// Protocol.
 type GatewayEvent struct {
 	ID         string              `json:"id"`
 	Protocol   Protocol            `json:"protocol"`
@@ -115,9 +116,8 @@ func (d GatewayDelivery) Validate() error {
 	return nil
 }
 
-// GatewayDecision is the future control-plane response for session-oriented
-// protocols. HTTP continues to use RoutePlan until its v1 compatibility
-// window is intentionally retired.
+// GatewayDecision is the control-plane response for session-oriented
+// protocols. HTTP continues to use RoutePlan for compatibility.
 type GatewayDecision struct {
 	Version    string              `json:"version"`
 	Protocol   Protocol            `json:"protocol"`
