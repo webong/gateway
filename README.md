@@ -120,7 +120,8 @@ The Go bridge also defines a protocol-neutral `GatewayEvent` and
 `GatewayDecision` contract for session-oriented protocols. SMTP is implemented
 through the maintained [`emersion/go-smtp`](https://github.com/emersion/go-smtp)
 server library; the gateway supplies only its backend/session hooks. WebSocket
-can adopt the same contract later. Payloads are base64 encoded, and
+uses the same contract through the Go HTTP upgrade/session handler. Payloads are
+base64 encoded, and
 destinations use a typed protocol and target instead of assuming every
 destination is an HTTP URL.
 
@@ -226,16 +227,28 @@ pool. In `roadrunner` mode the event call stays in-process; in `http` mode it
 uses the Laravel backend URL. Embedded Caddy/FrankenPHP deployments use the
 `gateway_smtp` app below.
 
-The current adapter does not advertise SMTP AUTH because credential ownership
-has not yet been defined in the PHP control plane. STARTTLS becomes available
-when a TLS configuration is wired into the listener; the underlying library
-already provides the protocol implementation.
+The current adapter does not advertise SMTP AUTH unless
+`GATEWAY_SMTP_AUTH_ENABLED=true` is explicitly set. AUTH uses the
+`authenticate` protocol event, so the Laravel application remains responsible
+for validating the username and password. AUTH requires TLS and advertises
+PLAIN only after a certificate/key pair is configured. STARTTLS is enabled by
+providing the same certificate/key pair; set
+`GATEWAY_SMTP_IMPLICIT_TLS=true` for SMTPS-style TLS from the first byte.
 
 If an application supplies a custom `GATEWAY_PLANNER` without a
 `GATEWAY_PATH_RESOLVER`, it should also configure a
 `GATEWAY_PROTOCOL_PLANNER` implementing `ProtocolPlanner` for SMTP events.
 Applications using the bundled registry planner can configure the resolver and
 reuse the default protocol adapter.
+
+### WebSocket transport
+
+WebSocket upgrades use the public HTTP listener in `http` and `roadrunner`
+runtime modes. Go performs the upgrade, owns the connection and message loop,
+and sends `connect`, `message`, and `close` events to PHP. PHP can accept,
+reject, respond on the socket, or resolve HTTP subscriber deliveries. The
+same handler is mounted by the FrankenPHP/Caddy `gateway` module; no separate
+WebSocket port or Laravel listener is required.
 
 ### Go configuration
 
@@ -259,6 +272,12 @@ reuse the default protocol adapter.
 - `GATEWAY_SMTP_READ_TIMEOUT`, `GATEWAY_SMTP_WRITE_TIMEOUT` - SMTP socket
   timeouts
 - `GATEWAY_SMTP_PLANNER_TIMEOUT` - PHP planning timeout (default `30s`)
+- `GATEWAY_SMTP_TLS_CERT_FILE`, `GATEWAY_SMTP_TLS_KEY_FILE` - PEM certificate
+  and private-key files for STARTTLS or implicit TLS
+- `GATEWAY_SMTP_IMPLICIT_TLS` - use implicit TLS instead of plain SMTP with
+  STARTTLS (default `false`)
+- `GATEWAY_SMTP_AUTH_ENABLED` - require PHP-planned SMTP AUTH (default
+  `false`; TLS is required)
 
 PHP-side cache settings:
 
@@ -644,7 +663,9 @@ not pass through `php_server`; it calls the configured private `planner_url`
 and then uses the same Go delivery pool. The example file binds that PHP bridge
 to `127.0.0.1:8081` and configures it with `gateway_smtp` in the global block.
 This provides the second deployment shape without duplicating the SMTP server
-or protocol implementation.
+or protocol implementation. The app accepts `tls_cert_file`, `tls_key_file`,
+`implicit_tls`, and `auth_enabled` options with the same semantics as the
+`GATEWAY_SMTP_*` settings.
 
 ## Tests
 
@@ -678,6 +699,32 @@ built-in HTTP server, then starts Go as the public edge:
 
 ```bash
 bash scripts/http-smoke.sh
+```
+
+Run the SMTP smoke test for both the HTTP Laravel backend and embedded
+RoadRunner. It sends a real SMTP transaction through Go, the PHP protocol
+planner, and the subscriber delivery worker:
+
+```bash
+bash scripts/smtp-smoke.sh
+# or: make test-smtp
+```
+
+Run the WebSocket smoke test for both HTTP and RoadRunner. It upgrades a real
+connection, sends a message through the PHP protocol planner, and verifies
+the subscriber delivery:
+
+```bash
+bash scripts/websocket-smoke.sh
+# or: make test-websocket
+```
+
+Verify the Caddy module and, when Docker is available, build a FrankenPHP
+image containing both Gateway modules:
+
+```bash
+make test-frankenphp
+GATEWAY_FRANKENPHP_BUILD=1 make test-frankenphp
 ```
 
 Set `GATEWAY_OCTANE_APP_PATH` when testing an application-owned Laravel host

@@ -24,20 +24,21 @@ func (p Protocol) Validate() error {
 }
 
 // EventKind describes the unit presented to the PHP control plane. HTTP is
-// request-oriented; WebSocket and SMTP will use session-oriented events.
+// request-oriented; WebSocket and SMTP use session-oriented events.
 type EventKind string
 
 const (
-	EventRequest     EventKind = "request"
-	EventConnect     EventKind = "connect"
-	EventMessage     EventKind = "message"
-	EventClose       EventKind = "close"
-	EventTransaction EventKind = "transaction"
+	EventRequest      EventKind = "request"
+	EventConnect      EventKind = "connect"
+	EventMessage      EventKind = "message"
+	EventClose        EventKind = "close"
+	EventTransaction  EventKind = "transaction"
+	EventAuthenticate EventKind = "authenticate"
 )
 
 func (k EventKind) Validate() error {
 	switch k {
-	case EventRequest, EventConnect, EventMessage, EventClose, EventTransaction:
+	case EventRequest, EventConnect, EventMessage, EventClose, EventTransaction, EventAuthenticate:
 		return nil
 	default:
 		return fmt.Errorf("unsupported gateway event kind %q", k)

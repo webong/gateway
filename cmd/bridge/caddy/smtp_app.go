@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,6 +60,10 @@ type SMTPApp struct {
 	ReadTimeout     caddy.Duration `json:"read_timeout,omitempty"`
 	WriteTimeout    caddy.Duration `json:"write_timeout,omitempty"`
 	PlannerTimeout  caddy.Duration `json:"planner_timeout,omitempty"`
+	TLSCertFile     string         `json:"tls_cert_file,omitempty"`
+	TLSKeyFile      string         `json:"tls_key_file,omitempty"`
+	ImplicitTLS     bool           `json:"implicit_tls,omitempty"`
+	AuthEnabled     bool           `json:"auth_enabled,omitempty"`
 	MaxWorkers      int            `json:"max_workers,omitempty"`
 	MaxQueueSize    int            `json:"max_queue_size,omitempty"`
 	RequestTimeout  caddy.Duration `json:"request_timeout,omitempty"`
@@ -108,6 +113,12 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 	logger := logging.NewLogger(a.LogLevel)
 	a.forwarder = forwarding.NewForwarder(settings, logger)
 	a.workerPool = workers.NewWorkerPool(a.MaxWorkers, a.MaxQueueSize, a.forwarder, logger)
+	tlsConfig, err := smtpgateway.LoadTLSConfig(a.TLSCertFile, a.TLSKeyFile)
+	if err != nil {
+		a.workerPool.Shutdown()
+		a.forwarder.CloseIdleConnections()
+		return err
+	}
 	a.server, err = smtpgateway.NewServer(smtpgateway.Config{
 		Address:        a.Listen,
 		Hostname:       a.Hostname,
@@ -117,6 +128,9 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		ReadTimeout:    time.Duration(a.ReadTimeout),
 		WriteTimeout:   time.Duration(a.WriteTimeout),
 		PlannerTimeout: time.Duration(a.PlannerTimeout),
+		TLSConfig:      tlsConfig,
+		ImplicitTLS:    a.ImplicitTLS,
+		AuthEnabled:    a.AuthEnabled,
 	}, planner, bridge.NewRelayExecutor(a.forwarder, a.workerPool))
 	if err != nil {
 		a.workerPool.Shutdown()
@@ -276,6 +290,29 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.Hostname = value
+		case "tls_cert_file":
+			value, err := stringArg(d)
+			if err != nil {
+				return nil, err
+			}
+			app.TLSCertFile = value
+		case "tls_key_file":
+			value, err := stringArg(d)
+			if err != nil {
+				return nil, err
+			}
+			app.TLSKeyFile = value
+		case "implicit_tls", "auth_enabled":
+			option := d.Val()
+			value, err := boolArg(d)
+			if err != nil {
+				return nil, err
+			}
+			if option == "implicit_tls" {
+				app.ImplicitTLS = value
+			} else {
+				app.AuthEnabled = value
+			}
 		case "max_message_size":
 			value, err := nextInt64(d)
 			if err != nil {
@@ -352,6 +389,20 @@ func stringArg(d *caddyfile.Dispenser) (string, error) {
 	value := d.Val()
 	if d.NextArg() {
 		return "", d.ArgErr()
+	}
+	return value, nil
+}
+
+func boolArg(d *caddyfile.Dispenser) (bool, error) {
+	if !d.NextArg() {
+		return false, d.ArgErr()
+	}
+	value, err := strconv.ParseBool(d.Val())
+	if err != nil {
+		return false, d.Errf("invalid boolean %q: %v", d.Val(), err)
+	}
+	if d.NextArg() {
+		return false, d.ArgErr()
 	}
 	return value, nil
 }

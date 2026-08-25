@@ -31,6 +31,10 @@ type Config struct {
 	SMTPReadTimeout      time.Duration
 	SMTPWriteTimeout     time.Duration
 	SMTPPlannerTimeout   time.Duration
+	SMTPTLSCertFile      string
+	SMTPTLSKeyFile       string
+	SMTPImplicitTLS      bool
+	SMTPAuthEnabled      bool
 }
 
 func LoadConfig() (*Config, error) {
@@ -66,6 +70,10 @@ func LoadConfig() (*Config, error) {
 		SMTPReadTimeout:      getEnvDuration("GATEWAY_SMTP_READ_TIMEOUT", 5*time.Minute),
 		SMTPWriteTimeout:     getEnvDuration("GATEWAY_SMTP_WRITE_TIMEOUT", 30*time.Second),
 		SMTPPlannerTimeout:   getEnvDuration("GATEWAY_SMTP_PLANNER_TIMEOUT", 30*time.Second),
+		SMTPTLSCertFile:      getEnv("GATEWAY_SMTP_TLS_CERT_FILE", ""),
+		SMTPTLSKeyFile:       getEnv("GATEWAY_SMTP_TLS_KEY_FILE", ""),
+		SMTPImplicitTLS:      getEnvBool("GATEWAY_SMTP_IMPLICIT_TLS", false),
+		SMTPAuthEnabled:      getEnvBool("GATEWAY_SMTP_AUTH_ENABLED", false),
 	}, nil
 }
 
@@ -101,4 +109,18 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return defaultValue
+	}
+
+	return parsed
 }

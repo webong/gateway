@@ -14,6 +14,7 @@ import (
 	bridge "github.com/webong/gateway/cmd/bridge"
 	roadrunner "github.com/webong/gateway/cmd/bridge/roadrunner"
 	smtpgateway "github.com/webong/gateway/cmd/bridge/smtp"
+	gatewayws "github.com/webong/gateway/cmd/bridge/websocket"
 	relayconfig "github.com/webong/gateway/cmd/internal/config"
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/logging"
@@ -21,12 +22,13 @@ import (
 )
 
 type Server struct {
-	config      *relayconfig.Config
-	logger      *logging.Logger
-	forwarder   *forwarding.Forwarder
-	workerPool  *workers.WorkerPool
-	relayHandle http.Handler
-	httpServer  *http.Server
+	config           *relayconfig.Config
+	logger           *logging.Logger
+	forwarder        *forwarding.Forwarder
+	workerPool       *workers.WorkerPool
+	relayHandle      http.Handler
+	websocketHandler http.Handler
+	httpServer       *http.Server
 }
 
 func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
@@ -71,6 +73,10 @@ func (s *Server) SetRelayHandler(handler http.Handler) {
 	s.relayHandle = handler
 }
 
+func (s *Server) SetWebSocketHandler(handler http.Handler) {
+	s.websocketHandler = handler
+}
+
 func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
 	edge := bridge.NewEdge(
 		planner,
@@ -84,6 +90,10 @@ func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handle
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
+	if s.websocketHandler != nil && gatewayws.IsUpgrade(r) {
+		s.websocketHandler.ServeHTTP(w, r)
+		return
+	}
 	if s.relayHandle == nil {
 		http.Error(w, "PHP relay planner is not configured", http.StatusServiceUnavailable)
 		return
@@ -207,6 +217,26 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 	return nil
 }
 
+func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor bridge.GatewayExecutor) (*smtpgateway.Server, error) {
+	tlsConfig, err := smtpgateway.LoadTLSConfig(config.SMTPTLSCertFile, config.SMTPTLSKeyFile)
+	if err != nil {
+		return nil, err
+	}
+
+	return smtpgateway.NewServer(smtpgateway.Config{
+		Address:        config.SMTPAddress,
+		Hostname:       config.SMTPHostname,
+		MaxMessageSize: config.SMTPMaxMessageSize,
+		MaxRecipients:  config.SMTPMaxRecipients,
+		ReadTimeout:    config.SMTPReadTimeout,
+		WriteTimeout:   config.SMTPWriteTimeout,
+		PlannerTimeout: config.SMTPPlannerTimeout,
+		TLSConfig:      tlsConfig,
+		ImplicitTLS:    config.SMTPImplicitTLS,
+		AuthEnabled:    config.SMTPAuthEnabled,
+	}, planner, executor)
+}
+
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	client := &http.Client{Timeout: config.RequestTimeout}
 	runtime, err := bridge.NewHTTPRuntime(
@@ -235,18 +265,15 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to initialize HTTP protocol planner: %w", err)
 	}
+	server.SetWebSocketHandler(gatewayws.NewHandler(
+		protocolPlanner,
+		bridge.NewRelayExecutor(server.forwarder, server.workerPool),
+		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout},
+	))
 
 	var smtpServer *smtpgateway.Server
 	if config.SMTPAddress != "" {
-		smtpServer, err = smtpgateway.NewServer(smtpgateway.Config{
-			Address:        config.SMTPAddress,
-			Hostname:       config.SMTPHostname,
-			MaxMessageSize: config.SMTPMaxMessageSize,
-			MaxRecipients:  config.SMTPMaxRecipients,
-			ReadTimeout:    config.SMTPReadTimeout,
-			WriteTimeout:   config.SMTPWriteTimeout,
-			PlannerTimeout: config.SMTPPlannerTimeout,
-		}, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
+		smtpServer, err = newSMTPServer(config, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
 		if err != nil {
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to initialize SMTP listener: %w", err)
@@ -284,15 +311,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 			return fmt.Errorf("failed to initialize RoadRunner protocol planner: %w", plannerErr)
 		}
 
-		smtpServer, smtpErr := smtpgateway.NewServer(smtpgateway.Config{
-			Address:        config.SMTPAddress,
-			Hostname:       config.SMTPHostname,
-			MaxMessageSize: config.SMTPMaxMessageSize,
-			MaxRecipients:  config.SMTPMaxRecipients,
-			ReadTimeout:    config.SMTPReadTimeout,
-			WriteTimeout:   config.SMTPWriteTimeout,
-			PlannerTimeout: config.SMTPPlannerTimeout,
-		}, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
+		smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
 		if smtpErr != nil {
 			runner.Stop()
 			<-runnerErrors

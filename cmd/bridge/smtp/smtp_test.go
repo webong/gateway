@@ -2,6 +2,7 @@ package smtp
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/emersion/go-sasl"
 	smtpclient "github.com/emersion/go-smtp"
 
 	bridge "github.com/webong/gateway/cmd/bridge"
@@ -175,5 +177,62 @@ func TestServerUsesGoSMTPMessageLimit(t *testing.T) {
 	var smtpErr *smtpclient.SMTPError
 	if !errors.As(err, &smtpErr) || smtpErr.Code != 552 {
 		t.Fatalf("expected SMTP 552 data error, got %v", err)
+	}
+}
+
+func TestServerRequiresTLSForSMTPAuth(t *testing.T) {
+	_, err := NewServer(Config{
+		Address:     "127.0.0.1:0",
+		AuthEnabled: true,
+	}, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{}, nil
+	}), &recordingExecutor{})
+	if err == nil || err.Error() != "SMTP AUTH requires TLS configuration" {
+		t.Fatalf("expected SMTP AUTH TLS requirement, got %v", err)
+	}
+}
+
+func TestLoadTLSConfigRequiresCertificateAndKeyTogether(t *testing.T) {
+	_, err := LoadTLSConfig("certificate.pem", "")
+	if err == nil {
+		t.Fatal("expected incomplete SMTP TLS configuration to fail")
+	}
+}
+
+func TestSMTPAuthDelegatesCredentialsToProtocolPlanner(t *testing.T) {
+	var planned bridge.GatewayEvent
+	session := &session{
+		planner: plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+			planned = event
+			return bridge.GatewayDecision{
+				Version:  bridge.ProtocolVersion,
+				Protocol: bridge.ProtocolSMTP,
+				Action:   bridge.GatewayAccept,
+			}, nil
+		}),
+		config: Config{
+			AuthEnabled:    true,
+			TLSConfig:      &tls.Config{},
+			PlannerTimeout: time.Second,
+			Hostname:       "smtp.example.test",
+		},
+		sessionID: "smtp-test-session",
+	}
+
+	client := sasl.NewPlainClient("", "subscriber", "secret")
+	mechanism, initialResponse, err := client.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticator, err := session.Auth(mechanism)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, done, err := authenticator.Next(initialResponse)
+	if err != nil || !done {
+		t.Fatalf("expected successful SMTP authentication, done=%v err=%v", done, err)
+	}
+	if planned.Kind != bridge.EventAuthenticate || planned.Attributes["username"] != "subscriber" || planned.Attributes["password"] != "secret" {
+		t.Fatalf("unexpected authentication event: %+v", planned)
 	}
 }

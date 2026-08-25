@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-php test-octane test-http benchmark benchmark-php vet
+.PHONY: build test test-go test-php test-octane test-http test-smtp test-websocket test-frankenphp benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 
@@ -19,6 +19,15 @@ test-octane:
 
 test-http:
 	bash scripts/http-smoke.sh
+
+test-smtp:
+	bash scripts/smtp-smoke.sh
+
+test-websocket:
+	bash scripts/websocket-smoke.sh
+
+test-frankenphp:
+	bash scripts/frankenphp-build.sh
 
 benchmark:
 	go run $(GOFLAGS) ./cmd/benchmark $(ARGS)

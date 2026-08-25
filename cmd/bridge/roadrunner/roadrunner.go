@@ -11,6 +11,7 @@ import (
 
 	"github.com/roadrunner-server/roadrunner/v2025/lib"
 	bridge "github.com/webong/gateway/cmd/bridge"
+	gatewayws "github.com/webong/gateway/cmd/bridge/websocket"
 )
 
 const RoadRunnerPluginName = "gateway"
@@ -64,6 +65,11 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 	p.protocolMu.Unlock()
 	p.protocolReadyDo.Do(func() { close(p.protocolReady) })
 	edge := bridge.NewEdge(planner, p.Executor, p.MaxBodySize).SetPassThrough(next)
+	websocketHandler := gatewayws.NewHandler(
+		protocolPlanner,
+		p.Executor,
+		gatewayws.Config{MaxMessageSize: p.MaxBodySize},
+	)
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isPathUnder(request.URL.Path, p.PlanPath) {
@@ -72,6 +78,10 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 		}
 		if p.RelayPathPrefix != "" && !isPathUnder(request.URL.Path, p.RelayPathPrefix) {
 			next.ServeHTTP(writer, request)
+			return
+		}
+		if gatewayws.IsUpgrade(request) {
+			websocketHandler.ServeHTTP(writer, request)
 			return
 		}
 		edge.ServeHTTP(writer, request)

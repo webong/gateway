@@ -21,6 +21,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/cmd/bridge"
+	gatewayws "github.com/webong/gateway/cmd/bridge/websocket"
 	relayconfig "github.com/webong/gateway/cmd/internal/config"
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/logging"
@@ -162,6 +163,19 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 	if g.executor == nil {
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("gateway transport is not configured"))
 	}
+	if gatewayws.IsUpgrade(r) {
+		protocolPlanner := bridge.NewPHPProtocolPlanner(
+			&caddyHTTPAdapter{handler: next},
+			g.MaxBodySize,
+		)
+		protocolPlanner.InternalToken = g.InternalToken
+		gatewayws.NewHandler(
+			protocolPlanner,
+			g.executor,
+			gatewayws.Config{MaxMessageSize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout)},
+		).ServeHTTP(w, r)
+		return nil
+	}
 
 	planner := &CaddyPHPPlanner{
 		PHPHandler:    next,
@@ -263,6 +277,16 @@ func (p *CaddyPHPPlanner) Plan(ctx context.Context, ingress bridge.IngressReques
 type caddyPassThrough struct {
 	handler caddyhttp.Handler
 	err     error
+}
+
+type caddyHTTPAdapter struct {
+	handler caddyhttp.Handler
+}
+
+func (a *caddyHTTPAdapter) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if err := a.handler.ServeHTTP(writer, request); err != nil {
+		http.Error(writer, "PHP protocol planner failed", http.StatusBadGateway)
+	}
 }
 
 func (p *caddyPassThrough) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-sasl"
 	smtpserver "github.com/emersion/go-smtp"
 
 	bridge "github.com/webong/gateway/cmd/bridge"
@@ -43,6 +44,8 @@ type Config struct {
 	WriteTimeout   time.Duration
 	PlannerTimeout time.Duration
 	TLSConfig      *tls.Config
+	ImplicitTLS    bool
+	AuthEnabled    bool
 }
 
 // Server is the gateway-owned lifecycle wrapper around emersion/go-smtp.
@@ -67,6 +70,12 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor bridge.Ga
 	if config.MaxMessageSize < 1 || config.MaxLineSize < 1 || config.MaxRecipients < 1 {
 		return nil, fmt.Errorf("SMTP size and recipient limits must be positive")
 	}
+	if config.ImplicitTLS && config.TLSConfig == nil {
+		return nil, fmt.Errorf("implicit SMTP TLS requires a certificate and key")
+	}
+	if config.AuthEnabled && config.TLSConfig == nil {
+		return nil, fmt.Errorf("SMTP AUTH requires TLS configuration")
+	}
 
 	server := smtpserver.NewServer(&backend{
 		planner:  planner,
@@ -90,6 +99,9 @@ func (s *Server) ListenAndServe() error {
 	if s == nil || s.server == nil {
 		return fmt.Errorf("SMTP server is not initialized")
 	}
+	if s.config.ImplicitTLS {
+		return normalizeServerError(s.server.ListenAndServeTLS())
+	}
 	return normalizeServerError(s.server.ListenAndServe())
 }
 
@@ -111,6 +123,9 @@ func (s *Server) Serve(listener net.Listener) error {
 	}
 	if listener == nil {
 		return fmt.Errorf("SMTP listener is required")
+	}
+	if s.config.ImplicitTLS {
+		listener = tls.NewListener(listener, s.config.TLSConfig)
 	}
 	return normalizeServerError(s.server.Serve(listener))
 }
@@ -156,23 +171,92 @@ func (b *backend) NewSession(connection *smtpserver.Conn) (smtpserver.Session, e
 }
 
 type session struct {
-	planner    bridge.ProtocolPlanner
-	executor   bridge.GatewayExecutor
-	config     Config
-	sessionID  string
-	helo       string
-	remoteAddr string
-	from       string
-	recipients []string
+	planner       bridge.ProtocolPlanner
+	executor      bridge.GatewayExecutor
+	config        Config
+	sessionID     string
+	helo          string
+	remoteAddr    string
+	from          string
+	recipients    []string
+	authenticated bool
+}
+
+func (s *session) AuthMechanisms() []string {
+	if !s.config.AuthEnabled {
+		return nil
+	}
+
+	return []string{sasl.Plain}
+}
+
+func (s *session) Auth(mech string) (sasl.Server, error) {
+	if !s.config.AuthEnabled || mech != sasl.Plain {
+		return nil, smtpserver.ErrAuthUnknownMechanism
+	}
+
+	return sasl.NewPlainServer(func(identity, username, password string) error {
+		if strings.TrimSpace(username) == "" {
+			return errors.New("SMTP username is required")
+		}
+
+		if err := s.authenticate(identity, username, password); err != nil {
+			return errors.New("SMTP authentication failed")
+		}
+
+		return nil
+	}), nil
+}
+
+func (s *session) authenticate(identity, username, password string) error {
+	event := bridge.GatewayEvent{
+		ID:        transactionID(s.sessionID, username, []string{identity}, []byte(password)),
+		Protocol:  bridge.ProtocolSMTP,
+		Kind:      bridge.EventAuthenticate,
+		SessionID: s.sessionID,
+		Host:      s.config.Hostname,
+		Route:     username,
+		Attributes: map[string]string{
+			"identity":    identity,
+			"username":    username,
+			"remote_addr": s.remoteAddr,
+			"helo":        s.helo,
+			"mechanism":   sasl.Plain,
+			"password":    password,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.PlannerTimeout)
+	defer cancel()
+
+	decision, err := s.planner.PlanEvent(ctx, event)
+	if err != nil {
+		return err
+	}
+	if err := decision.Validate(); err != nil || decision.Protocol != bridge.ProtocolSMTP {
+		return errors.New("invalid SMTP authentication decision")
+	}
+	if decision.Action != bridge.GatewayAccept {
+		return errors.New("SMTP authentication rejected")
+	}
+
+	s.authenticated = true
+	return nil
 }
 
 func (s *session) Mail(from string, _ *smtpserver.MailOptions) error {
+	if s.config.AuthEnabled && !s.authenticated {
+		return smtpserver.ErrAuthRequired
+	}
 	s.from = from
 	s.recipients = nil
 	return nil
 }
 
 func (s *session) Rcpt(to string, _ *smtpserver.RcptOptions) error {
+	if s.config.AuthEnabled && !s.authenticated {
+		return smtpserver.ErrAuthRequired
+	}
 	if len(s.recipients) >= s.config.MaxRecipients {
 		return &smtpserver.SMTPError{
 			Code:         452,
@@ -185,6 +269,9 @@ func (s *session) Rcpt(to string, _ *smtpserver.RcptOptions) error {
 }
 
 func (s *session) Data(reader io.Reader) error {
+	if s.config.AuthEnabled && !s.authenticated {
+		return smtpserver.ErrAuthRequired
+	}
 	message, err := io.ReadAll(reader)
 	if err != nil {
 		if errors.Is(err, smtpserver.ErrDataTooLarge) {
@@ -265,6 +352,7 @@ func (s *session) Reset() {
 
 func (s *session) Logout() error {
 	s.Reset()
+	s.authenticated = false
 	return nil
 }
 

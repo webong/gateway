@@ -7,6 +7,8 @@ require github.com/roadrunner-server/roadrunner/v2025 v2025.1.0
 require (
 	github.com/caddyserver/caddy/v2 v2.10.0
 	github.com/emersion/go-smtp v0.24.0
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
+	github.com/gorilla/websocket v1.5.3
 	go.uber.org/zap v1.27.0
 )
 
@@ -63,7 +65,6 @@ require (
 	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/emicklei/proto v1.14.1 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/fatih/color v1.18.0 // indirect
