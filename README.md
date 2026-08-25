@@ -66,10 +66,13 @@ class implementing `Webong\Gateway\Contracts\RoutePlanner`, or configure the
 bundled registry planner and a `PathResolver`. Then choose one of these modes:
 
 - `roadrunner` embeds RoadRunner in the Go process. It is the single-listener
-  production path and uses RoadRunner's PHP worker transport.
+  production path and uses RoadRunner's PHP worker transport. It can also
+  start the sibling Go SMTP listener; SMTP planning uses the same embedded PHP
+  worker through the in-process handler bridge.
 - `http` keeps Laravel independently hosted by PHP-FPM, an HTTP server,
   Octane, or another Laravel-compatible host. Go remains the public edge and
-  calls Laravel's planner route and proxies pass-through requests over HTTP.
+  calls Laravel's planner routes and proxies pass-through requests over HTTP.
+  This is the standard/Octane-compatible path and can also start SMTP.
 - `standalone` starts only the Go transport host and is useful for diagnostics
   or adapter tests; it does not provide a Laravel control plane.
 
@@ -77,9 +80,9 @@ Set `GATEWAY_RUNTIME` to `roadrunner`, `http`, or `standalone`.
 
 The `Planner` interface is the transport seam. Goridge is used by the embedded
 RoadRunner adapter because it is RoadRunner's PHP worker transport; it is not
-itself a complete PHP host or worker supervisor. A future direct-Goridge
-adapter can plug into the same seam without changing the Go edge, while the
-supported non-RoadRunner deployment today is `http` mode.
+itself a complete PHP host or worker supervisor. Both HTTP requests and
+session-oriented protocol events use that same embedded worker boundary, while
+the standard non-RoadRunner deployment is `http` mode.
 
 ## Go transport plane
 
@@ -164,6 +167,19 @@ only on the PHP planner call and must match the Laravel configuration.
 The planner path `/_internal/gateway/plan` is reserved and cannot be called
 as a public request through the Go middleware.
 
+To run SMTP alongside the embedded RoadRunner HTTP listener, add:
+
+```bash
+export GATEWAY_SMTP_ADDR=':2525'
+export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
+go run ./cmd/proxy
+```
+
+The `gateway` middleware must remain enabled in `.rr.yaml`. Go waits until
+RoadRunner has assembled that middleware around the PHP worker, then starts
+SMTP with the same in-process PHP event planner. No second Laravel HTTP port
+is opened.
+
 ### HTTP Laravel backend
 
 In `http` mode, start Laravel separately and point the Go host at its private
@@ -184,9 +200,9 @@ that prefix.
 
 ### SMTP listener
 
-SMTP is available in `http` mode. `cmd/proxy` starts the Go HTTP edge and the
-SMTP listener as sibling listeners, while both use the same PHP control-plane
-bridge. The SMTP protocol itself is provided by
+SMTP is available in `http` and `roadrunner` modes. `cmd/proxy` starts the Go
+HTTP edge and SMTP listener as sibling listeners, while both use the same PHP
+control-plane bridge. The SMTP protocol itself is provided by
 [`emersion/go-smtp`](https://pkg.go.dev/github.com/emersion/go-smtp), including
 ESMTP parsing, message framing, limits, graceful shutdown, and optional
 STARTTLS support. The gateway adapter handles session metadata, calls PHP for
@@ -206,13 +222,20 @@ Each accepted SMTP transaction is sent to
 message, matches the agnostic endpoint/subscriber registry using the first
 recipient as the route key, and returns `accept`, `reject`, or `deliver`. A
 `deliver` decision is executed by Go through the normal outbound HTTP worker
-pool. `GATEWAY_SMTP_ADDR` is rejected in RoadRunner and standalone modes;
-embedded Caddy/FrankenPHP deployments use the `gateway_smtp` app below.
+pool. In `roadrunner` mode the event call stays in-process; in `http` mode it
+uses the Laravel backend URL. Embedded Caddy/FrankenPHP deployments use the
+`gateway_smtp` app below.
 
 The current adapter does not advertise SMTP AUTH because credential ownership
 has not yet been defined in the PHP control plane. STARTTLS becomes available
 when a TLS configuration is wired into the listener; the underlying library
 already provides the protocol implementation.
+
+If an application supplies a custom `GATEWAY_PLANNER` without a
+`GATEWAY_PATH_RESOLVER`, it should also configure a
+`GATEWAY_PROTOCOL_PLANNER` implementing `ProtocolPlanner` for SMTP events.
+Applications using the bundled registry planner can configure the resolver and
+reuse the default protocol adapter.
 
 ### Go configuration
 
@@ -228,7 +251,8 @@ already provides the protocol implementation.
 - `MAX_BODY_SIZE` - ingress and planner response limit (default `10MB`)
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - standalone shutdown timeout (default `30s`)
-- `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` mode
+- `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
+  `roadrunner` mode
 - `GATEWAY_SMTP_HOSTNAME` - SMTP greeting/domain (default `gateway.local`)
 - `GATEWAY_SMTP_MAX_MESSAGE_SIZE` - accepted message limit (default `10MB`)
 - `GATEWAY_SMTP_MAX_RECIPIENTS` - recipients per transaction (default `100`)

@@ -3,9 +3,11 @@ package roadrunner
 // RoadRunnerPlugin connects the Go edge to the PHP worker.
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/roadrunner-server/roadrunner/v2025/lib"
 	bridge "github.com/webong/gateway/cmd/bridge"
@@ -23,6 +25,11 @@ type RoadRunnerPlugin struct {
 	RelayPathPrefix string
 	PlanPath        string
 	InternalToken   string
+
+	protocolReady   chan struct{}
+	protocolReadyDo sync.Once
+	protocolMu      sync.RWMutex
+	protocolPlanner bridge.ProtocolPlanner
 }
 
 func NewRoadRunnerPlugin(executor bridge.Executor, maxBodySize int64, internalToken string) *RoadRunnerPlugin {
@@ -31,6 +38,7 @@ func NewRoadRunnerPlugin(executor bridge.Executor, maxBodySize int64, internalTo
 		MaxBodySize:   maxBodySize,
 		PlanPath:      bridge.PHPPlannerPath,
 		InternalToken: internalToken,
+		protocolReady: make(chan struct{}),
 	}
 }
 
@@ -49,6 +57,12 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 	planner := bridge.NewPHPPlanner(next, p.MaxBodySize)
 	planner.PlanPath = p.PlanPath
 	planner.InternalToken = p.InternalToken
+	protocolPlanner := bridge.NewPHPProtocolPlanner(next, p.MaxBodySize)
+	protocolPlanner.InternalToken = p.InternalToken
+	p.protocolMu.Lock()
+	p.protocolPlanner = protocolPlanner
+	p.protocolMu.Unlock()
+	p.protocolReadyDo.Do(func() { close(p.protocolReady) })
 	edge := bridge.NewEdge(planner, p.Executor, p.MaxBodySize).SetPassThrough(next)
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -64,10 +78,33 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// WaitProtocolPlanner waits until RoadRunner has assembled the HTTP
+// middleware chain around the PHP worker. The returned planner invokes that
+// same in-process handler, so session-oriented listeners do not need a second
+// Laravel HTTP server.
+func (p *RoadRunnerPlugin) WaitProtocolPlanner(ctx context.Context) (bridge.ProtocolPlanner, error) {
+	if p == nil || p.protocolReady == nil {
+		return nil, fmt.Errorf("RoadRunner protocol planner is not initialized")
+	}
+	select {
+	case <-p.protocolReady:
+		p.protocolMu.RLock()
+		planner := p.protocolPlanner
+		p.protocolMu.RUnlock()
+		if planner == nil {
+			return nil, fmt.Errorf("RoadRunner protocol planner is not configured")
+		}
+		return planner, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 // EmbeddedRoadRunner owns RoadRunner's lifecycle while the Go application
 // owns the delivery executor injected into the custom middleware.
 type EmbeddedRoadRunner struct {
 	server *lib.RR
+	plugin *RoadRunnerPlugin
 }
 
 func NewEmbeddedRoadRunner(configPath string, overrides []string, executor bridge.Executor, maxBodySize int64, internalToken string) (*EmbeddedRoadRunner, error) {
@@ -81,7 +118,14 @@ func NewEmbeddedRoadRunner(configPath string, overrides []string, executor bridg
 	if err != nil {
 		return nil, err
 	}
-	return &EmbeddedRoadRunner{server: server}, nil
+	return &EmbeddedRoadRunner{server: server, plugin: plugin}, nil
+}
+
+func (r *EmbeddedRoadRunner) WaitProtocolPlanner(ctx context.Context) (bridge.ProtocolPlanner, error) {
+	if r == nil || r.plugin == nil {
+		return nil, fmt.Errorf("embedded RoadRunner protocol planner is not initialized")
+	}
+	return r.plugin.WaitProtocolPlanner(ctx)
 }
 
 func (r *EmbeddedRoadRunner) Serve() error {

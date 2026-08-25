@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -148,8 +149,8 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
-	if config.SMTPAddress != "" && config.Runtime != "http" {
-		return fmt.Errorf("GATEWAY_SMTP_ADDR requires GATEWAY_RUNTIME=http; embedded Caddy uses gateway_smtp instead")
+	if config.SMTPAddress != "" && config.Runtime == "standalone" {
+		return fmt.Errorf("GATEWAY_SMTP_ADDR requires GATEWAY_RUNTIME=http or roadrunner; embedded Caddy uses gateway_smtp instead")
 	}
 	server := NewServer(config, logger)
 	switch config.Runtime {
@@ -271,6 +272,72 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 
 	runnerErrors := make(chan error, 1)
 	go func() { runnerErrors <- runner.Serve() }()
+
+	if config.SMTPAddress != "" {
+		startupContext, cancelStartup := context.WithTimeout(context.Background(), config.RequestTimeout)
+		protocolPlanner, plannerErr := runner.WaitProtocolPlanner(startupContext)
+		cancelStartup()
+		if plannerErr != nil {
+			runner.Stop()
+			<-runnerErrors
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize RoadRunner protocol planner: %w", plannerErr)
+		}
+
+		smtpServer, smtpErr := smtpgateway.NewServer(smtpgateway.Config{
+			Address:        config.SMTPAddress,
+			Hostname:       config.SMTPHostname,
+			MaxMessageSize: config.SMTPMaxMessageSize,
+			MaxRecipients:  config.SMTPMaxRecipients,
+			ReadTimeout:    config.SMTPReadTimeout,
+			WriteTimeout:   config.SMTPWriteTimeout,
+			PlannerTimeout: config.SMTPPlannerTimeout,
+		}, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
+		if smtpErr != nil {
+			runner.Stop()
+			<-runnerErrors
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize SMTP listener: %w", smtpErr)
+		}
+
+		smtpErrors := make(chan error, 1)
+		go func() { smtpErrors <- smtpServer.ListenAndServe() }()
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+		var runnerErr error
+		runnerExited := false
+		var smtpRunErr error
+		select {
+		case <-sigChan:
+			logger.Info("Received shutdown signal")
+		case runnerErr = <-runnerErrors:
+			runnerExited = true
+		case smtpRunErr = <-smtpErrors:
+		}
+
+		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+		smtpShutdownErr := smtpServer.Shutdown(shutdownContext)
+		cancelShutdown()
+
+		if !runnerExited {
+			runner.Stop()
+			runnerErr = <-runnerErrors
+		}
+		server.workerPool.Shutdown()
+
+		if smtpShutdownErr != nil && !errors.Is(smtpShutdownErr, smtpgateway.ErrServerClosed) {
+			return fmt.Errorf("SMTP shutdown error: %w", smtpShutdownErr)
+		}
+		if smtpRunErr != nil && !errors.Is(smtpRunErr, smtpgateway.ErrServerClosed) {
+			return fmt.Errorf("SMTP listener failed: %w", smtpRunErr)
+		}
+		if runnerErr != nil {
+			return fmt.Errorf("embedded RoadRunner failed: %w", runnerErr)
+		}
+		logger.Info("RoadRunner and SMTP stopped gracefully")
+		return nil
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)

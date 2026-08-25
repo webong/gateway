@@ -68,6 +68,41 @@ func TestRoadRunnerPluginPassesNonRelayPathsBackToPHP(t *testing.T) {
 	}
 }
 
+func TestRoadRunnerPluginExposesProtocolPlanner(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != bridge.PHPProtocolEventPath {
+			t.Fatalf("expected protocol event path %q, got %q", bridge.PHPProtocolEventPath, r.URL.Path)
+		}
+		if r.Header.Get(bridge.InternalTokenHeader) != "test-token" {
+			t.Fatalf("expected protocol planner token")
+		}
+		_ = json.NewEncoder(w).Encode(bridge.GatewayDecision{
+			Version:  bridge.ProtocolVersion,
+			Protocol: bridge.ProtocolSMTP,
+			Action:   bridge.GatewayAccept,
+		})
+	})
+	plugin := NewRoadRunnerPlugin(&recordingExecutor{}, 1024, "test-token")
+	plugin.Middleware(next)
+
+	planner, err := plugin.WaitProtocolPlanner(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := planner.PlanEvent(context.Background(), bridge.GatewayEvent{
+		ID:       "smtp-event-1",
+		Protocol: bridge.ProtocolSMTP,
+		Kind:     bridge.EventTransaction,
+		Route:    "recipient@example.test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Action != bridge.GatewayAccept {
+		t.Fatalf("expected accept decision, got %+v", decision)
+	}
+}
+
 func TestEmbeddedRoadRunnerRegistersGatewayPlugin(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), ".rr.yaml")
 	config := `version: "3"
