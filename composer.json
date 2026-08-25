@@ -1,0 +1,56 @@
+{
+    "name": "webong/web-relay",
+    "description": "Laravel control-plane contract for the web-relay Go transport",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "illuminate/http": "^12.0",
+        "illuminate/routing": "^12.0",
+        "illuminate/support": "^12.0",
+        "illuminate/validation": "^12.0",
+        "webong/web-proxy": "dev-main"
+    },
+    "require-dev": {
+        "laravel/octane": "^2.17",
+        "orchestra/testbench": "^10.0",
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "spiral/roadrunner-cli": "^2.6",
+        "spiral/roadrunner-http": "^3.3"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/webong/web-proxy.git"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Webong\\WebRelay\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Webong\\WebRelay\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webong\\WebRelay\\WebRelayServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        },
+        "sort-packages": true
+    }
+}

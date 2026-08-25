@@ -1,0 +1,20 @@
+version: "3"
+
+server:
+  # This is the PHP worker, not `octane:start` (that command launches its own
+  # RoadRunner process). Set the absolute Laravel application path when the Go
+  # host and Laravel application do not share a working directory.
+  command: "php /path/to/laravel/vendor/bin/roadrunner-worker"
+  env:
+    APP_BASE_PATH: "/path/to/laravel"
+    LARAVEL_OCTANE: "1"
+
+http:
+  address: "0.0.0.0:5001"
+  middleware: ["web_relay", "gzip"]
+  max_request_size: 10
+  pool:
+    num_workers: 4
+
+logs:
+  level: "info"
