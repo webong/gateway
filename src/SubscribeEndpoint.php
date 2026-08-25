@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Webong\WebProxy\DestinationRecord;
 use Webong\WebProxy\WebProxyChannelManager;
 use Webong\WebProxy\WebProxyRegistryManager;
 use Webong\WebProxy\WebhookRoute;
-use Webong\WebRelay\Exceptions\EndpointNotFoundException;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Exceptions\EndpointNotFoundException;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 final readonly class SubscribeEndpoint
 {

@@ -1,4 +1,4 @@
-module github.com/webong/web-relay
+module github.com/webong/net-gateway
 
 go 1.24.0
 

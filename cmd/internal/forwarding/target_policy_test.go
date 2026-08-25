@@ -1,4 +1,4 @@
-//go:build !webrelay_smoke
+//go:build !netgateway_smoke
 
 package forwarding
 

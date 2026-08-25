@@ -7,13 +7,13 @@ use Webong\WebProxy\EndpointDefinition;
 use Webong\WebProxy\EnsureEndpoint;
 use Webong\WebProxy\Models\WebProxyDestination;
 use Webong\WebProxy\Models\WebProxyEndpoint;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\SubscriptionState;
-use Webong\WebRelay\RegistryRoutePlanner;
-use Webong\WebRelay\RegistryRouteCache;
-use Webong\WebRelay\SubscribeEndpoint;
-use Webong\WebRelay\SubscriptionDefinition;
-use Webong\WebRelay\Tests\Support\TestPathResolver;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\SubscriptionState;
+use Webong\NetGateway\RegistryRoutePlanner;
+use Webong\NetGateway\RegistryRouteCache;
+use Webong\NetGateway\SubscribeEndpoint;
+use Webong\NetGateway\SubscriptionDefinition;
+use Webong\NetGateway\Tests\Support\TestPathResolver;
 
 beforeEach(function (): void {
     TestPathResolver::$endpointKey = 'relay-endpoint';
@@ -67,7 +67,7 @@ it('registers endpoints through the PHP-owned registry API', function (): void {
 
 it('does not expose the old package-prefixed registry API', function (): void {
     $this->withToken('registry-secret')
-        ->postJson('/web-relay/endpoints/legacy/subscriptions', [])
+        ->postJson('/net-gateway/endpoints/legacy/subscriptions', [])
         ->assertNotFound();
 });
 
@@ -103,7 +103,7 @@ it('registers the canonical match rules through remote HTTP JSON', function (): 
     ]);
 
     $destination = WebProxyDestination::query()->sole();
-    expect($destination->metadata['_web_relay_match'])->toBe([
+    expect($destination->metadata['_net_gateway_match'])->toBe([
         'version' => 'v1',
         'rules' => [
             'headers.x-event-type' => ['required', 'in:message.created'],
@@ -204,7 +204,7 @@ it('patches subscription rules incrementally and invalidates the cached route', 
     expect($planner->plan($request('account-42', 'old-value'))->immediateResponse?->statusCode)->toBe(204)
         ->and($planner->plan($request('account-99', 'new-value'))->relays)->toHaveCount(1);
 
-    expect(WebProxyDestination::query()->findOrFail($destination->id)->metadata['_web_relay_match']['rules'])
+    expect(WebProxyDestination::query()->findOrFail($destination->id)->metadata['_net_gateway_match']['rules'])
         ->toBe(['body.account.id' => ['required', 'string', 'in:account-99']]);
 });
 

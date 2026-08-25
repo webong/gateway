@@ -16,9 +16,9 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the relayer executable. Composer's vendor directory is excluded from
+# Build the gateway executable. Composer's vendor directory is excluded from
 # the Docker context and must not be interpreted as Go's vendor directory.
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o web-relay ./cmd/relayer
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o net-gateway ./cmd/relayer
 
 # Final stage
 FROM alpine:latest
@@ -29,10 +29,10 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 # Copy the binary from builder
-COPY --from=builder /app/web-relay .
+COPY --from=builder /app/net-gateway .
 
 # Expose the port
 EXPOSE 5001
 
 # Run the application
-CMD ["./web-relay"]
+CMD ["./net-gateway"]

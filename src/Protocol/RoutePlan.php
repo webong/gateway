@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Protocol;
+namespace Webong\NetGateway\Protocol;
 
 use InvalidArgumentException;
 
@@ -57,11 +57,11 @@ final readonly class RoutePlan
     private function assertValid(): void
     {
         if ($this->version !== self::VERSION) {
-            throw new InvalidArgumentException('Unsupported web-relay protocol version.');
+            throw new InvalidArgumentException('Unsupported net-gateway protocol version.');
         }
 
         if (! in_array($this->action, [self::RELAY, self::RESPOND, self::PASS_THROUGH], true)) {
-            throw new InvalidArgumentException('Unsupported web-relay route action.');
+            throw new InvalidArgumentException('Unsupported net-gateway route action.');
         }
 
         if ($this->action === self::PASS_THROUGH

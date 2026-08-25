@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Contracts;
+namespace Webong\NetGateway\Contracts;
 
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\PathBinding;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\PathBinding;
 
 /**
  * Resolves the application-owned public path into registry routing data.

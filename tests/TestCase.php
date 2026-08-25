@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Tests;
+namespace Webong\NetGateway\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Spatie\WebhookClient\WebhookClientServiceProvider;
 use Spatie\WebhookServer\WebhookServerServiceProvider;
 use Webong\WebProxy\WebProxyServiceProvider;
-use Webong\WebRelay\WebRelayServiceProvider;
+use Webong\NetGateway\NetGatewayServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
@@ -20,7 +20,7 @@ abstract class TestCase extends Orchestra
             WebhookClientServiceProvider::class,
             WebhookServerServiceProvider::class,
             WebProxyServiceProvider::class,
-            WebRelayServiceProvider::class,
+            NetGatewayServiceProvider::class,
         ];
     }
 
@@ -61,13 +61,13 @@ abstract class TestCase extends Orchestra
             'web-proxy.routers' => [
                 'relay-test' => Support\TestRouter::class,
             ],
-            'web-relay.path_resolver' => Support\TestPathResolver::class,
-            'web-relay.registry_token' => 'registry-secret',
-            'web-relay.cache.enabled' => true,
-            'web-relay.cache.store' => 'array',
-            'web-relay.cache.path_ttl' => 300,
-            'web-relay.cache.route_ttl' => 300,
-            'web-relay.cache.missing_ttl' => 30,
+            'net-gateway.path_resolver' => Support\TestPathResolver::class,
+            'net-gateway.registry_token' => 'registry-secret',
+            'net-gateway.cache.enabled' => true,
+            'net-gateway.cache.store' => 'array',
+            'net-gateway.cache.path_ttl' => 300,
+            'net-gateway.cache.route_ttl' => 300,
+            'net-gateway.cache.missing_ttl' => 30,
         ]);
     }
 

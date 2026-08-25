@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-use Webong\WebRelay\Protocol\EventKind;
-use Webong\WebRelay\Protocol\GatewayAction;
-use Webong\WebRelay\Protocol\GatewayDecision;
-use Webong\WebRelay\Protocol\GatewayDelivery;
-use Webong\WebRelay\Protocol\GatewayEvent;
-use Webong\WebRelay\Protocol\Protocol;
+use Webong\NetGateway\Protocol\EventKind;
+use Webong\NetGateway\Protocol\GatewayAction;
+use Webong\NetGateway\Protocol\GatewayDecision;
+use Webong\NetGateway\Protocol\GatewayDelivery;
+use Webong\NetGateway\Protocol\GatewayEvent;
+use Webong\NetGateway\Protocol\Protocol;
 
 it('round trips a protocol-neutral gateway event', function (): void {
     $event = new GatewayEvent(

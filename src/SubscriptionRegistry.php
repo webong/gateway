@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Closure;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
@@ -14,11 +14,11 @@ use Webong\WebProxy\Enums\WebhookProxyTargetType;
 use Webong\WebProxy\WebProxyChannelManager;
 use Webong\WebProxy\WebProxyRegistryManager;
 use Webong\WebProxy\WebhookRoute;
-use Webong\WebRelay\Exceptions\EndpointNotFoundException;
-use Webong\WebRelay\Exceptions\SubscriptionLockUnavailableException;
-use Webong\WebRelay\Exceptions\SubscriptionNotFoundException;
-use Webong\WebRelay\Exceptions\SubscriptionRevisionMismatchException;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Exceptions\EndpointNotFoundException;
+use Webong\NetGateway\Exceptions\SubscriptionLockUnavailableException;
+use Webong\NetGateway\Exceptions\SubscriptionNotFoundException;
+use Webong\NetGateway\Exceptions\SubscriptionRevisionMismatchException;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 final readonly class SubscriptionRegistry
 {
@@ -72,7 +72,7 @@ final readonly class SubscriptionRegistry
     ): SubscriptionResource {
         $initial = $this->find($endpointKey, $destinationId, $channel);
         $lockName = implode(':', [
-            (string) config('web-relay.cache.prefix', 'web-relay'),
+            (string) config('net-gateway.cache.prefix', 'net-gateway'),
             'subscription-route-lock',
             hash('sha256', implode("\0", [
                 $initial->endpoint->record->endpoint_key,
@@ -80,7 +80,7 @@ final readonly class SubscriptionRegistry
                 $initial->destination->routing_key,
             ])),
         ]);
-        $store = config('web-relay.mutations.lock_store', config('web-relay.cache.store'));
+        $store = config('net-gateway.mutations.lock_store', config('net-gateway.cache.store'));
         $repository = $this->cache->store(is_string($store) && $store !== '' ? $store : null);
         $lockProvider = method_exists($repository, 'getStore') ? $repository->getStore() : null;
 
@@ -90,12 +90,12 @@ final readonly class SubscriptionRegistry
 
         $lock = $lockProvider->lock(
             $lockName,
-            max(1, (int) config('web-relay.mutations.lock_seconds', 10)),
+            max(1, (int) config('net-gateway.mutations.lock_seconds', 10)),
         );
 
         try {
             return $lock->block(
-                max(0, (int) config('web-relay.mutations.lock_wait_seconds', 5)),
+                max(0, (int) config('net-gateway.mutations.lock_wait_seconds', 5)),
                 function () use ($endpointKey, $destinationId, $expectedRevision, $mutation, $channel): SubscriptionResource {
                     $resolved = $this->find($endpointKey, $destinationId, $channel);
                     $currentRevision = SubscriptionState::revision($resolved->destination->metadata);

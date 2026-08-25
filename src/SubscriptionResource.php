@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use InvalidArgumentException;
 use Webong\WebProxy\DestinationRecord;
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 final readonly class SubscriptionResource
 {

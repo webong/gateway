@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Protocol;
+namespace Webong\NetGateway\Protocol;
 
 final readonly class Response
 {

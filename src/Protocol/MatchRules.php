@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Protocol;
+namespace Webong\NetGateway\Protocol;
 
 use InvalidArgumentException;
 
@@ -17,7 +17,7 @@ final readonly class MatchRules
 {
     public const VERSION = 'v1';
 
-    public const METADATA_KEY = '_web_relay_match';
+    public const METADATA_KEY = '_net_gateway_match';
 
     private const MAX_FIELDS = 64;
 
@@ -79,7 +79,7 @@ final readonly class MatchRules
         $rules = $payload['rules'] ?? null;
 
         if ($version !== self::VERSION) {
-            throw new InvalidArgumentException('Unsupported web-relay match-rules version.');
+            throw new InvalidArgumentException('Unsupported net-gateway match-rules version.');
         }
 
         if (! is_array($rules)) {

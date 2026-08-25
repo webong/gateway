@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\Protocol\MatchRulesPatch;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\MatchRulesPatch;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 it('keeps the subscription JSON schema aligned with match-rules v1', function (): void {
     $schema = json_decode(

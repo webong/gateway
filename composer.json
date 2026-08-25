@@ -1,6 +1,6 @@
 {
-    "name": "webong/web-relay",
-    "description": "Laravel control-plane contract for the web-relay Go transport",
+    "name": "webong/net-gateway",
+    "description": "Laravel control-plane contract for the net-gateway Go transport",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -29,12 +29,12 @@
     ],
     "autoload": {
         "psr-4": {
-            "Webong\\WebRelay\\": "src/"
+            "Webong\\NetGateway\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Webong\\WebRelay\\Tests\\": "tests/"
+            "Webong\\NetGateway\\Tests\\": "tests/"
         }
     },
     "scripts": {
@@ -43,7 +43,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Webong\\WebRelay\\WebRelayServiceProvider"
+                "Webong\\NetGateway\\NetGatewayServiceProvider"
             ]
         }
     },

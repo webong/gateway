@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use InvalidArgumentException;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 final readonly class SubscriptionMatcher
 {

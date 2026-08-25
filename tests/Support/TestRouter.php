@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Tests\Support;
+namespace Webong\NetGateway\Tests\Support;
 
 use Webong\WebProxy\Contracts\Router;
 use Webong\WebProxy\Models\WebProxyCall;

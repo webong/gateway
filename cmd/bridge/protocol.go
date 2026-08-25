@@ -1,4 +1,4 @@
-package webrelay
+package netgateway
 
 import (
 	"fmt"

@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Tests\Fixtures;
+namespace Webong\NetGateway\Tests\Fixtures;
 
-use Webong\WebRelay\Contracts\PathResolver;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\PathBinding;
+use Webong\NetGateway\Contracts\PathResolver;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\PathBinding;
 
 final class HttpSmokePathResolver implements PathResolver
 {

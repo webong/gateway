@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/web-relay/cmd/internal/config"
-	"github.com/webong/web-relay/cmd/internal/logging"
+	"github.com/webong/net-gateway/cmd/internal/config"
+	"github.com/webong/net-gateway/cmd/internal/logging"
 )
 
 func TestForwarderMergesTargetAndWebhookQueryParameters(t *testing.T) {

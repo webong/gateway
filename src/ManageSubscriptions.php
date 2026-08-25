@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use InvalidArgumentException;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 final readonly class ManageSubscriptions
 {

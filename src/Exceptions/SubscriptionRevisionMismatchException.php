@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Exceptions;
+namespace Webong\NetGateway\Exceptions;
 
 use RuntimeException;
 

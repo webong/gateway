@@ -1,4 +1,4 @@
-package webrelay
+package netgateway
 
 // PHP planner tests.
 
@@ -51,7 +51,7 @@ func TestRoadRunnerPluginPassesNonRelayPathsBackToPHP(t *testing.T) {
 	executor := &recordingExecutor{}
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == PHPPlannerPath {
-			if r.Header.Get("X-RoadRunner-Relay-Internal") != "test-token" {
+			if r.Header.Get(InternalTokenHeader) != "test-token" {
 				t.Fatalf("expected configured internal planner token")
 			}
 			var ingress IngressRequest

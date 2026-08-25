@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use InvalidArgumentException;
 use Webong\WebProxy\DestinationDefinition;
 use Webong\WebProxy\Enums\WebhookProxyTargetType;
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\Protocol\SubscriptionState;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\SubscriptionState;
 
 /**
  * PHP-facing subscription DSL. It compiles to the same destination metadata

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Tests\Fixtures;
+namespace Webong\NetGateway\Tests\Fixtures;
 
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\ServiceProvider;
 use ReflectionClass;
 use Webong\WebProxy\WebProxyServiceProvider;
-use Webong\WebRelay\Tests\Support\TestRouter;
+use Webong\NetGateway\Tests\Support\TestRouter;
 
 final class HttpRegistrySmokeServiceProvider extends ServiceProvider
 {
@@ -29,14 +29,14 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
             ],
             'web-proxy.base_url' => getenv('WEB_PROXY_URL') ?: 'http://127.0.0.1',
             'web-proxy.routers.http-smoke' => TestRouter::class,
-            'web-relay.cache.enabled' => false,
-            'web-relay.mutations.lock_store' => 'array',
+            'net-gateway.cache.enabled' => false,
+            'net-gateway.mutations.lock_store' => 'array',
         ]);
     }
 
     public function boot(): void
     {
-        if (getenv('WEB_RELAY_HTTP_REGISTRY_SMOKE') !== '1') {
+        if (getenv('NET_GATEWAY_HTTP_REGISTRY_SMOKE') !== '1') {
             return;
         }
 

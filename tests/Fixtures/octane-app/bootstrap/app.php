@@ -3,12 +3,12 @@
 declare(strict_types=1);
 
 use Illuminate\Foundation\Application;
-use Webong\WebRelay\Tests\Fixtures\HttpRegistrySmokeServiceProvider;
-use Webong\WebRelay\WebRelayServiceProvider;
+use Webong\NetGateway\Tests\Fixtures\HttpRegistrySmokeServiceProvider;
+use Webong\NetGateway\NetGatewayServiceProvider;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withProviders([
-        WebRelayServiceProvider::class,
+        NetGatewayServiceProvider::class,
         HttpRegistrySmokeServiceProvider::class,
     ])
     ->withMiddleware()

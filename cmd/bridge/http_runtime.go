@@ -1,4 +1,4 @@
-package webrelay
+package netgateway
 
 // HTTPRuntime connects the Go edge to an independently hosted Laravel
 // application. It uses ordinary HTTP for the PHP control-plane call and for
@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	InternalTokenHeader       = "X-Web-Relay-Internal"
-	LegacyInternalTokenHeader = "X-RoadRunner-Relay-Internal"
+	InternalTokenHeader = "X-Net-Gateway-Internal"
 )
 
 // HTTPPlanner asks the Laravel application to produce a route plan over an
@@ -71,7 +70,7 @@ func (p *HTTPPlanner) Plan(ctx context.Context, ingress IngressRequest) (RoutePl
 	request.Header.Set("Accept", "application/json")
 	setInternalToken(request.Header, p.InternalToken)
 	if ingress.Host != "" {
-		request.Header.Set("X-Web-Relay-Original-Host", ingress.Host)
+		request.Header.Set("X-Net-Gateway-Original-Host", ingress.Host)
 	}
 
 	response, err := p.Client.Do(request)
@@ -122,7 +121,7 @@ func NewHTTPRuntime(backendURL string, internalToken string, maxBodySize int64, 
 		return nil, err
 	}
 	if strings.TrimSpace(internalToken) == "" {
-		return nil, fmt.Errorf("WEB_RELAY_INTERNAL_TOKEN is required for HTTP runtime")
+		return nil, fmt.Errorf("NET_GATEWAY_INTERNAL_TOKEN is required for HTTP runtime")
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -193,15 +192,15 @@ func (r *HTTPRuntime) Close() {
 func parseBackendURL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, fmt.Errorf("LARAVEL_BACKEND_URL is required for HTTP runtime")
+		return nil, fmt.Errorf("NET_GATEWAY_LARAVEL_BACKEND_URL is required for HTTP runtime")
 	}
 
 	backend, err := url.Parse(raw)
 	if err != nil || backend.Scheme == "" || backend.Host == "" {
-		return nil, fmt.Errorf("invalid LARAVEL_BACKEND_URL %q", raw)
+		return nil, fmt.Errorf("invalid NET_GATEWAY_LARAVEL_BACKEND_URL %q", raw)
 	}
 	if backend.Scheme != "http" && backend.Scheme != "https" {
-		return nil, fmt.Errorf("LARAVEL_BACKEND_URL must use http or https")
+		return nil, fmt.Errorf("NET_GATEWAY_LARAVEL_BACKEND_URL must use http or https")
 	}
 
 	return backend, nil
@@ -226,9 +225,6 @@ func setInternalToken(headers http.Header, token string) {
 		token = "1"
 	}
 	headers.Set(InternalTokenHeader, token)
-	// Keep the old header during the migration so existing Laravel hosts and
-	// embedded RoadRunner deployments continue to accept the bridge call.
-	headers.Set(LegacyInternalTokenHeader, token)
 }
 
 var _ Planner = (*HTTPPlanner)(nil)

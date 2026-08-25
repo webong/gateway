@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use InvalidArgumentException;
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\Protocol\MatchRulesPatch;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\MatchRulesPatch;
 
 final readonly class PatchSubscriptionMatch
 {

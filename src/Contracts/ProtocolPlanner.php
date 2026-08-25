@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Contracts;
+namespace Webong\NetGateway\Contracts;
 
-use Webong\WebRelay\Protocol\GatewayDecision;
-use Webong\WebRelay\Protocol\GatewayEvent;
+use Webong\NetGateway\Protocol\GatewayDecision;
+use Webong\NetGateway\Protocol\GatewayEvent;
 
 /**
  * Future protocol-neutral planner boundary for WebSocket and SMTP adapters.

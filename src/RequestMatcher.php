@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\MatchRules;
 
 final readonly class RequestMatcher
 {

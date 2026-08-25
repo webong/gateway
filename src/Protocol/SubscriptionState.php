@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay\Protocol;
+namespace Webong\NetGateway\Protocol;
 
 use InvalidArgumentException;
 
 final class SubscriptionState
 {
-    public const string STATUS_METADATA_KEY = '_web_relay_status';
+    public const string STATUS_METADATA_KEY = '_net_gateway_status';
 
-    public const string REVISION_METADATA_KEY = '_web_relay_revision';
+    public const string REVISION_METADATA_KEY = '_net_gateway_revision';
 
     public const string ACTIVE = 'active';
 

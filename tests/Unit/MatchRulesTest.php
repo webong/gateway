@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\WebRelay\Protocol\MatchRules;
+use Webong\NetGateway\Protocol\MatchRules;
 
 it('normalizes PHP rules to the canonical HTTP representation', function (): void {
     $rules = MatchRules::make([

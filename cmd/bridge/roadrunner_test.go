@@ -1,4 +1,4 @@
-package webrelay
+package netgateway
 
 // RoadRunner embedding tests.
 
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestEmbeddedRoadRunnerRegistersWebRelayPlugin(t *testing.T) {
+func TestEmbeddedRoadRunnerRegistersNetGatewayPlugin(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), ".rr.yaml")
 	config := `version: "3"
 server:

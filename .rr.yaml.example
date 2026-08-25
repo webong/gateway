@@ -11,7 +11,7 @@ server:
 
 http:
   address: "0.0.0.0:5001"
-  middleware: ["web_relay", "gzip"]
+  middleware: ["net_gateway", "gzip"]
   max_request_size: 10
   pool:
     # A fixed pool stays warm; do not enable a dynamic allocator that can scale

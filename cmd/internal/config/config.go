@@ -27,31 +27,22 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	runtime := getEnv("WEB_RELAY_RUNTIME", "")
+	runtime := getEnv("NET_GATEWAY_RUNTIME", "")
 	if runtime == "" {
-		if getEnvBool("ROADRUNNER_ENABLED", false) {
-			runtime = "roadrunner"
-		} else {
-			runtime = "standalone"
-		}
+		runtime = "standalone"
 	}
 	runtime = strings.ToLower(strings.TrimSpace(runtime))
 	if runtime != "roadrunner" && runtime != "http" && runtime != "standalone" {
-		return nil, fmt.Errorf("unsupported WEB_RELAY_RUNTIME %q (expected roadrunner, http, or standalone)", runtime)
-	}
-
-	internalToken := getEnv("WEB_RELAY_INTERNAL_TOKEN", "")
-	if internalToken == "" {
-		internalToken = getEnv("ROADRUNNER_INTERNAL_TOKEN", "")
+		return nil, fmt.Errorf("unsupported NET_GATEWAY_RUNTIME %q (expected roadrunner, http, or standalone)", runtime)
 	}
 
 	return &Config{
 		Runtime:              runtime,
-		LaravelBackendURL:    getEnv("LARAVEL_BACKEND_URL", ""),
+		LaravelBackendURL:    getEnv("NET_GATEWAY_LARAVEL_BACKEND_URL", ""),
 		Port:                 getEnv("PORT", "5001"),
 		RoadRunnerEnabled:    runtime == "roadrunner",
 		RoadRunnerConfigPath: getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
-		InternalToken:        internalToken,
+		InternalToken:        getEnv("NET_GATEWAY_INTERNAL_TOKEN", ""),
 		MaxWorkers:           getEnvInt("MAX_WORKERS", 100),
 		MaxQueueSize:         getEnvInt("MAX_QUEUE_SIZE", 1000),
 		RequestTimeout:       getEnvDuration("REQUEST_TIMEOUT", 30*time.Second),
@@ -84,15 +75,6 @@ func getEnvInt64(key string, defaultValue int64) int64 {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.ParseInt(value, 10, 64); err == nil {
 			return intValue
-		}
-	}
-	return defaultValue
-}
-
-func getEnvBool(key string, defaultValue bool) bool {
-	if value := os.Getenv(key); value != "" {
-		if boolValue, err := strconv.ParseBool(value); err == nil {
-			return boolValue
 		}
 	}
 	return defaultValue

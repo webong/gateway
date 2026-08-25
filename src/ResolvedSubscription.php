@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Webong\WebProxy\Contracts\EndpointProvider;
 use Webong\WebProxy\DestinationRecord;

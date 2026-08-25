@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\RequestMatcher;
-use Webong\WebRelay\SubscriptionMatcher;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\RequestMatcher;
+use Webong\NetGateway\SubscriptionMatcher;
 
 it('matches normalized headers and JSON body using Laravel rules', function (): void {
     $request = new IngressRequest(

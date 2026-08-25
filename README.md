@@ -1,6 +1,6 @@
-# Web Relay
+# Net Gateway
 
-Web Relay is a single-ingress Go host for a Go transport plane and a Laravel
+Net Gateway is a single-ingress Go host for a Go transport plane and a Laravel
 control plane. The host can embed RoadRunner or connect to an independently
 served Laravel application over HTTP.
 
@@ -47,7 +47,7 @@ selected runtime adapter.
 
 - `cmd/relayer` is the Go executable and lifecycle wiring.
 - `cmd/bridge` is the transport-neutral Go edge plus the RoadRunner and HTTP
-  runtime adapters (`webrelay`).
+  runtime adapters for the net-gateway host.
 - `cmd/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `src/` is the PHP/Laravel control plane and remains the Composer package
@@ -61,7 +61,7 @@ directory belongs to Composer, not Go.
 ## Choose a host runtime
 
 Install the package dependencies in the Laravel application and configure a
-class implementing `Webong\WebRelay\Contracts\RoutePlanner`, or configure the
+class implementing `Webong\NetGateway\Contracts\RoutePlanner`, or configure the
 bundled registry planner and a `PathResolver`. Then choose one of these modes:
 
 - `roadrunner` embeds RoadRunner in the Go process. It is the single-listener
@@ -72,9 +72,7 @@ bundled registry planner and a `PathResolver`. Then choose one of these modes:
 - `standalone` starts only the Go transport host and is useful for diagnostics
   or adapter tests; it does not provide a Laravel control plane.
 
-Set `WEB_RELAY_RUNTIME` to `roadrunner`, `http`, or `standalone`. For backward
-compatibility, `ROADRUNNER_ENABLED=true` selects `roadrunner` when the new
-variable is absent.
+Set `NET_GATEWAY_RUNTIME` to `roadrunner`, `http`, or `standalone`.
 
 The `Planner` interface is the transport seam. Goridge is used by the embedded
 RoadRunner adapter because it is RoadRunner's PHP worker transport; it is not
@@ -140,7 +138,7 @@ middleware:
 
 ```yaml
 http:
-  middleware: ["web_relay", "gzip"]
+  middleware: ["net_gateway", "gzip"]
 ```
 
 The example keeps a fixed PHP pool warm and recycles individual workers after
@@ -151,16 +149,15 @@ latency matters.
 Then start the embedded host from the repository root:
 
 ```bash
-export WEB_RELAY_RUNTIME=roadrunner
-export WEB_RELAY_INTERNAL_TOKEN='use-a-long-random-value'
+export NET_GATEWAY_RUNTIME=roadrunner
+export NET_GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export ROADRUNNER_CONFIG=.rr.yaml
 go run ./cmd/relayer
 ```
 
-`WEB_RELAY_INTERNAL_TOKEN` is required in embedded mode. The old
-`ROADRUNNER_INTERNAL_TOKEN` name remains supported as a fallback. The token
-is sent only on the PHP planner call and must match the Laravel configuration.
-The planner path `/_internal/web-relay/plan` is reserved and cannot be called
+`NET_GATEWAY_INTERNAL_TOKEN` is required in embedded mode. The token is sent
+only on the PHP planner call and must match the Laravel configuration.
+The planner path `/_internal/net-gateway/plan` is reserved and cannot be called
 as a public request through the Go middleware.
 
 ### HTTP Laravel backend
@@ -169,13 +166,13 @@ In `http` mode, start Laravel separately and point the Go host at its private
 or local URL:
 
 ```bash
-export WEB_RELAY_RUNTIME=http
-export LARAVEL_BACKEND_URL=http://127.0.0.1:8000
-export WEB_RELAY_INTERNAL_TOKEN='use-a-long-random-value'
+export NET_GATEWAY_RUNTIME=http
+export NET_GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export NET_GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 go run ./cmd/relayer
 ```
 
-Go sends `POST /_internal/web-relay/plan` to that backend and reverse-proxies
+Go sends `POST /_internal/net-gateway/plan` to that backend and reverse-proxies
 every `pass_through` request to it. The Go public listener still owns the
 network edge, while Laravel owns application routing and the control plane.
 The backend URL may contain a path prefix; the planner route is appended to
@@ -183,11 +180,10 @@ that prefix.
 
 ### Go configuration
 
-- `WEB_RELAY_RUNTIME` - `roadrunner`, `http`, or `standalone` (default
-  `standalone`; `ROADRUNNER_ENABLED=true` remains a legacy selector)
-- `LARAVEL_BACKEND_URL` - Laravel base URL required by `http` mode
-- `WEB_RELAY_INTERNAL_TOKEN` - required shared planner token; falls back to
-  `ROADRUNNER_INTERNAL_TOKEN`
+- `NET_GATEWAY_RUNTIME` - `roadrunner`, `http`, or `standalone` (default
+  `standalone`)
+- `NET_GATEWAY_LARAVEL_BACKEND_URL` - Laravel base URL required by `http` mode
+- `NET_GATEWAY_INTERNAL_TOKEN` - required shared planner token
 - `PORT` - Go host port (default `5001`)
 - `ROADRUNNER_CONFIG` - RoadRunner YAML path (default `.rr.yaml`)
 - `MAX_WORKERS` - asynchronous delivery workers (default `100`)
@@ -199,20 +195,20 @@ that prefix.
 
 PHP-side cache settings:
 
-- `WEB_RELAY_CACHE_ENABLED` - enables registry route caching (default `true`)
-- `WEB_RELAY_CACHE_STORE` - Laravel cache store; use a shared store such as
+- `NET_GATEWAY_CACHE_ENABLED` - enables registry route caching (default `true`)
+- `NET_GATEWAY_CACHE_STORE` - Laravel cache store; use a shared store such as
   Redis when multiple warm workers or application instances are running
-- `WEB_RELAY_PATH_CACHE_TTL` - path-binding TTL in seconds (default `300`)
-- `WEB_RELAY_ROUTE_CACHE_TTL` - endpoint/subscription snapshot TTL (default
+- `NET_GATEWAY_PATH_CACHE_TTL` - path-binding TTL in seconds (default `300`)
+- `NET_GATEWAY_ROUTE_CACHE_TTL` - endpoint/subscription snapshot TTL (default
   `30`)
-- `WEB_RELAY_MISSING_CACHE_TTL` - negative lookup TTL (default `5`)
-- `WEB_RELAY_CACHE_PREFIX` - cache-key prefix (default `web-relay`)
-- `WEB_RELAY_CACHE_CUSTOM_PROVIDERS` - opt custom `web-proxy` providers into
+- `NET_GATEWAY_MISSING_CACHE_TTL` - negative lookup TTL (default `5`)
+- `NET_GATEWAY_CACHE_PREFIX` - cache-key prefix (default `net-gateway`)
+- `NET_GATEWAY_CACHE_CUSTOM_PROVIDERS` - opt custom `web-proxy` providers into
   route caching (default `false`)
-- `WEB_RELAY_MUTATION_LOCK_STORE` - shared cache store used for conditional
-  subscription mutations; defaults to `WEB_RELAY_CACHE_STORE`
-- `WEB_RELAY_MUTATION_LOCK_SECONDS` - route lock lease (default `10`)
-- `WEB_RELAY_MUTATION_LOCK_WAIT_SECONDS` - lock wait before `503` (default `5`)
+- `NET_GATEWAY_MUTATION_LOCK_STORE` - shared cache store used for conditional
+  subscription mutations; defaults to `NET_GATEWAY_CACHE_STORE`
+- `NET_GATEWAY_MUTATION_LOCK_SECONDS` - route lock lease (default `10`)
+- `NET_GATEWAY_MUTATION_LOCK_WAIT_SECONDS` - lock wait before `503` (default `5`)
 
 `standalone` mode has no PHP planner wired by itself. Use `http` when Laravel
 is hosted separately, or `roadrunner` when the Go process should own the
@@ -230,8 +226,8 @@ make benchmark-php
 Change the workload without editing the test:
 
 ```bash
-WEB_RELAY_BENCH_SUBSCRIBERS=500 \
-WEB_RELAY_BENCH_ITERATIONS=1000 \
+NET_GATEWAY_BENCH_SUBSCRIBERS=500 \
+NET_GATEWAY_BENCH_ITERATIONS=1000 \
 make benchmark-php
 ```
 
@@ -239,8 +235,8 @@ Estimate a starting warm-worker count for a measured target rate with 50%
 headroom:
 
 ```bash
-WEB_RELAY_BENCH_SUBSCRIBERS=500 \
-WEB_RELAY_BENCH_TARGET_RPS=200 \
+NET_GATEWAY_BENCH_SUBSCRIBERS=500 \
+NET_GATEWAY_BENCH_TARGET_RPS=200 \
 make benchmark-php
 ```
 
@@ -270,17 +266,17 @@ The HTTP runtime smoke can run that ingress benchmark against its real Go →
 Laravel → registry path before teardown:
 
 ```bash
-WEB_RELAY_HTTP_BENCHMARK_REQUESTS=1000 \
-WEB_RELAY_HTTP_BENCHMARK_CONCURRENCY=20 \
+NET_GATEWAY_HTTP_BENCHMARK_REQUESTS=1000 \
+NET_GATEWAY_HTTP_BENCHMARK_CONCURRENCY=20 \
 bash scripts/http-smoke.sh
 ```
 
 ## PHP control plane
 
 The Laravel side can either implement
-`Webong\WebRelay\Contracts\RoutePlanner` directly and configure it as
-`WEB_RELAY_PLANNER`, or use the bundled `RegistryRoutePlanner` with a
-`PathResolver` configured as `WEB_RELAY_PATH_RESOLVER`.
+`Webong\NetGateway\Contracts\RoutePlanner` directly and configure it as
+`NET_GATEWAY_PLANNER`, or use the bundled `RegistryRoutePlanner` with a
+`PathResolver` configured as `NET_GATEWAY_PATH_RESOLVER`.
 
 The planner receives an `IngressRequest` containing the exact public path. It
 should validate the request, resolve the agnostic endpoint/subscriber
@@ -305,10 +301,10 @@ identifier is carried across the bridge.
 ### Custom route planner
 
 ```php
-use Webong\WebRelay\Contracts\RoutePlanner;
-use Webong\WebRelay\Protocol\Delivery;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\RoutePlan;
+use Webong\NetGateway\Contracts\RoutePlanner;
+use Webong\NetGateway\Protocol\Delivery;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\RoutePlan;
 
 final class ApplicationRoutePlanner implements RoutePlanner
 {
@@ -333,9 +329,9 @@ An application-owned path resolver can look up any path shape, for example
 the Go service:
 
 ```php
-use Webong\WebRelay\Contracts\PathResolver;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\PathBinding;
+use Webong\NetGateway\Contracts\PathResolver;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\PathBinding;
 
 final class ApplicationPathResolver implements PathResolver
 {
@@ -374,8 +370,8 @@ headers or body fields. Implement `CacheablePathResolver` and return a key
 containing every request attribute that can change its result:
 
 ```php
-use Webong\WebRelay\Contracts\CacheablePathResolver;
-use Webong\WebRelay\Protocol\IngressRequest;
+use Webong\NetGateway\Contracts\CacheablePathResolver;
+use Webong\NetGateway\Protocol\IngressRequest;
 
 final class ApplicationPathResolver implements CacheablePathResolver
 {
@@ -393,7 +389,7 @@ successful writes. If application code mutates `web-proxy` directly, invalidate
 the affected snapshot explicitly:
 
 ```php
-use Webong\WebRelay\RegistryRouteCache;
+use Webong\NetGateway\RegistryRouteCache;
 
 app(RegistryRouteCache::class)->invalidateEndpoint($endpointKey);
 app(RegistryRouteCache::class)->invalidatePaths(); // when path ownership changed
@@ -431,9 +427,9 @@ non-JSON bodies remain strings.
 The PHP-facing DSL compiles to a normal `webong/web-proxy` destination:
 
 ```php
-use Webong\WebRelay\Protocol\MatchRules;
-use Webong\WebRelay\SubscribeEndpoint;
-use Webong\WebRelay\SubscriptionDefinition;
+use Webong\NetGateway\Protocol\MatchRules;
+use Webong\NetGateway\SubscribeEndpoint;
+use Webong\NetGateway\SubscriptionDefinition;
 
 $definition = SubscriptionDefinition::matching(
     subscriberId: 'workspace-42',
@@ -516,12 +512,11 @@ registry; its Laravel migrations remain PHP-owned.
 
 ## Internal planner route
 
-The service provider registers `POST /_internal/web-relay/plan`. In
+The service provider registers `POST /_internal/net-gateway/plan`. In
 `roadrunner` mode, Go/RoadRunner intercepts that path before it can become a
 public Laravel route. In `http` mode, the Go edge blocks the path publicly and
 calls it only on the configured Laravel backend. The controller requires a
-non-empty `WEB_RELAY_INTERNAL_TOKEN` matching the Go process; the old
-`ROADRUNNER_INTERNAL_TOKEN` name remains accepted by the package config.
+non-empty `NET_GATEWAY_INTERNAL_TOKEN` matching the Go process.
 
 When embedding RoadRunner in Go, configure the PHP worker command as
 `vendor/bin/roadrunner-worker` with `APP_BASE_PATH` pointing at the Laravel
@@ -578,5 +573,5 @@ built-in HTTP server, then starts Go as the public edge:
 bash scripts/http-smoke.sh
 ```
 
-Set `WEB_RELAY_OCTANE_APP_PATH` when testing an application-owned Laravel host
+Set `NET_GATEWAY_OCTANE_APP_PATH` when testing an application-owned Laravel host
 instead of the fixture.

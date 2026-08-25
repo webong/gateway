@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Http\JsonResponse;

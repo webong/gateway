@@ -1,4 +1,4 @@
-package webrelay
+package netgateway
 
 import (
 	"context"
@@ -15,8 +15,8 @@ func TestHTTPPlannerUsesTheSharedBridgeContract(t *testing.T) {
 		if request.URL.Path != PHPPlannerPath {
 			t.Fatalf("expected planner path %q, got %q", PHPPlannerPath, request.URL.Path)
 		}
-		if request.Header.Get(InternalTokenHeader) != "test-token" || request.Header.Get(LegacyInternalTokenHeader) != "test-token" {
-			t.Fatalf("expected both internal token headers")
+		if request.Header.Get(InternalTokenHeader) != "test-token" {
+			t.Fatalf("expected internal token header")
 		}
 
 		var ingress IngressRequest

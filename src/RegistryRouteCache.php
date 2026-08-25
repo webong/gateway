@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Closure;
 use Illuminate\Contracts\Cache\Repository;
 use Throwable;
 use Webong\WebProxy\DatabaseEndpointProvider;
-use Webong\WebRelay\Contracts\CacheablePathResolver;
-use Webong\WebRelay\Contracts\PathResolver;
-use Webong\WebRelay\Protocol\IngressRequest;
-use Webong\WebRelay\Protocol\PathBinding;
+use Webong\NetGateway\Contracts\CacheablePathResolver;
+use Webong\NetGateway\Contracts\PathResolver;
+use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\NetGateway\Protocol\PathBinding;
 
 final class RegistryRouteCache
 {
@@ -21,7 +21,7 @@ final class RegistryRouteCache
         private readonly int $pathTtl,
         private readonly int $routeTtl,
         private readonly int $missingTtl,
-        private readonly string $prefix = 'web-relay',
+        private readonly string $prefix = 'net-gateway',
         private readonly bool $cacheCustomProviders = false,
     ) {
     }

@@ -2,23 +2,20 @@
 
 declare(strict_types=1);
 
-namespace Webong\WebRelay;
+namespace Webong\NetGateway;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\WebRelay\Contracts\RoutePlanner;
-use Webong\WebRelay\Protocol\IngressRequest;
+use Webong\NetGateway\Contracts\RoutePlanner;
+use Webong\NetGateway\Protocol\IngressRequest;
 
 final class PlanController
 {
     public function __invoke(Request $request, RoutePlanner $planner): JsonResponse
     {
-        $token = (string) config('web-relay.internal_token', '');
-        $provided = (string) $request->header(
-            'X-Web-Relay-Internal',
-            $request->header('X-RoadRunner-Relay-Internal', ''),
-        );
+        $token = (string) config('net-gateway.internal_token', '');
+        $provided = (string) $request->header('X-Net-Gateway-Internal', '');
 
         if ($token === '' || $provided === '' || ! hash_equals($token, $provided)) {
             abort(Response::HTTP_NOT_FOUND);

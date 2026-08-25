@@ -1,6 +1,6 @@
 # Subscription JSON DSL v1
 
-This document is the normative reference for registering a Web Relay
+This document is the normative reference for registering a Net Gateway
 subscription over HTTP. The machine-readable companion is
 [`schemas/subscription-v1.schema.json`](schemas/subscription-v1.schema.json).
 Incremental match updates use
@@ -181,8 +181,8 @@ Use that exact value as `If-Match` on the next mutation. A stale value returns
 The equivalent fluent PHP API uses the same patch object:
 
 ```php
-use Webong\WebRelay\PatchSubscriptionMatch;
-use Webong\WebRelay\Protocol\MatchRulesPatch;
+use Webong\NetGateway\PatchSubscriptionMatch;
+use Webong\NetGateway\Protocol\MatchRulesPatch;
 
 $patch = MatchRulesPatch::make()
     ->remove('body.account.id', 'in:account-42')
@@ -268,7 +268,7 @@ Content-Type: application/json
 ```
 
 Use `{"status":"active"}` to reactivate either a paused or removed
-subscription. Pause and removal are Web Relay lifecycle states stored in
+subscription. Pause and removal are Net Gateway lifecycle states stored in
 reserved destination metadata, which keeps the behavior portable across
 `web-proxy` providers. PHP excludes both states from route plans.
 
