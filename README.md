@@ -1,11 +1,12 @@
 # Web Relay
 
-Web Relay is a single-ingress RoadRunner host for a Go transport plane and a
-Laravel control plane.
+Web Relay is a single-ingress Go host for a Go transport plane and a Laravel
+control plane. The host can embed RoadRunner or connect to an independently
+served Laravel application over HTTP.
 
 ```text
 public request
-    -> embedded RoadRunner + Go web_relay middleware
+    -> Go edge (embedded RoadRunner or net/http)
     -> PHP planner (validation, registry, subscriber binding)
     -> route plan
        -> Go synchronous reply delivery
@@ -22,7 +23,7 @@ other path it owns.
 
 Go owns the public network edge, request capture, stable delivery IDs,
 outbound HTTP connection pooling, DNS/SSRF checks, synchronous replies,
-asynchronous delivery queues, and RoadRunner lifecycle.
+asynchronous delivery queues, and the selected host runtime lifecycle.
 
 PHP/Laravel owns endpoint and subscription management through
 `webong/web-proxy`, the public registry JSON API, request validation, matching,
@@ -39,13 +40,14 @@ destinations to Go; the Go transport never interprets or stores the DSL.
 
 The Go service never exposes registry-management APIs, queries registry
 storage, evaluates match rules, or runs PHP migrations. It handles ingress and
-egress traffic and asks the PHP worker for a route plan through RoadRunner's
-Goridge worker transport.
+egress traffic and asks the PHP application for a route plan through the
+selected runtime adapter.
 
 ## Repository layout
 
 - `cmd/relayer` is the Go executable and lifecycle wiring.
-- `cmd/bridge` is the Go RoadRunner bridge package (`webrelay`).
+- `cmd/bridge` is the transport-neutral Go edge plus the RoadRunner and HTTP
+  runtime adapters (`webrelay`).
 - `cmd/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `src/` is the PHP/Laravel control plane and remains the Composer package
@@ -56,35 +58,45 @@ The root is intentionally a single Go module and Composer package. When the
 PHP `vendor/` directory exists, use `-mod=mod` for Go commands because that
 directory belongs to Composer, not Go.
 
-## Start the embedded host
+## Choose a host runtime
 
-1. Install the package dependencies in the Laravel application and configure
-   a class implementing `Webong\WebRelay\Contracts\RoutePlanner`, or
-   configure the bundled registry planner and a `PathResolver`.
-2. Copy `.rr.yaml.example` to the path used by `ROADRUNNER_CONFIG` and set its
-   PHP worker command and Laravel application path.
-3. Set the same non-empty value for `ROADRUNNER_INTERNAL_TOKEN` in Go and the
-   Laravel environment.
-4. Run the Go service with `ROADRUNNER_ENABLED=true`.
+Install the package dependencies in the Laravel application and configure a
+class implementing `Webong\WebRelay\Contracts\RoutePlanner`, or configure the
+bundled registry planner and a `PathResolver`. Then choose one of these modes:
 
-The RoadRunner HTTP middleware list must contain `web_relay`. The middleware
-plans every path by default; a PHP planner returns `pass_through` for normal
-Laravel pages and `relay`, `respond`, or both reply/relay destinations for
-owned ingress paths.
+- `roadrunner` embeds RoadRunner in the Go process. It is the single-listener
+  production path and uses RoadRunner's PHP worker transport.
+- `http` keeps Laravel independently hosted by PHP-FPM, an HTTP server,
+  Octane, or another Laravel-compatible host. Go remains the public edge and
+  calls Laravel's planner route and proxies pass-through requests over HTTP.
+- `standalone` starts only the Go transport host and is useful for diagnostics
+  or adapter tests; it does not provide a Laravel control plane.
+
+Set `WEB_RELAY_RUNTIME` to `roadrunner`, `http`, or `standalone`. For backward
+compatibility, `ROADRUNNER_ENABLED=true` selects `roadrunner` when the new
+variable is absent.
+
+The `Planner` interface is the transport seam. Goridge is used by the embedded
+RoadRunner adapter because it is RoadRunner's PHP worker transport; it is not
+itself a complete PHP host or worker supervisor. A future direct-Goridge
+adapter can plug into the same seam without changing the Go edge, while the
+supported non-RoadRunner deployment today is `http` mode.
 
 ## Go transport plane
 
-For every path, the `web_relay` RoadRunner middleware:
+For every path, the Go edge:
 
 1. captures the method, host, path, query, headers, and body;
 2. calculates a stable SHA-256 delivery ID;
-3. asks the PHP worker for a `v1` route plan;
+3. asks the PHP application for a `v1` route plan through the selected
+   planner adapter;
 4. performs the synchronous reply and/or queues the PHP-resolved relays.
 
-The planner call is an in-process RoadRunner HTTP-worker dispatch. RoadRunner
-encodes the internal planning request onto its PHP worker pool through
-Goridge; it does not open a second HTTP listener or make a loopback network
-request.
+In `roadrunner` mode, the planner call is an in-process RoadRunner HTTP-worker
+dispatch. RoadRunner encodes the internal planning request onto its PHP worker
+pool through Goridge; it does not open a second HTTP listener. In `http` mode,
+the same JSON bridge is sent to the configured Laravel backend over ordinary
+HTTP.
 
 The JSON body fields are base64 encoded by both sides. This keeps the boundary
 safe for non-UTF-8 payloads as well as JSON webhooks.
@@ -109,23 +121,45 @@ http:
 Then start the embedded host from the repository root:
 
 ```bash
-export ROADRUNNER_ENABLED=true
-export ROADRUNNER_INTERNAL_TOKEN='use-a-long-random-value'
+export WEB_RELAY_RUNTIME=roadrunner
+export WEB_RELAY_INTERNAL_TOKEN='use-a-long-random-value'
 export ROADRUNNER_CONFIG=.rr.yaml
 go run ./cmd/relayer
 ```
 
-`ROADRUNNER_INTERNAL_TOKEN` is required in embedded mode. It is sent only on
-the in-process PHP planner call and must match the Laravel configuration. The
-planner path `/_internal/web-relay/plan` is reserved and cannot be called as a
-public request through the Go middleware.
+`WEB_RELAY_INTERNAL_TOKEN` is required in embedded mode. The old
+`ROADRUNNER_INTERNAL_TOKEN` name remains supported as a fallback. The token
+is sent only on the PHP planner call and must match the Laravel configuration.
+The planner path `/_internal/web-relay/plan` is reserved and cannot be called
+as a public request through the Go middleware.
+
+### HTTP Laravel backend
+
+In `http` mode, start Laravel separately and point the Go host at its private
+or local URL:
+
+```bash
+export WEB_RELAY_RUNTIME=http
+export LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export WEB_RELAY_INTERNAL_TOKEN='use-a-long-random-value'
+go run ./cmd/relayer
+```
+
+Go sends `POST /_internal/web-relay/plan` to that backend and reverse-proxies
+every `pass_through` request to it. The Go public listener still owns the
+network edge, while Laravel owns application routing and the control plane.
+The backend URL may contain a path prefix; the planner route is appended to
+that prefix.
 
 ### Go configuration
 
-- `PORT` - standalone development port (default `5001`)
-- `ROADRUNNER_ENABLED` - use embedded RoadRunner (default `false`)
+- `WEB_RELAY_RUNTIME` - `roadrunner`, `http`, or `standalone` (default
+  `standalone`; `ROADRUNNER_ENABLED=true` remains a legacy selector)
+- `LARAVEL_BACKEND_URL` - Laravel base URL required by `http` mode
+- `WEB_RELAY_INTERNAL_TOKEN` - required shared planner token; falls back to
+  `ROADRUNNER_INTERNAL_TOKEN`
+- `PORT` - Go host port (default `5001`)
 - `ROADRUNNER_CONFIG` - RoadRunner YAML path (default `.rr.yaml`)
-- `ROADRUNNER_INTERNAL_TOKEN` - required in embedded mode
 - `MAX_WORKERS` - asynchronous delivery workers (default `100`)
 - `MAX_QUEUE_SIZE` - pending relay capacity (default `1000`)
 - `REQUEST_TIMEOUT` - outbound request timeout (default `30s`)
@@ -133,8 +167,9 @@ public request through the Go middleware.
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - standalone shutdown timeout (default `30s`)
 
-Standalone mode is useful for transport tests but has no PHP planner wired by
-itself; embedded RoadRunner is the intended production path.
+`standalone` mode has no PHP planner wired by itself. Use `http` when Laravel
+is hosted separately, or `roadrunner` when the Go process should own the
+RoadRunner lifecycle.
 
 ## PHP control plane
 
@@ -318,11 +353,12 @@ registry; its Laravel migrations remain PHP-owned.
 
 ## Internal planner route
 
-The service provider registers `POST /_internal/web-relay/plan`. RoadRunner
-intercepts that path before it can become a public Laravel route. The
-controller also requires a non-empty `ROADRUNNER_INTERNAL_TOKEN` matching the
-Go process, so direct PHP-worker access cannot invoke the planner without the
-shared secret.
+The service provider registers `POST /_internal/web-relay/plan`. In
+`roadrunner` mode, Go/RoadRunner intercepts that path before it can become a
+public Laravel route. In `http` mode, the Go edge blocks the path publicly and
+calls it only on the configured Laravel backend. The controller requires a
+non-empty `WEB_RELAY_INTERNAL_TOKEN` matching the Go process; the old
+`ROADRUNNER_INTERNAL_TOKEN` name remains accepted by the package config.
 
 When embedding RoadRunner in Go, configure the PHP worker command as
 `vendor/bin/roadrunner-worker` with `APP_BASE_PATH` pointing at the Laravel

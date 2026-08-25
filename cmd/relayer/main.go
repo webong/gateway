@@ -40,8 +40,8 @@ func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", server.handleHealth)
 	mux.HandleFunc("/metrics", server.handleMetrics)
-	// Standalone mode is retained for local transport testing. Embedded
-	// RoadRunner is the production single-ingress path.
+	// The selected runtime populates the relay handler. Health and metrics stay
+	// on the Go host in every mode.
 	mux.HandleFunc("/", server.handleRelay)
 
 	server.httpServer = &http.Server{
@@ -59,15 +59,25 @@ func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
 // PHP owns validation, registry lookup, subscriber resolution, and route
 // binding; Go only executes the resulting network plan.
 func (s *Server) SetRelayPlanner(planner bridge.Planner) {
-	s.relayHandle = s.NewRelayEdge(planner)
+	s.SetRelayHandler(s.NewRelayEdge(planner))
 }
 
-func (s *Server) NewRelayEdge(planner bridge.Planner) http.Handler {
-	return bridge.NewEdge(
+// SetRelayHandler mounts a fully composed Go edge. Runtime adapters use this
+// when they need to provide both a planner and a Laravel pass-through handler.
+func (s *Server) SetRelayHandler(handler http.Handler) {
+	s.relayHandle = handler
+}
+
+func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
+	edge := bridge.NewEdge(
 		planner,
 		newRelayExecutor(s.forwarder, s.workerPool),
 		s.config.MaxBodySize,
 	)
+	if len(passThrough) > 0 {
+		edge.SetPassThrough(passThrough[0])
+	}
+	return edge
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +112,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) Start() error {
-	s.logger.Info("Starting standalone Go relay transport on port %s", s.config.Port)
+	s.logger.Info("Starting Go relay host on port %s", s.config.Port)
 	s.logger.Info("Worker pool size: %d", s.config.MaxWorkers)
 	s.logger.Info("Max queue size: %d", s.config.MaxQueueSize)
 	s.logger.Info("Request timeout: %v", s.config.RequestTimeout)
@@ -137,10 +147,19 @@ func run() error {
 
 	logger := logging.NewLogger(config.LogLevel)
 	server := NewServer(config, logger)
-	if config.RoadRunnerEnabled {
+	switch config.Runtime {
+	case "roadrunner":
 		return runEmbeddedRoadRunner(config, server, logger)
+	case "http":
+		return runHTTPBackend(config, server, logger)
+	case "standalone":
+		return runStandalone(config, server, logger)
+	default:
+		return fmt.Errorf("unsupported runtime %q", config.Runtime)
 	}
+}
 
+func runStandalone(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.Start() }()
 
@@ -167,13 +186,34 @@ func run() error {
 	return nil
 }
 
+func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
+	client := &http.Client{Timeout: config.RequestTimeout}
+	runtime, err := bridge.NewHTTPRuntime(
+		config.LaravelBackendURL,
+		config.InternalToken,
+		config.MaxBodySize,
+		client,
+	)
+	if err != nil {
+		server.workerPool.Shutdown()
+		return fmt.Errorf("failed to initialize HTTP Laravel runtime: %w", err)
+	}
+	defer runtime.Close()
+
+	edge := server.NewRelayEdge(runtime.Planner(), runtime.PassThrough())
+	server.SetRelayHandler(runtime.Handler(edge))
+	logger.Info("Using HTTP Laravel backend at %s", config.LaravelBackendURL)
+
+	return runStandalone(config, server, logger)
+}
+
 func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	runner, err := bridge.NewEmbeddedRoadRunner(
 		config.RoadRunnerConfigPath,
 		nil,
 		newRelayExecutor(server.forwarder, server.workerPool),
 		config.MaxBodySize,
-		config.RoadRunnerInternalToken,
+		config.InternalToken,
 	)
 	if err != nil {
 		server.workerPool.Shutdown()

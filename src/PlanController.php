@@ -15,7 +15,10 @@ final class PlanController
     public function __invoke(Request $request, RoutePlanner $planner): JsonResponse
     {
         $token = (string) config('web-relay.internal_token', '');
-        $provided = (string) $request->header('X-RoadRunner-Relay-Internal', '');
+        $provided = (string) $request->header(
+            'X-Web-Relay-Internal',
+            $request->header('X-RoadRunner-Relay-Internal', ''),
+        );
 
         if ($token === '' || $provided === '' || ! hash_equals($token, $provided)) {
             abort(Response::HTTP_NOT_FOUND);

@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 return [
     // Required whenever the PHP worker can be reached outside the embedded
-    // process. It must match ROADRUNNER_INTERNAL_TOKEN in the Go service.
-    'internal_token' => (string) env('ROADRUNNER_INTERNAL_TOKEN', ''),
+    // process. WEB_RELAY_INTERNAL_TOKEN is transport-neutral; the old
+    // RoadRunner name remains a compatibility fallback.
+    'internal_token' => (string) env('WEB_RELAY_INTERNAL_TOKEN', env('ROADRUNNER_INTERNAL_TOKEN', '')),
 
     // Optional custom planner. If omitted, RegistryRoutePlanner is used when
     // path_resolver is configured.

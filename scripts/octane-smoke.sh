@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${WEB_RELAY_OCTANE_APP_PATH:-$ROOT/tests/Fixtures/octane-app}"
 PORT="${WEB_RELAY_OCTANE_PORT:-18080}"
-TOKEN="${ROADRUNNER_INTERNAL_TOKEN:-octane-smoke-token}"
+TOKEN="${WEB_RELAY_INTERNAL_TOKEN:-octane-smoke-token}"
 LOG_LEVEL="${WEB_RELAY_OCTANE_LOG_LEVEL:-error}"
 BASE_URL="http://127.0.0.1:$PORT"
 
@@ -51,7 +51,7 @@ server:
     APP_ENV: "testing"
     APP_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     LARAVEL_OCTANE: "1"
-    ROADRUNNER_INTERNAL_TOKEN: "$TOKEN"
+    WEB_RELAY_INTERNAL_TOKEN: "$TOKEN"
     WEB_RELAY_PLANNER: 'Webong\WebRelay\Tests\Fixtures\OctaneSmokePlanner'
 
 http:
@@ -68,9 +68,9 @@ EOF
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/cmd/relayer"
 
-ROADRUNNER_ENABLED=true \
+WEB_RELAY_RUNTIME=roadrunner \
 ROADRUNNER_CONFIG="$CONFIG" \
-ROADRUNNER_INTERNAL_TOKEN="$TOKEN" \
+WEB_RELAY_INTERNAL_TOKEN="$TOKEN" \
 "$RELAY_BIN" >"$LOG" 2>&1 &
 RELAY_PID=$!
 

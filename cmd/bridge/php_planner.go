@@ -48,11 +48,7 @@ func (p *PHPPlanner) Plan(ctx context.Context, ingress IngressRequest) (RoutePla
 	}
 	request.Host = ingress.Host
 	request.Header.Set("Content-Type", "application/json")
-	internalToken := p.InternalToken
-	if internalToken == "" {
-		internalToken = "1"
-	}
-	request.Header.Set("X-RoadRunner-Relay-Internal", internalToken)
+	setInternalToken(request.Header, p.InternalToken)
 
 	response := httptest.NewRecorder()
 	p.PHPHandler.ServeHTTP(response, request)

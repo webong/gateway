@@ -1,42 +1,66 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
 type Config struct {
-	Port                    string
-	RoadRunnerEnabled       bool
-	RoadRunnerConfigPath    string
-	RoadRunnerInternalToken string
-	MaxWorkers              int
-	MaxQueueSize            int
-	RequestTimeout          time.Duration
-	MaxBodySize             int64
-	MaxIdleConns            int
-	MaxConnsPerHost         int
-	IdleConnTimeout         time.Duration
-	LogLevel                string
-	ShutdownTimeout         time.Duration
+	Runtime              string
+	LaravelBackendURL    string
+	Port                 string
+	RoadRunnerEnabled    bool
+	RoadRunnerConfigPath string
+	InternalToken        string
+	MaxWorkers           int
+	MaxQueueSize         int
+	RequestTimeout       time.Duration
+	MaxBodySize          int64
+	MaxIdleConns         int
+	MaxConnsPerHost      int
+	IdleConnTimeout      time.Duration
+	LogLevel             string
+	ShutdownTimeout      time.Duration
 }
 
 func LoadConfig() (*Config, error) {
+	runtime := getEnv("WEB_RELAY_RUNTIME", "")
+	if runtime == "" {
+		if getEnvBool("ROADRUNNER_ENABLED", false) {
+			runtime = "roadrunner"
+		} else {
+			runtime = "standalone"
+		}
+	}
+	runtime = strings.ToLower(strings.TrimSpace(runtime))
+	if runtime != "roadrunner" && runtime != "http" && runtime != "standalone" {
+		return nil, fmt.Errorf("unsupported WEB_RELAY_RUNTIME %q (expected roadrunner, http, or standalone)", runtime)
+	}
+
+	internalToken := getEnv("WEB_RELAY_INTERNAL_TOKEN", "")
+	if internalToken == "" {
+		internalToken = getEnv("ROADRUNNER_INTERNAL_TOKEN", "")
+	}
+
 	return &Config{
-		Port:                    getEnv("PORT", "5001"),
-		RoadRunnerEnabled:       getEnvBool("ROADRUNNER_ENABLED", false),
-		RoadRunnerConfigPath:    getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
-		RoadRunnerInternalToken: getEnv("ROADRUNNER_INTERNAL_TOKEN", ""),
-		MaxWorkers:              getEnvInt("MAX_WORKERS", 100),
-		MaxQueueSize:            getEnvInt("MAX_QUEUE_SIZE", 1000),
-		RequestTimeout:          getEnvDuration("REQUEST_TIMEOUT", 30*time.Second),
-		MaxBodySize:             getEnvInt64("MAX_BODY_SIZE", 10*1024*1024),
-		MaxIdleConns:            getEnvInt("MAX_IDLE_CONNS", 100),
-		MaxConnsPerHost:         getEnvInt("MAX_CONNS_PER_HOST", 100),
-		IdleConnTimeout:         getEnvDuration("IDLE_CONN_TIMEOUT", 90*time.Second),
-		LogLevel:                getEnv("LOG_LEVEL", "debug"),
-		ShutdownTimeout:         getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
+		Runtime:              runtime,
+		LaravelBackendURL:    getEnv("LARAVEL_BACKEND_URL", ""),
+		Port:                 getEnv("PORT", "5001"),
+		RoadRunnerEnabled:    runtime == "roadrunner",
+		RoadRunnerConfigPath: getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
+		InternalToken:        internalToken,
+		MaxWorkers:           getEnvInt("MAX_WORKERS", 100),
+		MaxQueueSize:         getEnvInt("MAX_QUEUE_SIZE", 1000),
+		RequestTimeout:       getEnvDuration("REQUEST_TIMEOUT", 30*time.Second),
+		MaxBodySize:          getEnvInt64("MAX_BODY_SIZE", 10*1024*1024),
+		MaxIdleConns:         getEnvInt("MAX_IDLE_CONNS", 100),
+		MaxConnsPerHost:      getEnvInt("MAX_CONNS_PER_HOST", 100),
+		IdleConnTimeout:      getEnvDuration("IDLE_CONN_TIMEOUT", 90*time.Second),
+		LogLevel:             getEnv("LOG_LEVEL", "debug"),
+		ShutdownTimeout:      getEnvDuration("SHUTDOWN_TIMEOUT", 30*time.Second),
 	}, nil
 }
 
