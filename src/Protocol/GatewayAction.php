@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Protocol;
+namespace Webong\Gateway\Protocol;
 
 enum GatewayAction: string
 {

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Contracts;
+namespace Webong\Gateway\Contracts;
 
-use Webong\NetGateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\IngressRequest;
 
 /**
  * Opts an application path resolver into path-binding caching.

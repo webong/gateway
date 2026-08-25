@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use InvalidArgumentException;
-use Webong\NetGateway\Protocol\SubscriptionState;
+use Webong\Gateway\Protocol\SubscriptionState;
 
 final readonly class ManageSubscriptions
 {

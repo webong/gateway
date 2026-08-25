@@ -1,4 +1,4 @@
-//go:build !netgateway_smoke
+//go:build !gateway_smoke
 
 package forwarding
 

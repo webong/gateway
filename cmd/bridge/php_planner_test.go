@@ -1,4 +1,4 @@
-package netgateway
+package gateway
 
 // PHP planner tests.
 

@@ -1,4 +1,4 @@
-package netgateway
+package gateway
 
 // RoadRunner embedding tests.
 
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestEmbeddedRoadRunnerRegistersNetGatewayPlugin(t *testing.T) {
+func TestEmbeddedRoadRunnerRegistersGatewayPlugin(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), ".rr.yaml")
 	config := `version: "3"
 server:

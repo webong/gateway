@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Tests\Support;
+namespace Webong\Gateway\Tests\Support;
 
-use Webong\NetGateway\Contracts\CacheablePathResolver;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\PathBinding;
+use Webong\Gateway\Contracts\CacheablePathResolver;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\PathBinding;
 
 final class TestPathResolver implements CacheablePathResolver
 {

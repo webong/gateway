@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\NetGateway\Protocol\Response;
-use Webong\NetGateway\Protocol\RoutePlan;
+use Webong\Gateway\Protocol\Response;
+use Webong\Gateway\Protocol\RoutePlan;
 
 it('serializes empty response headers as a JSON map for Go', function (): void {
     $json = json_encode(

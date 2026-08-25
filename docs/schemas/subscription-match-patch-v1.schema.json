@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/webong/net-gateway/blob/main/docs/schemas/subscription-match-patch-v1.schema.json",
-  "title": "Net Gateway incremental subscription match patch v1",
+  "$id": "https://github.com/webong/gateway/blob/main/docs/schemas/subscription-match-patch-v1.schema.json",
+  "title": "Gateway incremental subscription match patch v1",
   "description": "Canonical request for PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}/match.",
   "type": "object",
   "additionalProperties": false,

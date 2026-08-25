@@ -3,18 +3,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_PATH="${NET_GATEWAY_OCTANE_APP_PATH:-$ROOT/tests/Fixtures/octane-app}"
-PORT="${NET_GATEWAY_OCTANE_PORT:-18080}"
-TOKEN="${NET_GATEWAY_INTERNAL_TOKEN:-octane-smoke-token}"
-LOG_LEVEL="${NET_GATEWAY_OCTANE_LOG_LEVEL:-error}"
+APP_PATH="${GATEWAY_OCTANE_APP_PATH:-$ROOT/tests/Fixtures/octane-app}"
+PORT="${GATEWAY_OCTANE_PORT:-18080}"
+TOKEN="${GATEWAY_INTERNAL_TOKEN:-octane-smoke-token}"
+LOG_LEVEL="${GATEWAY_OCTANE_LOG_LEVEL:-error}"
 BASE_URL="http://127.0.0.1:$PORT"
 
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/net-gateway-octane.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-octane.XXXXXX")"
 CONFIG="$TEMP_DIR/config.yaml"
 LOG="$TEMP_DIR/relay.log"
 HEADERS="$TEMP_DIR/response.headers"
 BODY="$TEMP_DIR/response.body"
-RELAY_BIN="$TEMP_DIR/net-gateway"
+RELAY_BIN="$TEMP_DIR/gateway"
 RELAY_PID=""
 
 cleanup() {
@@ -51,12 +51,12 @@ server:
     APP_ENV: "testing"
     APP_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     LARAVEL_OCTANE: "1"
-    NET_GATEWAY_INTERNAL_TOKEN: "$TOKEN"
-    NET_GATEWAY_PLANNER: 'Webong\NetGateway\Tests\Fixtures\OctaneSmokePlanner'
+    GATEWAY_INTERNAL_TOKEN: "$TOKEN"
+    GATEWAY_PLANNER: 'Webong\Gateway\Tests\Fixtures\OctaneSmokePlanner'
 
 http:
   address: "127.0.0.1:$PORT"
-  middleware: ["net_gateway", "gzip"]
+  middleware: ["gateway", "gzip"]
   max_request_size: 10
   pool:
     num_workers: 1
@@ -68,9 +68,9 @@ EOF
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/cmd/relayer"
 
-NET_GATEWAY_RUNTIME=roadrunner \
+GATEWAY_RUNTIME=roadrunner \
 ROADRUNNER_CONFIG="$CONFIG" \
-NET_GATEWAY_INTERNAL_TOKEN="$TOKEN" \
+GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 "$RELAY_BIN" >"$LOG" 2>&1 &
 RELAY_PID=$!
 
@@ -101,7 +101,7 @@ if [[ "$(<"$BODY")" != "octane-worker" ]]; then
 fi
 
 internal_status="$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
-    -X POST "$BASE_URL/_internal/net-gateway/plan")"
+    -X POST "$BASE_URL/_internal/gateway/plan")"
 if [[ "$internal_status" != "404" ]]; then
     echo "Internal planner route leaked publicly: HTTP $internal_status" >&2
     exit 1
@@ -119,7 +119,7 @@ fi
 
 curl -sS --max-time 5 -D "$HEADERS" -o "$BODY" "$BASE_URL/octane-smoke/plan"
 plan_status="$(awk '/^HTTP\// { status = $2 } END { print status }' "$HEADERS")"
-plan_header="$(awk 'tolower($1) == "x-net-gateway-plan:" { sub(/\r$/, "", $2); print $2; exit }' "$HEADERS")"
+plan_header="$(awk 'tolower($1) == "x-gateway-plan:" { sub(/\r$/, "", $2); print $2; exit }' "$HEADERS")"
 
 if [[ "$plan_status" != "202" ]]; then
     echo "Unexpected planned response status: $plan_status" >&2

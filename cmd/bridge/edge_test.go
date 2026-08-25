@@ -1,4 +1,4 @@
-package netgateway
+package gateway
 
 // Edge integration tests.
 

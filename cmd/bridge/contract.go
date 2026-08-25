@@ -1,7 +1,7 @@
-// Package netgateway contains the protocol boundary between the Go transport
+// Package gateway contains the protocol boundary between the Go transport
 // plane and the PHP control plane. It does not know how PHP stores endpoints,
 // subscribers, or migrations.
-package netgateway
+package gateway
 
 import (
 	"context"

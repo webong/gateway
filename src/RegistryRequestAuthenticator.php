@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,7 +12,7 @@ final class RegistryRequestAuthenticator
 {
     public function authorize(Request $request): ?JsonResponse
     {
-        $token = (string) config('net-gateway.registry_token', '');
+        $token = (string) config('gateway.registry_token', '');
 
         if ($token === '') {
             return response()->json([

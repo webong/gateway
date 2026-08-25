@@ -1,4 +1,4 @@
-package netgateway
+package gateway
 
 // RoadRunnerPlugin connects the Go edge to the PHP worker.
 
@@ -10,7 +10,7 @@ import (
 	"github.com/roadrunner-server/roadrunner/v2025/lib"
 )
 
-const RoadRunnerPluginName = "net_gateway"
+const RoadRunnerPluginName = "gateway"
 
 // RoadRunnerPlugin composes the Go edge with RoadRunner's PHP HTTP worker.
 // With an empty RelayPathPrefix every public path is offered to PHP for

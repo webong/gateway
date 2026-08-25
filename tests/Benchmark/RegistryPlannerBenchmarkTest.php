@@ -4,15 +4,15 @@ declare(strict_types=1);
 
 use Webong\WebProxy\EndpointDefinition;
 use Webong\WebProxy\EnsureEndpoint;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\RegistryRoutePlanner;
-use Webong\NetGateway\SubscribeEndpoint;
-use Webong\NetGateway\SubscriptionDefinition;
-use Webong\NetGateway\Tests\Support\TestPathResolver;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\RegistryRoutePlanner;
+use Webong\Gateway\SubscribeEndpoint;
+use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Tests\Support\TestPathResolver;
 
 it('benchmarks cached planning with realistic subscription counts', function (): void {
-    $subscriberCount = max(1, (int) getenv('NET_GATEWAY_BENCH_SUBSCRIBERS') ?: 100);
-    $iterations = max(1, (int) getenv('NET_GATEWAY_BENCH_ITERATIONS') ?: 250);
+    $subscriberCount = max(1, (int) getenv('GATEWAY_BENCH_SUBSCRIBERS') ?: 100);
+    $iterations = max(1, (int) getenv('GATEWAY_BENCH_ITERATIONS') ?: 250);
 
     $endpoint = app(EnsureEndpoint::class)->handle(new EndpointDefinition(
         client: 'relay-test',
@@ -86,9 +86,9 @@ it('benchmarks cached planning with realistic subscription counts', function ():
         $percentile($samples, 0.99),
     ));
 
-    $targetRps = max(0, (int) getenv('NET_GATEWAY_BENCH_TARGET_RPS'));
+    $targetRps = max(0, (int) getenv('GATEWAY_BENCH_TARGET_RPS'));
     if ($targetRps > 0) {
-        $headroom = max(1.0, (float) (getenv('NET_GATEWAY_BENCH_HEADROOM') ?: 1.5));
+        $headroom = max(1.0, (float) (getenv('GATEWAY_BENCH_HEADROOM') ?: 1.5));
         $workers = max(1, (int) ceil($targetRps * ($p95 / 1000) * $headroom));
 
         fwrite(STDOUT, sprintf(

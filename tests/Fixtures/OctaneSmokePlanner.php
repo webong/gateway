@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Tests\Fixtures;
+namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\NetGateway\Contracts\RoutePlanner;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\Response;
-use Webong\NetGateway\Protocol\RoutePlan;
+use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\Response;
+use Webong\Gateway\Protocol\RoutePlan;
 
 final class OctaneSmokePlanner implements RoutePlanner
 {
@@ -16,7 +16,7 @@ final class OctaneSmokePlanner implements RoutePlanner
         if ($request->path === '/octane-smoke/plan') {
             return RoutePlan::respond(new Response(
                 statusCode: 202,
-                headers: ['X-Net-Gateway-Plan' => ['octane']],
+                headers: ['X-Gateway-Plan' => ['octane']],
                 body: 'planned-by-octane',
             ));
         }

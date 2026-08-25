@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/webong/net-gateway/blob/main/docs/schemas/subscription-v1.schema.json",
-  "title": "Net Gateway subscription JSON DSL v1",
+  "$id": "https://github.com/webong/gateway/blob/main/docs/schemas/subscription-v1.schema.json",
+  "title": "Gateway subscription JSON DSL v1",
   "description": "Canonical request for POST /registry/endpoints/{endpointKey}/subscriptions.",
   "type": "object",
   "additionalProperties": false,

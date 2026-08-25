@@ -10,11 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	bridge "github.com/webong/net-gateway/cmd/bridge"
-	relayconfig "github.com/webong/net-gateway/cmd/internal/config"
-	"github.com/webong/net-gateway/cmd/internal/forwarding"
-	"github.com/webong/net-gateway/cmd/internal/logging"
-	"github.com/webong/net-gateway/cmd/internal/workers"
+	bridge "github.com/webong/gateway/cmd/bridge"
+	relayconfig "github.com/webong/gateway/cmd/internal/config"
+	"github.com/webong/gateway/cmd/internal/forwarding"
+	"github.com/webong/gateway/cmd/internal/logging"
+	"github.com/webong/gateway/cmd/internal/workers"
 )
 
 type Server struct {

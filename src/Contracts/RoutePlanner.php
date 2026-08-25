@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Contracts;
+namespace Webong\Gateway\Contracts;
 
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\RoutePlan;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\RoutePlan;
 
 /**
  * The Laravel application implements this boundary.

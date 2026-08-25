@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 
-	bridge "github.com/webong/net-gateway/cmd/bridge"
-	"github.com/webong/net-gateway/cmd/internal/forwarding"
-	"github.com/webong/net-gateway/cmd/internal/workers"
+	bridge "github.com/webong/gateway/cmd/bridge"
+	"github.com/webong/gateway/cmd/internal/forwarding"
+	"github.com/webong/gateway/cmd/internal/workers"
 )
 
 // relayExecutor adapts the Go transport implementation to the Go/PHP bridge.

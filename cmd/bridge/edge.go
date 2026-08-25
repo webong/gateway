@@ -1,4 +1,4 @@
-package netgateway
+package gateway
 
 // Edge is the Go-side HTTP adapter mounted in RoadRunner's HTTP pipeline.
 

@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use Closure;
 use Illuminate\Contracts\Cache\Repository;
 use Throwable;
 use Webong\WebProxy\DatabaseEndpointProvider;
-use Webong\NetGateway\Contracts\CacheablePathResolver;
-use Webong\NetGateway\Contracts\PathResolver;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\PathBinding;
+use Webong\Gateway\Contracts\CacheablePathResolver;
+use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\PathBinding;
 
 final class RegistryRouteCache
 {
@@ -21,7 +21,7 @@ final class RegistryRouteCache
         private readonly int $pathTtl,
         private readonly int $routeTtl,
         private readonly int $missingTtl,
-        private readonly string $prefix = 'net-gateway',
+        private readonly string $prefix = 'gateway',
         private readonly bool $cacheCustomProviders = false,
     ) {
     }

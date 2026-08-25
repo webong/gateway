@@ -2,26 +2,26 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
-use Webong\NetGateway\Contracts\PathResolver;
-use Webong\NetGateway\Contracts\RoutePlanner;
+use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Contracts\RoutePlanner;
 
-final class NetGatewayServiceProvider extends ServiceProvider
+final class GatewayServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/net-gateway.php', 'net-gateway');
+        $this->mergeConfigFrom(__DIR__.'/../config/gateway.php', 'gateway');
 
         $this->app->singleton(RegistryRouteCache::class, function (): RegistryRouteCache {
-            $enabled = (bool) config('net-gateway.cache.enabled', true);
+            $enabled = (bool) config('gateway.cache.enabled', true);
             $cache = null;
 
             if ($enabled && $this->app->bound(CacheFactory::class)) {
-                $store = config('net-gateway.cache.store');
+                $store = config('gateway.cache.store');
                 $cache = $this->app->make(CacheFactory::class)->store(
                     is_string($store) && $store !== '' ? $store : null,
                 );
@@ -30,42 +30,42 @@ final class NetGatewayServiceProvider extends ServiceProvider
             return new RegistryRouteCache(
                 cache: $cache,
                 enabled: $enabled,
-                pathTtl: max(0, (int) config('net-gateway.cache.path_ttl', 300)),
-                routeTtl: max(0, (int) config('net-gateway.cache.route_ttl', 30)),
-                missingTtl: max(0, (int) config('net-gateway.cache.missing_ttl', 5)),
-                prefix: (string) config('net-gateway.cache.prefix', 'net-gateway'),
-                cacheCustomProviders: (bool) config('net-gateway.cache.custom_providers', false),
+                pathTtl: max(0, (int) config('gateway.cache.path_ttl', 300)),
+                routeTtl: max(0, (int) config('gateway.cache.route_ttl', 30)),
+                missingTtl: max(0, (int) config('gateway.cache.missing_ttl', 5)),
+                prefix: (string) config('gateway.cache.prefix', 'gateway'),
+                cacheCustomProviders: (bool) config('gateway.cache.custom_providers', false),
             );
         });
 
         $this->app->bind(PathResolver::class, function (): PathResolver {
-            $resolver = config('net-gateway.path_resolver');
+            $resolver = config('gateway.path_resolver');
 
             if (! is_string($resolver) || $resolver === '') {
-                throw new RuntimeException('Configure net-gateway.path_resolver for the registry route planner.');
+                throw new RuntimeException('Configure gateway.path_resolver for the registry route planner.');
             }
 
             $resolved = $this->app->make($resolver);
             if (! $resolved instanceof PathResolver) {
-                throw new RuntimeException("Net-gateway path resolver [{$resolver}] must implement PathResolver.");
+                throw new RuntimeException("Gateway path resolver [{$resolver}] must implement PathResolver.");
             }
 
             return $resolved;
         });
 
         $this->app->bind(RoutePlanner::class, function (): RoutePlanner {
-            $configuredPlanner = config('net-gateway.planner');
-            $configuredResolver = config('net-gateway.path_resolver');
+            $configuredPlanner = config('gateway.planner');
+            $configuredResolver = config('gateway.path_resolver');
             $planner = $configuredPlanner
                 ?: (is_string($configuredResolver) && $configuredResolver !== '' ? RegistryRoutePlanner::class : null);
 
             if (! is_string($planner) || $planner === '') {
-                throw new RuntimeException('Configure net-gateway.planner with the Laravel route planner class.');
+                throw new RuntimeException('Configure gateway.planner with the Laravel route planner class.');
             }
 
             $resolved = $this->app->make($planner);
             if (! $resolved instanceof RoutePlanner) {
-                throw new RuntimeException("Net-gateway planner [{$planner}] must implement RoutePlanner.");
+                throw new RuntimeException("Gateway planner [{$planner}] must implement RoutePlanner.");
             }
 
             return $resolved;
@@ -75,11 +75,11 @@ final class NetGatewayServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->publishes([
-            __DIR__.'/../config/net-gateway.php' => config_path('net-gateway.php'),
-        ], 'net-gateway-config');
+            __DIR__.'/../config/gateway.php' => config_path('gateway.php'),
+        ], 'gateway-config');
 
         $this->app->booted(function (): void {
-            $this->app['router']->post('/_internal/net-gateway/plan', PlanController::class);
+            $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']
                 ->post('/registry/endpoints', EndpointController::class)
                 ->name('registry.endpoints.store');

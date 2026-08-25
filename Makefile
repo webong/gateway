@@ -4,7 +4,7 @@ GOFLAGS ?= -mod=mod
 
 build:
 	mkdir -p bin
-	CGO_ENABLED=0 go build $(GOFLAGS) -o bin/net-gateway ./cmd/relayer
+	CGO_ENABLED=0 go build $(GOFLAGS) -o bin/gateway ./cmd/relayer
 
 test: test-go test-php
 

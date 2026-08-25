@@ -4,7 +4,7 @@
          bootstrap="vendor/autoload.php"
          colors="true">
     <testsuites>
-        <testsuite name="Net Gateway">
+        <testsuite name="Gateway">
             <directory>tests</directory>
             <exclude>tests/Benchmark</exclude>
         </testsuite>

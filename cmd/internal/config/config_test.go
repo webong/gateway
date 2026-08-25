@@ -4,8 +4,8 @@ import "testing"
 
 func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")
-	t.Setenv("NET_GATEWAY_LARAVEL_BACKEND_URL", "http://127.0.0.1:8000")
-	t.Setenv("NET_GATEWAY_INTERNAL_TOKEN", "gateway-token")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://127.0.0.1:8000")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
 
 	config, err := LoadConfig()
 	if err != nil {
@@ -33,7 +33,7 @@ func TestLoadConfigDefaultsToStandalone(t *testing.T) {
 
 func setConfigEnv(t *testing.T, runtime string) {
 	t.Helper()
-	t.Setenv("NET_GATEWAY_RUNTIME", runtime)
-	t.Setenv("NET_GATEWAY_INTERNAL_TOKEN", "")
-	t.Setenv("NET_GATEWAY_LARAVEL_BACKEND_URL", "")
+	t.Setenv("GATEWAY_RUNTIME", runtime)
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "")
 }

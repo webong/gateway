@@ -36,7 +36,7 @@ type result struct {
 
 func main() {
 	var headers headerFlags
-	target := flag.String("url", "", "public Net Gateway ingress URL")
+	target := flag.String("url", "", "public Gateway ingress URL")
 	method := flag.String("method", http.MethodPost, "HTTP request method")
 	body := flag.String("body", `{"account":{"id":"account-42"}}`, "request body")
 	requests := flag.Int("requests", 5000, "total requests")

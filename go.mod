@@ -1,4 +1,4 @@
-module github.com/webong/net-gateway
+module github.com/webong/gateway
 
 go 1.24.0
 

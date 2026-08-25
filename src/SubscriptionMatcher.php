@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use InvalidArgumentException;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\MatchRules;
-use Webong\NetGateway\Protocol\SubscriptionState;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocol\SubscriptionState;
 
 final readonly class SubscriptionMatcher
 {

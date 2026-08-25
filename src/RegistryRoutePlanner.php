@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use InvalidArgumentException;
 use RuntimeException;
@@ -12,12 +12,12 @@ use Webong\WebProxy\Enums\WebhookProxyTargetType;
 use Webong\WebProxy\WebProxyChannelManager;
 use Webong\WebProxy\WebProxyRegistryManager;
 use Webong\WebProxy\WebhookRoute;
-use Webong\NetGateway\Contracts\PathResolver;
-use Webong\NetGateway\Contracts\RoutePlanner;
-use Webong\NetGateway\Protocol\Delivery;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\Response;
-use Webong\NetGateway\Protocol\RoutePlan;
+use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Protocol\Delivery;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\Response;
+use Webong\Gateway\Protocol\RoutePlan;
 
 /**
  * Default bridge planner for webong/web-proxy.

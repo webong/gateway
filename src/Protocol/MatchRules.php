@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Protocol;
+namespace Webong\Gateway\Protocol;
 
 use InvalidArgumentException;
 
@@ -17,7 +17,7 @@ final readonly class MatchRules
 {
     public const VERSION = 'v1';
 
-    public const METADATA_KEY = '_net_gateway_match';
+    public const METADATA_KEY = '_gateway_match';
 
     private const MAX_FIELDS = 64;
 
@@ -79,7 +79,7 @@ final readonly class MatchRules
         $rules = $payload['rules'] ?? null;
 
         if ($version !== self::VERSION) {
-            throw new InvalidArgumentException('Unsupported net-gateway match-rules version.');
+            throw new InvalidArgumentException('Unsupported gateway match-rules version.');
         }
 
         if (! is_array($rules)) {

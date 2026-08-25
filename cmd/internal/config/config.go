@@ -27,22 +27,22 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	runtime := getEnv("NET_GATEWAY_RUNTIME", "")
+	runtime := getEnv("GATEWAY_RUNTIME", "")
 	if runtime == "" {
 		runtime = "standalone"
 	}
 	runtime = strings.ToLower(strings.TrimSpace(runtime))
 	if runtime != "roadrunner" && runtime != "http" && runtime != "standalone" {
-		return nil, fmt.Errorf("unsupported NET_GATEWAY_RUNTIME %q (expected roadrunner, http, or standalone)", runtime)
+		return nil, fmt.Errorf("unsupported GATEWAY_RUNTIME %q (expected roadrunner, http, or standalone)", runtime)
 	}
 
 	return &Config{
 		Runtime:              runtime,
-		LaravelBackendURL:    getEnv("NET_GATEWAY_LARAVEL_BACKEND_URL", ""),
+		LaravelBackendURL:    getEnv("GATEWAY_LARAVEL_BACKEND_URL", ""),
 		Port:                 getEnv("PORT", "5001"),
 		RoadRunnerEnabled:    runtime == "roadrunner",
 		RoadRunnerConfigPath: getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
-		InternalToken:        getEnv("NET_GATEWAY_INTERNAL_TOKEN", ""),
+		InternalToken:        getEnv("GATEWAY_INTERNAL_TOKEN", ""),
 		MaxWorkers:           getEnvInt("MAX_WORKERS", 100),
 		MaxQueueSize:         getEnvInt("MAX_QUEUE_SIZE", 1000),
 		RequestTimeout:       getEnvDuration("REQUEST_TIMEOUT", 30*time.Second),

@@ -1,6 +1,6 @@
 {
-    "name": "webong/net-gateway",
-    "description": "Laravel control-plane contract for the net-gateway Go transport",
+    "name": "webong/gateway",
+    "description": "Laravel control-plane contract for the gateway Go transport",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -29,12 +29,12 @@
     ],
     "autoload": {
         "psr-4": {
-            "Webong\\NetGateway\\": "src/"
+            "Webong\\Gateway\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Webong\\NetGateway\\Tests\\": "tests/"
+            "Webong\\Gateway\\Tests\\": "tests/"
         }
     },
     "scripts": {
@@ -43,7 +43,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Webong\\NetGateway\\NetGatewayServiceProvider"
+                "Webong\\Gateway\\GatewayServiceProvider"
             ]
         }
     },

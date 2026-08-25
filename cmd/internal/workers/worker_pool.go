@@ -3,8 +3,8 @@ package workers
 import (
 	"sync"
 
-	"github.com/webong/net-gateway/cmd/internal/forwarding"
-	"github.com/webong/net-gateway/cmd/internal/logging"
+	"github.com/webong/gateway/cmd/internal/forwarding"
+	"github.com/webong/gateway/cmd/internal/logging"
 )
 
 type WorkerPool struct {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Exceptions;
+namespace Webong\Gateway\Exceptions;
 
 use RuntimeException;
 

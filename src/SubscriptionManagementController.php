@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\NetGateway\Exceptions\EndpointNotFoundException;
-use Webong\NetGateway\Exceptions\SubscriptionLockUnavailableException;
-use Webong\NetGateway\Exceptions\SubscriptionNotFoundException;
-use Webong\NetGateway\Exceptions\SubscriptionRevisionMismatchException;
-use Webong\NetGateway\Protocol\SubscriptionState;
+use Webong\Gateway\Exceptions\EndpointNotFoundException;
+use Webong\Gateway\Exceptions\SubscriptionLockUnavailableException;
+use Webong\Gateway\Exceptions\SubscriptionNotFoundException;
+use Webong\Gateway\Exceptions\SubscriptionRevisionMismatchException;
+use Webong\Gateway\Protocol\SubscriptionState;
 
 final readonly class SubscriptionManagementController
 {

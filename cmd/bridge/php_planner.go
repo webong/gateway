@@ -1,4 +1,4 @@
-package netgateway
+package gateway
 
 // PHPPlanner invokes the Laravel worker through the RoadRunner chain.
 
@@ -12,7 +12,7 @@ import (
 	"net/http/httptest"
 )
 
-const PHPPlannerPath = "/_internal/net-gateway/plan"
+const PHPPlannerPath = "/_internal/gateway/plan"
 
 // PHPPlanner invokes the Laravel worker through the next handler in the
 // RoadRunner HTTP middleware chain. The internal path is never exposed as a

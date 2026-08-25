@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway\Tests\Fixtures;
+namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\NetGateway\Contracts\RoutePlanner;
-use Webong\NetGateway\Protocol\Delivery;
-use Webong\NetGateway\Protocol\IngressRequest;
-use Webong\NetGateway\Protocol\Response;
-use Webong\NetGateway\Protocol\RoutePlan;
-use Webong\NetGateway\RegistryRoutePlanner;
+use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Protocol\Delivery;
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\Response;
+use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\RegistryRoutePlanner;
 
 final class HttpSmokePlanner implements RoutePlanner
 {
@@ -24,7 +24,7 @@ final class HttpSmokePlanner implements RoutePlanner
         }
 
         if ($request->path === '/http-smoke/relay') {
-            $receiver = getenv('NET_GATEWAY_HTTP_RECEIVER_URL');
+            $receiver = getenv('GATEWAY_HTTP_RECEIVER_URL');
 
             if (is_string($receiver) && $receiver !== '') {
                 return RoutePlan::relay(relays: [new Delivery(
@@ -37,7 +37,7 @@ final class HttpSmokePlanner implements RoutePlanner
         if ($request->path === '/http-smoke/plan') {
             return RoutePlan::respond(new Response(
                 statusCode: 202,
-                headers: ['X-Net-Gateway-Plan' => ['http']],
+                headers: ['X-Gateway-Plan' => ['http']],
                 body: 'planned-by-http',
             ));
         }

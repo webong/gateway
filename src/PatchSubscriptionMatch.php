@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Webong\NetGateway;
+namespace Webong\Gateway;
 
 use InvalidArgumentException;
-use Webong\NetGateway\Protocol\MatchRules;
-use Webong\NetGateway\Protocol\MatchRulesPatch;
+use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocol\MatchRulesPatch;
 
 final readonly class PatchSubscriptionMatch
 {
