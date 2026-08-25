@@ -45,9 +45,10 @@ selected runtime adapter.
 
 ## Repository layout
 
-- `cmd/relayer` is the Go executable and lifecycle wiring.
-- `cmd/bridge` is the transport-neutral Go edge plus the RoadRunner and HTTP
-  runtime adapters for the gateway host.
+- `cmd/proxy` is the Go executable and lifecycle wiring.
+- `cmd/bridge` is the transport-neutral Go edge and protocol boundary.
+- `cmd/bridge/roadrunner` and `cmd/bridge/caddy` are the optional RoadRunner
+  and FrankenPHP/Caddy runtime adapters.
 - `cmd/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `src/` is the PHP/Laravel control plane and remains the Composer package
@@ -152,7 +153,7 @@ Then start the embedded host from the repository root:
 export GATEWAY_RUNTIME=roadrunner
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export ROADRUNNER_CONFIG=.rr.yaml
-go run ./cmd/relayer
+go run ./cmd/proxy
 ```
 
 `GATEWAY_INTERNAL_TOKEN` is required in embedded mode. The token is sent
@@ -169,7 +170,7 @@ or local URL:
 export GATEWAY_RUNTIME=http
 export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./cmd/relayer
+go run ./cmd/proxy
 ```
 
 Go sends `POST /_internal/gateway/plan` to that backend and reverse-proxies
@@ -538,6 +539,33 @@ The embedded host starts RoadRunner from Go; Octane's
 Run `php artisan octane:install --server=roadrunner` only when you need Octane
 to publish its application configuration. Do not run `php artisan
 octane:start` for this topology.
+
+### FrankenPHP/Caddy handler
+
+The Go gateway can also be compiled as a Caddy HTTP handler and placed before
+FrankenPHP's `php_server` handler. This keeps a single public FrankenPHP
+listener while preserving the same ownership boundary: Go captures and
+delivers network traffic, and Laravel remains the next handler for planning
+and ordinary application requests.
+
+The example configuration is in
+`config/Caddyfile.frankenphp.example`. Copy it into the Laravel application's
+FrankenPHP deployment and set `APP_PUBLIC_PATH`, `SERVER_NAME`, and
+`GATEWAY_INTERNAL_TOKEN`.
+
+Build a FrankenPHP binary with this module using the FrankenPHP builder image
+or an equivalent `xcaddy` build. From a FrankenPHP source checkout or builder,
+add the module path to its existing build command:
+
+```bash
+--with github.com/webong/gateway/cmd/bridge/caddy=/path/to/web-relay
+```
+
+For a custom FrankenPHP Docker image, add the same module to the builder's
+`xcaddy build` command, then replace the runtime image's FrankenPHP binary.
+The Caddy handler is compiled into the binary; it is not loaded dynamically at
+runtime. The handler owns its Go delivery worker pool and drains it during a
+Caddy configuration reload.
 
 ## Tests
 

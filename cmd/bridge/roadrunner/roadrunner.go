@@ -1,4 +1,4 @@
-package gateway
+package roadrunner
 
 // RoadRunnerPlugin connects the Go edge to the PHP worker.
 
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/roadrunner-server/roadrunner/v2025/lib"
+	bridge "github.com/webong/gateway/cmd/bridge"
 )
 
 const RoadRunnerPluginName = "gateway"
@@ -17,25 +18,25 @@ const RoadRunnerPluginName = "gateway"
 // validation and route binding; PHP can return pass_through for ordinary
 // Laravel pages.
 type RoadRunnerPlugin struct {
-	Executor        Executor
+	Executor        bridge.Executor
 	MaxBodySize     int64
 	RelayPathPrefix string
 	PlanPath        string
 	InternalToken   string
 }
 
-func NewRoadRunnerPlugin(executor Executor, maxBodySize int64, internalToken string) *RoadRunnerPlugin {
+func NewRoadRunnerPlugin(executor bridge.Executor, maxBodySize int64, internalToken string) *RoadRunnerPlugin {
 	return &RoadRunnerPlugin{
 		Executor:      executor,
 		MaxBodySize:   maxBodySize,
-		PlanPath:      PHPPlannerPath,
+		PlanPath:      bridge.PHPPlannerPath,
 		InternalToken: internalToken,
 	}
 }
 
 func (p *RoadRunnerPlugin) Init() error {
 	if p.PlanPath == "" {
-		p.PlanPath = PHPPlannerPath
+		p.PlanPath = bridge.PHPPlannerPath
 	}
 	return nil
 }
@@ -45,10 +46,10 @@ func (p *RoadRunnerPlugin) Name() string {
 }
 
 func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
-	planner := NewPHPPlanner(next, p.MaxBodySize)
+	planner := bridge.NewPHPPlanner(next, p.MaxBodySize)
 	planner.PlanPath = p.PlanPath
 	planner.InternalToken = p.InternalToken
-	edge := NewEdge(planner, p.Executor, p.MaxBodySize).SetPassThrough(next)
+	edge := bridge.NewEdge(planner, p.Executor, p.MaxBodySize).SetPassThrough(next)
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isPathUnder(request.URL.Path, p.PlanPath) {
@@ -69,7 +70,7 @@ type EmbeddedRoadRunner struct {
 	server *lib.RR
 }
 
-func NewEmbeddedRoadRunner(configPath string, overrides []string, executor Executor, maxBodySize int64, internalToken string) (*EmbeddedRoadRunner, error) {
+func NewEmbeddedRoadRunner(configPath string, overrides []string, executor bridge.Executor, maxBodySize int64, internalToken string) (*EmbeddedRoadRunner, error) {
 	if internalToken == "" {
 		return nil, fmt.Errorf("RoadRunner internal token is required")
 	}
@@ -91,6 +92,15 @@ func (r *EmbeddedRoadRunner) Stop() {
 	if r.server != nil {
 		r.server.Stop()
 	}
+}
+
+// Plugins exposes the loaded plugin names for diagnostics and integration
+// tests without leaking RoadRunner's embedded server to callers.
+func (r *EmbeddedRoadRunner) Plugins() []string {
+	if r == nil || r.server == nil {
+		return nil
+	}
+	return r.server.Plugins()
 }
 
 func isPathUnder(path, prefix string) bool {

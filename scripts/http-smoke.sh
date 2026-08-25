@@ -101,7 +101,7 @@ if [[ "$php_internal_status" != "404" ]]; then
 fi
 
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/cmd/relayer"
+go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/cmd/proxy"
 
 GATEWAY_RUNTIME=http \
 GATEWAY_LARAVEL_BACKEND_URL="$PHP_URL" \

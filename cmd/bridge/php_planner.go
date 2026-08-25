@@ -56,17 +56,26 @@ func (p *PHPPlanner) Plan(ctx context.Context, ingress IngressRequest) (RoutePla
 		return RoutePlan{}, fmt.Errorf("PHP planner returned status %d", response.Code)
 	}
 
-	body := response.Body
-	if p.MaxBodySize > 0 && int64(body.Len()) > p.MaxBodySize {
-		return RoutePlan{}, fmt.Errorf("PHP planner response exceeds maximum size of %d bytes", p.MaxBodySize)
+	return DecodeRoutePlan(response.Body, p.MaxBodySize)
+}
+
+// DecodeRoutePlan validates the JSON route plan returned by the PHP control
+// plane. Runtime adapters use the same decoder regardless of their host.
+func DecodeRoutePlan(body io.Reader, maxBodySize int64) (RoutePlan, error) {
+	if maxBodySize > 0 {
+		limited := io.LimitReader(body, maxBodySize+1)
+		bodyBytes, err := io.ReadAll(limited)
+		if err != nil {
+			return RoutePlan{}, fmt.Errorf("read PHP route plan: %w", err)
+		}
+		if int64(len(bodyBytes)) > maxBodySize {
+			return RoutePlan{}, fmt.Errorf("PHP planner response exceeds maximum size of %d bytes", maxBodySize)
+		}
+		body = bytes.NewReader(bodyBytes)
 	}
 
 	var plan RoutePlan
-	var reader io.Reader = body
-	if p.MaxBodySize > 0 {
-		reader = io.LimitReader(body, p.MaxBodySize+1)
-	}
-	if err := json.NewDecoder(reader).Decode(&plan); err != nil {
+	if err := json.NewDecoder(body).Decode(&plan); err != nil {
 		return RoutePlan{}, fmt.Errorf("decode PHP route plan: %w", err)
 	}
 	if err := plan.Validate(); err != nil {

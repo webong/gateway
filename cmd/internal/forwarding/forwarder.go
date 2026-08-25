@@ -176,3 +176,14 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 func (f *Forwarder) GetStats() (total, success, errors uint64) {
 	return f.totalRequests.Load(), f.successCount.Load(), f.errorCount.Load()
 }
+
+// CloseIdleConnections releases pooled outbound connections when the host
+// runtime unloads the transport plane.
+func (f *Forwarder) CloseIdleConnections() {
+	if f == nil || f.client == nil || f.client.Transport == nil {
+		return
+	}
+	if closer, ok := f.client.Transport.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}

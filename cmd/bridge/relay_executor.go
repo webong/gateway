@@ -1,25 +1,24 @@
-package main
+package gateway
 
 import (
 	"context"
 
-	bridge "github.com/webong/gateway/cmd/bridge"
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/workers"
 )
 
-// relayExecutor adapts the Go transport implementation to the Go/PHP bridge.
+// RelayExecutor adapts the Go transport implementation to the Go/PHP bridge.
 // It contains no registry or route-binding logic.
-type relayExecutor struct {
+type RelayExecutor struct {
 	forwarder  *forwarding.Forwarder
 	workerPool *workers.WorkerPool
 }
 
-func newRelayExecutor(forwarder *forwarding.Forwarder, workerPool *workers.WorkerPool) *relayExecutor {
-	return &relayExecutor{forwarder: forwarder, workerPool: workerPool}
+func NewRelayExecutor(forwarder *forwarding.Forwarder, workerPool *workers.WorkerPool) *RelayExecutor {
+	return &RelayExecutor{forwarder: forwarder, workerPool: workerPool}
 }
 
-func (e *relayExecutor) Deliver(ctx context.Context, delivery bridge.Delivery) (bridge.Response, error) {
+func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Response, error) {
 	response, err := e.forwarder.ForwardSync(forwarding.ForwardRequest{
 		TargetURL:   delivery.URL,
 		RequestBody: append([]byte(nil), delivery.Body...),
@@ -29,17 +28,17 @@ func (e *relayExecutor) Deliver(ctx context.Context, delivery bridge.Delivery) (
 		Context:     ctx,
 	})
 	if err != nil {
-		return bridge.Response{}, err
+		return Response{}, err
 	}
 
-	return bridge.Response{
+	return Response{
 		StatusCode: response.StatusCode,
 		Headers:    cloneRelayHeaders(response.Header),
 		Body:       append([]byte(nil), response.Body...),
 	}, nil
 }
 
-func (e *relayExecutor) Enqueue(delivery bridge.Delivery) bool {
+func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 	return e.workerPool.Submit(forwarding.ForwardRequest{
 		TargetURL:   delivery.URL,
 		RequestBody: append([]byte(nil), delivery.Body...),
@@ -57,4 +56,4 @@ func cloneRelayHeaders(headers map[string][]string) map[string][]string {
 	return cloned
 }
 
-var _ bridge.Executor = (*relayExecutor)(nil)
+var _ Executor = (*RelayExecutor)(nil)

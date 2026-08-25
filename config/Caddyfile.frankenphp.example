@@ -1,0 +1,29 @@
+{
+	frankenphp {
+		worker {
+			file {$APP_PUBLIC_PATH}/frankenphp-worker.php
+		}
+	}
+}
+
+{$SERVER_NAME:localhost} {
+	root * {$APP_PUBLIC_PATH}
+	encode zstd br gzip
+
+	route {
+		# The Go gateway is the first application handler. It calls the next
+		# handler for PHP planning and ordinary Laravel pass-through requests.
+		gateway {
+			internal_token {$GATEWAY_INTERNAL_TOKEN}
+			max_body_size 10485760
+			max_workers 100
+			max_queue_size 1000
+		}
+
+		php_server {
+			index frankenphp-worker.php
+			try_files {path} frankenphp-worker.php
+			resolve_root_symlink
+		}
+	}
+}

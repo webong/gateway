@@ -11,6 +11,7 @@ import (
 	"time"
 
 	bridge "github.com/webong/gateway/cmd/bridge"
+	roadrunner "github.com/webong/gateway/cmd/bridge/roadrunner"
 	relayconfig "github.com/webong/gateway/cmd/internal/config"
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/logging"
@@ -71,7 +72,7 @@ func (s *Server) SetRelayHandler(handler http.Handler) {
 func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
 	edge := bridge.NewEdge(
 		planner,
-		newRelayExecutor(s.forwarder, s.workerPool),
+		bridge.NewRelayExecutor(s.forwarder, s.workerPool),
 		s.config.MaxBodySize,
 	)
 	if len(passThrough) > 0 {
@@ -208,10 +209,10 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 }
 
 func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	runner, err := bridge.NewEmbeddedRoadRunner(
+	runner, err := roadrunner.NewEmbeddedRoadRunner(
 		config.RoadRunnerConfigPath,
 		nil,
-		newRelayExecutor(server.forwarder, server.workerPool),
+		bridge.NewRelayExecutor(server.forwarder, server.workerPool),
 		config.MaxBodySize,
 		config.InternalToken,
 	)

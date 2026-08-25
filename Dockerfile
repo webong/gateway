@@ -18,7 +18,7 @@ COPY . .
 
 # Build the gateway executable. Composer's vendor directory is excluded from
 # the Docker context and must not be interpreted as Go's vendor directory.
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o gateway ./cmd/relayer
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o gateway ./cmd/proxy
 
 # Final stage
 FROM alpine:latest
