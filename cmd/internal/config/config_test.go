@@ -36,4 +36,32 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_RUNTIME", runtime)
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "")
 	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "")
+	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "false")
+	t.Setenv("GATEWAY_REVERB_ENABLED", "false")
+	t.Setenv("GATEWAY_MERCURE_ENABLED", "false")
+	t.Setenv("GATEWAY_CENTRIFUGO_ENABLED", "false")
+}
+
+func TestLoadConfigRegistersAllProvisionedWorkloadSettings(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "true")
+	t.Setenv("GATEWAY_MERCURE_ENABLED", "true")
+	t.Setenv("GATEWAY_CENTRIFUGO_ENABLED", "true")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.Provisioning.Enabled || !config.Mercure.Enabled || !config.Centrifugo.Enabled {
+		t.Fatalf("unexpected workload configuration: %+v", config)
+	}
+}
+
+func TestLoadConfigRequiresProvisioningForReverbWorkload(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_REVERB_ENABLED", "true")
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected Reverb workload to require provisioning")
+	}
 }

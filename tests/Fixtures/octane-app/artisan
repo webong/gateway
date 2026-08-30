@@ -1,0 +1,14 @@
+<?php
+
+declare(strict_types=1);
+
+use Symfony\Component\Console\Input\ArgvInput;
+
+$root = dirname(__DIR__, 3);
+$vendor = getenv('COMPOSER_VENDOR_DIR') ?: $root.'/vendor';
+
+require $vendor.'/autoload.php';
+
+$app = require __DIR__.'/bootstrap/app.php';
+
+exit($app->handleCommand(new ArgvInput));

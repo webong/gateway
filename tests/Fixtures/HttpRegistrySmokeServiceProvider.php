@@ -36,7 +36,7 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if (getenv('GATEWAY_HTTP_REGISTRY_SMOKE') !== '1') {
+        if (getenv('GATEWAY_HTTP_REGISTRY_SMOKE') !== '1' || getenv('GATEWAY_SMOKE_SKIP_MIGRATIONS') === '1') {
             return;
         }
 
@@ -48,5 +48,6 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
 
         $provider = new ReflectionClass(WebProxyServiceProvider::class);
         $migrator->run(dirname((string) $provider->getFileName(), 2).'/database/migrations');
+
     }
 }

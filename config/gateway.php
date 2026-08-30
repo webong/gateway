@@ -24,6 +24,16 @@ return [
     // registry API. Management endpoints fail closed until it is configured.
     'registry_token' => (string) env('REGISTRY_TOKEN', ''),
 
+    // Gateway core owns the managed-server control-plane records. Configure
+    // table names before running the package migrations.
+    'servers' => [
+        'tables' => [
+            'servers' => env('GATEWAY_SERVERS_TABLE', 'servers'),
+            'applications' => env('GATEWAY_APPLICATIONS_TABLE', 'applications'),
+            'instances' => env('GATEWAY_INSTANCES_TABLE', 'instances'),
+        ],
+    ],
+
     'cache' => [
         // Use a shared store such as Redis in production so every warm PHP
         // worker observes generation-based invalidation immediately.

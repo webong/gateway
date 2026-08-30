@@ -19,7 +19,15 @@ import (
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/logging"
 	"github.com/webong/gateway/cmd/internal/workers"
+	centrifugoruntime "github.com/webong/gateway/ext/centrifugo/runtime"
+	mercureruntime "github.com/webong/gateway/ext/mercure/runtime"
+	reverbruntime "github.com/webong/gateway/ext/reverb/runtime"
+	"github.com/webong/gateway/internal/provisioning"
 )
+
+type extensionRouteHandler interface {
+	ServeIfMatched(http.ResponseWriter, *http.Request) bool
+}
 
 type Server struct {
 	config           *relayconfig.Config
@@ -28,6 +36,7 @@ type Server struct {
 	workerPool       *workers.WorkerPool
 	relayHandle      http.Handler
 	websocketHandler http.Handler
+	extensionHandler extensionRouteHandler
 	httpServer       *http.Server
 }
 
@@ -77,6 +86,10 @@ func (s *Server) SetWebSocketHandler(handler http.Handler) {
 	s.websocketHandler = handler
 }
 
+func (s *Server) SetExtensionHandler(handler extensionRouteHandler) {
+	s.extensionHandler = handler
+}
+
 func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
 	edge := bridge.NewEdge(
 		planner,
@@ -90,6 +103,9 @@ func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handle
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
+	if s.extensionHandler != nil && s.extensionHandler.ServeIfMatched(w, r) {
+		return
+	}
 	if s.websocketHandler != nil && gatewayws.IsUpgrade(r) {
 		s.websocketHandler.ServeHTTP(w, r)
 		return
@@ -270,6 +286,35 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		bridge.NewRelayExecutor(server.forwarder, server.workerPool),
 		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout},
 	))
+
+	var provisioningRuntime *provisioning.Runtime
+	if config.Provisioning.Enabled {
+		workloads := make([]provisioning.Workload, 0, 3)
+		if config.Reverb.Enabled {
+			workloads = append(workloads, reverbruntime.NewWorkload(config.Reverb))
+		}
+		if config.Mercure.Enabled {
+			workloads = append(workloads, mercureruntime.NewWorkload(config.Mercure))
+		}
+		if config.Centrifugo.Enabled {
+			workloads = append(workloads, centrifugoruntime.NewWorkload(config.Centrifugo))
+		}
+		provisioningRuntime, err = provisioning.Start(
+			config.Provisioning.Config,
+			config.LaravelBackendURL,
+			config.InternalToken,
+			client,
+			logger,
+			workloads...,
+		)
+		if err != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to start provisioning extension: %w", err)
+		}
+		defer provisioningRuntime.Stop()
+		server.SetExtensionHandler(provisioningRuntime)
+		logger.Info("Provisioning reconciliation enabled for node %s", config.Provisioning.NodeID)
+	}
 
 	var smtpServer *smtpgateway.Server
 	if config.SMTPAddress != "" {

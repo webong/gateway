@@ -112,7 +112,6 @@ type HTTPRuntime struct {
 	planner     *HTTPPlanner
 	passThrough *httputil.ReverseProxy
 	transport   http.RoundTripper
-	planPath    string
 }
 
 func NewHTTPRuntime(backendURL string, internalToken string, maxBodySize int64, client *http.Client) (*HTTPRuntime, error) {
@@ -142,7 +141,6 @@ func NewHTTPRuntime(backendURL string, internalToken string, maxBodySize int64, 
 		planner:     planner,
 		passThrough: proxy,
 		transport:   client.Transport,
-		planPath:    PHPPlannerPath,
 	}, nil
 }
 
@@ -160,16 +158,11 @@ func (r *HTTPRuntime) PassThrough() http.Handler {
 	return r.passThrough
 }
 
-// Handler protects the internal planner path at the Go public edge. The
-// Laravel backend still serves that route privately for the HTTP planner.
+// Handler protects every internal application route at the Go public edge.
+// The Laravel backend still serves those routes privately to Gateway.
 func (r *HTTPRuntime) Handler(edge http.Handler) http.Handler {
-	planPath := PHPPlannerPath
-	if r != nil && r.planPath != "" {
-		planPath = r.planPath
-	}
-
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if isPathUnder(request.URL.Path, planPath) {
+		if isPathUnder(request.URL.Path, "/_internal") {
 			http.NotFound(writer, request)
 			return
 		}

@@ -5,6 +5,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "illuminate/database": "^12.0",
         "illuminate/http": "^12.0",
         "illuminate/routing": "^12.0",
         "illuminate/support": "^12.0",
@@ -12,6 +13,7 @@
         "webong/web-proxy": "dev-main"
     },
     "require-dev": {
+        "laravel/reverb": "^1.10",
         "laravel/octane": "^2.17",
         "orchestra/testbench": "^10.0",
         "pestphp/pest": "^4.0",
@@ -34,6 +36,12 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "Webong\\Gateway\\Centrifugo\\": "ext/centrifugo/src/",
+            "Webong\\Gateway\\Centrifugo\\Tests\\": "ext/centrifugo/tests/",
+            "Webong\\Gateway\\Mercure\\": "ext/mercure/src/",
+            "Webong\\Gateway\\Mercure\\Tests\\": "ext/mercure/tests/",
+            "Webong\\Gateway\\Reverb\\": "ext/reverb/src/",
+            "Webong\\Gateway\\Reverb\\Tests\\": "ext/reverb/tests/",
             "Webong\\Gateway\\Tests\\": "tests/"
         }
     },

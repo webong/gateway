@@ -54,6 +54,15 @@ selected runtime adapter.
 - `src/` is the PHP/Laravel control plane and remains the Composer package
   source tree.
 - `config/` contains the Laravel package configuration.
+- `src/Servers`, `src/Reconciliation`, `database/migrations`, and
+  `internal/provisioning` are the core managed-server control plane and
+  runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
+  state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
+  drivers.
+- `ext/reverb` adapts Laravel Reverb configuration and its dynamic application
+  provider to the core server-type contracts.
+- `ext/mercure` and `ext/centrifugo` adapt their server configuration and
+  launch contracts to the same core runtime.
 
 The root is intentionally a single Go module and Composer package. When the
 PHP `vendor/` directory exists, use `-mod=mod` for Go commands because that
@@ -595,6 +604,53 @@ The API is deliberately application-owned: the bridge does not assume a
 tenant model, a `/webhook` prefix, or a Go-side registry schema. Endpoint and
 destination storage are provided by the configured `webong/web-proxy`
 registry; its Laravel migrations remain PHP-owned.
+
+## Managed servers
+
+Gateway core owns the complete managed-server control plane. Extensions only
+register a server-technology provider and Go workload; core composes that with
+the selected `local`, `docker`, or `kubernetes` runtime driver.
+
+```text
+POST   /servers
+GET    /servers
+GET    /servers/{server}
+PATCH  /servers/{server}
+DELETE /servers/{server}
+POST   /servers/{server}/start
+POST   /servers/{server}/stop
+POST   /servers/{server}/restart
+POST   /servers/{server}/scale
+GET    /servers/{server}/health
+
+POST   /applications
+GET    /applications?server_id={server}
+GET    /applications/{application}
+PATCH  /applications/{application}
+DELETE /applications/{application}
+
+GET    /instances?server_id={server}
+GET    /instances/{instance}
+```
+
+Application operations are capability-based. Core owns the encrypted record
+and API, while the selected server-type provider validates, stores, redacts,
+and presents its technology-specific credentials and configuration. A server
+type without the application capability receives a clear `422` response.
+
+Server responses include desired state and a core-derived health summary.
+Scaling is available through the explicit `/scale` operation or a normal
+server update; the technology provider validates constraints such as Mercure
+Community's single-replica limit and Centrifugo's Redis requirement.
+
+The configurable table environment variables remain
+`GATEWAY_SERVERS_TABLE`, `GATEWAY_APPLICATIONS_TABLE`, and
+`GATEWAY_INSTANCES_TABLE`. Their Laravel keys are under
+`gateway.servers.tables`.
+
+See [`ext/reverb`](ext/reverb), [`ext/mercure`](ext/mercure), and
+[`ext/centrifugo`](ext/centrifugo) for technology-specific settings and
+workload requirements.
 
 ## Internal planner routes
 

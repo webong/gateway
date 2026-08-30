@@ -6,6 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	centrifugoruntime "github.com/webong/gateway/ext/centrifugo/runtime"
+	mercureruntime "github.com/webong/gateway/ext/mercure/runtime"
+	reverbruntime "github.com/webong/gateway/ext/reverb/runtime"
+	"github.com/webong/gateway/internal/provisioning"
 )
 
 type Config struct {
@@ -35,6 +40,10 @@ type Config struct {
 	SMTPTLSKeyFile       string
 	SMTPImplicitTLS      bool
 	SMTPAuthEnabled      bool
+	Provisioning         provisioning.HostConfig
+	Reverb               reverbruntime.Config
+	Mercure              mercureruntime.Config
+	Centrifugo           centrifugoruntime.Config
 }
 
 func LoadConfig() (*Config, error) {
@@ -47,7 +56,18 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("unsupported GATEWAY_RUNTIME %q (expected roadrunner, http, or standalone)", runtime)
 	}
 
-	return &Config{
+	provisioningConfig, err := provisioning.LoadConfig(runtime)
+	if err != nil {
+		return nil, err
+	}
+	reverbConfig := reverbruntime.LoadConfig()
+	mercureConfig := mercureruntime.LoadConfig()
+	centrifugoConfig := centrifugoruntime.LoadConfig()
+	if (reverbConfig.Enabled || mercureConfig.Enabled || centrifugoConfig.Enabled) && !provisioningConfig.Enabled {
+		return nil, fmt.Errorf("enabled server workloads require GATEWAY_PROVISIONING_ENABLED")
+	}
+
+	config := &Config{
 		Runtime:              runtime,
 		LaravelBackendURL:    getEnv("GATEWAY_LARAVEL_BACKEND_URL", ""),
 		Port:                 getEnv("PORT", "5001"),
@@ -74,7 +94,13 @@ func LoadConfig() (*Config, error) {
 		SMTPTLSKeyFile:       getEnv("GATEWAY_SMTP_TLS_KEY_FILE", ""),
 		SMTPImplicitTLS:      getEnvBool("GATEWAY_SMTP_IMPLICIT_TLS", false),
 		SMTPAuthEnabled:      getEnvBool("GATEWAY_SMTP_AUTH_ENABLED", false),
-	}, nil
+		Provisioning:         provisioningConfig,
+		Reverb:               reverbConfig,
+		Mercure:              mercureConfig,
+		Centrifugo:           centrifugoConfig,
+	}
+
+	return config, nil
 }
 
 func getEnv(key, defaultValue string) string {

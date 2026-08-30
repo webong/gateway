@@ -63,6 +63,10 @@ abstract class TestCase extends Orchestra
             ],
             'gateway.path_resolver' => Support\TestPathResolver::class,
             'gateway.registry_token' => 'registry-secret',
+            'gateway.internal_token' => 'internal-secret',
+            'gateway.servers.tables.servers' => 'managed_servers',
+            'gateway.servers.tables.applications' => 'managed_applications',
+            'gateway.servers.tables.instances' => 'managed_instances',
             'gateway.cache.enabled' => true,
             'gateway.cache.store' => 'array',
             'gateway.cache.path_ttl' => 300,
@@ -73,6 +77,9 @@ abstract class TestCase extends Orchestra
 
     protected function defineDatabaseMigrations(): void
     {
+        $gatewayProvider = new ReflectionClass(GatewayServiceProvider::class);
+        $this->loadMigrationsFrom(dirname((string) $gatewayProvider->getFileName(), 2).'/database/migrations');
+
         $provider = new ReflectionClass(WebProxyServiceProvider::class);
         $this->loadMigrationsFrom(dirname((string) $provider->getFileName(), 2).'/database/migrations');
     }

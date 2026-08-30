@@ -13,6 +13,9 @@ test-go:
 
 test-php:
 	composer test
+	$(MAKE) -C ext/reverb test-php
+	$(MAKE) -C ext/mercure test-php
+	$(MAKE) -C ext/centrifugo test-php
 
 test-octane:
 	bash scripts/octane-smoke.sh

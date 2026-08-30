@@ -1,0 +1,30 @@
+{
+    "name": "webong/gateway-mercure",
+    "description": "Mercure Hub workload extension for Webong Gateway",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "illuminate/database": "^12.0",
+        "webong/gateway": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\Gateway\\Mercure\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Webong\\Gateway\\Mercure\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webong\\Gateway\\Mercure\\MercureExtensionServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

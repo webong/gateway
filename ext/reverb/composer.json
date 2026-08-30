@@ -1,0 +1,44 @@
+{
+    "name": "webong/gateway-reverb",
+    "description": "Laravel Reverb control-plane extension for Webong Gateway",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "illuminate/database": "^12.0",
+        "laravel/reverb": "^1.10",
+        "webong/gateway": "dev-main"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0",
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\Gateway\\Reverb\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Webong\\Gateway\\Reverb\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webong\\Gateway\\Reverb\\ReverbExtensionServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "test": "pest"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}

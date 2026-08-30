@@ -97,4 +97,11 @@ func TestHTTPRuntimeProxiesPassThroughAndProtectsPlannerPath(t *testing.T) {
 	if internal.Code != http.StatusNotFound {
 		t.Fatalf("expected planner path to be private, got %d", internal.Code)
 	}
+	for _, privatePath := range []string{"/_internal/gateway/event", "/_internal/extension/servers"} {
+		internal = httptest.NewRecorder()
+		handler.ServeHTTP(internal, httptest.NewRequest(http.MethodGet, privatePath, nil))
+		if internal.Code != http.StatusNotFound {
+			t.Fatalf("expected %s to be private, got %d", privatePath, internal.Code)
+		}
+	}
 }
