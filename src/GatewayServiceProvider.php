@@ -7,9 +7,17 @@ namespace Webong\Gateway;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
+use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Dns\CacheableDnsHookPathResolver;
+use Webong\Gateway\Dns\DnsHookEventRecorder;
+use Webong\Gateway\Dns\DnsHookPathResolver;
+use Webong\Gateway\Dns\DnsHookRouter;
+use Webong\Gateway\Dns\Http\DnsHookController;
+use Webong\Gateway\Dns\Http\DnsHookEventController;
+use Webong\Gateway\Dns\Http\DnsHookUsageController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
@@ -19,6 +27,7 @@ use Webong\Gateway\Servers\Http\Controllers\ServerController as ManagedServerCon
 use Webong\Gateway\Servers\Http\Controllers\ServerLifecycleController;
 use Webong\Gateway\Servers\ServerRegistry;
 use Webong\Gateway\Servers\ServerTypeRegistry;
+use Webong\WebProxy\WebProxy;
 
 final class GatewayServiceProvider extends ServiceProvider
 {
@@ -53,24 +62,30 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->bind(PathResolver::class, function (): PathResolver {
             $resolver = config('gateway.path_resolver');
-
-            if (! is_string($resolver) || $resolver === '') {
-                throw new RuntimeException('Configure gateway.path_resolver for the registry route planner.');
+            $fallback = null;
+            if (is_string($resolver) && $resolver !== '' && $resolver !== DnsHookPathResolver::class) {
+                $fallback = $this->app->make($resolver);
+                if (! $fallback instanceof PathResolver) {
+                    throw new RuntimeException("Gateway path resolver [{$resolver}] must implement PathResolver.");
+                }
             }
 
-            $resolved = $this->app->make($resolver);
-            if (! $resolved instanceof PathResolver) {
-                throw new RuntimeException("Gateway path resolver [{$resolver}] must implement PathResolver.");
+            if ((bool) config('gateway.dns.enabled', false)) {
+                return $fallback === null || $fallback instanceof CacheablePathResolver
+                    ? new CacheableDnsHookPathResolver($fallback)
+                    : new DnsHookPathResolver($fallback);
             }
 
-            return $resolved;
+            return $fallback ?? throw new RuntimeException('Configure gateway.path_resolver for the registry route planner.');
         });
 
         $this->app->bind(RoutePlanner::class, function (): RoutePlanner {
             $configuredPlanner = config('gateway.planner');
             $configuredResolver = config('gateway.path_resolver');
+            $hasResolver = (is_string($configuredResolver) && $configuredResolver !== '')
+                || (bool) config('gateway.dns.enabled', false);
             $planner = $configuredPlanner
-                ?: (is_string($configuredResolver) && $configuredResolver !== '' ? RegistryRoutePlanner::class : null);
+                ?: ($hasResolver ? RegistryRoutePlanner::class : null);
 
             if (! is_string($planner) || $planner === '') {
                 throw new RuntimeException('Configure gateway.planner with the Laravel route planner class.');
@@ -84,11 +99,18 @@ final class GatewayServiceProvider extends ServiceProvider
             return $resolved;
         });
 
+        $this->app->bind(RegistryProtocolPlanner::class, fn (): RegistryProtocolPlanner => new RegistryProtocolPlanner(
+            routePlanner: $this->app->make(RoutePlanner::class),
+            dnsEvents: $this->app->make(DnsHookEventRecorder::class),
+        ));
+
         $this->app->bind(ProtocolPlanner::class, function (): ProtocolPlanner {
             $configuredPlanner = config('gateway.protocol_planner');
             $configuredResolver = config('gateway.path_resolver');
+            $hasResolver = (is_string($configuredResolver) && $configuredResolver !== '')
+                || (bool) config('gateway.dns.enabled', false);
             $planner = $configuredPlanner
-                ?: (is_string($configuredResolver) && $configuredResolver !== '' ? RegistryProtocolPlanner::class : null);
+                ?: ($hasResolver ? RegistryProtocolPlanner::class : null);
 
             if (! is_string($planner) || $planner === '') {
                 throw new RuntimeException('Configure gateway.protocol_planner or gateway.path_resolver for protocol events.');
@@ -106,6 +128,17 @@ final class GatewayServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+
+        if ((bool) config('gateway.dns.enabled', false)) {
+            $client = trim((string) config('gateway.dns.client', 'gateway-dns'));
+            if ($client === '') {
+                throw new RuntimeException('Gateway DNS hooks require gateway.dns.client.');
+            }
+            $webProxy = $this->app->make(WebProxy::class);
+            if (! $webProxy->has($client)) {
+                $webProxy->register($client, DnsHookRouter::class);
+            }
+        }
 
         $this->publishes([
             __DIR__.'/../config/gateway.php' => config_path('gateway.php'),
@@ -137,6 +170,15 @@ final class GatewayServiceProvider extends ServiceProvider
 
             $this->app['router']->get('/instances', [ManagedInstanceController::class, 'index']);
             $this->app['router']->get('/instances/{instance}', [ManagedInstanceController::class, 'show']);
+            if ((bool) config('gateway.dns.enabled', false)) {
+                $this->app['router']->get('/dns/hooks', [DnsHookController::class, 'index'])->name('dns.hooks.index');
+                $this->app['router']->post('/dns/hooks', [DnsHookController::class, 'store'])->name('dns.hooks.store');
+                $this->app['router']->get('/dns/hooks/{hook}', [DnsHookController::class, 'show'])->name('dns.hooks.show');
+                $this->app['router']->patch('/dns/hooks/{hook}', [DnsHookController::class, 'update'])->name('dns.hooks.update');
+                $this->app['router']->delete('/dns/hooks/{hook}', [DnsHookController::class, 'destroy'])->name('dns.hooks.destroy');
+                $this->app['router']->get('/dns/hooks/{hook}/events', DnsHookEventController::class)->name('dns.hooks.events');
+                $this->app['router']->get('/dns/hooks/{hook}/usage', DnsHookUsageController::class)->name('dns.hooks.usage');
+            }
             $this->app['router']
                 ->post('/registry/endpoints', EndpointController::class)
                 ->name('registry.endpoints.store');

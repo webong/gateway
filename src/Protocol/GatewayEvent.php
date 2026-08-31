@@ -29,6 +29,10 @@ final readonly class GatewayEvent
         if ($this->protocol === Protocol::HTTP && $this->kind !== EventKind::REQUEST) {
             throw new InvalidArgumentException('HTTP gateway events must use the request kind.');
         }
+
+        if ($this->protocol === Protocol::DNS && $this->kind !== EventKind::QUERY) {
+            throw new InvalidArgumentException('DNS gateway events must use the query kind.');
+        }
     }
 
     /** @param array<string, mixed> $payload */

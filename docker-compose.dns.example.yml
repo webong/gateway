@@ -1,0 +1,20 @@
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    environment:
+      GATEWAY_RUNTIME: http
+      PORT: "5001"
+      GATEWAY_LARAVEL_BACKEND_URL: "${GATEWAY_LARAVEL_BACKEND_URL:?Set the Laravel planner URL}"
+      GATEWAY_INTERNAL_TOKEN: "${GATEWAY_INTERNAL_TOKEN:?Set the shared internal token}"
+      GATEWAY_DNS_ADDR: ":5353"
+      GATEWAY_DNS_ZONE: "${GATEWAY_DNS_ZONE:?Set the delegated DNS zone}"
+      GATEWAY_DNS_NAMESERVERS: "${GATEWAY_DNS_NAMESERVERS:?Set at least two public nameserver hostnames}"
+      GATEWAY_DNS_SOA_EMAIL: "${GATEWAY_DNS_SOA_EMAIL:-hostmaster.example.com}"
+      GATEWAY_DNS_TTL: "${GATEWAY_DNS_TTL:-0}"
+      GATEWAY_DNS_RATE_LIMIT: "${GATEWAY_DNS_RATE_LIMIT:-5000}"
+      GATEWAY_DNS_RATE_BURST: "${GATEWAY_DNS_RATE_BURST:-10000}"
+    ports:
+      - "5001:5001/tcp"
+      - "53:5353/tcp"
+      - "53:5353/udp"

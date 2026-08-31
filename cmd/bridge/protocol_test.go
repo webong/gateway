@@ -59,3 +59,31 @@ func TestHTTPGatewayEventRejectsSessionKinds(t *testing.T) {
 		t.Fatal("expected HTTP message event to fail validation")
 	}
 }
+
+func TestDNSGatewayEventRequiresQueryKind(t *testing.T) {
+	event := GatewayEvent{
+		ID:       "dns-event-1",
+		Protocol: ProtocolDNS,
+		Kind:     EventQuery,
+		Route:    "/hook-1",
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.Kind = EventMessage
+	if err := event.Validate(); err == nil {
+		t.Fatal("expected DNS message event to fail validation")
+	}
+}
+
+func TestGatewayDecisionAllowsSynchronousReply(t *testing.T) {
+	decision := GatewayDecision{
+		Version:  ProtocolVersion,
+		Protocol: ProtocolDNS,
+		Action:   GatewayDeliver,
+		Reply:    &GatewayDelivery{Protocol: ProtocolHTTP, Target: "https://reply.example.test/dns"},
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

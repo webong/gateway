@@ -157,11 +157,11 @@ final readonly class MatchRules
     {
         $field = trim($field);
 
-        if (in_array($field, ['method', 'scheme', 'host', 'path', 'headers', 'query', 'body'], true)) {
+        if (in_array($field, ['protocol', 'event', 'session_id', 'method', 'scheme', 'host', 'path', 'headers', 'query', 'body', 'attributes'], true)) {
             return $field;
         }
 
-        foreach (['headers.', 'query.', 'body.'] as $prefix) {
+        foreach (['headers.', 'query.', 'body.', 'attributes.'] as $prefix) {
             if (! str_starts_with($field, $prefix)) {
                 continue;
             }

@@ -133,10 +133,10 @@
       "type": "string",
       "anyOf": [
         {
-          "enum": ["method", "scheme", "host", "path", "headers", "query", "body"]
+          "enum": ["protocol", "event", "session_id", "method", "scheme", "host", "path", "headers", "query", "body", "attributes"]
         },
         {
-          "pattern": "^(headers|query|body)\\.[A-Za-z0-9_*-]+(?:\\.[A-Za-z0-9_*-]+)*$"
+          "pattern": "^(headers|query|body|attributes)\\.[A-Za-z0-9_*-]+(?:\\.[A-Za-z0-9_*-]+)*$"
         }
       ]
     },

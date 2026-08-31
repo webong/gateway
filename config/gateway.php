@@ -24,6 +24,18 @@ return [
     // registry API. Management endpoints fail closed until it is configured.
     'registry_token' => (string) env('REGISTRY_TOKEN', ''),
 
+    'dns' => [
+        // Setting GATEWAY_DNS_ZONE enables the PHP-owned DNS hook control
+        // plane. Go uses the same variable for its authoritative listener.
+        'enabled' => (bool) env('GATEWAY_DNS_HOOKS_ENABLED', env('GATEWAY_DNS_ZONE') !== null),
+        'zone' => strtolower(trim((string) env('GATEWAY_DNS_ZONE', ''), ". \t\n\r\0\x0B")),
+        'client' => (string) env('GATEWAY_DNS_WEB_PROXY_CLIENT', 'gateway-dns'),
+        'tables' => [
+            'hooks' => env('GATEWAY_DNS_HOOKS_TABLE', 'dns_hooks'),
+            'events' => env('GATEWAY_DNS_EVENTS_TABLE', 'dns_hook_events'),
+        ],
+    ],
+
     // Gateway core owns the managed-server control-plane records. Configure
     // table names before running the package migrations.
     'servers' => [

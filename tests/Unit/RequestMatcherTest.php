@@ -44,3 +44,27 @@ it('fails closed when persisted rules are malformed', function (): void {
         ],
     ]))->toBeFalse();
 });
+
+it('matches protocol event attributes for DNS subscriptions', function (): void {
+    $request = new IngressRequest(
+        deliveryId: 'dns-delivery-1',
+        method: 'POST',
+        host: 'payload.hook-1.dns.example.test.',
+        path: '/hook-1',
+        rawQuery: '',
+        headers: ['Content-Type' => ['application/json']],
+        body: '{"data":"payload"}',
+        scheme: 'dns',
+        protocol: 'dns',
+        event: 'query',
+        attributes: ['qtype' => 'TXT', 'data' => 'payload'],
+    );
+    $match = MatchRules::make([
+        'protocol' => ['required', 'in:dns'],
+        'event' => ['required', 'in:query'],
+        'attributes.qtype' => ['required', 'in:TXT'],
+        'attributes.data' => ['required', 'starts_with:pay'],
+    ]);
+
+    expect(app(RequestMatcher::class)->matches($request, $match))->toBeTrue();
+});

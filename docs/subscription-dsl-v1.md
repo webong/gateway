@@ -84,6 +84,10 @@ Unknown properties are not part of the v1 contract and must not be sent.
 - A failed match skips only that subscription. It does not reject the provider
   webhook or prevent other subscriptions from matching.
 - Malformed persisted rules fail closed for the affected subscription.
+- The matching document includes `protocol`, `event`, `session_id`, `method`,
+  `scheme`, `host`, `path`, `headers`, `query`, `body`, and `attributes`.
+  Protocol adapters expose bounded scalar metadata below `attributes`, such as
+  `attributes.qtype` and `attributes.data` for authoritative DNS queries.
 
 ### Rule encodings
 

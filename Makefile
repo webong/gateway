@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-php test-octane test-http test-smtp test-websocket test-frankenphp benchmark benchmark-php vet
+.PHONY: build test test-go test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 
@@ -25,6 +25,9 @@ test-http:
 
 test-smtp:
 	bash scripts/smtp-smoke.sh
+
+test-dns:
+	go test $(GOFLAGS) ./cmd/bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
 
 test-websocket:
 	bash scripts/websocket-smoke.sh

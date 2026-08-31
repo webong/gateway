@@ -19,6 +19,16 @@ it('normalizes PHP rules to the canonical HTTP representation', function (): voi
     ]);
 });
 
+it('accepts protocol event and attribute fields', function (): void {
+    $rules = MatchRules::make([
+        'protocol' => ['required', 'in:dns'],
+        'event' => ['required', 'in:query'],
+        'attributes.qtype' => ['required', 'in:A,TXT'],
+    ]);
+
+    expect($rules->toArray()['rules'])->toHaveKeys(['protocol', 'event', 'attributes.qtype']);
+});
+
 it('rejects unsafe remote rules and fields', function (array $payload): void {
     expect(fn (): MatchRules => MatchRules::fromArray($payload))
         ->toThrow(InvalidArgumentException::class);

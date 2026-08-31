@@ -43,12 +43,54 @@ it('adapts a registry route plan to a protocol-neutral SMTP delivery decision', 
     expect($adapter->received)->toBeInstanceOf(IngressRequest::class)
         ->and($adapter->received->protocol)->toBe('smtp')
         ->and($adapter->received->event)->toBe('transaction')
+        ->and($adapter->received->attributes['mail_from'])->toBe('sender@example.test')
         ->and($adapter->received->body)->toBe("Subject: hello\r\n\r\nmessage")
         ->and($decision->protocol)->toBe(Protocol::SMTP)
         ->and($decision->action)->toBe(GatewayAction::DELIVER)
         ->and($decision->deliveries[0]->protocol)->toBe(Protocol::HTTP)
         ->and($decision->deliveries[0]->subscriberId)->toBe('subscriber-1')
         ->and($decision->deliveries[0]->payload)->toBe("Subject: hello\r\n\r\nmessage");
+});
+
+it('preserves a DNS reply separately from asynchronous relays', function (): void {
+    $adapter = new class implements RoutePlanner {
+        public ?IngressRequest $received = null;
+
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            $this->received = $request;
+
+            return RoutePlan::relay(
+                reply: new Delivery(
+                    url: 'https://reply.example.test/dns',
+                    subscriberId: 'reply-subscriber',
+                ),
+                relays: [new Delivery(
+                    url: 'https://relay.example.test/dns',
+                    subscriberId: 'relay-subscriber',
+                )],
+            );
+        }
+    };
+    $planner = new RegistryProtocolPlanner($adapter);
+
+    $decision = $planner->planEvent(new GatewayEvent(
+        id: 'dns-event-1',
+        protocol: Protocol::DNS,
+        kind: EventKind::QUERY,
+        route: '/hook-1',
+        host: 'payload.hook-1.dns.example.test.',
+        attributes: ['qtype' => 'A', 'data' => 'payload'],
+        payload: '{"data":"payload"}',
+    ));
+
+    expect($adapter->received?->scheme)->toBe('dns')
+        ->and($adapter->received?->attributes['qtype'])->toBe('A')
+        ->and($decision->action)->toBe(GatewayAction::DELIVER)
+        ->and($decision->reply?->target)->toBe('https://reply.example.test/dns')
+        ->and($decision->reply?->headers['Content-Type'])->toBe(['application/json'])
+        ->and($decision->deliveries)->toHaveCount(1)
+        ->and($decision->deliveries[0]->target)->toBe('https://relay.example.test/dns');
 });
 
 it('turns an unmatched protocol route into an SMTP rejection', function (): void {

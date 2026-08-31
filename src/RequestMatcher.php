@@ -43,6 +43,7 @@ final readonly class RequestMatcher
             'headers' => $this->headers($request->headers),
             'query' => $query,
             'body' => $this->body($request->body),
+            'attributes' => $request->attributes,
         ];
     }
 

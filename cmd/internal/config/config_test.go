@@ -40,6 +40,37 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_REVERB_ENABLED", "false")
 	t.Setenv("GATEWAY_MERCURE_ENABLED", "false")
 	t.Setenv("GATEWAY_CENTRIFUGO_ENABLED", "false")
+	t.Setenv("GATEWAY_DNS_ADDR", "")
+	t.Setenv("GATEWAY_DNS_ZONE", "")
+	t.Setenv("GATEWAY_DNS_NAMESERVERS", "")
+}
+
+func TestLoadConfigLoadsAuthoritativeDNSSettings(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
+	t.Setenv("GATEWAY_DNS_ZONE", "dns.example.test")
+	t.Setenv("GATEWAY_DNS_NAMESERVERS", "ns1.example.test, ns2.example.test")
+	t.Setenv("GATEWAY_DNS_TTL", "15")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DNSAddress != ":5353" || config.DNSZone != "dns.example.test" || config.DNSTTL != 15 {
+		t.Fatalf("unexpected DNS config: %+v", config)
+	}
+	if len(config.DNSNameservers) != 2 || config.DNSNameservers[1] != "ns2.example.test" {
+		t.Fatalf("unexpected DNS nameservers: %+v", config.DNSNameservers)
+	}
+}
+
+func TestLoadConfigRequiresDNSZoneAndNameservers(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected enabled DNS listener to require zone settings")
+	}
 }
 
 func TestLoadConfigRegistersAllProvisionedWorkloadSettings(t *testing.T) {

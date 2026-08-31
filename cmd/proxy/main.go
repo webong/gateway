@@ -12,6 +12,7 @@ import (
 	"time"
 
 	bridge "github.com/webong/gateway/cmd/bridge"
+	dnsgateway "github.com/webong/gateway/cmd/bridge/dns"
 	roadrunner "github.com/webong/gateway/cmd/bridge/roadrunner"
 	smtpgateway "github.com/webong/gateway/cmd/bridge/smtp"
 	gatewayws "github.com/webong/gateway/cmd/bridge/websocket"
@@ -27,6 +28,11 @@ import (
 
 type extensionRouteHandler interface {
 	ServeIfMatched(http.ResponseWriter, *http.Request) bool
+}
+
+type protocolListener interface {
+	ListenAndServe() error
+	Shutdown(context.Context) error
 }
 
 type Server struct {
@@ -175,8 +181,8 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
-	if config.SMTPAddress != "" && config.Runtime == "standalone" {
-		return fmt.Errorf("GATEWAY_SMTP_ADDR requires GATEWAY_RUNTIME=http or roadrunner; embedded Caddy uses gateway_smtp instead")
+	if config.Runtime == "standalone" && (config.SMTPAddress != "" || config.DNSAddress != "") {
+		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http or roadrunner")
 	}
 	server := NewServer(config, logger)
 	switch config.Runtime {
@@ -192,14 +198,14 @@ func run() error {
 }
 
 func runStandalone(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	return runServices(config, server, logger, nil)
+	return runServices(config, server, logger)
 }
 
-func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger, smtpServer *smtpgateway.Server) error {
-	serverErrors := make(chan error, 2)
+func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger, listeners ...protocolListener) error {
+	serverErrors := make(chan error, 1+len(listeners))
 	go func() { serverErrors <- server.Start() }()
-	if smtpServer != nil {
-		go func() { serverErrors <- smtpServer.ListenAndServe() }()
+	for _, listener := range listeners {
+		go func(listener protocolListener) { serverErrors <- listener.ListenAndServe() }(listener)
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -209,7 +215,7 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 	case <-sigChan:
 		logger.Info("Received shutdown signal")
 	case err := <-serverErrors:
-		if err != nil && err != http.ErrServerClosed && err != smtpgateway.ErrServerClosed {
+		if !expectedListenerClose(err) {
 			listenerErr = err
 		}
 	}
@@ -217,13 +223,13 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer cancel()
 
+	for _, listener := range listeners {
+		if err := listener.Shutdown(ctx); err != nil && !expectedListenerClose(err) {
+			return fmt.Errorf("protocol listener shutdown error: %w", err)
+		}
+	}
 	if err := server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown error: %w", err)
-	}
-	if smtpServer != nil {
-		if err := smtpServer.Shutdown(ctx); err != nil {
-			return fmt.Errorf("SMTP shutdown error: %w", err)
-		}
 	}
 	if listenerErr != nil {
 		return fmt.Errorf("gateway listener failed: %w", listenerErr)
@@ -231,6 +237,10 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 
 	logger.Info("Server stopped gracefully")
 	return nil
+}
+
+func expectedListenerClose(err error) bool {
+	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, smtpgateway.ErrServerClosed) || errors.Is(err, dnsgateway.ErrServerClosed)
 }
 
 func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor bridge.GatewayExecutor) (*smtpgateway.Server, error) {
@@ -250,6 +260,22 @@ func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, e
 		TLSConfig:      tlsConfig,
 		ImplicitTLS:    config.SMTPImplicitTLS,
 		AuthEnabled:    config.SMTPAuthEnabled,
+	}, planner, executor)
+}
+
+func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor *bridge.RelayExecutor) (*dnsgateway.Server, error) {
+	return dnsgateway.NewServer(dnsgateway.Config{
+		Address:            config.DNSAddress,
+		Zone:               config.DNSZone,
+		Nameservers:        config.DNSNameservers,
+		SOAEmail:           config.DNSSOAEmail,
+		TTL:                config.DNSTTL,
+		PlannerTimeout:     config.DNSPlannerTimeout,
+		ReadTimeout:        config.DNSReadTimeout,
+		WriteTimeout:       config.DNSWriteTimeout,
+		MaxResponseRecords: config.DNSMaxResponseRecords,
+		RateLimit:          config.DNSRateLimit,
+		RateBurst:          config.DNSRateBurst,
 	}, planner, executor)
 }
 
@@ -316,17 +342,28 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		logger.Info("Provisioning reconciliation enabled for node %s", config.Provisioning.NodeID)
 	}
 
-	var smtpServer *smtpgateway.Server
+	executor := bridge.NewRelayExecutor(server.forwarder, server.workerPool)
+	listeners := make([]protocolListener, 0, 2)
 	if config.SMTPAddress != "" {
-		smtpServer, err = newSMTPServer(config, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
-		if err != nil {
+		smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
+		if smtpErr != nil {
 			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize SMTP listener: %w", err)
+			return fmt.Errorf("failed to initialize SMTP listener: %w", smtpErr)
 		}
 		logger.Info("Using SMTP listener on %s", config.SMTPAddress)
+		listeners = append(listeners, smtpServer)
+	}
+	if config.DNSAddress != "" {
+		dnsServer, dnsErr := newDNSServer(config, protocolPlanner, executor)
+		if dnsErr != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
+		}
+		logger.Info("Using authoritative DNS listener on %s for %s", config.DNSAddress, config.DNSZone)
+		listeners = append(listeners, dnsServer)
 	}
 
-	return runServices(config, server, logger, smtpServer)
+	return runServices(config, server, logger, listeners...)
 }
 
 func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
@@ -345,7 +382,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 	runnerErrors := make(chan error, 1)
 	go func() { runnerErrors <- runner.Serve() }()
 
-	if config.SMTPAddress != "" {
+	if config.SMTPAddress != "" || config.DNSAddress != "" {
 		startupContext, cancelStartup := context.WithTimeout(context.Background(), config.RequestTimeout)
 		protocolPlanner, plannerErr := runner.WaitProtocolPlanner(startupContext)
 		cancelStartup()
@@ -356,32 +393,54 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 			return fmt.Errorf("failed to initialize RoadRunner protocol planner: %w", plannerErr)
 		}
 
-		smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, bridge.NewRelayExecutor(server.forwarder, server.workerPool))
-		if smtpErr != nil {
-			runner.Stop()
-			<-runnerErrors
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize SMTP listener: %w", smtpErr)
+		executor := bridge.NewRelayExecutor(server.forwarder, server.workerPool)
+		listeners := make([]protocolListener, 0, 2)
+		if config.SMTPAddress != "" {
+			smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
+			if smtpErr != nil {
+				runner.Stop()
+				<-runnerErrors
+				server.workerPool.Shutdown()
+				return fmt.Errorf("failed to initialize SMTP listener: %w", smtpErr)
+			}
+			listeners = append(listeners, smtpServer)
+		}
+		if config.DNSAddress != "" {
+			dnsServer, dnsErr := newDNSServer(config, protocolPlanner, executor)
+			if dnsErr != nil {
+				runner.Stop()
+				<-runnerErrors
+				server.workerPool.Shutdown()
+				return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
+			}
+			listeners = append(listeners, dnsServer)
 		}
 
-		smtpErrors := make(chan error, 1)
-		go func() { smtpErrors <- smtpServer.ListenAndServe() }()
+		listenerErrors := make(chan error, len(listeners))
+		for _, listener := range listeners {
+			go func(listener protocolListener) { listenerErrors <- listener.ListenAndServe() }(listener)
+		}
 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 		var runnerErr error
 		runnerExited := false
-		var smtpRunErr error
+		var listenerRunErr error
 		select {
 		case <-sigChan:
 			logger.Info("Received shutdown signal")
 		case runnerErr = <-runnerErrors:
 			runnerExited = true
-		case smtpRunErr = <-smtpErrors:
+		case listenerRunErr = <-listenerErrors:
 		}
 
 		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), config.ShutdownTimeout)
-		smtpShutdownErr := smtpServer.Shutdown(shutdownContext)
+		var listenerShutdownErr error
+		for _, listener := range listeners {
+			if shutdownErr := listener.Shutdown(shutdownContext); shutdownErr != nil && !expectedListenerClose(shutdownErr) {
+				listenerShutdownErr = errors.Join(listenerShutdownErr, shutdownErr)
+			}
+		}
 		cancelShutdown()
 
 		if !runnerExited {
@@ -390,16 +449,16 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 		}
 		server.workerPool.Shutdown()
 
-		if smtpShutdownErr != nil && !errors.Is(smtpShutdownErr, smtpgateway.ErrServerClosed) {
-			return fmt.Errorf("SMTP shutdown error: %w", smtpShutdownErr)
+		if listenerShutdownErr != nil {
+			return fmt.Errorf("protocol listener shutdown error: %w", listenerShutdownErr)
 		}
-		if smtpRunErr != nil && !errors.Is(smtpRunErr, smtpgateway.ErrServerClosed) {
-			return fmt.Errorf("SMTP listener failed: %w", smtpRunErr)
+		if !expectedListenerClose(listenerRunErr) {
+			return fmt.Errorf("protocol listener failed: %w", listenerRunErr)
 		}
 		if runnerErr != nil {
 			return fmt.Errorf("embedded RoadRunner failed: %w", runnerErr)
 		}
-		logger.Info("RoadRunner and SMTP stopped gracefully")
+		logger.Info("RoadRunner and protocol listeners stopped gracefully")
 		return nil
 	}
 

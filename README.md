@@ -126,11 +126,12 @@ ingress now carries optional protocol metadata:
 - `session_id` when a future long-lived adapter has a connection identity
 
 The Go bridge also defines a protocol-neutral `GatewayEvent` and
-`GatewayDecision` contract for session-oriented protocols. SMTP is implemented
+`GatewayDecision` contract for non-HTTP protocols. SMTP is implemented
 through the maintained [`emersion/go-smtp`](https://github.com/emersion/go-smtp)
 server library; the gateway supplies only its backend/session hooks. WebSocket
-uses the same contract through the Go HTTP upgrade/session handler. Payloads are
-base64 encoded, and
+uses the same contract through the Go HTTP upgrade/session handler. The DNS
+adapter uses [`miekg/dns`](https://github.com/miekg/dns) as an authoritative
+UDP/TCP server. Payloads are base64 encoded, and
 destinations use a typed protocol and target instead of assuming every
 destination is an HTTP URL.
 
@@ -142,7 +143,7 @@ The planned ownership boundary is:
   and protocol-specific route policy.
 
 The existing HTTP planner remains on `RoutePlanner` for compatibility. SMTP
-uses `ProtocolPlanner` and `GatewayDecision` without changing existing
+and DNS use `ProtocolPlanner` and `GatewayDecision` without changing existing
 Laravel `RoutePlanner` implementations.
 
 ### RoadRunner configuration
@@ -250,6 +251,166 @@ If an application supplies a custom `GATEWAY_PLANNER` without a
 Applications using the bundled registry planner can configure the resolver and
 reuse the default protocol adapter.
 
+### Authoritative DNS hooks
+
+DNS hooks are available in `http` and `roadrunner` modes. The Go process opens
+sibling UDP and TCP listeners on the same address, parses authoritative DNS
+queries, and sends a `protocol=dns`, `kind=query` event to PHP. This is an
+authoritative-only service: it refuses queries outside its configured zone and
+does not perform recursive resolution.
+
+```bash
+export GATEWAY_RUNTIME=http
+export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
+export GATEWAY_DNS_ADDR=':53'
+export GATEWAY_DNS_ZONE='dns.example.com'
+export GATEWAY_DNS_NAMESERVERS='ns1.example.com,ns2.example.com'
+go run ./cmd/proxy
+```
+
+Delegate `dns.example.com` from its parent zone to the nameservers listed in
+`GATEWAY_DNS_NAMESERVERS`. A wildcard A record is not a substitute for an NS
+delegation. The listener needs permission to bind port 53; a container can map
+public UDP/TCP port 53 to an unprivileged internal port such as 5353.
+
+The query name format is `[<data-labels>.]<endpoint-token>.<configured-zone>`.
+For `aGVsbG8.hook-1.dns.example.com`, Go sends `/hook-1` as the
+application-owned route, preserves `aGVsbG8` in the JSON payload, and exposes
+these subscription matching fields:
+
+- `protocol=dns`
+- `event=query`
+- `attributes.qname`, `attributes.qtype`, and `attributes.qclass`
+- `attributes.query_id` for the DNS wire transaction ID
+- `attributes.endpoint` and `attributes.data`
+- `attributes.source_addr` and `attributes.transport`
+
+When the DNS hook control plane is enabled, its resolver automatically maps
+`/hook-1` to the PHP-owned endpoint registry entry before delegating non-DNS
+requests to the application's configured `PathResolver`. Relay subscriptions
+receive the normalized query JSON asynchronously. A
+single `reply` subscription is called synchronously; a successful HTTP response
+body can contain:
+
+```json
+[
+  {"type": "a", "value": "192.0.2.10"},
+  {"type": "txt", "value": "hello world"}
+]
+```
+
+Supported response types are `a`, `cname`, and `txt`. Only records relevant to
+the requested type are returned; CNAME is the fallback when there is no direct
+record. Newlines in TXT values become separate strings. Invalid response JSON,
+record values, non-2xx reply responses, and planner timeouts produce `SERVFAIL`.
+Missing routes produce authoritative `NXDOMAIN`; queries without an answer
+produce authoritative `NOERROR`/NODATA.
+
+The default planner deadline is 750ms. Related settings are
+`GATEWAY_DNS_PLANNER_TIMEOUT`, `GATEWAY_DNS_TTL` (default `0`),
+`GATEWAY_DNS_SOA_EMAIL`, `GATEWAY_DNS_READ_TIMEOUT`,
+`GATEWAY_DNS_WRITE_TIMEOUT`, and `GATEWAY_DNS_MAX_RESPONSE_RECORDS` (default
+`16`). `GATEWAY_DNS_RATE_LIMIT` and `GATEWAY_DNS_RATE_BURST` cap total DNS
+queries per second (defaults `5000` and `10000`). `ANY` queries are refused and
+UDP responses are capped at 1232 bytes.
+Use unique data labels when each lookup must create a distinct event. Lowercase
+base32 data is safer than case-sensitive standard base64 because
+DNS names are case-insensitive and each label is limited to 63 bytes.
+
+### DNS hook product API
+
+Setting `GATEWAY_DNS_ZONE` enables the PHP-owned DNS hook control plane as well
+as configuring Go's authoritative zone. The package registers a built-in
+`gateway-dns` WebProxy client, provisions an ordinary managed WebProxy endpoint
+for each hook, and wraps the application's existing path resolver with token
+lookup. No DNS-specific endpoint or destination storage is added to
+`webong/web-proxy`.
+
+Create a hook through the bearer-token-protected management API:
+
+```bash
+curl -X POST https://relay.example.test/dns/hooks \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "external_id": "workspace-42-login-check",
+    "name": "Login verification",
+    "metadata": {"workspace": "workspace-42"}
+  }'
+```
+
+The response includes an opaque `token`, its `hostname`, the
+`{data}.<token>.<zone>` query template, the underlying `endpoint_key`, and URLs
+for subscriptions, event history, and usage. Repeating the same `external_id`
+is idempotent and returns the same token.
+
+Attach subscribers through the existing WebProxy registry API using the
+returned endpoint key and the canonical DNS route:
+
+```json
+{
+  "subscriber_id": "workspace-42",
+  "subscription_id": "workspace-42-dns",
+  "type": "relay",
+  "webhook_group": "dns",
+  "routing_scope": "dns",
+  "routing_key": "query",
+  "url": "https://subscriber.example.com/dns",
+  "match": {
+    "version": "v1",
+    "rules": {"attributes.qtype": ["required", "in:TXT"]}
+  }
+}
+```
+
+The UI-ready management surface is:
+
+```text
+POST   /dns/hooks
+GET    /dns/hooks
+GET    /dns/hooks/{id-or-token}
+PATCH  /dns/hooks/{id-or-token}
+DELETE /dns/hooks/{id-or-token}
+GET    /dns/hooks/{id-or-token}/events?type=TXT&transport=udp&limit=50
+GET    /dns/hooks/{id-or-token}/usage?from=2026-08-01&to=2026-08-31
+```
+
+History records the normalized query and PHP planning decision. Recording is
+idempotent by Gateway event ID, and write exceptions do not replace a completed
+route decision. Usage exposes total queries, daily counts, and counts by query
+type and transport. Pausing or deleting a hook invalidates its cached binding
+immediately; the underlying WebProxy endpoint is retained so subscription and
+audit records are not orphaned.
+
+`GATEWAY_DNS_WEB_PROXY_CLIENT`, `GATEWAY_DNS_HOOKS_TABLE`, and
+`GATEWAY_DNS_EVENTS_TABLE` customize the built-in client and Laravel-owned
+tables. `GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
+while leaving explicit custom protocol planners available.
+
+### Production DNS deployment
+
+The root Docker image exposes HTTP and unprivileged TCP/UDP port 5353. The
+included `docker-compose.dns.example.yml` publishes both DNS transports on
+public port 53:
+
+```bash
+GATEWAY_LARAVEL_BACKEND_URL=https://app.internal.example \
+GATEWAY_INTERNAL_TOKEN=replace-me \
+GATEWAY_DNS_ZONE=dns.example.com \
+GATEWAY_DNS_NAMESERVERS=ns1.example.com,ns2.example.com \
+docker compose -f docker-compose.dns.example.yml up -d
+```
+
+Configure `GATEWAY_DNS_ZONE` and `REGISTRY_TOKEN` on the Laravel application as
+well, then run its Gateway and WebProxy migrations. At the parent DNS provider,
+delegate the zone to at least two public nameserver hostnames whose A/AAAA
+records reach Gateway instances. Each load balancer or firewall must pass both
+UDP and TCP port 53. The example is a single-node wiring reference; production
+high availability requires multiple Gateway nodes, shared registry/cache
+storage, health checks at the infrastructure layer, and nameservers placed in
+independent failure domains.
+
 ### WebSocket transport
 
 WebSocket upgrades use the public HTTP listener in `http` and `roadrunner`
@@ -273,6 +434,8 @@ WebSocket port or Laravel listener is required.
 - `MAX_BODY_SIZE` - ingress and planner response limit (default `10MB`)
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - standalone shutdown timeout (default `30s`)
+- `GATEWAY_DNS_ADDR` - enables authoritative DNS over UDP and TCP
+- `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS` - required delegated zone data
 - `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
   `roadrunner` mode
 - `GATEWAY_SMTP_HOSTNAME` - SMTP greeting/domain (default `gateway.local`)
@@ -660,10 +823,10 @@ public Laravel route. In `http` mode, the Go edge blocks the path publicly and
 calls it only on the configured Laravel backend. The controller requires a
 non-empty `GATEWAY_INTERNAL_TOKEN` matching the Go process.
 
-The same provider registers `POST /_internal/gateway/event` for session-oriented
-protocols such as SMTP. It uses the same internal token and is intended to be
-reachable only from the Go listener or the loopback PHP bridge in the Caddy
-deployment.
+The same provider registers `POST /_internal/gateway/event` for protocol events
+such as SMTP transactions and DNS queries. It uses the same internal token and
+is intended to be reachable only from the Go listener or the loopback PHP
+bridge in the Caddy deployment.
 
 When embedding RoadRunner in Go, configure the PHP worker command as
 `vendor/bin/roadrunner-worker` with `APP_BASE_PATH` pointing at the Laravel
@@ -773,6 +936,12 @@ the subscriber delivery:
 ```bash
 bash scripts/websocket-smoke.sh
 # or: make test-websocket
+```
+
+Run the authoritative DNS adapter tests, including real UDP and TCP queries:
+
+```bash
+make test-dns
 ```
 
 Verify the Caddy module and, when Docker is available, build a FrankenPHP

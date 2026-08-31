@@ -49,3 +49,30 @@ it('serializes typed gateway delivery decisions', function (): void {
         ->and($serialized['deliveries'][0]['target'])->toBe('smtp:subscriber.example.test')
         ->and(base64_decode($serialized['deliveries'][0]['payload'], true))->toBe('message');
 });
+
+it('round trips DNS query events and serializes a synchronous reply', function (): void {
+    $event = new GatewayEvent(
+        id: 'dns-event-1',
+        protocol: Protocol::DNS,
+        kind: EventKind::QUERY,
+        route: '/hook-1',
+        host: 'payload.hook-1.dns.example.test.',
+        attributes: ['qtype' => 'TXT', 'data' => 'payload'],
+        payload: '{"data":"payload"}',
+    );
+
+    $roundTripped = GatewayEvent::fromArray($event->toArray());
+    $decision = new GatewayDecision(
+        protocol: Protocol::DNS,
+        action: GatewayAction::DELIVER,
+        reply: new GatewayDelivery(
+            protocol: Protocol::HTTP,
+            target: 'https://reply.example.test/dns',
+        ),
+    );
+
+    expect($roundTripped->protocol)->toBe(Protocol::DNS)
+        ->and($roundTripped->kind)->toBe(EventKind::QUERY)
+        ->and($roundTripped->attributes['qtype'])->toBe('TXT')
+        ->and($decision->toArray()['reply']['target'])->toBe('https://reply.example.test/dns');
+});

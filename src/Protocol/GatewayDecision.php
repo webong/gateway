@@ -16,6 +16,7 @@ final readonly class GatewayDecision
         public array $headers = [],
         public string $message = '',
         public string $payload = '',
+        public ?GatewayDelivery $reply = null,
         public array $deliveries = [],
         public array $metadata = [],
         public string $version = 'v1',
@@ -24,8 +25,8 @@ final readonly class GatewayDecision
             throw new InvalidArgumentException('Unsupported gateway decision version.');
         }
 
-        if ($this->action === GatewayAction::DELIVER && $this->deliveries === []) {
-            throw new InvalidArgumentException('Deliver decisions require a destination.');
+        if ($this->action === GatewayAction::DELIVER && $this->reply === null && $this->deliveries === []) {
+            throw new InvalidArgumentException('Deliver decisions require a reply or destination.');
         }
 
         foreach ($this->deliveries as $delivery) {
@@ -46,11 +47,12 @@ final readonly class GatewayDecision
             'headers' => $this->headers,
             'message' => $this->message,
             'payload' => base64_encode($this->payload),
+            'reply' => $this->reply?->toArray(),
             'deliveries' => array_map(
                 static fn (GatewayDelivery $delivery): array => $delivery->toArray(),
                 $this->deliveries,
             ),
             'metadata' => $this->metadata,
-        ], static fn (mixed $value): bool => $value !== '' && $value !== 0 && $value !== []);
+        ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== 0 && $value !== []);
     }
 }

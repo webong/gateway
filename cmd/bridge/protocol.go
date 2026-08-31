@@ -12,11 +12,12 @@ const (
 	ProtocolHTTP      Protocol = "http"
 	ProtocolWebSocket Protocol = "websocket"
 	ProtocolSMTP      Protocol = "smtp"
+	ProtocolDNS       Protocol = "dns"
 )
 
 func (p Protocol) Validate() error {
 	switch p {
-	case ProtocolHTTP, ProtocolWebSocket, ProtocolSMTP:
+	case ProtocolHTTP, ProtocolWebSocket, ProtocolSMTP, ProtocolDNS:
 		return nil
 	default:
 		return fmt.Errorf("unsupported gateway protocol %q", p)
@@ -34,11 +35,12 @@ const (
 	EventClose        EventKind = "close"
 	EventTransaction  EventKind = "transaction"
 	EventAuthenticate EventKind = "authenticate"
+	EventQuery        EventKind = "query"
 )
 
 func (k EventKind) Validate() error {
 	switch k {
-	case EventRequest, EventConnect, EventMessage, EventClose, EventTransaction, EventAuthenticate:
+	case EventRequest, EventConnect, EventMessage, EventClose, EventTransaction, EventAuthenticate, EventQuery:
 		return nil
 	default:
 		return fmt.Errorf("unsupported gateway event kind %q", k)
@@ -78,6 +80,9 @@ func (e GatewayEvent) Validate() error {
 	}
 	if e.Protocol == ProtocolHTTP && e.Kind != EventRequest {
 		return fmt.Errorf("HTTP gateway events must use the request kind")
+	}
+	if e.Protocol == ProtocolDNS && e.Kind != EventQuery {
+		return fmt.Errorf("DNS gateway events must use the query kind")
 	}
 	return nil
 }
@@ -127,6 +132,7 @@ type GatewayDecision struct {
 	Headers    map[string][]string `json:"headers,omitempty"`
 	Message    string              `json:"message,omitempty"`
 	Payload    []byte              `json:"payload,omitempty"`
+	Reply      *GatewayDelivery    `json:"reply,omitempty"`
 	Deliveries []GatewayDelivery   `json:"deliveries,omitempty"`
 	Metadata   map[string]string   `json:"metadata,omitempty"`
 }
@@ -143,8 +149,13 @@ func (d GatewayDecision) Validate() error {
 	default:
 		return fmt.Errorf("unsupported gateway action %q", d.Action)
 	}
-	if d.Action == GatewayDeliver && len(d.Deliveries) == 0 {
-		return fmt.Errorf("deliver decision requires at least one destination")
+	if d.Action == GatewayDeliver && d.Reply == nil && len(d.Deliveries) == 0 {
+		return fmt.Errorf("deliver decision requires a reply or destination")
+	}
+	if d.Reply != nil {
+		if err := d.Reply.Validate(); err != nil {
+			return fmt.Errorf("reply: %w", err)
+		}
 	}
 	for index := range d.Deliveries {
 		if err := d.Deliveries[index].Validate(); err != nil {

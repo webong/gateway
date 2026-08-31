@@ -31,8 +31,9 @@ WORKDIR /root/
 # Copy the binary from builder
 COPY --from=builder /app/gateway .
 
-# Expose the port
-EXPOSE 5001
+# HTTP ingress plus the unprivileged authoritative DNS ports used by the
+# production compose example. Publish both DNS transports on public port 53.
+EXPOSE 5001 5353/tcp 5353/udp
 
 # Run the application
 CMD ["./gateway"]

@@ -8,7 +8,7 @@ use InvalidArgumentException;
 
 final readonly class IngressRequest
 {
-    /** @param array<string, list<string>> $headers */
+    /** @param array<string, list<string>> $headers @param array<string, string> $attributes */
     public function __construct(
         public string $deliveryId,
         public string $method,
@@ -21,6 +21,7 @@ final readonly class IngressRequest
         public string $protocol = 'http',
         public string $event = 'request',
         public string $sessionId = '',
+        public array $attributes = [],
     ) {
     }
 
@@ -65,7 +66,27 @@ final readonly class IngressRequest
             protocol: self::string($payload, 'protocol', 'http'),
             event: self::string($payload, 'event', 'request'),
             sessionId: self::string($payload, 'session_id', ''),
+            attributes: self::attributes($payload['attributes'] ?? []),
         );
+    }
+
+    /** @return array<string, string> */
+    private static function attributes(mixed $attributes): array
+    {
+        if (! is_array($attributes)) {
+            throw new InvalidArgumentException('Ingress attributes must be a string map.');
+        }
+
+        $normalized = [];
+        foreach ($attributes as $name => $value) {
+            if (! is_string($name) || ! is_scalar($value)) {
+                throw new InvalidArgumentException('Ingress attributes must be a string map.');
+            }
+
+            $normalized[$name] = (string) $value;
+        }
+
+        return $normalized;
     }
 
     /** @param array<string, mixed> $payload */

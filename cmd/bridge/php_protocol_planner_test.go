@@ -61,3 +61,32 @@ func TestPHPProtocolPlannerRejectsOversizedDecision(t *testing.T) {
 		t.Fatal("expected oversized decision to fail")
 	}
 }
+
+func TestPHPProtocolPlannerDecodesDNSSynchronousReply(t *testing.T) {
+	planner := NewPHPProtocolPlanner(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var event GatewayEvent
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			t.Fatalf("decode DNS event: %v", err)
+		}
+		if event.Protocol != ProtocolDNS || event.Kind != EventQuery || event.Attributes["qtype"] != "TXT" {
+			t.Fatalf("unexpected DNS event: %+v", event)
+		}
+		_, _ = w.Write([]byte(`{
+			"version":"v1",
+			"protocol":"dns",
+			"action":"deliver",
+			"reply":{"protocol":"http","target":"https://reply.example.test/dns"}
+		}`))
+	}), 4096)
+
+	decision, err := planner.PlanEvent(context.Background(), GatewayEvent{
+		ID: "dns-event-1", Protocol: ProtocolDNS, Kind: EventQuery, Route: "/hook-1",
+		Attributes: map[string]string{"qtype": "TXT"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Reply == nil || decision.Reply.Target != "https://reply.example.test/dns" {
+		t.Fatalf("unexpected DNS reply decision: %+v", decision)
+	}
+}
