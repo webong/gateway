@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Dns\DnsHookRegistry;
 use Webong\Gateway\Dns\DnsHookResources;
+use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\RegistryRequestAuthenticator;
 
 final readonly class DnsHookEventController
@@ -29,10 +30,12 @@ final readonly class DnsHookEventController
         }
 
         $limit = min(100, max(1, $request->integer('limit', 50)));
-        $events = $model->events()
+        $events = GatewayEndpointEvent::query()
+            ->where('endpoint_id', $model->getKey())
+            ->where('protocol', 'dns')
             ->when(
                 is_string($request->query('type')) && $request->query('type') !== '',
-                fn ($query) => $query->where('query_type', strtoupper((string) $request->query('type'))),
+                fn ($query) => $query->where('attributes->qtype', strtoupper((string) $request->query('type'))),
             )
             ->when(
                 is_string($request->query('transport')) && $request->query('transport') !== '',

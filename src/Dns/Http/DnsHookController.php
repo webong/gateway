@@ -12,8 +12,8 @@ use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Dns\DnsHookRegistry;
 use Webong\Gateway\Dns\DnsHookResources;
-use Webong\Gateway\Dns\Models\DnsHook;
 use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\WebProxy\Models\WebProxyEndpoint;
 
 final readonly class DnsHookController
 {
@@ -29,8 +29,11 @@ final readonly class DnsHookController
             return $authorization;
         }
 
-        $hooks = DnsHook::query()
-            ->when($request->boolean('active'), fn ($query) => $query->active())
+        $hooks = WebProxyEndpoint::query()
+            ->where('client', trim((string) config('gateway.dns.client', 'gateway')))
+            ->where('metadata->_gateway->kind', 'dns_hook')
+            ->where('metadata->_gateway->deleted', false)
+            ->when($request->boolean('active'), fn ($query) => $query->where('is_active', true))
             ->latest()
             ->get()
             ->map(DnsHookResources::hook(...));

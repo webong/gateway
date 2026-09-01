@@ -322,10 +322,17 @@ DNS names are case-insensitive and each label is limited to 63 bytes.
 
 Setting `GATEWAY_DNS_ZONE` enables the PHP-owned DNS hook control plane as well
 as configuring Go's authoritative zone. The package registers a built-in
-`gateway-dns` WebProxy client, provisions an ordinary managed WebProxy endpoint
-for each hook, and wraps the application's existing path resolver with token
-lookup. No DNS-specific endpoint or destination storage is added to
-`webong/web-proxy`.
+`gateway` WebProxy client, provisions ordinary managed WebProxy endpoints for
+the DNS zone and each hook, and wraps the application's existing path resolver
+with token lookup. Gateway-specific attributes live in the endpoint's reserved
+`metadata._gateway` object, including the kind, protocol, hostname, route, and
+parent zone endpoint key. No DNS-specific endpoint or destination storage is
+added to `webong/web-proxy`.
+
+DNS history uses the generic `events` table, linked to the
+underlying WebProxy endpoint. This is intentionally the only protocol-neutral
+history table: an HTTP proxy, WebSocket, or future ingress can use the same
+event model without creating its own registry tables.
 
 Create a hook through the bearer-token-protected management API:
 

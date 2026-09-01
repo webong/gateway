@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
-use Webong\Gateway\Dns\Models\DnsHook;
-use Webong\Gateway\Dns\Models\DnsHookEvent;
+use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocol\GatewayAction;
 use Webong\Gateway\Protocol\GatewayEvent;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Protocol;
+use Illuminate\Support\Facades\Schema;
 use Webong\WebProxy\Models\WebProxyEndpoint;
 
 function createDnsHook($test, string $externalId = 'dns-hook-1'): array
@@ -31,17 +31,29 @@ it('provisions a DNS hook as a first-class WebProxy endpoint', function (): void
         ->and($hook['hostname'])->toBe($hook['token'].'.dns.example.test')
         ->and($hook['query_name_template'])->toBe('{data}.'.$hook['hostname'])
         ->and($hook['subscriptions_url'])->toBe('/registry/endpoints/'.$hook['endpoint_key'].'/subscriptions')
-        ->and(DnsHook::query()->where('token', $hook['token'])->exists())->toBeTrue();
+        ->and(WebProxyEndpoint::query()->whereKey($hook['id'])->exists())->toBeTrue();
 
     $endpoint = WebProxyEndpoint::query()->where('endpoint_key', $hook['endpoint_key'])->sole();
-    expect($endpoint->client)->toBe('gateway-dns')
+    $zone = WebProxyEndpoint::query()->where('metadata->_gateway->kind', 'dns_zone')->sole();
+    expect($endpoint->client)->toBe('gateway')
         ->and($endpoint->is_managed)->toBeTrue()
-        ->and($endpoint->metadata['_gateway_dns_hook_token'])->toBe($hook['token']);
+        ->and($endpoint->metadata['_gateway'])->toMatchArray([
+            'kind' => 'dns_hook',
+            'protocol' => 'dns',
+            'token' => $hook['token'],
+            'hostname' => $hook['hostname'],
+            'metadata' => ['workspace' => 'workspace-42'],
+        ])
+        ->and($endpoint->metadata['_gateway']['parent_endpoint_key'])->toBe($zone->endpoint_key)
+        ->and(Schema::hasTable('dns_hooks'))->toBeFalse()
+        ->and(Schema::hasTable('dns_hook_events'))->toBeFalse()
+        ->and(Schema::hasTable('events'))->toBeTrue();
 
     $again = createDnsHook($this);
     expect($again['id'])->toBe($hook['id'])
         ->and($again['token'])->toBe($hook['token'])
-        ->and(DnsHook::query()->count())->toBe(1);
+        ->and(WebProxyEndpoint::query()->where('metadata->_gateway->kind', 'dns_hook')->count())->toBe(1)
+        ->and(WebProxyEndpoint::query()->where('metadata->_gateway->kind', 'dns_zone')->count())->toBe(1);
 });
 
 it('resolves DNS hook tokens before delegating non-DNS paths', function (): void {
@@ -126,13 +138,11 @@ it('routes DNS subscriptions and exposes query history and usage', function (): 
     expect($decision->action)->toBe(GatewayAction::DELIVER)
         ->and($decision->deliveries)->toHaveCount(1)
         ->and($decision->deliveries[0]->target)->toBe('https://subscriber.example.test/dns')
-        ->and(DnsHookEvent::query()->count())->toBe(1)
-        ->and(DnsHook::query()->findOrFail($hook['id'])->query_count)->toBe(1);
+        ->and(GatewayEndpointEvent::query()->count())->toBe(1);
 
     // Go may retry planning the same event; usage remains idempotent.
     $planner->planEvent($event);
-    expect(DnsHookEvent::query()->count())->toBe(1)
-        ->and(DnsHook::query()->findOrFail($hook['id'])->query_count)->toBe(1);
+    expect(GatewayEndpointEvent::query()->count())->toBe(1);
 
     $this->withToken('registry-secret')
         ->getJson('/dns/hooks/'.$hook['id'].'/events?type=txt&transport=udp')

@@ -14,7 +14,6 @@ use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Dns\CacheableDnsHookPathResolver;
 use Webong\Gateway\Dns\DnsHookEventRecorder;
 use Webong\Gateway\Dns\DnsHookPathResolver;
-use Webong\Gateway\Dns\DnsHookRouter;
 use Webong\Gateway\Dns\Http\DnsHookController;
 use Webong\Gateway\Dns\Http\DnsHookEventController;
 use Webong\Gateway\Dns\Http\DnsHookUsageController;
@@ -130,13 +129,13 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         if ((bool) config('gateway.dns.enabled', false)) {
-            $client = trim((string) config('gateway.dns.client', 'gateway-dns'));
+            $client = trim((string) config('gateway.dns.client', 'gateway'));
             if ($client === '') {
                 throw new RuntimeException('Gateway DNS hooks require gateway.dns.client.');
             }
             $webProxy = $this->app->make(WebProxy::class);
             if (! $webProxy->has($client)) {
-                $webProxy->register($client, DnsHookRouter::class);
+                $webProxy->register($client, GatewayRouter::class);
             }
         }
 

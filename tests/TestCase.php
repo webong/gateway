@@ -66,7 +66,7 @@ abstract class TestCase extends Orchestra
             'gateway.internal_token' => 'internal-secret',
             'gateway.dns.enabled' => true,
             'gateway.dns.zone' => 'dns.example.test',
-            'gateway.dns.client' => 'gateway-dns',
+            'gateway.dns.client' => 'gateway',
             'gateway.servers.tables.servers' => 'managed_servers',
             'gateway.servers.tables.applications' => 'managed_applications',
             'gateway.servers.tables.instances' => 'managed_instances',
