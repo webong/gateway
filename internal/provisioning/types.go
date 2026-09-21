@@ -15,6 +15,7 @@ const (
 )
 
 type ServerSpec struct {
+	AssignmentID  string          `json:"assignment_id"`
 	ID            string          `json:"id"`
 	Type          string          `json:"type"`
 	Name          string          `json:"name"`
@@ -28,6 +29,9 @@ type ServerSpec struct {
 }
 
 func (s ServerSpec) Validate() error {
+	if strings.TrimSpace(s.AssignmentID) == "" {
+		return fmt.Errorf("provisioned server assignment ID is required")
+	}
 	if strings.TrimSpace(s.ID) == "" {
 		return fmt.Errorf("provisioned server ID is required")
 	}

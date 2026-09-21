@@ -82,6 +82,7 @@ func backendAddress(t *testing.T, server *httptest.Server) (string, int) {
 
 func validServerSpec() ServerSpec {
 	return ServerSpec{
+		AssignmentID: "019d4000-0000-7000-8000-000000000001",
 		ID:            "server-1",
 		Type:          "test",
 		Name:          "primary",

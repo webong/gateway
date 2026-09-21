@@ -17,6 +17,7 @@ func LoadConfig(gatewayRuntime string) (HostConfig, error) {
 	config := HostConfig{
 		Enabled: envBool("GATEWAY_PROVISIONING_ENABLED", false),
 		Config: Config{
+			CoordinationLease:              envSeconds("GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS", 15*time.Second),
 			PollInterval:                   envDuration("GATEWAY_PROVISIONING_POLL_INTERVAL", 5*time.Second),
 			StartTimeout:                   envDuration("GATEWAY_PROVISIONING_START_TIMEOUT", 15*time.Second),
 			StopTimeout:                    envDuration("GATEWAY_PROVISIONING_STOP_TIMEOUT", 15*time.Second),
@@ -71,6 +72,15 @@ func envDuration(key string, defaultValue time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := time.ParseDuration(value); err == nil {
 			return parsed
+		}
+	}
+	return defaultValue
+}
+
+func envSeconds(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+			return time.Duration(seconds) * time.Second
 		}
 	}
 	return defaultValue

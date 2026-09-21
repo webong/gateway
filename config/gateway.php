@@ -39,7 +39,11 @@ return [
             'servers' => env('GATEWAY_SERVERS_TABLE', 'servers'),
             'applications' => env('GATEWAY_APPLICATIONS_TABLE', 'applications'),
             'instances' => env('GATEWAY_INSTANCES_TABLE', 'instances'),
+            'nodes' => env('GATEWAY_NODES_TABLE', 'gateway_nodes'),
         ],
+        // Nodes are considered unavailable after this interval without an
+        // assignment heartbeat. All reconciler nodes must use the same value.
+        'coordination_lease_seconds' => (int) env('GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS', 15),
     ],
 
     'cache' => [

@@ -2,8 +2,6 @@ package provisioning
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"sort"
 	"time"
@@ -17,9 +15,11 @@ type Logger interface {
 }
 
 type ReconcilerConfig struct {
-	NodeID       string
-	PollInterval time.Duration
-	StopTimeout  time.Duration
+	NodeID            string
+	Drivers           []string
+	CoordinationLease time.Duration
+	PollInterval      time.Duration
+	StopTimeout       time.Duration
 }
 
 type managedProcess struct {
@@ -29,20 +29,21 @@ type managedProcess struct {
 }
 
 type Reconciler struct {
-	config    ReconcilerConfig
-	control   ControlPlane
-	driver    Starter
-	router    *Router
-	logger    Logger
-	processes map[string]*managedProcess
-	failures  map[string]string
+	config         ReconcilerConfig
+	control        ControlPlane
+	driver         Starter
+	router         *Router
+	logger         Logger
+	processes      map[string]*managedProcess
+	failures       map[string]string
+	lastAssignment time.Time
 }
 
 func NewReconciler(config ReconcilerConfig, control ControlPlane, driver Starter, router *Router, logger Logger) (*Reconciler, error) {
 	if config.NodeID == "" {
 		return nil, fmt.Errorf("provisioning reconciler node ID is required")
 	}
-	if config.PollInterval <= 0 || config.StopTimeout <= 0 {
+	if config.PollInterval <= 0 || config.StopTimeout <= 0 || config.CoordinationLease <= 0 {
 		return nil, fmt.Errorf("provisioning reconciler intervals must be positive")
 	}
 	if control == nil || driver == nil || router == nil || logger == nil {
@@ -77,20 +78,27 @@ func (r *Reconciler) Run(ctx context.Context) {
 }
 
 func (r *Reconciler) reconcile(ctx context.Context) {
-	specifications, err := r.control.Servers(ctx)
+	specifications, leaderID, err := r.control.Assignments(ctx, r.config.NodeID, r.config.Drivers)
 	if err != nil {
-		r.logger.Error("Failed to load provisioned desired state: %v", err)
+		r.logger.Error("Failed to load provisioned assignments: %v", err)
+		if !r.lastAssignment.IsZero() && time.Since(r.lastAssignment) >= r.config.CoordinationLease {
+			r.logger.Warn("Provisioning assignment lease expired; stopping local workloads")
+			r.shutdown()
+		}
 		return
+	}
+	r.lastAssignment = time.Now()
+	if leaderID == r.config.NodeID {
+		r.logger.Debug("Gateway node %s is the active provisioning placement leader", r.config.NodeID)
 	}
 
 	specs := make(map[string]ServerSpec, len(specifications))
 	for _, spec := range specifications {
-		specs[spec.ID] = spec
+		specs[spec.AssignmentID] = spec
 	}
-	for serverID := range r.failures {
-		spec, exists := specs[serverID]
-		if !exists || spec.DesiredState == DesiredStopped {
-			delete(r.failures, serverID)
+	for assignmentID := range r.failures {
+		if _, exists := specs[assignmentID]; !exists {
+			delete(r.failures, assignmentID)
 		}
 	}
 
@@ -110,31 +118,19 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		default:
 		}
 
-		desired, exists := specs[managed.spec.ID]
-		if !exists || desired.DesiredState == DesiredStopped || desired.Revision != managed.spec.Revision {
+		desired, exists := specs[managed.instanceID]
+		if !exists || desired.Revision != managed.spec.Revision {
 			r.stop(managed)
 			delete(r.processes, id)
 		}
 	}
 
 	for _, spec := range specifications {
-		if spec.DesiredState != DesiredRunning {
+		if _, exists := r.processes[spec.AssignmentID]; exists {
 			continue
 		}
-		current := r.forServer(spec.ID)
-		for len(current) > spec.Replicas {
-			managed := current[len(current)-1]
-			r.stop(managed)
-			delete(r.processes, managed.instanceID)
-			current = current[:len(current)-1]
-		}
-		for len(current) < spec.Replicas {
-			managed, startErr := r.start(ctx, spec)
-			if startErr != nil {
-				r.logger.Error("Failed to start provisioned server %s: %v", spec.ID, startErr)
-				break
-			}
-			current = append(current, managed)
+		if _, startErr := r.start(ctx, spec); startErr != nil {
+			r.logger.Error("Failed to start provisioned server %s: %v", spec.ID, startErr)
 		}
 	}
 
@@ -144,17 +140,10 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 }
 
 func (r *Reconciler) start(ctx context.Context, spec ServerSpec) (*managedProcess, error) {
-	instanceID := r.failures[spec.ID]
-	if instanceID == "" {
-		var err error
-		instanceID, err = randomID()
-		if err != nil {
-			return nil, err
-		}
-	}
+	instanceID := spec.AssignmentID
 	process, err := r.driver.Start(ctx, spec, instanceID)
 	if err != nil {
-		r.failures[spec.ID] = instanceID
+		r.failures[instanceID] = instanceID
 		report := InstanceReport{
 			NodeID:   r.config.NodeID,
 			Runtime:  spec.Driver,
@@ -167,7 +156,7 @@ func (r *Reconciler) start(ctx context.Context, spec ServerSpec) (*managedProces
 		}
 		return nil, err
 	}
-	delete(r.failures, spec.ID)
+	delete(r.failures, instanceID)
 	managed := &managedProcess{instanceID: instanceID, spec: spec, process: process}
 	r.processes[instanceID] = managed
 	r.router.Add(spec, instanceID, process.Host(), process.Port())
@@ -229,16 +218,4 @@ func (r *Reconciler) report(ctx context.Context, managed *managedProcess, state 
 	if err := r.control.Report(ctx, managed.spec.ID, managed.instanceID, report); err != nil {
 		r.logger.Warn("Failed to report provisioned instance %s: %v", managed.instanceID, err)
 	}
-}
-
-func randomID() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", fmt.Errorf("generate provisioned instance ID: %w", err)
-	}
-	bytes[6] = (bytes[6] & 0x0f) | 0x40
-	bytes[8] = (bytes[8] & 0x3f) | 0x80
-	hexValue := hex.EncodeToString(bytes)
-
-	return hexValue[0:8] + "-" + hexValue[8:12] + "-" + hexValue[12:16] + "-" + hexValue[16:20] + "-" + hexValue[20:32], nil
 }

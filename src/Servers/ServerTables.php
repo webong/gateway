@@ -21,6 +21,11 @@ final class ServerTables
         return self::configured('instances', 'instances');
     }
 
+    public static function nodes(): string
+    {
+        return self::configured('nodes', 'gateway_nodes');
+    }
+
     private static function configured(string $name, string $default): string
     {
         $table = config("gateway.servers.tables.{$name}");

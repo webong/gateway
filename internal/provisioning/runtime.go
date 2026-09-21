@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 )
 
 type Config struct {
+	CoordinationLease              time.Duration
 	PollInterval                   time.Duration
 	StartTimeout                   time.Duration
 	StopTimeout                    time.Duration
@@ -101,9 +103,11 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 
 	router := NewRouter()
 	reconciler, err := NewReconciler(ReconcilerConfig{
-		NodeID:       config.NodeID,
-		PollInterval: config.PollInterval,
-		StopTimeout:  config.StopTimeout,
+		NodeID:            config.NodeID,
+		Drivers:           supportedDrivers(drivers),
+		CoordinationLease: config.CoordinationLease,
+		PollInterval:      config.PollInterval,
+		StopTimeout:       config.StopTimeout,
 	}, control, driver, router, logger)
 	if err != nil {
 		return nil, fmt.Errorf("initialize provisioning reconciler: %w", err)
@@ -117,6 +121,16 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 	}()
 
 	return &Runtime{router: router, cancel: cancel, done: done}, nil
+}
+
+func supportedDrivers(drivers map[string]Driver) []string {
+	keys := make([]string, 0, len(drivers))
+	for key := range drivers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	return keys
 }
 
 func hasDriver(workloads []Workload, driver string) bool {

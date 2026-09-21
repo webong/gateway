@@ -15,7 +15,7 @@ import (
 const maxControlResponseSize = 4 * 1024 * 1024
 
 type ControlPlane interface {
-	Servers(context.Context) ([]ServerSpec, error)
+	Assignments(context.Context, string, []string) ([]ServerSpec, string, error)
 	Report(context.Context, string, string, InstanceReport) error
 	ResetNode(context.Context, string) error
 }
@@ -44,34 +44,42 @@ func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPCo
 	return &HTTPControlPlane{client: client, base: backend, token: token}, nil
 }
 
-func (c *HTTPControlPlane) Servers(ctx context.Context) ([]ServerSpec, error) {
-	request, err := c.request(ctx, http.MethodGet, "/_internal/provisioning/servers", nil)
+func (c *HTTPControlPlane) Assignments(ctx context.Context, nodeID string, drivers []string) ([]ServerSpec, string, error) {
+	payload, err := json.Marshal(map[string][]string{"drivers": drivers})
 	if err != nil {
-		return nil, err
+		return nil, "", fmt.Errorf("encode provisioning node heartbeat: %w", err)
 	}
+	request, err := c.request(ctx, http.MethodPut, "/_internal/provisioning/nodes/"+url.PathEscape(nodeID)+"/assignments", bytes.NewReader(payload))
+	if err != nil {
+		return nil, "", err
+	}
+	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("load provisioned server specifications: %w", err)
+		return nil, "", fmt.Errorf("load provisioned assignments: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("load provisioned server specifications: status %d", response.StatusCode)
+		return nil, "", fmt.Errorf("load provisioned assignments: status %d", response.StatusCode)
 	}
 
 	var document struct {
 		Data []ServerSpec `json:"data"`
+		Meta struct {
+			LeaderID string `json:"leader_id"`
+		} `json:"meta"`
 	}
 	if err := decodeResponse(response.Body, &document); err != nil {
-		return nil, fmt.Errorf("decode provisioned server specifications: %w", err)
+		return nil, "", fmt.Errorf("decode provisioned assignments: %w", err)
 	}
 	for _, spec := range document.Data {
 		if err := spec.Validate(); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
-	return document.Data, nil
+	return document.Data, document.Meta.LeaderID, nil
 }
 
 func (c *HTTPControlPlane) Report(ctx context.Context, serverID, instanceID string, report InstanceReport) error {

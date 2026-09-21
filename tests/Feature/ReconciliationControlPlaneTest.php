@@ -48,3 +48,39 @@ it('accepts observed instance reports only through the internal API', function (
             'revision' => 1,
         ])->assertOk()->assertJsonPath('runtime', 'kubernetes');
 });
+
+it('coordinates deterministic replica placements across live compatible nodes', function (): void {
+    $server = Server::query()->create([
+        'type' => 'reverb',
+        'name' => 'socket-cluster',
+        'hostname' => 'cluster.example.test',
+        'path' => '',
+        'driver' => 'docker',
+        'desired_state' => 'running',
+        'replicas' => 3,
+        'revision' => 2,
+        'configuration' => [],
+    ]);
+
+    $headers = ['X-Gateway-Internal' => 'internal-secret'];
+    $first = $this->withHeaders($headers)
+        ->putJson('/_internal/provisioning/nodes/node-a/assignments', ['drivers' => ['docker']])
+        ->assertOk()
+        ->assertJsonPath('meta.leader_id', 'node-a');
+    $second = $this->withHeaders($headers)
+        ->putJson('/_internal/provisioning/nodes/node-b/assignments', ['drivers' => ['docker']])
+        ->assertOk()
+        ->assertJsonPath('meta.leader_id', 'node-a');
+
+    $first = $this->withHeaders($headers)
+        ->putJson('/_internal/provisioning/nodes/node-a/assignments', ['drivers' => ['docker']])
+        ->assertOk()
+        ->assertJsonPath('meta.leader_id', 'node-a');
+    $firstIds = collect($first->json('data'))->pluck('assignment_id');
+    $secondIds = collect($second->json('data'))->pluck('assignment_id');
+
+    expect($firstIds)->toHaveCount(2)
+        ->and($secondIds)->toHaveCount(1)
+        ->and($firstIds->intersect($secondIds))->toHaveCount(0)
+        ->and($second->json('data.0.id'))->toBe($server->getKey());
+});

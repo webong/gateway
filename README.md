@@ -813,6 +813,13 @@ Scaling is available through the explicit `/scale` operation or a normal
 server update; the technology provider validates constraints such as Mercure
 Community's single-replica limit and Centrifugo's Redis requirement.
 
+Gateway nodes coordinate through the shared control plane. Each node
+heartbeats its supported drivers, receives only its deterministic replica-slot
+assignments, and reconciles those slots locally. The first live node ID is
+reported as the placement leader; an expired node is removed from placement
+after `GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS` (default `15`). Use
+the same lease value on every Gateway node.
+
 The configurable table environment variables remain
 `GATEWAY_SERVERS_TABLE`, `GATEWAY_APPLICATIONS_TABLE`, and
 `GATEWAY_INSTANCES_TABLE`. Their Laravel keys are under

@@ -15,8 +15,11 @@ func TestHTTPControlPlaneLoadsSpecsAndReportsInstances(t *testing.T) {
 			t.Fatalf("missing internal token")
 		}
 		switch request.URL.Path {
-		case "/control/_internal/provisioning/servers":
-			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []ServerSpec{validServerSpec()}})
+		case "/control/_internal/provisioning/nodes/node-a/assignments":
+			if request.Method != http.MethodPut {
+				t.Fatalf("expected PUT, got %s", request.Method)
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []ServerSpec{validServerSpec()}, "meta": map[string]string{"leader_id": "node-a"}})
 		case "/control/_internal/provisioning/servers/server-1/instances/instance-1":
 			if request.Method != http.MethodPut {
 				t.Fatalf("expected PUT, got %s", request.Method)
@@ -42,12 +45,15 @@ func TestHTTPControlPlaneLoadsSpecsAndReportsInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	specs, err := control.Servers(t.Context())
+	specs, leader, err := control.Assignments(t.Context(), "node-a", []string{"local"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(specs) != 1 || specs[0].ID != "server-1" {
 		t.Fatalf("unexpected specs: %+v", specs)
+	}
+	if leader != "node-a" {
+		t.Fatalf("unexpected leader %q", leader)
 	}
 
 	report := InstanceReport{NodeID: "node-a", Runtime: "local", PID: 42, Host: "127.0.0.1", Port: 9001, State: "running", Revision: 1}

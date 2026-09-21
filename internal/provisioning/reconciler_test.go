@@ -9,15 +9,14 @@ import (
 )
 
 func TestReconcilerConvergesReplicasAndReplacesRevisions(t *testing.T) {
-	control := &fakeControlPlane{servers: []ServerSpec{func() ServerSpec {
-		spec := validServerSpec()
-		spec.Replicas = 2
-		return spec
-	}()}}
+	first := validServerSpec()
+	second := validServerSpec()
+	second.AssignmentID = "019d4000-0000-7000-8000-000000000002"
+	control := &fakeControlPlane{servers: []ServerSpec{first, second}}
 	driver := &fakeDriver{}
 	router := NewRouter()
 	reconciler, err := NewReconciler(
-		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second},
+		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second, CoordinationLease: 5 * time.Second},
 		control,
 		driver,
 		router,
@@ -33,6 +32,7 @@ func TestReconcilerConvergesReplicasAndReplacesRevisions(t *testing.T) {
 	}
 
 	control.servers[0].Revision = 2
+	control.servers[1].Revision = 2
 	reconciler.reconcile(t.Context())
 	if len(reconciler.processes) != 2 || driver.starts != 4 || driver.stops != 2 {
 		t.Fatalf("expected rolling replacement, processes=%d starts=%d stops=%d", len(reconciler.processes), driver.starts, driver.stops)
@@ -43,7 +43,7 @@ func TestReconcilerConvergesReplicasAndReplacesRevisions(t *testing.T) {
 		}
 	}
 
-	control.servers[0].DesiredState = DesiredStopped
+	control.servers = nil
 	reconciler.reconcile(t.Context())
 	if len(reconciler.processes) != 0 || driver.stops != 4 {
 		t.Fatalf("expected all replicas stopped, processes=%d stops=%d", len(reconciler.processes), driver.stops)
@@ -58,7 +58,7 @@ func TestReconcilerReportsSelectedRuntime(t *testing.T) {
 	spec.Driver = DriverDocker
 	control := &fakeControlPlane{servers: []ServerSpec{spec}}
 	reconciler, err := NewReconciler(
-		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second},
+		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second, CoordinationLease: 5 * time.Second},
 		control,
 		&fakeDriver{},
 		NewRouter(),
@@ -79,7 +79,7 @@ func TestReconcilerReportsProvisioningFailure(t *testing.T) {
 	spec.Driver = DriverKubernetes
 	control := &fakeControlPlane{servers: []ServerSpec{spec}}
 	reconciler, err := NewReconciler(
-		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second},
+		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second, CoordinationLease: 5 * time.Second},
 		control,
 		&failingDriver{err: errors.New("pod admission denied")},
 		NewRouter(),
@@ -102,10 +102,10 @@ type fakeControlPlane struct {
 	resetNodes []string
 }
 
-func (f *fakeControlPlane) Servers(context.Context) ([]ServerSpec, error) {
+func (f *fakeControlPlane) Assignments(context.Context, string, []string) ([]ServerSpec, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]ServerSpec(nil), f.servers...), nil
+	return append([]ServerSpec(nil), f.servers...), "node-a", nil
 }
 
 func (f *fakeControlPlane) Report(_ context.Context, _, _ string, report InstanceReport) error {

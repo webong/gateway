@@ -185,8 +185,14 @@ removes Docker containers or Kubernetes Pods carrying that node's ownership
 label before rebuilding the desired replica set. This prevents persistent
 runtimes from being duplicated after a Gateway restart.
 
-Run one active reconciler for a control-plane database. Multi-node leader
-election and coordinated placement are not implemented yet.
+Multiple Gateway nodes may share one control-plane database. Every node sends
+an authenticated assignment heartbeat that declares its available runtime
+drivers. The control plane elects the lexicographically first live node as the
+placement leader and deterministically assigns each replica slot only to a
+compatible node. Nodes reconcile only their assigned slots, so a node restart
+does not duplicate another node's workload. Set the same
+`GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS` value on every node; a
+departed node's slots are reassigned after that lease expires.
 
 ## Tests
 

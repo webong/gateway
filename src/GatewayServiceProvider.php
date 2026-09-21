@@ -18,6 +18,7 @@ use Webong\Gateway\Dns\Http\DnsHookController;
 use Webong\Gateway\Dns\Http\DnsHookEventController;
 use Webong\Gateway\Dns\Http\DnsHookUsageController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
+use Webong\Gateway\Reconciliation\Http\Controllers\InternalAssignmentController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Servers\Http\Controllers\ApplicationController as ManagedApplicationController;
@@ -147,6 +148,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']->get('/_internal/provisioning/servers', InternalServerController::class);
+            $this->app['router']->put('/_internal/provisioning/nodes/{node}/assignments', InternalAssignmentController::class);
             $this->app['router']->post('/_internal/provisioning/instances/reset', [InternalInstanceController::class, 'resetNode']);
             $this->app['router']->put('/_internal/provisioning/servers/{server}/instances/{instance}', [InternalInstanceController::class, 'update']);
 
