@@ -209,6 +209,23 @@ network edge, while Laravel owns application routing and the control plane.
 The backend URL may contain a path prefix; the planner route is appended to
 that prefix.
 
+For a colocated Laravel process, retain the same HTTP contract but route it
+over a Unix domain socket. The URL supplies the HTTP host and optional path
+prefix; Go dials the socket instead of the URL's TCP host:
+
+```bash
+export GATEWAY_RUNTIME=http
+export GATEWAY_LARAVEL_BACKEND_URL=http://gateway-planner
+export GATEWAY_LARAVEL_BACKEND_SOCKET=/run/gateway/planner.sock
+export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
+go run ./cmd/proxy
+```
+
+Configure Nginx, Caddy, or another local HTTP server to listen on that socket.
+This is an HTTP transport optimization for a single host, not a new PHP worker
+or RPC runtime. Do not use a Unix socket when Gateway and Laravel are in
+separate containers or nodes; use their private HTTP network address instead.
+
 ### SMTP listener
 
 SMTP is available in `http` and `roadrunner` modes. `cmd/proxy` starts the Go
@@ -432,6 +449,8 @@ WebSocket port or Laravel listener is required.
 - `GATEWAY_RUNTIME` - `roadrunner`, `http`, or `standalone` (default
   `standalone`)
 - `GATEWAY_LARAVEL_BACKEND_URL` - Laravel base URL required by `http` mode
+- `GATEWAY_LARAVEL_BACKEND_SOCKET` - optional Unix socket for a colocated HTTP
+  Laravel backend; the backend URL still supplies its HTTP Host header
 - `GATEWAY_INTERNAL_TOKEN` - required shared planner token
 - `PORT` - Go host port (default `5001`)
 - `ROADRUNNER_CONFIG` - RoadRunner YAML path (default `.rr.yaml`)

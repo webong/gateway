@@ -19,6 +19,26 @@ func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAllowsUnixSocketOnlyForHTTPRuntime(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://gateway-planner")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_SOCKET", "/run/gateway/planner.sock")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.LaravelBackendSocket != "/run/gateway/planner.sock" {
+		t.Fatalf("unexpected backend socket %q", config.LaravelBackendSocket)
+	}
+
+	setConfigEnv(t, "roadrunner")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_SOCKET", "/run/gateway/planner.sock")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected backend socket to require HTTP runtime")
+	}
+}
+
 func TestLoadConfigDefaultsToStandalone(t *testing.T) {
 	setConfigEnv(t, "")
 
@@ -36,6 +56,7 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_RUNTIME", runtime)
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "")
 	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_SOCKET", "")
 	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "false")
 	t.Setenv("GATEWAY_REVERB_ENABLED", "false")
 	t.Setenv("GATEWAY_MERCURE_ENABLED", "false")

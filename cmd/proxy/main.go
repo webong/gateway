@@ -280,7 +280,7 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 }
 
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	client := &http.Client{Timeout: config.RequestTimeout}
+	client := newLaravelBackendClient(config)
 	runtime, err := bridge.NewHTTPRuntime(
 		config.LaravelBackendURL,
 		config.InternalToken,
@@ -295,7 +295,11 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 
 	edge := server.NewRelayEdge(runtime.Planner(), runtime.PassThrough())
 	server.SetRelayHandler(runtime.Handler(edge))
-	logger.Info("Using HTTP Laravel backend at %s", config.LaravelBackendURL)
+	if config.LaravelBackendSocket != "" {
+		logger.Info("Using HTTP Laravel backend through Unix socket %s", config.LaravelBackendSocket)
+	} else {
+		logger.Info("Using HTTP Laravel backend at %s", config.LaravelBackendURL)
+	}
 
 	protocolPlanner, err := bridge.NewHTTPProtocolPlanner(
 		config.LaravelBackendURL,

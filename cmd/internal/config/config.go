@@ -16,6 +16,7 @@ import (
 type Config struct {
 	Runtime               string
 	LaravelBackendURL     string
+	LaravelBackendSocket  string
 	Port                  string
 	RoadRunnerEnabled     bool
 	RoadRunnerConfigPath  string
@@ -92,6 +93,7 @@ func LoadConfig() (*Config, error) {
 	config := &Config{
 		Runtime:               runtime,
 		LaravelBackendURL:     getEnv("GATEWAY_LARAVEL_BACKEND_URL", ""),
+		LaravelBackendSocket:  getEnv("GATEWAY_LARAVEL_BACKEND_SOCKET", ""),
 		Port:                  getEnv("PORT", "5001"),
 		RoadRunnerEnabled:     runtime == "roadrunner",
 		RoadRunnerConfigPath:  getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
@@ -131,6 +133,9 @@ func LoadConfig() (*Config, error) {
 		Reverb:                reverbConfig,
 		Mercure:               mercureConfig,
 		Centrifugo:            centrifugoConfig,
+	}
+	if config.LaravelBackendSocket != "" && config.Runtime != "http" {
+		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_SOCKET requires GATEWAY_RUNTIME=http")
 	}
 
 	return config, nil
