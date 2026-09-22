@@ -21,19 +21,25 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o gateway ./cmd/proxy
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.22
 
 # Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates \
+    && addgroup -S gateway \
+    && adduser -S -G gateway -h /app gateway
 
-WORKDIR /root/
+WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /app/gateway .
+COPY --from=builder --chown=gateway:gateway /app/gateway /app/gateway
+
+USER gateway
 
 # HTTP ingress plus the unprivileged authoritative DNS ports used by the
 # production compose example. Publish both DNS transports on public port 53.
-EXPOSE 5001 5353/tcp 5353/udp
+EXPOSE 5001/tcp 2525/tcp 5353/tcp 5353/udp
 
-# Run the application
-CMD ["./gateway"]
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:5001/health >/dev/null || exit 1
+
+ENTRYPOINT ["/app/gateway"]

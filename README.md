@@ -412,6 +412,28 @@ audit records are not orphaned.
 tables. `GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
 while leaving explicit custom protocol planners available.
 
+### Router container
+
+Build the Gateway router image with:
+
+```bash
+docker build -t webong/gateway:local .
+```
+
+The image runs as an unprivileged `gateway` user and exposes the Go router's
+HTTP (`5001`), optional SMTP (`2525`), and unprivileged DNS (`5353` TCP/UDP)
+listeners. It intentionally does not contain a Laravel application: deploy the
+Gateway Laravel planner as its companion application and point the router at it
+with `GATEWAY_LARAVEL_BACKEND_URL`, or mount a colocated planner socket using
+`GATEWAY_LARAVEL_BACKEND_SOCKET`.
+
+Run the image-only smoke test (build, start, health probe, and non-root check)
+when Docker is available:
+
+```bash
+make test-container
+```
+
 ### Production DNS deployment
 
 The root Docker image exposes HTTP and unprivileged TCP/UDP port 5353. The
