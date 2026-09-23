@@ -434,6 +434,14 @@ when Docker is available:
 make test-container
 ```
 
+`make test-container-integration` is the deployment-level smoke test. It
+builds a Laravel planner fixture and the Go router in separate containers,
+leaves the planner on the private Compose network, and puts Caddy with a local
+test certificate in front of the public router. It verifies TLS access,
+private planner-route isolation, registry bearer authentication, public
+subscription creation, route planning, and that a private subscriber address
+is rejected by the outbound SSRF policy.
+
 ### Production DNS deployment
 
 The root Docker image exposes HTTP and unprivileged TCP/UDP port 5353. The

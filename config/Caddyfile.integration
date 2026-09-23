@@ -1,0 +1,6 @@
+localhost:8443 {
+	tls internal
+	reverse_proxy gateway:5001 {
+		header_up Host {host}
+	}
+}

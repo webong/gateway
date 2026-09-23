@@ -1,0 +1,39 @@
+services:
+  planner:
+    build:
+      context: .
+      dockerfile: docker/planner-fixture.Dockerfile
+    environment:
+      APP_ENV: testing
+      APP_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      COMPOSER_VENDOR_DIR: /app/vendor
+      GATEWAY_INTERNAL_TOKEN: "${GATEWAY_INTERNAL_TOKEN:-gateway-container-integration-token}"
+      GATEWAY_HTTP_RECEIVER_URL: http://planner:8080/http-smoke/receiver
+      GATEWAY_HTTP_RECEIVER_FILE: /tmp/receiver.txt
+      GATEWAY_HTTP_REGISTRY_SMOKE: "1"
+      GATEWAY_PLANNER: "Webong\\Gateway\\Tests\\Fixtures\\HttpSmokePlanner"
+      GATEWAY_PATH_RESOLVER: "Webong\\Gateway\\Tests\\Fixtures\\HttpSmokePathResolver"
+      REGISTRY_TOKEN: "${REGISTRY_TOKEN:-registry-container-integration-token}"
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /tmp/registry.sqlite
+      WEB_PROXY_URL: http://gateway:5001
+
+  gateway:
+    build: .
+    depends_on:
+      - planner
+    environment:
+      GATEWAY_RUNTIME: http
+      GATEWAY_LARAVEL_BACKEND_URL: http://planner:8080
+      GATEWAY_INTERNAL_TOKEN: "${GATEWAY_INTERNAL_TOKEN:-gateway-container-integration-token}"
+      PORT: "5001"
+      LOG_LEVEL: error
+
+  tls:
+    image: caddy:2-alpine
+    depends_on:
+      - gateway
+    ports:
+      - "${GATEWAY_INTEGRATION_TLS_PORT:-0}:8443"
+    volumes:
+      - ./config/Caddyfile.integration:/etc/caddy/Caddyfile:ro

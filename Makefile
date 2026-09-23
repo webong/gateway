@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container benchmark benchmark-php vet
+.PHONY: build test test-go test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 
@@ -37,6 +37,9 @@ test-frankenphp:
 
 test-container:
 	bash scripts/docker-smoke.sh
+
+test-container-integration:
+	bash scripts/docker-integration-smoke.sh
 
 benchmark:
 	go run $(GOFLAGS) ./cmd/benchmark $(ARGS)
