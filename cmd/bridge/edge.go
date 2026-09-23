@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/webong/gateway/internal/automation"
 )
 
 // Edge is the Go-side HTTP adapter mounted in RoadRunner's HTTP pipeline. It
@@ -87,6 +89,49 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if plan.Action == ActionAutomation {
+		outcome, automationErr := (automation.Runtime{}).Execute(r.Context(), automation.Script{
+			Language: plan.Automation.Language,
+			Source:   plan.Automation.Source,
+		}, automation.Input{
+			Event: map[string]any{
+				"delivery_id": ingress.DeliveryID,
+				"method":      ingress.Method,
+				"scheme":      ingress.Scheme,
+				"host":        ingress.Host,
+				"path":        ingress.Path,
+				"raw_query":   ingress.RawQuery,
+				"headers":     ingress.Headers,
+				"body":        string(ingress.Body),
+			},
+			Variables: map[string]any{
+				"request": map[string]any{
+					"method":  ingress.Method,
+					"path":    ingress.Path,
+					"query":   ingress.RawQuery,
+					"headers": ingress.Headers,
+					"content": string(ingress.Body),
+				},
+			},
+		})
+		if automationErr != nil {
+			http.Error(w, "automation execution failed", http.StatusBadGateway)
+			return
+		}
+		relays := append(plan.Relays, automationDeliveries(outcome.Deliveries)...)
+		if !e.enqueueRelays(relays, ingress) {
+			http.Error(w, "relay queue unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if outcome.Response != nil {
+			writeResponse(w, Response{StatusCode: outcome.Response.Status, Headers: outcome.Response.Headers, Body: []byte(outcome.Response.Body)})
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("Request accepted"))
+		return
+	}
+
 	if plan.Reply != nil {
 		response, err := e.executor.Deliver(r.Context(), materializeDelivery(*plan.Reply, ingress))
 		if err != nil {
@@ -108,6 +153,19 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("Request accepted"))
+}
+
+func automationDeliveries(deliveries []automation.Delivery) []Delivery {
+	converted := make([]Delivery, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		converted = append(converted, Delivery{
+			URL:     delivery.URL,
+			Method:  delivery.Method,
+			Headers: delivery.Headers,
+			Body:    []byte(delivery.Body),
+		})
+	}
+	return converted
 }
 
 func requestScheme(r *http.Request) string {

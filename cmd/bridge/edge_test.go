@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/webong/gateway/internal/automation"
 )
 
 type plannerFunc func(context.Context, IngressRequest) (RoutePlan, error)
@@ -114,5 +116,29 @@ func TestEdgeReturnsImmediatePHPResponseWithoutGoDelivery(t *testing.T) {
 	}
 	if len(executor.delivered) != 0 || len(executor.queued) != 0 {
 		t.Fatal("expected immediate response to avoid network delivery")
+	}
+}
+
+func TestEdgeExecutesGoAutomationAndQueuesItsForward(t *testing.T) {
+	executor := &recordingExecutor{}
+	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+		return RoutePlan{
+			Version: ProtocolVersion,
+			Action:  ActionAutomation,
+			Automation: &Automation{
+				Language: automation.LanguageJavaScript,
+				Source:   `gateway.forward({url: "https://subscriber.example.test/events", method: "POST", body: gateway.event.body}); gateway.respond("scripted", 202);`,
+			},
+		}, nil
+	}), executor, 1024)
+
+	record := httptest.NewRecorder()
+	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/scripted", strings.NewReader("payload")))
+
+	if record.Code != http.StatusAccepted || record.Body.String() != "scripted" {
+		t.Fatalf("expected automation response, got %d %q", record.Code, record.Body.String())
+	}
+	if len(executor.queued) != 1 || executor.queued[0].URL != "https://subscriber.example.test/events" || string(executor.queued[0].Body) != "payload" {
+		t.Fatalf("expected automation delivery, got %#v", executor.queued)
 	}
 }

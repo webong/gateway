@@ -18,6 +18,8 @@ private connection.
 - [Deployment](deployment.md): run Gateway in containers with TLS and private
   planner networking.
 - [Subscription matching](subscription-dsl-v1.md): versioned matching rules.
+- [Gateway Automations](automations.md): Go-executed WebhookScript, Lua, and
+  JavaScript ingress logic.
 
 ## Capabilities
 
@@ -27,6 +29,7 @@ private connection.
 | WebSocket | Upgrade and session lifecycle | Accept, reject, or deliver events |
 | SMTP | SMTP/TLS session handling | Recipient and authentication decisions |
 | DNS | Authoritative UDP/TCP service | Zone and hook decisions |
+| Automations | Execute bounded scripts; enforce delivery policy | Authorize and select script source |
 | Realtime | Route managed workloads | Reverb, Mercure, Centrifugo desired state |
 
 ## Public and private surfaces

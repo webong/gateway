@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/webong/gateway/internal/automation"
 )
 
 const ProtocolVersion = "v1"
@@ -19,6 +21,7 @@ const (
 	ActionRelay       PlanAction = "relay"
 	ActionRespond     PlanAction = "respond"
 	ActionPassThrough PlanAction = "pass_through"
+	ActionAutomation  PlanAction = "automation"
 )
 
 var (
@@ -56,7 +59,15 @@ type RoutePlan struct {
 	ImmediateResponse *Response         `json:"immediate_response,omitempty"`
 	Reply             *Delivery         `json:"reply,omitempty"`
 	Relays            []Delivery        `json:"relays,omitempty"`
+	Automation        *Automation       `json:"automation,omitempty"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
+}
+
+// Automation source is selected by the planner and executed by the Go router.
+// The router owns interpreter limits and the script capability surface.
+type Automation struct {
+	Language automation.Language `json:"language"`
+	Source   string              `json:"source"`
 }
 
 // Delivery describes a destination resolved by PHP. Go still applies its
@@ -111,18 +122,18 @@ func (p RoutePlan) Validate() error {
 
 	switch p.Action {
 	case ActionPassThrough:
-		if p.ImmediateResponse != nil || p.Reply != nil || len(p.Relays) > 0 {
+		if p.ImmediateResponse != nil || p.Reply != nil || len(p.Relays) > 0 || p.Automation != nil {
 			return fmt.Errorf("%w: pass-through plan cannot contain response or deliveries", ErrInvalidPlan)
 		}
 	case ActionRespond:
-		if p.ImmediateResponse == nil || p.Reply != nil || len(p.Relays) > 0 {
+		if p.ImmediateResponse == nil || p.Reply != nil || len(p.Relays) > 0 || p.Automation != nil {
 			return fmt.Errorf("%w: respond plan requires only an immediate response", ErrInvalidPlan)
 		}
 		if err := p.ImmediateResponse.Validate(); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidPlan, err)
 		}
 	case ActionRelay:
-		if p.ImmediateResponse != nil {
+		if p.ImmediateResponse != nil || p.Automation != nil {
 			return fmt.Errorf("%w: relay plan cannot contain an immediate response", ErrInvalidPlan)
 		}
 		if p.Reply == nil && len(p.Relays) == 0 {
@@ -132,6 +143,23 @@ func (p RoutePlan) Validate() error {
 			if err := p.Reply.Validate(); err != nil {
 				return fmt.Errorf("%w: reply: %v", ErrInvalidPlan, err)
 			}
+		}
+		for index := range p.Relays {
+			if err := p.Relays[index].Validate(); err != nil {
+				return fmt.Errorf("%w: relay %d: %v", ErrInvalidPlan, index, err)
+			}
+		}
+	case ActionAutomation:
+		if p.Automation == nil || p.ImmediateResponse != nil || p.Reply != nil {
+			return fmt.Errorf("%w: automation plan requires automation and optional relays", ErrInvalidPlan)
+		}
+		if strings.TrimSpace(p.Automation.Source) == "" {
+			return fmt.Errorf("%w: automation source is required", ErrInvalidPlan)
+		}
+		switch p.Automation.Language {
+		case automation.LanguageWebhookScript, automation.LanguageLua, automation.LanguageJavaScript:
+		default:
+			return fmt.Errorf("%w: unsupported automation language %q", ErrInvalidPlan, p.Automation.Language)
 		}
 		for index := range p.Relays {
 			if err := p.Relays[index].Validate(); err != nil {

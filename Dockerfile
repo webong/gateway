@@ -2,7 +2,7 @@
 FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git
+RUN apk add --no-cache git build-base
 
 # Set working directory
 WORKDIR /app
@@ -18,7 +18,7 @@ COPY . .
 
 # Build the gateway executable. Composer's vendor directory is excluded from
 # the Docker context and must not be interpreted as Go's vendor directory.
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=mod -o gateway ./cmd/proxy
+RUN CGO_ENABLED=1 GOOS=linux go build -mod=mod -o gateway ./cmd/proxy
 
 # Final stage
 FROM alpine:3.22

@@ -6,10 +6,11 @@ require github.com/roadrunner-server/roadrunner/v2025 v2025.1.0
 
 require (
 	github.com/caddyserver/caddy/v2 v2.10.0
-	github.com/emersion/go-smtp v0.24.0
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
+	github.com/emersion/go-smtp v0.24.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/miekg/dns v1.1.65
+	github.com/yuin/gopher-lua v1.1.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/time v0.11.0
 )
