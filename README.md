@@ -19,6 +19,10 @@ not a tenant, and the public path is supplied by the application. `/webhook`
 is not special: a planner may bind `/provider/events/{opaque-value}` or any
 other path it owns.
 
+For product setup and operations, see the [Gateway documentation](docs/README.md),
+including [getting started](docs/getting-started.md) and
+[deployment](docs/deployment.md).
+
 ## Responsibilities
 
 Go owns the public network edge, request capture, stable delivery IDs,
