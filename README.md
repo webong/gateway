@@ -510,6 +510,19 @@ WebSocket port or Laravel listener is required.
   STARTTLS (default `false`)
 - `GATEWAY_SMTP_AUTH_ENABLED` - require PHP-planned SMTP AUTH (default
   `false`; TLS is required)
+- `GATEWAY_SMTP_RELAY_ADDR` - enables SMTP delivery through a configured relay
+  (for example `smtp.example.com:587`)
+- `GATEWAY_SMTP_RELAY_LOCAL_NAME` - EHLO name sent by Gateway (default
+  `gateway.local`)
+- `GATEWAY_SMTP_RELAY_SERVER_NAME` - optional TLS server-name override; by
+  default it is inferred from the relay address
+- `GATEWAY_SMTP_RELAY_USERNAME`, `GATEWAY_SMTP_RELAY_PASSWORD` - optional
+  relay credentials; both are required together and authentication requires
+  TLS
+- `GATEWAY_SMTP_RELAY_TLS_MODE` - `starttls` (default), `implicit`, or `none`;
+  use `none` only for a trusted local/private test relay
+- `GATEWAY_SMTP_RELAY_TIMEOUT` - outbound SMTP connection and submission
+  deadline (default `30s`)
 
 PHP-side cache settings:
 

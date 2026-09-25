@@ -9,16 +9,23 @@ import (
 
 type WorkerPool struct {
 	workers   int
-	taskQueue chan forwarding.ForwardRequest
+	taskQueue chan Task
 	wg        sync.WaitGroup
 	forwarder *forwarding.Forwarder
 	logger    *logging.Logger
 }
 
+// Task is one bounded unit of asynchronous transport work. Protocol adapters
+// use this without teaching the worker pool about HTTP, SMTP, or storage.
+type Task struct {
+	Label string
+	Run   func() error
+}
+
 func NewWorkerPool(workers, queueSize int, forwarder *forwarding.Forwarder, logger *logging.Logger) *WorkerPool {
 	wp := &WorkerPool{
 		workers:   workers,
-		taskQueue: make(chan forwarding.ForwardRequest, queueSize),
+		taskQueue: make(chan Task, queueSize),
 		forwarder: forwarder,
 		logger:    logger,
 	}
@@ -40,20 +47,42 @@ func (wp *WorkerPool) worker(id int) {
 	wp.logger.Debug("Worker %d started", id)
 
 	for task := range wp.taskQueue {
-		wp.logger.Debug("Worker %d received task for %s", id, task.TargetURL)
-		wp.forwarder.Forward(task)
+		wp.logger.Debug("Worker %d received task for %s", id, task.Label)
+		if task.Run == nil {
+			wp.logger.Error("Worker %d received an invalid task for %s", id, task.Label)
+			continue
+		}
+		if err := task.Run(); err != nil {
+			wp.logger.Error("Worker %d failed task for %s: %v", id, task.Label, err)
+		}
 	}
 
 	wp.logger.Debug("Worker %d stopped", id)
 }
 
 func (wp *WorkerPool) Submit(task forwarding.ForwardRequest) bool {
+	return wp.SubmitTask(Task{
+		Label: task.TargetURL,
+		Run: func() error {
+			wp.forwarder.Forward(task)
+			return nil
+		},
+	})
+}
+
+func (wp *WorkerPool) SubmitTask(task Task) bool {
+	if task.Run == nil {
+		return false
+	}
+	if task.Label == "" {
+		task.Label = "unnamed transport task"
+	}
 	select {
 	case wp.taskQueue <- task:
-		wp.logger.Debug("Task submitted for %s", task.TargetURL)
+		wp.logger.Debug("Task submitted for %s", task.Label)
 		return true
 	default:
-		wp.logger.Warn("Task queue full, dropping request to %s", task.TargetURL)
+		wp.logger.Warn("Task queue full, dropping request to %s", task.Label)
 		return false
 	}
 }

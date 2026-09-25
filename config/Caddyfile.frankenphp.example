@@ -20,6 +20,14 @@
 		# tls_key_file /etc/ssl/gateway/smtp.key
 		# implicit_tls false
 		# auth_enabled false
+		# Optional outbound transport for typed SMTP deliveries returned by
+		# the planner. Credentials require starttls or implicit TLS.
+		# relay_address smtp.example.com:587
+		# relay_local_name {$GATEWAY_SMTP_HOSTNAME:gateway.local}
+		# relay_username {$GATEWAY_SMTP_RELAY_USERNAME}
+		# relay_password {$GATEWAY_SMTP_RELAY_PASSWORD}
+		# relay_tls_mode starttls
+		# relay_timeout 30s
 	}
 }
 

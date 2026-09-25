@@ -64,6 +64,45 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_DNS_ADDR", "")
 	t.Setenv("GATEWAY_DNS_ZONE", "")
 	t.Setenv("GATEWAY_DNS_NAMESERVERS", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_ADDR", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_LOCAL_NAME", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_SERVER_NAME", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_USERNAME", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_PASSWORD", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_TLS_MODE", "")
+	t.Setenv("GATEWAY_SMTP_RELAY_TIMEOUT", "")
+}
+
+func TestLoadConfigLoadsOutboundSMTPRelay(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_SMTP_RELAY_ADDR", "smtp.example.test:587")
+	t.Setenv("GATEWAY_SMTP_RELAY_LOCAL_NAME", "gateway.example.test")
+	t.Setenv("GATEWAY_SMTP_RELAY_USERNAME", "gateway")
+	t.Setenv("GATEWAY_SMTP_RELAY_PASSWORD", "secret")
+	t.Setenv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")
+	t.Setenv("GATEWAY_SMTP_RELAY_TIMEOUT", "12s")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.SMTPRelayAddress != "smtp.example.test:587" || config.SMTPRelayLocalName != "gateway.example.test" {
+		t.Fatalf("unexpected outbound SMTP relay config: %+v", config)
+	}
+	if config.SMTPRelayTLSMode != "starttls" || config.SMTPRelayTimeout.String() != "12s" {
+		t.Fatalf("unexpected outbound SMTP security config: %+v", config)
+	}
+}
+
+func TestLoadConfigRejectsOutboundSMTPCredentialsWithoutTLS(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_SMTP_RELAY_USERNAME", "gateway")
+	t.Setenv("GATEWAY_SMTP_RELAY_PASSWORD", "secret")
+	t.Setenv("GATEWAY_SMTP_RELAY_TLS_MODE", "none")
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected outbound SMTP credentials to require TLS")
+	}
 }
 
 func TestLoadConfigLoadsAuthoritativeDNSSettings(t *testing.T) {

@@ -29,6 +29,12 @@ func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
 	max_message_size 2048
 	max_recipients 4
 	read_timeout 2m
+	relay_address smtp-relay.example.test:587
+	relay_local_name smtp.example.test
+	relay_username gateway
+	relay_password secret
+	relay_tls_mode starttls
+	relay_timeout 12s
 }`), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +51,9 @@ func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
 	}
 	if config.Listen != ":2526" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "test-token" || config.MaxMessageSize != 2048 || config.MaxRecipients != 4 {
 		t.Fatalf("unexpected parsed SMTP app: %+v", config)
+	}
+	if config.RelayAddress != "smtp-relay.example.test:587" || config.RelayLocalName != "smtp.example.test" || config.RelayUsername != "gateway" || config.RelayTLSMode != "starttls" || time.Duration(config.RelayTimeout) != 12*time.Second {
+		t.Fatalf("unexpected parsed outbound SMTP relay: %+v", config)
 	}
 }
 

@@ -115,6 +115,19 @@ type GatewayExecutor interface {
 	EnqueueGateway(GatewayDelivery) bool
 }
 
+// GatewayDeliveryAdapter performs one resolved delivery. Adapters own their
+// protocol lifecycle but do not own route selection, retry scheduling, or
+// queue persistence.
+type GatewayDeliveryAdapter interface {
+	DeliverGateway(context.Context, GatewayDelivery) error
+}
+
+type GatewayDeliveryAdapterFunc func(context.Context, GatewayDelivery) error
+
+func (f GatewayDeliveryAdapterFunc) DeliverGateway(ctx context.Context, delivery GatewayDelivery) error {
+	return f(ctx, delivery)
+}
+
 func (p RoutePlan) Validate() error {
 	if p.Version != ProtocolVersion {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidPlan, p.Version)

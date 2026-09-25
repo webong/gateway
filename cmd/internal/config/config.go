@@ -41,6 +41,13 @@ type Config struct {
 	SMTPTLSKeyFile        string
 	SMTPImplicitTLS       bool
 	SMTPAuthEnabled       bool
+	SMTPRelayAddress      string
+	SMTPRelayLocalName    string
+	SMTPRelayServerName   string
+	SMTPRelayUsername     string
+	SMTPRelayPassword     string
+	SMTPRelayTLSMode      string
+	SMTPRelayTimeout      time.Duration
 	DNSAddress            string
 	DNSZone               string
 	DNSNameservers        []string
@@ -118,6 +125,13 @@ func LoadConfig() (*Config, error) {
 		SMTPTLSKeyFile:        getEnv("GATEWAY_SMTP_TLS_KEY_FILE", ""),
 		SMTPImplicitTLS:       getEnvBool("GATEWAY_SMTP_IMPLICIT_TLS", false),
 		SMTPAuthEnabled:       getEnvBool("GATEWAY_SMTP_AUTH_ENABLED", false),
+		SMTPRelayAddress:      getEnv("GATEWAY_SMTP_RELAY_ADDR", ""),
+		SMTPRelayLocalName:    getEnv("GATEWAY_SMTP_RELAY_LOCAL_NAME", "gateway.local"),
+		SMTPRelayServerName:   getEnv("GATEWAY_SMTP_RELAY_SERVER_NAME", ""),
+		SMTPRelayUsername:     getEnv("GATEWAY_SMTP_RELAY_USERNAME", ""),
+		SMTPRelayPassword:     getEnv("GATEWAY_SMTP_RELAY_PASSWORD", ""),
+		SMTPRelayTLSMode:      strings.ToLower(getEnv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")),
+		SMTPRelayTimeout:      getEnvDuration("GATEWAY_SMTP_RELAY_TIMEOUT", 30*time.Second),
 		DNSAddress:            dnsAddress,
 		DNSZone:               dnsZone,
 		DNSNameservers:        dnsNameservers,
@@ -136,6 +150,18 @@ func LoadConfig() (*Config, error) {
 	}
 	if config.LaravelBackendSocket != "" && config.Runtime != "http" {
 		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_SOCKET requires GATEWAY_RUNTIME=http")
+	}
+	if (config.SMTPRelayUsername == "") != (config.SMTPRelayPassword == "") {
+		return nil, fmt.Errorf("GATEWAY_SMTP_RELAY_USERNAME and GATEWAY_SMTP_RELAY_PASSWORD must be configured together")
+	}
+	if config.SMTPRelayTLSMode != "none" && config.SMTPRelayTLSMode != "starttls" && config.SMTPRelayTLSMode != "implicit" {
+		return nil, fmt.Errorf("unsupported GATEWAY_SMTP_RELAY_TLS_MODE %q (expected none, starttls, or implicit)", config.SMTPRelayTLSMode)
+	}
+	if config.SMTPRelayUsername != "" && config.SMTPRelayTLSMode == "none" {
+		return nil, fmt.Errorf("GATEWAY_SMTP_RELAY_USERNAME requires outbound SMTP TLS")
+	}
+	if config.SMTPRelayTimeout <= 0 {
+		return nil, fmt.Errorf("GATEWAY_SMTP_RELAY_TIMEOUT must be positive")
 	}
 
 	return config, nil

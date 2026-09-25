@@ -16,9 +16,14 @@ final readonly class GatewayDelivery
         public array $headers = [],
         public array $attributes = [],
         public string $payload = '',
+        public string $adapter = '',
     ) {
         if (trim($this->target) === '') {
             throw new InvalidArgumentException('Gateway delivery target is required.');
+        }
+
+        if ($this->adapter !== '' && preg_match('/^[a-z][a-z0-9._-]{0,63}$/', $this->adapter) !== 1) {
+            throw new InvalidArgumentException('Gateway delivery adapter is invalid.');
         }
     }
 
@@ -27,6 +32,7 @@ final readonly class GatewayDelivery
     {
         return array_filter([
             'protocol' => $this->protocol->value,
+            'adapter' => $this->adapter,
             'target' => $this->target,
             'subscriber_id' => $this->subscriberId,
             'headers' => $this->headers,

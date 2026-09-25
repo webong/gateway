@@ -15,6 +15,7 @@ import (
 	dnsgateway "github.com/webong/gateway/cmd/bridge/dns"
 	roadrunner "github.com/webong/gateway/cmd/bridge/roadrunner"
 	smtpgateway "github.com/webong/gateway/cmd/bridge/smtp"
+	smtpout "github.com/webong/gateway/cmd/bridge/smtpout"
 	gatewayws "github.com/webong/gateway/cmd/bridge/websocket"
 	relayconfig "github.com/webong/gateway/cmd/internal/config"
 	"github.com/webong/gateway/cmd/internal/forwarding"
@@ -40,6 +41,7 @@ type Server struct {
 	logger           *logging.Logger
 	forwarder        *forwarding.Forwarder
 	workerPool       *workers.WorkerPool
+	executorOptions  []bridge.RelayExecutorOption
 	relayHandle      http.Handler
 	websocketHandler http.Handler
 	extensionHandler extensionRouteHandler
@@ -99,13 +101,46 @@ func (s *Server) SetExtensionHandler(handler extensionRouteHandler) {
 func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
 	edge := bridge.NewEdge(
 		planner,
-		bridge.NewRelayExecutor(s.forwarder, s.workerPool),
+		s.NewGatewayExecutor(),
 		s.config.MaxBodySize,
 	)
 	if len(passThrough) > 0 {
 		edge.SetPassThrough(passThrough[0])
 	}
 	return edge
+}
+
+func (s *Server) NewGatewayExecutor() *bridge.RelayExecutor {
+	return bridge.NewRelayExecutor(s.forwarder, s.workerPool, s.executorOptions...)
+}
+
+func (s *Server) ConfigureSMTPRelay() error {
+	if s == nil || s.config == nil || s.config.SMTPRelayAddress == "" {
+		return nil
+	}
+
+	sender, err := smtpout.NewSender(smtpout.Config{
+		Address:    s.config.SMTPRelayAddress,
+		LocalName:  s.config.SMTPRelayLocalName,
+		ServerName: s.config.SMTPRelayServerName,
+		Username:   s.config.SMTPRelayUsername,
+		Password:   s.config.SMTPRelayPassword,
+		TLSMode:    smtpout.TLSMode(s.config.SMTPRelayTLSMode),
+		Timeout:    s.config.SMTPRelayTimeout,
+	})
+	if err != nil {
+		return err
+	}
+	adapter, err := smtpout.NewGatewayAdapter(sender)
+	if err != nil {
+		return err
+	}
+	s.executorOptions = append(s.executorOptions,
+		bridge.WithGatewayDeliveryAdapter(string(bridge.ProtocolSMTP), adapter),
+		bridge.WithGatewayDeliveryTimeout(s.config.SMTPRelayTimeout),
+	)
+	s.logger.Info("Configured outbound SMTP relay at %s", s.config.SMTPRelayAddress)
+	return nil
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
@@ -185,6 +220,10 @@ func run() error {
 		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http or roadrunner")
 	}
 	server := NewServer(config, logger)
+	if err := server.ConfigureSMTPRelay(); err != nil {
+		server.workerPool.Shutdown()
+		return fmt.Errorf("failed to configure outbound SMTP relay: %w", err)
+	}
 	switch config.Runtime {
 	case "roadrunner":
 		return runEmbeddedRoadRunner(config, server, logger)
@@ -313,7 +352,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	}
 	server.SetWebSocketHandler(gatewayws.NewHandler(
 		protocolPlanner,
-		bridge.NewRelayExecutor(server.forwarder, server.workerPool),
+		server.NewGatewayExecutor(),
 		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout},
 	))
 
@@ -346,7 +385,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		logger.Info("Provisioning reconciliation enabled for node %s", config.Provisioning.NodeID)
 	}
 
-	executor := bridge.NewRelayExecutor(server.forwarder, server.workerPool)
+	executor := server.NewGatewayExecutor()
 	listeners := make([]protocolListener, 0, 2)
 	if config.SMTPAddress != "" {
 		smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
@@ -374,7 +413,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 	runner, err := roadrunner.NewEmbeddedRoadRunner(
 		config.RoadRunnerConfigPath,
 		nil,
-		bridge.NewRelayExecutor(server.forwarder, server.workerPool),
+		server.NewGatewayExecutor(),
 		config.MaxBodySize,
 		config.InternalToken,
 	)
@@ -397,7 +436,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 			return fmt.Errorf("failed to initialize RoadRunner protocol planner: %w", plannerErr)
 		}
 
-		executor := bridge.NewRelayExecutor(server.forwarder, server.workerPool)
+		executor := server.NewGatewayExecutor()
 		listeners := make([]protocolListener, 0, 2)
 		if config.SMTPAddress != "" {
 			smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)

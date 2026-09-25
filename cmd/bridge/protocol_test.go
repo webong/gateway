@@ -87,3 +87,14 @@ func TestGatewayDecisionAllowsSynchronousReply(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGatewayDeliveryRejectsUnsafeAdapterNames(t *testing.T) {
+	delivery := GatewayDelivery{
+		Protocol: ProtocolSMTP,
+		Adapter:  "../../plugin",
+		Target:   "account-42",
+	}
+	if err := delivery.Validate(); err == nil {
+		t.Fatal("expected unsafe adapter name to fail validation")
+	}
+}

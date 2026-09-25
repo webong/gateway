@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/webong/gateway/cmd/internal/forwarding"
 	"github.com/webong/gateway/cmd/internal/workers"
@@ -13,10 +14,41 @@ import (
 type RelayExecutor struct {
 	forwarder  *forwarding.Forwarder
 	workerPool *workers.WorkerPool
+	adapters   map[string]GatewayDeliveryAdapter
+	timeout    time.Duration
 }
 
-func NewRelayExecutor(forwarder *forwarding.Forwarder, workerPool *workers.WorkerPool) *RelayExecutor {
-	return &RelayExecutor{forwarder: forwarder, workerPool: workerPool}
+type RelayExecutorOption func(*RelayExecutor)
+
+func WithGatewayDeliveryAdapter(name string, adapter GatewayDeliveryAdapter) RelayExecutorOption {
+	return func(executor *RelayExecutor) {
+		if adapter != nil && validAdapterName(name) {
+			executor.adapters[name] = adapter
+		}
+	}
+}
+
+func WithGatewayDeliveryTimeout(timeout time.Duration) RelayExecutorOption {
+	return func(executor *RelayExecutor) {
+		if timeout > 0 {
+			executor.timeout = timeout
+		}
+	}
+}
+
+func NewRelayExecutor(forwarder *forwarding.Forwarder, workerPool *workers.WorkerPool, options ...RelayExecutorOption) *RelayExecutor {
+	executor := &RelayExecutor{
+		forwarder:  forwarder,
+		workerPool: workerPool,
+		adapters:   make(map[string]GatewayDeliveryAdapter),
+		timeout:    30 * time.Second,
+	}
+	for _, option := range options {
+		if option != nil {
+			option(executor)
+		}
+	}
+	return executor
 }
 
 func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Response, error) {
@@ -50,22 +82,50 @@ func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 }
 
 func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
-	if e == nil || e.workerPool == nil || delivery.Protocol != ProtocolHTTP || strings.TrimSpace(delivery.Target) == "" {
+	if e == nil || e.workerPool == nil || delivery.Validate() != nil {
 		return false
 	}
 
-	method := delivery.Attributes["method"]
-	if method == "" {
-		method = "POST"
+	adapterName := delivery.AdapterName()
+	if adapterName == string(ProtocolHTTP) {
+		method := delivery.Attributes["method"]
+		if method == "" {
+			method = "POST"
+		}
+
+		return e.workerPool.Submit(forwarding.ForwardRequest{
+			TargetURL:   delivery.Target,
+			RequestBody: append([]byte(nil), delivery.Payload...),
+			Method:      method,
+			RawQuery:    delivery.Attributes["raw_query"],
+			Headers:     cloneRelayHeaders(delivery.Headers),
+		})
 	}
 
-	return e.workerPool.Submit(forwarding.ForwardRequest{
-		TargetURL:   delivery.Target,
-		RequestBody: append([]byte(nil), delivery.Payload...),
-		Method:      method,
-		RawQuery:    delivery.Attributes["raw_query"],
-		Headers:     cloneRelayHeaders(delivery.Headers),
+	adapter := e.adapters[adapterName]
+	if adapter == nil {
+		return false
+	}
+	queued := cloneGatewayDelivery(delivery)
+	return e.workerPool.SubmitTask(workers.Task{
+		Label: strings.ToLower(adapterName) + ":" + delivery.Target,
+		Run: func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+			defer cancel()
+			return adapter.DeliverGateway(ctx, queued)
+		},
 	})
+}
+
+func cloneGatewayDelivery(delivery GatewayDelivery) GatewayDelivery {
+	delivery.Headers = cloneRelayHeaders(delivery.Headers)
+	attributes := delivery.Attributes
+	delivery.Attributes = make(map[string]string, len(delivery.Attributes))
+	for key, value := range attributes {
+		delivery.Attributes[key] = value
+	}
+	delivery.Payload = append([]byte(nil), delivery.Payload...)
+	return delivery
 }
 
 func cloneRelayHeaders(headers map[string][]string) map[string][]string {

@@ -105,6 +105,7 @@ const (
 // Attributes without pretending SMTP or WebSocket destinations are URLs.
 type GatewayDelivery struct {
 	Protocol     Protocol            `json:"protocol"`
+	Adapter      string              `json:"adapter,omitempty"`
 	Target       string              `json:"target"`
 	SubscriberID string              `json:"subscriber_id,omitempty"`
 	Headers      map[string][]string `json:"headers,omitempty"`
@@ -119,7 +120,30 @@ func (d GatewayDelivery) Validate() error {
 	if strings.TrimSpace(d.Target) == "" {
 		return fmt.Errorf("gateway delivery target is required")
 	}
+	if d.Adapter != "" && !validAdapterName(d.Adapter) {
+		return fmt.Errorf("invalid gateway delivery adapter %q", d.Adapter)
+	}
 	return nil
+}
+
+func (d GatewayDelivery) AdapterName() string {
+	if d.Adapter != "" {
+		return d.Adapter
+	}
+	return string(d.Protocol)
+}
+
+func validAdapterName(name string) bool {
+	if len(name) == 0 || len(name) > 64 || name[0] < 'a' || name[0] > 'z' {
+		return false
+	}
+	for _, character := range name[1:] {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // GatewayDecision is the control-plane response for session-oriented

@@ -36,6 +36,7 @@ it('serializes typed gateway delivery decisions', function (): void {
         deliveries: [new GatewayDelivery(
             protocol: Protocol::SMTP,
             target: 'smtp:subscriber.example.test',
+            adapter: 'smtp',
             subscriberId: 'subscriber-1',
             attributes: ['mail_from' => 'sender@example.test'],
             payload: 'message',
@@ -46,6 +47,7 @@ it('serializes typed gateway delivery decisions', function (): void {
 
     expect($serialized['protocol'])->toBe('smtp')
         ->and($serialized['action'])->toBe('deliver')
+        ->and($serialized['deliveries'][0]['adapter'])->toBe('smtp')
         ->and($serialized['deliveries'][0]['target'])->toBe('smtp:subscriber.example.test')
         ->and(base64_decode($serialized['deliveries'][0]['payload'], true))->toBe('message');
 });
@@ -75,4 +77,12 @@ it('round trips DNS query events and serializes a synchronous reply', function (
         ->and($roundTripped->kind)->toBe(EventKind::QUERY)
         ->and($roundTripped->attributes['qtype'])->toBe('TXT')
         ->and($decision->toArray()['reply']['target'])->toBe('https://reply.example.test/dns');
+});
+
+it('rejects unsafe delivery adapter names', function (): void {
+    expect(fn (): GatewayDelivery => new GatewayDelivery(
+        protocol: Protocol::SMTP,
+        target: 'account-42',
+        adapter: '../../plugin',
+    ))->toThrow(InvalidArgumentException::class, 'Gateway delivery adapter is invalid.');
 });
