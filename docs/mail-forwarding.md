@@ -8,7 +8,7 @@ the Go listener.
 ## Product boundary
 
 - Go owns SMTP sockets, TLS, message limits, outbound submission, timeouts, and
-  eventually the durable delivery queue.
+  the durable delivery queue.
 - Laravel owns domains, ownership verification, aliases, catch-all and pattern
   matching, tenant limits, credentials, and delivery policy.
 - Raw RFC 5322 messages cross the existing protocol event contract unchanged.
@@ -22,8 +22,9 @@ TLS, authentication, and transaction lifecycle from callers.
 ## Extension seam
 
 Every accepted message is an immutable envelope plus its raw RFC 5322 payload.
-The durable delivery queue will dispatch that value to registered delivery
-adapters. SMTP forwarding and HTTP/webhook delivery are built-in adapters.
+The durable delivery queue dispatches that value to registered delivery
+adapters. SMTP forwarding is the first built-in durable adapter; existing HTTP
+and webhook routes continue to use Gateway's HTTP worker path.
 `GatewayDelivery.protocol` describes the message protocol, while the optional
 `GatewayDelivery.adapter` selects a trusted implementation. When omitted, the
 adapter defaults to the protocol name. Namespaced adapters such as
@@ -101,12 +102,15 @@ remain their modules rather than Gateway storage responsibilities.
 `cmd/bridge/smtpout` implements authenticated relay submission with plaintext,
 STARTTLS, or implicit TLS transport modes. Plaintext is intended only for
 local/private test relays; production configuration should use STARTTLS or
-implicit TLS. Typed SMTP `GatewayDelivery` values now run through the shared
-worker queue and the deployment-registered SMTP adapter. The proxy runtime
-enables that adapter when `GATEWAY_SMTP_RELAY_ADDR` is configured.
+implicit TLS. Typed SMTP `GatewayDelivery` values now run through a durable
+filesystem spool and the deployment-registered SMTP adapter. The proxy runtime
+enables that adapter when `GATEWAY_SMTP_RELAY_ADDR` and
+`GATEWAY_DELIVERY_SPOOL_PATH` are configured.
 
-The current worker queue is process-local. Gateway must not claim durable mail
-acceptance until the next slice replaces it with a persistent spool, startup
-recovery, retry scheduling, and terminal delivery events. That durable queue
-will remain the single extension seam for SMTP, HTTP, and optional external
-storage delivery.
+Enqueue returns only after the spool file and containing directory are synced.
+Pending deliveries survive restart, retry with bounded exponential backoff,
+and move to a separate failed spool after the configured attempt limit. Queue
+events report queued, deferred, delivered, and failed states. The spool is
+single-process and local-disk owned; sharing one spool path between Gateway
+processes is unsupported. A future distributed adapter can implement the same
+`GatewayDeliveryQueue` interface.

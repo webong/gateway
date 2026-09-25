@@ -35,6 +35,11 @@ func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
 	relay_password secret
 	relay_tls_mode starttls
 	relay_timeout 12s
+	spool_path /var/lib/gateway/deliveries
+	max_attempts 6
+	initial_backoff 3s
+	max_backoff 20m
+	poll_interval 500ms
 }`), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -54,6 +59,9 @@ func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
 	}
 	if config.RelayAddress != "smtp-relay.example.test:587" || config.RelayLocalName != "smtp.example.test" || config.RelayUsername != "gateway" || config.RelayTLSMode != "starttls" || time.Duration(config.RelayTimeout) != 12*time.Second {
 		t.Fatalf("unexpected parsed outbound SMTP relay: %+v", config)
+	}
+	if config.SpoolPath != "/var/lib/gateway/deliveries" || config.MaxAttempts != 6 || time.Duration(config.InitialBackoff) != 3*time.Second || time.Duration(config.MaxBackoff) != 20*time.Minute || time.Duration(config.PollInterval) != 500*time.Millisecond {
+		t.Fatalf("unexpected parsed delivery spool: %+v", config)
 	}
 }
 

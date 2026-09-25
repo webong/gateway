@@ -71,6 +71,11 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_SMTP_RELAY_PASSWORD", "")
 	t.Setenv("GATEWAY_SMTP_RELAY_TLS_MODE", "")
 	t.Setenv("GATEWAY_SMTP_RELAY_TIMEOUT", "")
+	t.Setenv("GATEWAY_DELIVERY_SPOOL_PATH", "")
+	t.Setenv("GATEWAY_DELIVERY_MAX_ATTEMPTS", "")
+	t.Setenv("GATEWAY_DELIVERY_INITIAL_BACKOFF", "")
+	t.Setenv("GATEWAY_DELIVERY_MAX_BACKOFF", "")
+	t.Setenv("GATEWAY_DELIVERY_POLL_INTERVAL", "")
 }
 
 func TestLoadConfigLoadsOutboundSMTPRelay(t *testing.T) {
@@ -81,6 +86,7 @@ func TestLoadConfigLoadsOutboundSMTPRelay(t *testing.T) {
 	t.Setenv("GATEWAY_SMTP_RELAY_PASSWORD", "secret")
 	t.Setenv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")
 	t.Setenv("GATEWAY_SMTP_RELAY_TIMEOUT", "12s")
+	t.Setenv("GATEWAY_DELIVERY_SPOOL_PATH", "/var/lib/gateway/deliveries")
 
 	config, err := LoadConfig()
 	if err != nil {
@@ -91,6 +97,18 @@ func TestLoadConfigLoadsOutboundSMTPRelay(t *testing.T) {
 	}
 	if config.SMTPRelayTLSMode != "starttls" || config.SMTPRelayTimeout.String() != "12s" {
 		t.Fatalf("unexpected outbound SMTP security config: %+v", config)
+	}
+	if config.DeliverySpoolPath != "/var/lib/gateway/deliveries" || config.DeliveryMaxAttempts != 8 {
+		t.Fatalf("unexpected delivery spool config: %+v", config)
+	}
+}
+
+func TestLoadConfigRequiresDurableSpoolForOutboundSMTP(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_SMTP_RELAY_ADDR", "smtp.example.test:587")
+
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected outbound SMTP relay to require a durable spool")
 	}
 }
 

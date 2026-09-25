@@ -75,7 +75,9 @@ receiver.
 - **WebSocket:** make sure the public TLS proxy supports upgrades.
 - **SMTP:** set `GATEWAY_SMTP_ADDR`; STARTTLS uses
   `GATEWAY_SMTP_TLS_CERT_FILE` and `GATEWAY_SMTP_TLS_KEY_FILE`. SMTP AUTH is
-  disabled by default and requires TLS.
+  disabled by default and requires TLS. When `GATEWAY_SMTP_RELAY_ADDR` enables
+  outbound delivery, set `GATEWAY_DELIVERY_SPOOL_PATH` to persistent local
+  storage and do not share that path between Gateway processes.
 - **DNS:** set the DNS address, zone, nameservers, and SOA options; publish
   both UDP and TCP. Gateway is authoritative-only, not recursive.
 - **Realtime:** planner state can reconcile Reverb, Mercure, and Centrifugo

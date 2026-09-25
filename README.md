@@ -523,6 +523,14 @@ WebSocket port or Laravel listener is required.
   use `none` only for a trusted local/private test relay
 - `GATEWAY_SMTP_RELAY_TIMEOUT` - outbound SMTP connection and submission
   deadline (default `30s`)
+- `GATEWAY_DELIVERY_SPOOL_PATH` - durable local delivery spool; required when
+  outbound SMTP is enabled
+- `GATEWAY_DELIVERY_MAX_ATTEMPTS` - attempts before moving a delivery to the
+  failed spool (default `8`)
+- `GATEWAY_DELIVERY_INITIAL_BACKOFF`, `GATEWAY_DELIVERY_MAX_BACKOFF` - retry
+  delay range (defaults `5s` and `1h`)
+- `GATEWAY_DELIVERY_POLL_INTERVAL` - recovery and due-delivery scan interval
+  (default `1s`)
 
 PHP-side cache settings:
 

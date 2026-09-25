@@ -15,6 +15,7 @@ type RelayExecutor struct {
 	forwarder  *forwarding.Forwarder
 	workerPool *workers.WorkerPool
 	adapters   map[string]GatewayDeliveryAdapter
+	queue      GatewayDeliveryQueue
 	timeout    time.Duration
 }
 
@@ -33,6 +34,12 @@ func WithGatewayDeliveryTimeout(timeout time.Duration) RelayExecutorOption {
 		if timeout > 0 {
 			executor.timeout = timeout
 		}
+	}
+}
+
+func WithGatewayDeliveryQueue(queue GatewayDeliveryQueue) RelayExecutorOption {
+	return func(executor *RelayExecutor) {
+		executor.queue = queue
 	}
 }
 
@@ -82,12 +89,15 @@ func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 }
 
 func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
-	if e == nil || e.workerPool == nil || delivery.Validate() != nil {
+	if e == nil || delivery.Validate() != nil {
 		return false
 	}
 
 	adapterName := delivery.AdapterName()
 	if adapterName == string(ProtocolHTTP) {
+		if e.workerPool == nil {
+			return false
+		}
 		method := delivery.Attributes["method"]
 		if method == "" {
 			method = "POST"
@@ -101,12 +111,15 @@ func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
 			Headers:     cloneRelayHeaders(delivery.Headers),
 		})
 	}
+	queued := cloneGatewayDelivery(delivery)
+	if e.queue != nil {
+		return e.queue.EnqueueGateway(queued) == nil
+	}
 
 	adapter := e.adapters[adapterName]
-	if adapter == nil {
+	if adapter == nil || e.workerPool == nil {
 		return false
 	}
-	queued := cloneGatewayDelivery(delivery)
 	return e.workerPool.SubmitTask(workers.Task{
 		Label: strings.ToLower(adapterName) + ":" + delivery.Target,
 		Run: func() error {

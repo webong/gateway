@@ -15,6 +15,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	bridge "github.com/webong/gateway/cmd/bridge"
+	"github.com/webong/gateway/cmd/bridge/deliveryqueue"
 	smtpgateway "github.com/webong/gateway/cmd/bridge/smtp"
 	smtpout "github.com/webong/gateway/cmd/bridge/smtpout"
 	relayconfig "github.com/webong/gateway/cmd/internal/config"
@@ -73,6 +74,11 @@ type SMTPApp struct {
 	RelayPassword   string         `json:"relay_password,omitempty"`
 	RelayTLSMode    string         `json:"relay_tls_mode,omitempty"`
 	RelayTimeout    caddy.Duration `json:"relay_timeout,omitempty"`
+	SpoolPath       string         `json:"spool_path,omitempty"`
+	MaxAttempts     int            `json:"max_attempts,omitempty"`
+	InitialBackoff  caddy.Duration `json:"initial_backoff,omitempty"`
+	MaxBackoff      caddy.Duration `json:"max_backoff,omitempty"`
+	PollInterval    caddy.Duration `json:"poll_interval,omitempty"`
 	MaxWorkers      int            `json:"max_workers,omitempty"`
 	MaxQueueSize    int            `json:"max_queue_size,omitempty"`
 	RequestTimeout  caddy.Duration `json:"request_timeout,omitempty"`
@@ -82,9 +88,10 @@ type SMTPApp struct {
 	IdleConnTimeout caddy.Duration `json:"idle_conn_timeout,omitempty"`
 	LogLevel        string         `json:"log_level,omitempty"`
 
-	server     *smtpgateway.Server
-	forwarder  *forwarding.Forwarder
-	workerPool *workers.WorkerPool
+	server        *smtpgateway.Server
+	forwarder     *forwarding.Forwarder
+	workerPool    *workers.WorkerPool
+	deliveryQueue *deliveryqueue.Queue
 }
 
 func (*SMTPApp) CaddyModule() caddy.ModuleInfo {
@@ -128,7 +135,7 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		a.forwarder.CloseIdleConnections()
 		return err
 	}
-	executorOptions := make([]bridge.RelayExecutorOption, 0, 2)
+	executorOptions := make([]bridge.RelayExecutorOption, 0, 1)
 	if a.RelayAddress != "" {
 		sender, senderErr := smtpout.NewSender(smtpout.Config{
 			Address:    a.RelayAddress,
@@ -150,10 +157,30 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 			a.forwarder.CloseIdleConnections()
 			return adapterErr
 		}
-		executorOptions = append(executorOptions,
-			bridge.WithGatewayDeliveryAdapter(string(bridge.ProtocolSMTP), adapter),
-			bridge.WithGatewayDeliveryTimeout(time.Duration(a.RelayTimeout)),
-		)
+		a.deliveryQueue, err = deliveryqueue.New(deliveryqueue.Config{
+			Path: a.SpoolPath,
+			Adapters: map[string]bridge.GatewayDeliveryAdapter{
+				string(bridge.ProtocolSMTP): adapter,
+			},
+			Observer: deliveryqueue.ObserverFunc(func(event deliveryqueue.Event) {
+				fields := []zap.Field{zap.String("id", event.ID), zap.String("state", string(event.State)), zap.Int("attempts", event.Attempts)}
+				if event.Error != "" {
+					fields = append(fields, zap.String("error", event.Error))
+				}
+				caddy.Log().Debug("gateway.smtp delivery state changed", fields...)
+			}),
+			MaxAttempts:     a.MaxAttempts,
+			InitialBackoff:  time.Duration(a.InitialBackoff),
+			MaxBackoff:      time.Duration(a.MaxBackoff),
+			DeliveryTimeout: time.Duration(a.RelayTimeout),
+			PollInterval:    time.Duration(a.PollInterval),
+		})
+		if err != nil {
+			a.workerPool.Shutdown()
+			a.forwarder.CloseIdleConnections()
+			return err
+		}
+		executorOptions = append(executorOptions, bridge.WithGatewayDeliveryQueue(a.deliveryQueue))
 	}
 	a.server, err = smtpgateway.NewServer(smtpgateway.Config{
 		Address:        a.Listen,
@@ -169,6 +196,11 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		AuthEnabled:    a.AuthEnabled,
 	}, planner, bridge.NewRelayExecutor(a.forwarder, a.workerPool, executorOptions...))
 	if err != nil {
+		if a.deliveryQueue != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = a.deliveryQueue.Close(ctx)
+			cancel()
+		}
 		a.workerPool.Shutdown()
 		a.forwarder.CloseIdleConnections()
 		return err
@@ -208,6 +240,12 @@ func (a *SMTPApp) Validate() error {
 	if a.RelayTimeout < 1 {
 		return fmt.Errorf("gateway.smtp relay_timeout must be positive")
 	}
+	if a.RelayAddress != "" && strings.TrimSpace(a.SpoolPath) == "" {
+		return fmt.Errorf("gateway.smtp spool_path is required when relay_address is configured")
+	}
+	if a.MaxAttempts < 1 || a.InitialBackoff < 1 || a.MaxBackoff < a.InitialBackoff || a.PollInterval < 1 {
+		return fmt.Errorf("gateway.smtp spool attempts and durations are invalid")
+	}
 
 	return nil
 }
@@ -243,6 +281,13 @@ func (a *SMTPApp) Stop() error {
 	if a.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		shutdownErr = a.server.Shutdown(ctx)
+		cancel()
+	}
+	if a.deliveryQueue != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := a.deliveryQueue.Close(ctx); err != nil && shutdownErr == nil {
+			shutdownErr = err
+		}
 		cancel()
 	}
 	if a.workerPool != nil {
@@ -316,6 +361,18 @@ func (a *SMTPApp) applyDefaults() {
 	if a.RelayTimeout == 0 {
 		a.RelayTimeout = caddy.Duration(defaultSMTPRelayTimeout)
 	}
+	if a.MaxAttempts == 0 {
+		a.MaxAttempts = 8
+	}
+	if a.InitialBackoff == 0 {
+		a.InitialBackoff = caddy.Duration(5 * time.Second)
+	}
+	if a.MaxBackoff == 0 {
+		a.MaxBackoff = caddy.Duration(time.Hour)
+	}
+	if a.PollInterval == 0 {
+		a.PollInterval = caddy.Duration(time.Second)
+	}
 }
 
 func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
@@ -359,7 +416,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.TLSKeyFile = value
-		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode":
+		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "spool_path":
 			option := d.Val()
 			value, err := stringArg(d)
 			if err != nil {
@@ -378,6 +435,8 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.RelayPassword = value
 			case "relay_tls_mode":
 				app.RelayTLSMode = strings.ToLower(value)
+			case "spool_path":
+				app.SpoolPath = value
 			}
 		case "implicit_tls", "auth_enabled":
 			option := d.Val()
@@ -396,7 +455,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.MaxMessageSize = value
-		case "max_line_size", "max_recipients", "max_workers", "max_queue_size", "max_idle_conns", "max_conns_per_host":
+		case "max_line_size", "max_recipients", "max_workers", "max_queue_size", "max_idle_conns", "max_conns_per_host", "max_attempts":
 			option := d.Val()
 			value, err := nextInt(d)
 			if err != nil {
@@ -415,8 +474,10 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.MaxIdleConns = value
 			case "max_conns_per_host":
 				app.MaxConnsPerHost = value
+			case "max_attempts":
+				app.MaxAttempts = value
 			}
-		case "read_timeout", "write_timeout", "planner_timeout", "request_timeout", "idle_conn_timeout", "relay_timeout":
+		case "read_timeout", "write_timeout", "planner_timeout", "request_timeout", "idle_conn_timeout", "relay_timeout", "initial_backoff", "max_backoff", "poll_interval":
 			option := d.Val()
 			value, err := nextDuration(d)
 			if err != nil {
@@ -435,6 +496,12 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.IdleConnTimeout = caddy.Duration(value)
 			case "relay_timeout":
 				app.RelayTimeout = caddy.Duration(value)
+			case "initial_backoff":
+				app.InitialBackoff = caddy.Duration(value)
+			case "max_backoff":
+				app.MaxBackoff = caddy.Duration(value)
+			case "poll_interval":
+				app.PollInterval = caddy.Duration(value)
 			}
 		case "max_body_size":
 			value, err := nextInt64(d)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	bridge "github.com/webong/gateway/cmd/bridge"
+	"github.com/webong/gateway/cmd/bridge/deliveryqueue"
 	dnsgateway "github.com/webong/gateway/cmd/bridge/dns"
 	roadrunner "github.com/webong/gateway/cmd/bridge/roadrunner"
 	smtpgateway "github.com/webong/gateway/cmd/bridge/smtp"
@@ -42,6 +43,7 @@ type Server struct {
 	forwarder        *forwarding.Forwarder
 	workerPool       *workers.WorkerPool
 	executorOptions  []bridge.RelayExecutorOption
+	deliveryQueue    *deliveryqueue.Queue
 	relayHandle      http.Handler
 	websocketHandler http.Handler
 	extensionHandler extensionRouteHandler
@@ -135,11 +137,34 @@ func (s *Server) ConfigureSMTPRelay() error {
 	if err != nil {
 		return err
 	}
-	s.executorOptions = append(s.executorOptions,
-		bridge.WithGatewayDeliveryAdapter(string(bridge.ProtocolSMTP), adapter),
-		bridge.WithGatewayDeliveryTimeout(s.config.SMTPRelayTimeout),
-	)
+	queue, err := deliveryqueue.New(deliveryqueue.Config{
+		Path: s.config.DeliverySpoolPath,
+		Adapters: map[string]bridge.GatewayDeliveryAdapter{
+			string(bridge.ProtocolSMTP): adapter,
+		},
+		Observer: deliveryqueue.ObserverFunc(func(event deliveryqueue.Event) {
+			switch event.State {
+			case deliveryqueue.StateFailed:
+				s.logger.Error("Delivery %s failed after %d attempts: %s", event.ID, event.Attempts, event.Error)
+			case deliveryqueue.StateDeferred:
+				s.logger.Warn("Delivery %s deferred after attempt %d: %s", event.ID, event.Attempts, event.Error)
+			default:
+				s.logger.Debug("Delivery %s entered state %s", event.ID, event.State)
+			}
+		}),
+		MaxAttempts:     s.config.DeliveryMaxAttempts,
+		InitialBackoff:  s.config.DeliveryInitialBackoff,
+		MaxBackoff:      s.config.DeliveryMaxBackoff,
+		DeliveryTimeout: s.config.SMTPRelayTimeout,
+		PollInterval:    s.config.DeliveryPollInterval,
+	})
+	if err != nil {
+		return err
+	}
+	s.deliveryQueue = queue
+	s.executorOptions = append(s.executorOptions, bridge.WithGatewayDeliveryQueue(queue))
 	s.logger.Info("Configured outbound SMTP relay at %s", s.config.SMTPRelayAddress)
+	s.logger.Info("Using durable delivery spool at %s", s.config.DeliverySpoolPath)
 	return nil
 }
 
@@ -173,6 +198,15 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"worker_pool_size":           s.config.MaxWorkers,
 		"worker_queue_capacity":      s.config.MaxQueueSize,
 	}
+	if s.deliveryQueue != nil {
+		pending, failed, err := s.deliveryQueue.Counts()
+		if err != nil {
+			s.logger.Error("Failed to read delivery spool metrics: %v", err)
+		} else {
+			metrics["delivery_spool_pending"] = pending
+			metrics["delivery_spool_failed"] = failed
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -194,12 +228,17 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down server...")
 
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		return err
-	}
+	httpErr := s.httpServer.Shutdown(ctx)
+	return errors.Join(httpErr, s.closeExecutionResources(ctx))
+}
 
+func (s *Server) closeExecutionResources(ctx context.Context) error {
+	var queueErr error
+	if s.deliveryQueue != nil {
+		queueErr = s.deliveryQueue.Close(ctx)
+	}
 	s.workerPool.Shutdown()
-	return nil
+	return queueErr
 }
 
 func main() {
@@ -224,6 +263,13 @@ func run() error {
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to configure outbound SMTP relay: %w", err)
 	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
+		defer cancel()
+		if err := server.closeExecutionResources(ctx); err != nil {
+			logger.Error("Failed to close delivery resources: %v", err)
+		}
+	}()
 	switch config.Runtime {
 	case "roadrunner":
 		return runEmbeddedRoadRunner(config, server, logger)

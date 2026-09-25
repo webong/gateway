@@ -11,6 +11,7 @@ type WorkerPool struct {
 	workers   int
 	taskQueue chan Task
 	wg        sync.WaitGroup
+	shutdown  sync.Once
 	forwarder *forwarding.Forwarder
 	logger    *logging.Logger
 }
@@ -88,8 +89,10 @@ func (wp *WorkerPool) SubmitTask(task Task) bool {
 }
 
 func (wp *WorkerPool) Shutdown() {
-	wp.logger.Info("Shutting down worker pool...")
-	close(wp.taskQueue)
-	wp.wg.Wait()
-	wp.logger.Info("Worker pool shut down complete")
+	wp.shutdown.Do(func() {
+		wp.logger.Info("Shutting down worker pool...")
+		close(wp.taskQueue)
+		wp.wg.Wait()
+		wp.logger.Info("Worker pool shut down complete")
+	})
 }

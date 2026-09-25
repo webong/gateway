@@ -128,6 +128,12 @@ func (f GatewayDeliveryAdapterFunc) DeliverGateway(ctx context.Context, delivery
 	return f(ctx, delivery)
 }
 
+// GatewayDeliveryQueue durably accepts a resolved delivery before ingress is
+// acknowledged. Implementations own recovery and retry scheduling.
+type GatewayDeliveryQueue interface {
+	EnqueueGateway(GatewayDelivery) error
+}
+
 func (p RoutePlan) Validate() error {
 	if p.Version != ProtocolVersion {
 		return fmt.Errorf("%w: unsupported version %q", ErrInvalidPlan, p.Version)
