@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-driver-release.XXXXXX")
+trap 'rm -rf -- "$TEST_DIR"' EXIT
+mkdir -p "$TEST_DIR/repository/lib" "$TEST_DIR/repository/scripts"
+cp -R "$ROOT/lib/driver" "$TEST_DIR/repository/lib/driver"
+cp "$ROOT/scripts/release-driver" "$TEST_DIR/repository/scripts/"
+cp -R "$ROOT/lib/driver/testdata/extension" "$TEST_DIR/extension"
+
+# Do not inherit the caller's repository/index, hooks, or Git configuration.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+git -C "$TEST_DIR/repository" init -q
+git -C "$TEST_DIR/repository" config user.name 'Gateway release test'
+git -C "$TEST_DIR/repository" config user.email 'gateway-test@example.invalid'
+git -C "$TEST_DIR/repository" config commit.gpgsign false
+git -C "$TEST_DIR/repository" config tag.gpgsign false
+git -C "$TEST_DIR/repository" add .
+git -C "$TEST_DIR/repository" commit -qm 'Driver release fixture'
+SOURCE=$(git -C "$TEST_DIR/repository" rev-parse HEAD)
+bash "$TEST_DIR/repository/scripts/release-driver" v0.1.0
+test "$(git -C "$TEST_DIR/repository" rev-parse HEAD)" = "$SOURCE"
+test -z "$(git -C "$TEST_DIR/repository" status --porcelain)"
+test "$(git -C "$TEST_DIR/repository" ls-tree --name-only driver/v0.1.0)" = driver
+if bash "$TEST_DIR/repository/scripts/release-driver" v0.1.0; then
+    echo 'Release unexpectedly overwrote an existing tag.' >&2
+    exit 1
+fi
+if bash "$TEST_DIR/repository/scripts/release-driver" v2.0.0; then
+    echo 'Release unexpectedly accepted a major version requiring a new module path.' >&2
+    exit 1
+fi
+touch "$TEST_DIR/repository/lib/driver/uncommitted.go"
+if bash "$TEST_DIR/repository/scripts/release-driver" v0.1.1; then
+    echo 'Release unexpectedly accepted uncommitted library source.' >&2
+    exit 1
+fi
+rm -- "$TEST_DIR/repository/lib/driver/uncommitted.go"
+
+# Exercise Go's actual GitHub module/tag/subdirectory resolution, redirected
+# to the isolated fixture. No local replace, network access, or Spinner source.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="url.file://$TEST_DIR/repository.insteadOf"
+export GIT_CONFIG_VALUE_0=https://github.com/webong/gateway
+export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0
+export GOPROXY=direct GOSUMDB=off GOPRIVATE=github.com/webong/gateway/driver
+export GOMODCACHE="$TEST_DIR/modules" GOWORK=off GOTOOLCHAIN=local
+export GOTELEMETRY=off CGO_ENABLED=0 GOFLAGS=-modcacherw
+go -C "$TEST_DIR/extension" test -mod=mod ./...
+test "$(go -C "$TEST_DIR/extension" list -m all | wc -l | tr -d ' ')" = 2
+echo 'Published-path consumer passed with only the driver module and standard library.'

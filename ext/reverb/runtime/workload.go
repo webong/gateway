@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/webong/gateway/src/spinner/provision"
+	gatewaydriver "github.com/webong/gateway/driver"
 )
 
 type RedisServerSpec struct {
@@ -42,18 +42,18 @@ func (*Workload) Type() string {
 
 func (w *Workload) Supports(driver string) bool {
 	switch driver {
-	case provision.DriverLocal:
+	case gatewaydriver.DriverLocal:
 		return true
-	case provision.DriverDocker:
+	case gatewaydriver.DriverDocker:
 		return strings.TrimSpace(w.config.DockerImage) != ""
-	case provision.DriverKubernetes:
+	case gatewaydriver.DriverKubernetes:
 		return strings.TrimSpace(w.config.KubernetesImage) != ""
 	default:
 		return false
 	}
 }
 
-func (w *Workload) Validate(spec provision.ServerSpec) error {
+func (w *Workload) Validate(spec gatewaydriver.ServerSpec) error {
 	if spec.Type != w.Type() {
 		return fmt.Errorf("Reverb workload cannot provision type %q", spec.Type)
 	}
@@ -77,40 +77,40 @@ func (w *Workload) Validate(spec provision.ServerSpec) error {
 	return nil
 }
 
-func (w *Workload) Launch(spec provision.ServerSpec, driver, host string, port int) (provision.LaunchSpec, error) {
+func (w *Workload) Launch(spec gatewaydriver.ServerSpec, driver, host string, port int) (gatewaydriver.LaunchSpec, error) {
 	config, err := decodeConfiguration(spec)
 	if err != nil {
-		return provision.LaunchSpec{}, err
+		return gatewaydriver.LaunchSpec{}, err
 	}
 
-	launch := provision.LaunchSpec{
+	launch := gatewaydriver.LaunchSpec{
 		Environment:   reverbEnvironment(spec, config),
 		ContainerName: "reverb",
 	}
 	switch driver {
-	case provision.DriverLocal:
+	case gatewaydriver.DriverLocal:
 		launch.Executable = w.config.PHPBinary
 		launch.WorkingDirectory = w.config.WorkingDirectory
 		launch.Port = port
 		launch.Arguments = reverbArguments(w.config.ArtisanPath, spec, host, port)
-	case provision.DriverDocker:
+	case gatewaydriver.DriverDocker:
 		launch.Image = w.config.DockerImage
 		launch.Executable = w.config.DockerPHPBinary
 		launch.Port = w.config.DockerContainerPort
 		launch.Arguments = reverbArguments(w.config.DockerArtisanPath, spec, "0.0.0.0", launch.Port)
-	case provision.DriverKubernetes:
+	case gatewaydriver.DriverKubernetes:
 		launch.Image = w.config.KubernetesImage
 		launch.Executable = w.config.KubernetesPHPBinary
 		launch.Port = w.config.KubernetesContainerPort
 		launch.Arguments = reverbArguments(w.config.KubernetesArtisanPath, spec, "0.0.0.0", launch.Port)
 	default:
-		return provision.LaunchSpec{}, fmt.Errorf("unsupported Reverb runtime %q", driver)
+		return gatewaydriver.LaunchSpec{}, fmt.Errorf("unsupported Reverb runtime %q", driver)
 	}
 
 	return launch, nil
 }
 
-func decodeConfiguration(spec provision.ServerSpec) (serverConfiguration, error) {
+func decodeConfiguration(spec gatewaydriver.ServerSpec) (serverConfiguration, error) {
 	var config serverConfiguration
 	if err := json.Unmarshal(spec.Configuration, &config); err != nil {
 		return config, fmt.Errorf("decode Reverb server %q configuration: %w", spec.ID, err)
@@ -119,7 +119,7 @@ func decodeConfiguration(spec provision.ServerSpec) (serverConfiguration, error)
 	return config, nil
 }
 
-func reverbArguments(artisan string, spec provision.ServerSpec, host string, port int) []string {
+func reverbArguments(artisan string, spec gatewaydriver.ServerSpec, host string, port int) []string {
 	arguments := []string{
 		artisan,
 		"reverb:start",
@@ -134,4 +134,4 @@ func reverbArguments(artisan string, spec provision.ServerSpec, host string, por
 	return arguments
 }
 
-var _ provision.Workload = (*Workload)(nil)
+var _ gatewaydriver.Workload = (*Workload)(nil)

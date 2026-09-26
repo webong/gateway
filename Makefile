@@ -1,4 +1,4 @@
-.PHONY: build test test-go test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build test test-go test-driver-release test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 
@@ -9,7 +9,12 @@ build:
 test: test-go test-php
 
 test-go:
+	go -C lib/driver test ./...
 	go test $(GOFLAGS) ./...
+	$(MAKE) test-driver-release
+
+test-driver-release:
+	bash scripts/test-driver-release
 
 test-php:
 	composer test
@@ -48,4 +53,5 @@ benchmark-php:
 	vendor/bin/pest -c phpunit.benchmark.xml.dist
 
 vet:
+	go -C lib/driver vet ./...
 	go vet $(GOFLAGS) ./...

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/src/spinner/provision"
+	gatewaydriver "github.com/webong/gateway/driver"
 )
 
 func TestWorkloadBuildsMercureLaunchSpecs(t *testing.T) {
@@ -18,7 +18,7 @@ func TestWorkloadBuildsMercureLaunchSpecs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	local, err := workload.Launch(spec, provision.DriverLocal, "127.0.0.1", 12001)
+	local, err := workload.Launch(spec, gatewaydriver.DriverLocal, "127.0.0.1", 12001)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestWorkloadBuildsMercureLaunchSpecs(t *testing.T) {
 		}
 	}
 
-	docker, err := workload.Launch(spec, provision.DriverDocker, "ignored", 0)
+	docker, err := workload.Launch(spec, gatewaydriver.DriverDocker, "ignored", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +50,10 @@ func TestWorkloadRejectsUnsupportedCommunityReplication(t *testing.T) {
 	}
 }
 
-func validMercureSpec() provision.ServerSpec {
-	return provision.ServerSpec{
+func validMercureSpec() gatewaydriver.ServerSpec {
+	return gatewaydriver.ServerSpec{
 		ID: "mercure-1", Type: "mercure", Name: "updates", Hostname: "updates.example.test",
-		Driver: provision.DriverLocal, DesiredState: provision.DesiredRunning, Replicas: 1, Revision: 1,
+		Driver: gatewaydriver.DriverLocal, DesiredState: gatewaydriver.DesiredRunning, Replicas: 1, Revision: 1,
 		Configuration: []byte(`{
 			"publisher_jwt_key":"publisher-secret",
 			"publisher_jwt_algorithm":"HS256",

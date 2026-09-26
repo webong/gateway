@@ -4,6 +4,10 @@ go 1.24.0
 
 require github.com/roadrunner-server/roadrunner/v2025 v2025.1.0
 
+require github.com/webong/gateway/driver v0.0.0
+
+replace github.com/webong/gateway/driver => ./lib/driver
+
 require (
 	github.com/buke/quickjs-go v0.7.7
 	github.com/caddyserver/caddy/v2 v2.10.0

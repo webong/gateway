@@ -44,6 +44,7 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/unrolled/secure v1.17.0 // indirect
+	github.com/webong/gateway/driver v0.0.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
@@ -59,3 +60,5 @@ require (
 )
 
 replace github.com/webong/gateway => ../..
+
+replace github.com/webong/gateway/driver => ../../lib/driver

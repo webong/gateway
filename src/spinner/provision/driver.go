@@ -6,21 +6,8 @@ import (
 	"sort"
 )
 
-type Driver interface {
-	Start(context.Context, ServerSpec, string, Workload) (Process, error)
-}
-
 type Starter interface {
 	Start(context.Context, ServerSpec, string) (Process, error)
-}
-
-type Process interface {
-	PID() int
-	Host() string
-	Port() int
-	Done() <-chan struct{}
-	Err() error
-	Stop(context.Context) error
 }
 
 type DriverRegistry struct {

@@ -64,6 +64,9 @@ selected runtime adapter.
 
 ## Repository layout
 
+- `lib/driver` is the independent `github.com/webong/gateway/driver` Go module
+  for workload and runtime-driver contracts. See its [extension and release
+  guide](lib/driver/README.md); extension authors can use it without Spinner.
 - `src/spinner/cmd/proxy` is the Spinner executable and lifecycle wiring.
 - `src/spinner/cmd/bridge` is the transport-neutral Go edge and protocol boundary.
 - `src/spinner/cmd/bridge/roadrunner` and `src/spinner/cmd/bridge/caddy` are the optional RoadRunner
@@ -986,7 +989,8 @@ add the module path to its existing build command:
 
 ```bash
 --with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
---replace github.com/webong/gateway=/path/to/gateway
+--replace github.com/webong/gateway=/path/to/gateway \
+--replace github.com/webong/gateway/driver=/path/to/gateway/lib/driver
 ```
 
 For a custom FrankenPHP Docker image, add the same module to the builder's
@@ -1007,17 +1011,18 @@ or protocol implementation. The app accepts `tls_cert_file`, `tls_key_file`,
 
 ## Tests
 
-Run the Go transport tests from the repository root:
+Run the Go transport, driver contracts, and isolated release-consumer tests
+from the repository root:
 
 ```bash
-go test -mod=mod ./...
+make test-go
 ```
 
-Run Go vet with the same module-mode flag when the PHP Composer `vendor/`
-directory exists at the repository root:
+Run Go vet for both modules. The Makefile uses module mode to avoid treating
+the PHP Composer `vendor/` directory as Go dependencies:
 
 ```bash
-go vet -mod=mod ./...
+make vet
 ```
 
 Run the PHP test suite with the installed Testbench/Pest tooling:
