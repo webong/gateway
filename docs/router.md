@@ -8,7 +8,7 @@ application skeleton or a separate service you must deploy. Choose a runtime:
 | --- | --- | --- |
 | RoadRunner | `src/spinner/cmd/proxy` | Embedded PHP workers, no second listener |
 | FrankenPHP library | Optional Go extension command | In-process FrankenPHP, no Caddy module |
-| FrankenPHP/Caddy (existing image) | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
+| FrankenPHP/Caddy (legacy integration) | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
 
 All runtimes use the same Planner package, SQLite registry, `/hooks/{key}`
 route convention, and management CLI. A container is optional.
@@ -66,9 +66,10 @@ without a second PHP listener or Caddy module:
 ./scripts/gateway-router library
 ```
 
-The existing FrankenPHP/Caddy mode remains available until its Docker packaging
-is migrated. It requires a FrankenPHP binary built with the Gateway Caddy
-module; a stock FrankenPHP binary does not contain Spinner.
+The legacy FrankenPHP/Caddy mode remains available as a custom integration,
+but the Router Docker image uses the Go-library runtime above. The Caddy mode
+requires a FrankenPHP binary built with the Gateway Caddy module; a stock
+FrankenPHP binary does not contain Spinner.
 
 ```bash
 GATEWAY_ROUTER_FRANKENPHP_BIN=/path/to/gateway-frankenphp \
@@ -103,8 +104,16 @@ controlled public HTTPS receiver.
 
 ## Optional Docker image
 
-The image currently packages the FrankenPHP runtime. It is one deployment
-artifact for Router, not the definition of Router:
+The image builds the `ext/frankenphp` Go-library Router with Go 1.26 and bundles
+the Planner on Debian. It compiles PHP 8.4 from the upstream release archive
+with ZTS, the embed SAPI, and Linux execution timers, following FrankenPHP's
+[library compilation requirements](https://frankenphp.dev/docs/library/).
+The final image contains our Router binary, the matching PHP shared library
+and CLI, and Planner dependencies. It uses no FrankenPHP base image or Caddy
+binary. Optional FrankenPHP Brotli, file-watcher, and Mercure integration are
+disabled with Go build tags.
+
+Build and run the image:
 
 ```bash
 docker build -f docker/Gateway.router.Dockerfile -t gateway-router:local .
@@ -124,3 +133,5 @@ Keep the `/data` volume when replacing the container. The Go-only Spinner
 remains available from the root `Dockerfile` for separate deployment with a
 Laravel Planner over private HTTP. The existing FrankenPHP SMTP module has
 its own configuration example in `config/Caddyfile.frankenphp.example`.
+
+For Kubernetes, use the separate [Router and Spinner manifests](kubernetes.md).

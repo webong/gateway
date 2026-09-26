@@ -13,8 +13,9 @@ together in the Gateway Router distribution.
 The same route-plan and protocol-event contracts connect Spinner and Planner
 in both deployment shapes. The optional `ext/frankenphp` Go module embeds the
 Planner through the FrankenPHP library without importing the standalone Spinner
-command. The existing Caddy adapter remains for the current Docker image;
-RoadRunner embeds PHP workers in `src/spinner/cmd/proxy`. None of these modes
+command. The legacy Caddy adapter remains optional; the combined Router Docker
+image uses the Go-library extension. RoadRunner embeds PHP workers in
+`src/spinner/cmd/proxy`. None of these modes
 needs a separate public Planner listener.
 
 ```text
