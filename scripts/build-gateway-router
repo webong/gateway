@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OUTPUT=${1:-$REPO_DIR/dist/gateway-router}
+
+case "$OUTPUT" in
+    /*) ;;
+    *) OUTPUT="$(pwd)/$OUTPUT" ;;
+esac
+
+if [ -e "$OUTPUT" ]; then
+    echo "Output already exists: $OUTPUT" >&2
+    exit 1
+fi
+if [ ! -f "$REPO_DIR/app/vendor/autoload.php" ] || [ ! -x "$REPO_DIR/app/vendor/bin/roadrunner-worker" ]; then
+    echo 'Install Planner dependencies first: composer install --working-dir=app' >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname -- "$OUTPUT")"
+STAGE=$(mktemp -d "${OUTPUT}.tmp.XXXXXX")
+mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/app" "$STAGE/src"
+
+cp -R "$REPO_DIR/src/planner" "$STAGE/src/"
+cp -R "$REPO_DIR/config" "$REPO_DIR/database" "$STAGE/"
+cp "$REPO_DIR/composer.json" "$STAGE/"
+cp "$REPO_DIR/scripts/gateway-router" "$REPO_DIR/scripts/router-start" \
+    "$REPO_DIR/scripts/router-artisan" "$STAGE/scripts/"
+APP_SOURCE="$REPO_DIR/app"
+APP_TARGET="$STAGE/app"
+cp -R "$APP_SOURCE/config" "$APP_SOURCE/public" \
+    "$APP_SOURCE/vendor" "$APP_TARGET/"
+cp "$APP_SOURCE/artisan" "$APP_SOURCE/Caddyfile" \
+    "$APP_SOURCE/composer.json" "$APP_SOURCE/composer.lock" \
+    "$APP_SOURCE/bootstrap.php" "$APP_SOURCE/commands.php" \
+    "$APP_SOURCE/routes.php" "$APP_SOURCE/EndpointPathResolver.php" "$APP_TARGET/"
+
+GOTELEMETRY=off go build -C "$REPO_DIR" -mod=mod -o "$STAGE/bin/gateway-spinner" ./src/spinner/cmd/proxy
+if [ -n "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ]; then
+    if [ ! -x "$GATEWAY_ROUTER_FRANKENPHP_BIN" ]; then
+        echo "FrankenPHP binary is not executable: $GATEWAY_ROUTER_FRANKENPHP_BIN" >&2
+        exit 1
+    fi
+    cp "$GATEWAY_ROUTER_FRANKENPHP_BIN" "$STAGE/bin/gateway-frankenphp"
+fi
+mv "$STAGE" "$OUTPUT"
+echo "Gateway Router distribution: $OUTPUT"

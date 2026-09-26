@@ -1,12 +1,23 @@
 # Gateway
 
-Gateway is a single-ingress Go host for a Go transport plane and a Laravel
-control plane. The host can embed RoadRunner or connect to an independently
-served Laravel application over HTTP.
+Gateway Router consists of **Spinner**, the Go transport module, and
+**Planner**, the PHP control-plane package. They can be deployed separately or
+together in the Gateway Router distribution.
+
+| Distribution | What runs | Use it when |
+| --- | --- | --- |
+| Gateway Router | Spinner and the bundled Planner behind one public listener, hosted by embedded RoadRunner or FrankenPHP | You want a self-contained Gateway-owned registry |
+| Spinner | Go image plus an external PHP Planner | Your Planner lives in an existing Laravel app or a separate service |
+| Planner | `webong/gateway` Composer package | Your Laravel app owns route policy and registry context |
+
+The same route-plan and protocol-event contracts connect Spinner and Planner
+in both deployment shapes. The FrankenPHP runtime uses the existing Caddy Go
+module; the RoadRunner runtime embeds PHP workers in `src/spinner/cmd/proxy`. Neither
+runtime needs a separate public Planner listener.
 
 ```text
 public request
-    -> Go edge (embedded RoadRunner or net/http)
+    -> Spinner (FrankenPHP/Caddy module, embedded RoadRunner, or net/http)
     -> PHP planner (validation, registry, subscriber binding)
     -> route plan
        -> Go synchronous reply delivery
@@ -20,7 +31,8 @@ is not special: a planner may bind `/provider/events/{opaque-value}` or any
 other path it owns.
 
 For product setup and operations, see the [Gateway documentation](docs/README.md),
-including [getting started](docs/getting-started.md) and
+including [Gateway Router deployment](docs/router.md),
+[distributed getting started](docs/getting-started.md), and
 [deployment](docs/deployment.md).
 
 ## Responsibilities
@@ -49,17 +61,18 @@ selected runtime adapter.
 
 ## Repository layout
 
-- `cmd/proxy` is the Go executable and lifecycle wiring.
-- `cmd/bridge` is the transport-neutral Go edge and protocol boundary.
-- `cmd/bridge/roadrunner` and `cmd/bridge/caddy` are the optional RoadRunner
+- `src/spinner/cmd/proxy` is the Spinner executable and lifecycle wiring.
+- `src/spinner/cmd/bridge` is the transport-neutral Go edge and protocol boundary.
+- `src/spinner/cmd/bridge/roadrunner` and `src/spinner/cmd/bridge/caddy` are the optional RoadRunner
   and FrankenPHP/Caddy runtime adapters.
-- `cmd/internal` contains Go configuration, forwarding, worker, and logging
+- `src/spinner/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
-- `src/` is the PHP/Laravel control plane and remains the Composer package
-  source tree.
+- `src/planner` is the PHP Planner package source tree.
+- `app/` is the thin PHP host for the bundled Planner, not a conventional
+  Laravel application skeleton.
 - `config/` contains the Laravel package configuration.
-- `src/Servers`, `src/Reconciliation`, `database/migrations`, and
-  `internal/provisioning` are the core managed-server control plane and
+- `src/planner/Servers`, `src/planner/Reconciliation`, `database/migrations`, and
+  `src/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
   state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
   drivers.
@@ -72,7 +85,18 @@ The root is intentionally a single Go module and Composer package. When the
 PHP `vendor/` directory exists, use `-mod=mod` for Go commands because that
 directory belongs to Composer, not Go.
 
-## Choose a host runtime
+## Choose a deployment
+
+Run the combined distribution from [docs/router.md](docs/router.md). It
+supplies a Planner application, SQLite persistence, migrations, and local
+management commands. Choose embedded RoadRunner or FrankenPHP; the Docker
+image is optional. No existing Laravel application is required.
+
+Build the Go-only Spinner image from the root `Dockerfile` when Planner is
+deployed separately. Set `GATEWAY_LARAVEL_BACKEND_URL` to its private HTTP
+address. The Go-only image contains no PHP or Planner application.
+
+## Choose a Spinner host runtime
 
 Install the package dependencies in the Laravel application and configure a
 class implementing `Webong\Gateway\Contracts\RoutePlanner`, or configure the
@@ -86,10 +110,10 @@ bundled registry planner and a `PathResolver`. Then choose one of these modes:
   Octane, or another Laravel-compatible host. Go remains the public edge and
   calls Laravel's planner routes and proxies pass-through requests over HTTP.
   This is the standard/Octane-compatible path and can also start SMTP.
-- `standalone` starts only the Go transport host and is useful for diagnostics
-  or adapter tests; it does not provide a Laravel control plane.
+- `diagnostic` starts only Go health and metrics listeners for adapter tests.
 
-Set `GATEWAY_RUNTIME` to `roadrunner`, `http`, or `standalone`.
+Set `GATEWAY_RUNTIME` to `http` (the default), `roadrunner`, or `diagnostic`.
+The combined Router's launcher configures the chosen runtime for you.
 
 The `Planner` interface is the transport seam. Goridge is used by the embedded
 RoadRunner adapter because it is RoadRunner's PHP worker transport; it is not
@@ -174,7 +198,7 @@ Then start the embedded host from the repository root:
 export GATEWAY_RUNTIME=roadrunner
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export ROADRUNNER_CONFIG=.rr.yaml
-go run ./cmd/proxy
+go run ./src/spinner/cmd/proxy
 ```
 
 `GATEWAY_INTERNAL_TOKEN` is required in embedded mode. The token is sent
@@ -187,7 +211,7 @@ To run SMTP alongside the embedded RoadRunner HTTP listener, add:
 ```bash
 export GATEWAY_SMTP_ADDR=':2525'
 export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
-go run ./cmd/proxy
+go run ./src/spinner/cmd/proxy
 ```
 
 The `gateway` middleware must remain enabled in `.rr.yaml`. Go waits until
@@ -204,7 +228,7 @@ or local URL:
 export GATEWAY_RUNTIME=http
 export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./cmd/proxy
+go run ./src/spinner/cmd/proxy
 ```
 
 Go sends `POST /_internal/gateway/plan` to that backend and reverse-proxies
@@ -222,7 +246,7 @@ export GATEWAY_RUNTIME=http
 export GATEWAY_LARAVEL_BACKEND_URL=http://gateway-planner
 export GATEWAY_LARAVEL_BACKEND_SOCKET=/run/gateway/planner.sock
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./cmd/proxy
+go run ./src/spinner/cmd/proxy
 ```
 
 Configure Nginx, Caddy, or another local HTTP server to listen on that socket.
@@ -232,7 +256,7 @@ separate containers or nodes; use their private HTTP network address instead.
 
 ### SMTP listener
 
-SMTP is available in `http` and `roadrunner` modes. `cmd/proxy` starts the Go
+SMTP is available in `http` and `roadrunner` modes. `src/spinner/cmd/proxy` starts the Go
 HTTP edge and SMTP listener as sibling listeners, while both use the same PHP
 control-plane bridge. The SMTP protocol itself is provided by
 [`emersion/go-smtp`](https://pkg.go.dev/github.com/emersion/go-smtp), including
@@ -246,7 +270,7 @@ export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_SMTP_ADDR=':2525'
 export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
-go run ./cmd/proxy
+go run ./src/spinner/cmd/proxy
 ```
 
 Each accepted SMTP transaction is sent to
@@ -287,7 +311,7 @@ export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_DNS_ADDR=':53'
 export GATEWAY_DNS_ZONE='dns.example.com'
 export GATEWAY_DNS_NAMESERVERS='ns1.example.com,ns2.example.com'
-go run ./cmd/proxy
+go run ./src/spinner/cmd/proxy
 ```
 
 Delegate `dns.example.com` from its parent zone to the nameservers listed in
@@ -416,12 +440,12 @@ audit records are not orphaned.
 tables. `GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
 while leaving explicit custom protocol planners available.
 
-### Router container
+### Spinner container
 
 Build the Gateway router image with:
 
 ```bash
-docker build -t webong/gateway:local .
+docker build -t webong/gateway-spinner:local .
 ```
 
 The image runs as an unprivileged `gateway` user and exposes the Go router's
@@ -480,8 +504,8 @@ WebSocket port or Laravel listener is required.
 
 ### Go configuration
 
-- `GATEWAY_RUNTIME` - `roadrunner`, `http`, or `standalone` (default
-  `standalone`)
+- `GATEWAY_RUNTIME` - `http` (default), `roadrunner`, or `diagnostic` for
+  transport-only tests; the combined image uses FrankenPHP instead
 - `GATEWAY_LARAVEL_BACKEND_URL` - Laravel base URL required by `http` mode
 - `GATEWAY_LARAVEL_BACKEND_SOCKET` - optional Unix socket for a colocated HTTP
   Laravel backend; the backend URL still supplies its HTTP Host header
@@ -493,7 +517,7 @@ WebSocket port or Laravel listener is required.
 - `REQUEST_TIMEOUT` - outbound request timeout (default `30s`)
 - `MAX_BODY_SIZE` - ingress and planner response limit (default `10MB`)
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
-- `SHUTDOWN_TIMEOUT` - standalone shutdown timeout (default `30s`)
+- `SHUTDOWN_TIMEOUT` - Spinner shutdown timeout (default `30s`)
 - `GATEWAY_DNS_ADDR` - enables authoritative DNS over UDP and TCP
 - `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS` - required delegated zone data
 - `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
@@ -549,9 +573,9 @@ PHP-side cache settings:
 - `GATEWAY_MUTATION_LOCK_SECONDS` - route lock lease (default `10`)
 - `GATEWAY_MUTATION_LOCK_WAIT_SECONDS` - lock wait before `503` (default `5`)
 
-`standalone` mode has no PHP planner wired by itself. Use `http` when Laravel
-is hosted separately, or `roadrunner` when the Go process should own the
-RoadRunner lifecycle.
+`diagnostic` mode has no Planner wired by itself. Deploy the combined
+FrankenPHP image for Gateway Router, or use `http` to run Spinner against
+a separately deployed Planner.
 
 ## Performance benchmarks
 
@@ -792,7 +816,8 @@ Invalid persisted rules fail closed for that subscriber.
 
 ### Registry management over HTTP
 
-PHP owns the standalone registry API. Set `REGISTRY_TOKEN`; both management
+Planner owns the registry management API. In a distributed deployment set
+`REGISTRY_TOKEN`; both management
 routes are public through the shared RoadRunner listener and require that
 bearer token. Go only transports these ordinary HTTP requests to Laravel.
 
@@ -955,7 +980,8 @@ or an equivalent `xcaddy` build. From a FrankenPHP source checkout or builder,
 add the module path to its existing build command:
 
 ```bash
---with github.com/webong/gateway/cmd/bridge/caddy=/path/to/web-relay
+--with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
+--replace github.com/webong/gateway=/path/to/gateway
 ```
 
 For a custom FrankenPHP Docker image, add the same module to the builder's

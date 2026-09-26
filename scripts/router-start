@@ -1,0 +1,132 @@
+#!/bin/sh
+set -eu
+
+APP_DIR=${GATEWAY_ROUTER_APP_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/../app" && pwd)}
+DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-/data}
+RUNTIME=${1:-${GATEWAY_ROUTER_RUNTIME:-frankenphp}}
+APP_DIR=$(CDPATH= cd -- "$APP_DIR" && pwd)
+
+case "$RUNTIME" in
+    frankenphp|roadrunner) ;;
+    *) echo 'Usage: start [frankenphp|roadrunner]' >&2; exit 2 ;;
+esac
+
+if [ ! -f "$APP_DIR/vendor/autoload.php" ]; then
+    echo "Planner dependencies are missing; run composer install --working-dir=$APP_DIR" >&2
+    exit 1
+fi
+
+mkdir -p "$DATA_DIR" "$DATA_DIR/storage/framework/cache/data" \
+    "$DATA_DIR/storage/framework/sessions" "$DATA_DIR/storage/framework/views" \
+    "$DATA_DIR/cache"
+DATA_DIR=$(CDPATH= cd -- "$DATA_DIR" && pwd)
+
+if [ ! -f "$DATA_DIR/gateway.env" ]; then
+    if [ -f "$DATA_DIR/gateway.sqlite" ]; then
+        echo "Gateway data exists without its key file; restore $DATA_DIR/gateway.env from backup." >&2
+        exit 1
+    fi
+    umask 077
+    php -r 'printf("APP_KEY=base64:%s\nGATEWAY_INTERNAL_TOKEN=%s\nREGISTRY_TOKEN=%s\n", base64_encode(random_bytes(32)), bin2hex(random_bytes(32)), bin2hex(random_bytes(32)));' > "$DATA_DIR/gateway.env"
+fi
+
+set -a
+. "$DATA_DIR/gateway.env"
+set +a
+
+export APP_ENV=production
+export DB_CONNECTION=sqlite
+export DB_DATABASE="$DATA_DIR/gateway.sqlite"
+export SESSION_DRIVER=file
+export GATEWAY_ROUTER_DATA_DIR="$DATA_DIR"
+export LARAVEL_STORAGE_PATH="$DATA_DIR/storage"
+export APP_SERVICES_CACHE="$DATA_DIR/cache/services.php"
+export APP_PACKAGES_CACHE="$DATA_DIR/cache/packages.php"
+export APP_CONFIG_CACHE="$DATA_DIR/cache/config.php"
+export APP_ROUTES_CACHE="$DATA_DIR/cache/routes-v7.php"
+export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
+export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
+export GATEWAY_ROUTER_APP_DIR="$APP_DIR"
+export GATEWAY_ROUTER_LISTEN=${GATEWAY_ROUTER_LISTEN:-:8080}
+export LOG_LEVEL=${LOG_LEVEL:-info}
+export MAX_WORKERS=${MAX_WORKERS:-4}
+
+if [ ! -f "$DB_DATABASE" ]; then
+    touch "$DB_DATABASE"
+fi
+
+php "$APP_DIR/artisan" migrate --path=vendor/webong/web-proxy/database/migrations --force
+php "$APP_DIR/artisan" migrate --force
+
+if [ "$RUNTIME" = frankenphp ]; then
+    FRANKENPHP_BIN=${GATEWAY_ROUTER_FRANKENPHP_BIN:-frankenphp}
+    if ! command -v "$FRANKENPHP_BIN" >/dev/null 2>&1; then
+        echo 'A FrankenPHP binary containing the Gateway Caddy module is required.' >&2
+        exit 1
+    fi
+    exec "$FRANKENPHP_BIN" run --config "$APP_DIR/Caddyfile"
+fi
+
+if [ ! -x "$APP_DIR/vendor/bin/roadrunner-worker" ]; then
+    echo "RoadRunner worker is missing from $APP_DIR/vendor/bin; install Planner dependencies." >&2
+    exit 1
+fi
+
+OCTANE_BASE_DIR="$DATA_DIR/octane"
+umask 077
+mkdir -p "$OCTANE_BASE_DIR/.laravel"
+php -r '
+    $bootstrap = realpath($argv[1]);
+    if ($bootstrap === false) {
+        fwrite(STDERR, "Router PHP bootstrap is missing.\n");
+        exit(1);
+    }
+    file_put_contents($argv[2], "<?php\n\nreturn require ".var_export($bootstrap, true).";\n");
+' "$APP_DIR/bootstrap.php" "$OCTANE_BASE_DIR/.laravel/app.php"
+
+CONFIG_PATH="$DATA_DIR/router.rr.yaml"
+php -r '
+    $quote = static fn (string $value): string => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    $app = getenv("GATEWAY_ROUTER_APP_DIR");
+    $octane = getenv("GATEWAY_ROUTER_DATA_DIR")."/octane";
+    $worker = "php vendor/bin/roadrunner-worker";
+    $config = "version: \"3\"\nserver:\n  command: ".$quote($worker)."\n  env:\n";
+    foreach (["APP_BASE_PATH" => $octane, "COMPOSER_VENDOR_DIR" => $app."/vendor", "LARAVEL_OCTANE" => "1"] as $key => $value) {
+        $config .= "    ".$key.": ".$quote($value)."\n";
+    }
+    foreach (["APP_ENV", "APP_KEY", "DB_CONNECTION", "DB_DATABASE", "SESSION_DRIVER", "GATEWAY_ROUTER_DATA_DIR", "LARAVEL_STORAGE_PATH", "APP_SERVICES_CACHE", "APP_PACKAGES_CACHE", "APP_CONFIG_CACHE", "APP_ROUTES_CACHE", "APP_EVENTS_CACHE", "GATEWAY_PATH_RESOLVER", "GATEWAY_INTERNAL_TOKEN", "REGISTRY_TOKEN", "GATEWAY_PUBLIC_URL"] as $key) {
+        $value = getenv($key);
+        if ($value !== false && $value !== "") {
+            $config .= "    ".$key.": ".$quote($value)."\n";
+        }
+    }
+    $listen = getenv("GATEWAY_ROUTER_LISTEN");
+    $workers = (int) (getenv("GATEWAY_ROUTER_PHP_WORKERS") ?: 4);
+    if ($workers < 1) {
+        fwrite(STDERR, "GATEWAY_ROUTER_PHP_WORKERS must be positive.\n");
+        exit(1);
+    }
+    $config .= "http:\n  address: ".$quote($listen)."\n  middleware: [\"gateway\", \"gzip\"]\n  max_request_size: 10\n  pool:\n    num_workers: ".$workers."\nlogs:\n  level: \"info\"\n";
+    file_put_contents($argv[1], $config);
+' "$CONFIG_PATH"
+
+export GATEWAY_RUNTIME=roadrunner
+export ROADRUNNER_CONFIG="$CONFIG_PATH"
+
+if [ -n "${GATEWAY_ROUTER_SPINNER_BIN:-}" ]; then
+    if [ ! -x "$GATEWAY_ROUTER_SPINNER_BIN" ]; then
+        echo "Spinner binary is not executable: $GATEWAY_ROUTER_SPINNER_BIN" >&2
+        exit 1
+    fi
+    cd "$APP_DIR"
+    exec "$GATEWAY_ROUTER_SPINNER_BIN"
+fi
+
+REPO_DIR=$(CDPATH= cd -- "$APP_DIR/.." && pwd)
+if ! command -v go >/dev/null 2>&1; then
+    echo 'Go is required to build Spinner; alternatively set GATEWAY_ROUTER_SPINNER_BIN.' >&2
+    exit 1
+fi
+GOTELEMETRY=off go build -C "$REPO_DIR" -mod=mod -o "$DATA_DIR/gateway-spinner" ./src/spinner/cmd/proxy
+cd "$APP_DIR"
+exec "$DATA_DIR/gateway-spinner"

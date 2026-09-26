@@ -39,7 +39,7 @@ return [
             'servers' => env('GATEWAY_SERVERS_TABLE', 'servers'),
             'applications' => env('GATEWAY_APPLICATIONS_TABLE', 'applications'),
             'instances' => env('GATEWAY_INSTANCES_TABLE', 'instances'),
-            'nodes' => env('GATEWAY_NODES_TABLE', 'gateway_nodes'),
+            'nodes' => env('GATEWAY_NODES_TABLE', 'nodes'),
         ],
         // Nodes are considered unavailable after this interval without an
         // assignment heartbeat. All reconciler nodes must use the same value.

@@ -99,7 +99,7 @@ remain their modules rather than Gateway storage responsibilities.
 
 ## First implementation slice
 
-`cmd/bridge/smtpout` implements authenticated relay submission with plaintext,
+`src/spinner/cmd/bridge/smtpout` implements authenticated relay submission with plaintext,
 STARTTLS, or implicit TLS transport modes. Plaintext is intended only for
 local/private test relays; production configuration should use STARTTLS or
 implicit TLS. Typed SMTP `GatewayDelivery` values now run through a durable

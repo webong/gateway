@@ -31,7 +31,7 @@
     ],
     "autoload": {
         "psr-4": {
-            "Webong\\Gateway\\": "src/"
+            "Webong\\Gateway\\": "src/planner/"
         }
     },
     "autoload-dev": {

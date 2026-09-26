@@ -23,7 +23,7 @@ final class ServerTables
 
     public static function nodes(): string
     {
-        return self::configured('nodes', 'gateway_nodes');
+        return self::configured('nodes', 'nodes');
     }
 
     private static function configured(string $name, string $default): string

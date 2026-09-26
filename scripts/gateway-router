@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export GATEWAY_ROUTER_APP_DIR=${GATEWAY_ROUTER_APP_DIR:-$REPO_DIR/app}
+export GATEWAY_ROUTER_DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-$REPO_DIR/.gateway-router-data}
+export GATEWAY_ROUTER_LISTEN=${GATEWAY_ROUTER_LISTEN:-127.0.0.1:8080}
+if [ -z "${GATEWAY_ROUTER_SPINNER_BIN:-}" ] && [ -x "$REPO_DIR/bin/gateway-spinner" ]; then
+    export GATEWAY_ROUTER_SPINNER_BIN="$REPO_DIR/bin/gateway-spinner"
+fi
+if [ -z "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ] && [ -x "$REPO_DIR/bin/gateway-frankenphp" ]; then
+    export GATEWAY_ROUTER_FRANKENPHP_BIN="$REPO_DIR/bin/gateway-frankenphp"
+fi
+
+case "${1:-}" in
+    frankenphp|roadrunner)
+        exec "$REPO_DIR/scripts/router-start" "$1"
+        ;;
+    artisan)
+        shift
+        exec "$REPO_DIR/scripts/router-artisan" "$@"
+        ;;
+    *)
+        echo 'Usage: scripts/gateway-router {frankenphp|roadrunner|artisan <command>}' >&2
+        exit 2
+        ;;
+esac

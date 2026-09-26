@@ -14,8 +14,8 @@ and all script capabilities.
 
 ## Languages
 
-- `javascript` runs in the pinned QuickJS-NG engine through Gateway's small
-  CGO bridge.
+- `javascript` runs in the pinned QuickJS-NG engine supplied by the
+  `github.com/buke/quickjs-go` Go module through Gateway's small adapter.
 - `lua` runs in the embedded Lua runtime.
 - `webhookscript` is Gateway's compatibility dialect for WebhookScript-style
   `var`, `set`, and `respond` flows. It compiles to the restricted JavaScript
@@ -74,7 +74,54 @@ the router then applies Gateway's existing URL validation, SSRF protections,
 timeouts, queue capacity, retries, and audit behavior.
 
 QuickJS runs per request with router-owned memory, stack, and execution-time
-limits. Lua receives a deadline-bound execution context. Go builds require a C
-compiler and CGO; the production container builds the pinned engine from
-source. Keep scripts short; use normal worker services for long-running or
-CPU-heavy work.
+limits. Lua receives a deadline-bound execution context. Go builds still require
+a C compiler and CGO because the dependency compiles QuickJS-NG; Gateway no
+longer carries the engine source. Keep scripts short; use normal worker services
+for long-running or CPU-heavy work.
+
+## Scheduled automations
+
+Schedules run the same Go-side `javascript`, `lua`, or `webhookscript` scripts
+without an inbound webhook. Laravel owns cron definitions and run history; Go
+claims due runs through the private planner connection, executes scripts, queues
+their HTTP deliveries, and reports the outcome. A schedule's `gateway.event`
+contains `type: "schedule"`, `run_id`, `schedule_id`, `scheduled_for`, and the
+configured `payload`. `gateway.get('payload.key')` also reads that payload.
+
+Enable polling on the Go router with `GATEWAY_RUNTIME=http`,
+`GATEWAY_SCHEDULES_ENABLED=true`, `GATEWAY_LARAVEL_BACKEND_URL`, and a shared
+`GATEWAY_INTERNAL_TOKEN`. The optional `GATEWAY_SCHEDULE_POLL_INTERVAL` defaults
+to `5s`. Run the package migrations before enabling it. The Laravel planner
+must be reachable privately by every Go router node, and all planner workers
+must share one database. Schedule management uses the existing `REGISTRY_TOKEN`
+bearer token and should be exposed only through an authenticated control-plane
+route. This version does not run the poller in embedded RoadRunner mode.
+
+```http
+POST /schedules
+Authorization: Bearer <REGISTRY_TOKEN>
+Content-Type: application/json
+
+{
+  "name": "Minute check",
+  "cron": "* * * * *",
+  "timezone": "UTC",
+  "language": "javascript",
+  "source": "gateway.forward({url: 'https://example.test/check', method: 'POST', body: JSON.stringify(gateway.event.payload)});",
+  "payload": {"check": "upstream"},
+  "enabled": true
+}
+```
+
+Use `GET /schedules`, `GET /schedules/{id}`, `PATCH /schedules/{id}`,
+`DELETE /schedules/{id}`, and `GET /schedules/{id}/runs` with the same bearer
+token. Cron uses five fields and the named timezone. Missed intervals coalesce
+into one occurrence after downtime; there is no catch-up storm. Each run has a
+two-minute claim lease, and an expired claim can be taken by another router.
+
+Run history reports script failure or the count **accepted by the in-process
+HTTP queue**, not successful downstream delivery. If a router crashes after
+queueing but before reporting, reclaiming can queue duplicates; consumers
+should use `gateway.event.run_id` as an idempotency key when building deliveries.
+This first version does not implement durable HTTP delivery, retry policies,
+response assertions, notifications, or a manual-run endpoint.

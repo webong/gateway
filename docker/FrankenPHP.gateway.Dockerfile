@@ -13,7 +13,8 @@ RUN CGO_ENABLED=1 \
     xcaddy build \
         --output /tmp/frankenphp \
         --with github.com/dunglas/frankenphp/caddy \
-        --with github.com/webong/gateway/cmd/bridge/caddy=/src/gateway/cmd/bridge/caddy
+        --with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
+        --replace github.com/webong/gateway=/src/gateway
 
 FROM dunglas/frankenphp AS runtime
 

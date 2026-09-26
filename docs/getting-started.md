@@ -1,9 +1,10 @@
-# Getting started
+# Distributed getting started
 
-This guide uses Gateway’s HTTP/webhook capability. The same endpoint and
-subscription registry supports the other protocol adapters.
+This guide deploys the Go-only Spinner with a Planner package in an existing
+Laravel application. For one image containing both modules, see
+[Gateway Router](router.md).
 
-## Install the Laravel planner
+## Install the Planner package
 
 In the Laravel application hosting Gateway's planner:
 
@@ -27,7 +28,7 @@ Configure a `PathResolver` or custom `RoutePlanner` in Laravel. It maps public
 ingress paths to endpoint keys and routing scope; Gateway deliberately does
 not reserve a special webhook path.
 
-## Run the router in HTTP mode
+## Run Spinner in HTTP mode
 
 ```dotenv
 GATEWAY_RUNTIME=http

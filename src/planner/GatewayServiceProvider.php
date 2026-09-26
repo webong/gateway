@@ -21,6 +21,8 @@ use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalAssignmentController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Schedules\Http\InternalScheduleController;
+use Webong\Gateway\Schedules\Http\ScheduleController;
 use Webong\Gateway\Servers\Http\Controllers\ApplicationController as ManagedApplicationController;
 use Webong\Gateway\Servers\Http\Controllers\InstanceController as ManagedInstanceController;
 use Webong\Gateway\Servers\Http\Controllers\ServerController as ManagedServerController;
@@ -33,7 +35,7 @@ final class GatewayServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/gateway.php', 'gateway');
+        $this->mergeConfigFrom(__DIR__.'/../../config/gateway.php', 'gateway');
         $this->app->singleton(ServerTypeRegistry::class);
         $this->app->singleton(ServerRegistry::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
@@ -127,7 +129,7 @@ final class GatewayServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
 
         if ((bool) config('gateway.dns.enabled', false)) {
             $client = trim((string) config('gateway.dns.client', 'gateway'));
@@ -141,12 +143,14 @@ final class GatewayServiceProvider extends ServiceProvider
         }
 
         $this->publishes([
-            __DIR__.'/../config/gateway.php' => config_path('gateway.php'),
+            __DIR__.'/../../config/gateway.php' => config_path('gateway.php'),
         ], 'gateway-config');
 
         $this->app->booted(function (): void {
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
+            $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
+            $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
             $this->app['router']->get('/_internal/provisioning/servers', InternalServerController::class);
             $this->app['router']->put('/_internal/provisioning/nodes/{node}/assignments', InternalAssignmentController::class);
             $this->app['router']->post('/_internal/provisioning/instances/reset', [InternalInstanceController::class, 'resetNode']);
@@ -171,6 +175,12 @@ final class GatewayServiceProvider extends ServiceProvider
 
             $this->app['router']->get('/instances', [ManagedInstanceController::class, 'index']);
             $this->app['router']->get('/instances/{instance}', [ManagedInstanceController::class, 'show']);
+            $this->app['router']->get('/schedules', [ScheduleController::class, 'index']);
+            $this->app['router']->post('/schedules', [ScheduleController::class, 'store']);
+            $this->app['router']->get('/schedules/{schedule}', [ScheduleController::class, 'show']);
+            $this->app['router']->patch('/schedules/{schedule}', [ScheduleController::class, 'update']);
+            $this->app['router']->delete('/schedules/{schedule}', [ScheduleController::class, 'destroy']);
+            $this->app['router']->get('/schedules/{schedule}/runs', [ScheduleController::class, 'runs']);
             if ((bool) config('gateway.dns.enabled', false)) {
                 $this->app['router']->get('/dns/hooks', [DnsHookController::class, 'index'])->name('dns.hooks.index');
                 $this->app['router']->post('/dns/hooks', [DnsHookController::class, 'store'])->name('dns.hooks.store');

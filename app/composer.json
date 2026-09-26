@@ -1,0 +1,45 @@
+{
+    "name": "webong/gateway-router-planner",
+    "description": "Bundled PHP Planner host for Gateway Router",
+    "license": "MIT",
+    "type": "project",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^12.0",
+        "laravel/octane": "^2.17",
+        "spiral/roadrunner-http": "^3.3",
+        "webong/gateway": "dev-main"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "..",
+            "options": { "symlink": false }
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/webong/web-proxy.git"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": {
+        "psr-4": {
+            "Gateway\\Router\\": ""
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan package:discover --ansi"
+        ]
+    },
+    "config": {
+        "platform": {
+            "php": "8.3.0"
+        },
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    }
+}

@@ -1,0 +1,19 @@
+{
+    frankenphp
+}
+
+{$GATEWAY_ROUTER_LISTEN} {
+    root * {$GATEWAY_ROUTER_APP_DIR}/public
+
+    route {
+        gateway {
+            internal_token {$GATEWAY_INTERNAL_TOKEN}
+            relay_path_prefix /hooks
+            max_body_size 10485760
+            max_workers 100
+            max_queue_size 1000
+        }
+
+        php_server
+    }
+}

@@ -3,6 +3,9 @@
 .DS_Store
 .rr.yaml
 .composer
+.gateway-router-data
+dist
 vendor
 bin
 node_modules
+app/vendor

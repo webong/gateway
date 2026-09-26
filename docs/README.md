@@ -1,29 +1,30 @@
 # Gateway documentation
 
-Gateway is one product with two cooperating planes:
+Gateway Router is one product with two modules:
 
-- **Go router plane:** public listeners, protocol parsing, delivery execution,
+- **Spinner (Go):** public listeners, protocol parsing, delivery execution,
   retries, and outbound SSRF protection.
-- **Laravel planner plane:** authentication, endpoint and subscription
+- **Planner (PHP):** authentication, endpoint and subscription
   management, matching, route planning, and managed-server state.
 
-The planner is a Gateway component, not an unrelated application behind a
-proxy. Users call Gateway's public edge; the router calls the planner over a
-private connection.
+The modules can be deployed separately, with Spinner calling Planner over a
+private connection, or together in the Gateway Router distribution using
+embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 
 ## Guides
 
-- [Getting started](getting-started.md): install the Laravel planner, run the
-  router, register endpoints, and create subscriptions.
-- [Deployment](deployment.md): run Gateway in containers with TLS and private
-  planner networking.
+- [Gateway Router](router.md): run Spinner and the bundled Planner together,
+  natively or in the optional FrankenPHP image.
+- [Distributed getting started](getting-started.md): install the Planner in a
+  Laravel app and run a Go-only Spinner.
+- [Deployment](deployment.md): run Spinner with a private Planner and TLS.
 - [Subscription matching](subscription-dsl-v1.md): versioned matching rules.
 - [Gateway Automations](automations.md): Go-executed WebhookScript, Lua, and
   JavaScript ingress logic.
 
 ## Capabilities
 
-| Protocol or service | Go router | Laravel planner |
+| Protocol or service | Spinner (Go) | Planner (PHP) |
 | --- | --- | --- |
 | HTTP/webhooks | Capture traffic; execute replies and deliveries | Authorize, match, and choose destinations |
 | WebSocket | Upgrade and session lifecycle | Accept, reject, or deliver events |

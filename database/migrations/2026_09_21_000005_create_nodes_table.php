@@ -11,7 +11,21 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create(ServerTables::nodes(), function (Blueprint $table): void {
+        $tableName = ServerTables::nodes();
+        if (Schema::hasTable($tableName)) {
+            return;
+        }
+
+        // The former migration filename may already be recorded in a host
+        // application's migrations table. Preserve its rows when the new
+        // migration name is applied on upgrade.
+        if ($tableName === 'nodes' && Schema::hasTable('gateway_nodes')) {
+            Schema::rename('gateway_nodes', $tableName);
+
+            return;
+        }
+
+        Schema::create($tableName, function (Blueprint $table): void {
             $table->string('id')->primary();
             $table->json('drivers');
             $table->timestamp('heartbeat_at');

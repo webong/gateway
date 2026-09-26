@@ -1,20 +1,21 @@
 # Deploying Gateway
 
-Deploy Gateway as a public Go router plus a private Laravel planner.
+Deploy Spinner as a public Go router plus a private PHP Planner. For the
+combined RoadRunner or FrankenPHP distribution, see [Gateway Router](router.md).
 
 ```text
-Internet -> TLS terminator -> Go Gateway router -> private network -> Laravel planner
+Internet -> TLS terminator -> Spinner (Go) -> private network -> Planner (PHP)
 ```
 
 Only the TLS terminator/router is public. Keep the planner as a Compose-only
 service, Kubernetes ClusterIP, loopback listener, or private-VPC service.
-The router uses `GATEWAY_LARAVEL_BACKEND_URL` and `GATEWAY_INTERNAL_TOKEN` to
+Spinner uses `GATEWAY_LARAVEL_BACKEND_URL` and `GATEWAY_INTERNAL_TOKEN` to
 call `POST /_internal/gateway/plan` privately.
 
-## Router image
+## Spinner image
 
 ```bash
-docker build -t webong/gateway:local .
+docker build -t webong/gateway-spinner:local .
 ```
 
 The image runs as the unprivileged `gateway` user and exposes:
@@ -25,8 +26,7 @@ The image runs as the unprivileged `gateway` user and exposes:
 | `2525/tcp` | Optional SMTP |
 | `5353/tcp`, `5353/udp` | Optional authoritative DNS |
 
-The router image intentionally does not contain an arbitrary Laravel
-application. Deploy your Gateway-enabled planner alongside it.
+The Spinner image contains no PHP application. Deploy the Planner alongside it.
 
 ## Minimal Compose shape
 
@@ -40,7 +40,7 @@ services:
     # Do not publish this service's ports.
 
   gateway:
-    image: webong/gateway:local
+    image: webong/gateway-spinner:local
     environment:
       GATEWAY_RUNTIME: http
       GATEWAY_LARAVEL_BACKEND_URL: http://planner:8080

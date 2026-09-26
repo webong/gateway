@@ -4,7 +4,7 @@ GOFLAGS ?= -mod=mod
 
 build:
 	mkdir -p bin
-	CGO_ENABLED=1 go build $(GOFLAGS) -o bin/gateway ./cmd/proxy
+	CGO_ENABLED=1 go build $(GOFLAGS) -o bin/gateway ./src/spinner/cmd/proxy
 
 test: test-go test-php
 
@@ -27,7 +27,7 @@ test-smtp:
 	bash scripts/smtp-smoke.sh
 
 test-dns:
-	go test $(GOFLAGS) ./cmd/bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
+	go test $(GOFLAGS) ./src/spinner/cmd/bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
 
 test-websocket:
 	bash scripts/websocket-smoke.sh
@@ -42,7 +42,7 @@ test-container-integration:
 	bash scripts/docker-integration-smoke.sh
 
 benchmark:
-	go run $(GOFLAGS) ./cmd/benchmark $(ARGS)
+	go run $(GOFLAGS) ./src/spinner/cmd/benchmark $(ARGS)
 
 benchmark-php:
 	vendor/bin/pest -c phpunit.benchmark.xml.dist

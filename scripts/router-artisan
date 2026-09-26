@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+APP_DIR=${GATEWAY_ROUTER_APP_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/../app" && pwd)}
+DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-/data}
+APP_DIR=$(CDPATH= cd -- "$APP_DIR" && pwd)
+
+if [ ! -f "$DATA_DIR/gateway.env" ]; then
+    echo 'Start Gateway before running management commands.' >&2
+    exit 1
+fi
+DATA_DIR=$(CDPATH= cd -- "$DATA_DIR" && pwd)
+
+set -a
+. "$DATA_DIR/gateway.env"
+set +a
+
+export APP_ENV=production
+export DB_CONNECTION=sqlite
+export DB_DATABASE="$DATA_DIR/gateway.sqlite"
+export SESSION_DRIVER=file
+export GATEWAY_ROUTER_DATA_DIR="$DATA_DIR"
+export LARAVEL_STORAGE_PATH="$DATA_DIR/storage"
+export APP_SERVICES_CACHE="$DATA_DIR/cache/services.php"
+export APP_PACKAGES_CACHE="$DATA_DIR/cache/packages.php"
+export APP_CONFIG_CACHE="$DATA_DIR/cache/config.php"
+export APP_ROUTES_CACHE="$DATA_DIR/cache/routes-v7.php"
+export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
+export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
+
+exec php "$APP_DIR/artisan" "$@"
