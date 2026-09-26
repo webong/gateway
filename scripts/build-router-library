@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+
+REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if ! command -v php-config >/dev/null 2>&1; then
+    echo 'php-config from a ZTS PHP build with the embed SAPI is required.' >&2
+    exit 1
+fi
+
+mkdir -p "$REPO_DIR/bin"
+CGO_ENABLED=1 \
+CGO_CFLAGS="$(php-config --includes)" \
+CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
+GOTELEMETRY=off \
+go -C "$REPO_DIR/ext/frankenphp" build -mod=mod -o "$REPO_DIR/bin/gateway-router-library" ./cmd/router

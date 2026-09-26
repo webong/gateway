@@ -7,8 +7,8 @@ RUNTIME=${1:-${GATEWAY_ROUTER_RUNTIME:-frankenphp}}
 APP_DIR=$(CDPATH= cd -- "$APP_DIR" && pwd)
 
 case "$RUNTIME" in
-    frankenphp|roadrunner) ;;
-    *) echo 'Usage: start [frankenphp|roadrunner]' >&2; exit 2 ;;
+    library|frankenphp|roadrunner) ;;
+    *) echo 'Usage: start [library|frankenphp|roadrunner]' >&2; exit 2 ;;
 esac
 
 if [ ! -f "$APP_DIR/vendor/autoload.php" ]; then
@@ -57,6 +57,16 @@ fi
 
 php "$APP_DIR/artisan" migrate --path=vendor/webong/web-proxy/database/migrations --force
 php "$APP_DIR/artisan" migrate --force
+
+if [ "$RUNTIME" = library ]; then
+    LIBRARY_BIN=${GATEWAY_ROUTER_LIBRARY_BIN:-}
+    if [ -z "$LIBRARY_BIN" ] || [ ! -x "$LIBRARY_BIN" ]; then
+        echo 'Build the FrankenPHP library Router with scripts/build-router-library first.' >&2
+        exit 1
+    fi
+    export GATEWAY_RUNTIME=http
+    exec "$LIBRARY_BIN"
+fi
 
 if [ "$RUNTIME" = frankenphp ]; then
     FRANKENPHP_BIN=${GATEWAY_ROUTER_FRANKENPHP_BIN:-frankenphp}

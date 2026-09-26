@@ -11,13 +11,15 @@ together in the Gateway Router distribution.
 | Planner | `webong/gateway` Composer package | Your Laravel app owns route policy and registry context |
 
 The same route-plan and protocol-event contracts connect Spinner and Planner
-in both deployment shapes. The FrankenPHP runtime uses the existing Caddy Go
-module; the RoadRunner runtime embeds PHP workers in `src/spinner/cmd/proxy`. Neither
-runtime needs a separate public Planner listener.
+in both deployment shapes. The optional `ext/frankenphp` Go module embeds the
+Planner through the FrankenPHP library without importing the standalone Spinner
+command. The existing Caddy adapter remains for the current Docker image;
+RoadRunner embeds PHP workers in `src/spinner/cmd/proxy`. None of these modes
+needs a separate public Planner listener.
 
 ```text
 public request
-    -> Spinner (FrankenPHP/Caddy module, embedded RoadRunner, or net/http)
+    -> Spinner (FrankenPHP library, FrankenPHP/Caddy, RoadRunner, or net/http)
     -> PHP planner (validation, registry, subscriber binding)
     -> route plan
        -> Go synchronous reply delivery
@@ -70,8 +72,9 @@ selected runtime adapter.
 - `src/planner` is the PHP Planner package source tree.
 - `app/` is the thin PHP host for the bundled Planner, not a conventional
   Laravel application skeleton.
-- `config/` contains the Laravel package configuration.
-- `src/planner/Servers`, `src/planner/Reconciliation`, `database/migrations`, and
+- `src/planner/config/` contains the Laravel Planner package configuration;
+  root `config/` holds Caddy examples used by integration builds.
+- `src/planner/Servers`, `src/planner/Reconciliation`, `src/planner/database/migrations`, and
   `src/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
   state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
@@ -81,7 +84,8 @@ selected runtime adapter.
 - `ext/mercure` and `ext/centrifugo` adapt their server configuration and
   launch contracts to the same core runtime.
 
-The root is intentionally a single Go module and Composer package. When the
+The root Go module keeps native FrankenPHP out of Spinner-only builds;
+`ext/frankenphp` is a separate optional Go module. When the
 PHP `vendor/` directory exists, use `-mod=mod` for Go commands because that
 directory belongs to Composer, not Go.
 

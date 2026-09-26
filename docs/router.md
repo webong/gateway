@@ -7,9 +7,10 @@ application skeleton or a separate service you must deploy. Choose a runtime:
 | Runtime | Public listener | PHP execution |
 | --- | --- | --- |
 | RoadRunner | `src/spinner/cmd/proxy` | Embedded PHP workers, no second listener |
-| FrankenPHP | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
+| FrankenPHP library | Optional Go extension command | In-process FrankenPHP, no Caddy module |
+| FrankenPHP/Caddy (existing image) | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
 
-Both runtimes use the same Planner package, SQLite registry, `/hooks/{key}`
+All runtimes use the same Planner package, SQLite registry, `/hooks/{key}`
 route convention, and management CLI. A container is optional.
 
 ## Build a native distribution
@@ -32,6 +33,10 @@ build contains the RoadRunner runtime. If you have a FrankenPHP binary built
 with Gateway's Caddy module, set `GATEWAY_ROUTER_FRANKENPHP_BIN` while building
 to include it as `bin/gateway-frankenphp`; then the same distribution also runs
 with `scripts/gateway-router frankenphp`.
+For the Go-library runtime, build `bin/gateway-router-library` using
+`scripts/build-router-library`, then set `GATEWAY_ROUTER_LIBRARY_BIN` to that
+binary while building the distribution. It requires Go 1.26 and a ZTS PHP
+installation with the embed SAPI and matching `php-config` flags.
 
 ## Run from the source checkout
 
@@ -52,9 +57,18 @@ keep the data directory across restarts and back it up as one unit. On first
 start the launcher generates a Laravel key, an internal Spinner-to-Planner
 credential, and a registry credential, then applies migrations.
 
-For FrankenPHP, use a FrankenPHP binary built with the Gateway Caddy module
-(the optional image below demonstrates the build). A stock FrankenPHP binary
-does not contain Spinner.
+For the FrankenPHP Go-library extension, build and run the Router directly.
+Spinner owns the listener, and the bundled Planner executes in the same process
+without a second PHP listener or Caddy module:
+
+```bash
+./scripts/build-router-library
+./scripts/gateway-router library
+```
+
+The existing FrankenPHP/Caddy mode remains available until its Docker packaging
+is migrated. It requires a FrankenPHP binary built with the Gateway Caddy
+module; a stock FrankenPHP binary does not contain Spinner.
 
 ```bash
 GATEWAY_ROUTER_FRANKENPHP_BIN=/path/to/gateway-frankenphp \

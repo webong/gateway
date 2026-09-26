@@ -23,7 +23,6 @@ STAGE=$(mktemp -d "${OUTPUT}.tmp.XXXXXX")
 mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/app" "$STAGE/src"
 
 cp -R "$REPO_DIR/src/planner" "$STAGE/src/"
-cp -R "$REPO_DIR/config" "$REPO_DIR/database" "$STAGE/"
 cp "$REPO_DIR/composer.json" "$STAGE/"
 cp "$REPO_DIR/scripts/gateway-router" "$REPO_DIR/scripts/router-start" \
     "$REPO_DIR/scripts/router-artisan" "$STAGE/scripts/"
@@ -31,6 +30,11 @@ APP_SOURCE="$REPO_DIR/app"
 APP_TARGET="$STAGE/app"
 cp -R "$APP_SOURCE/config" "$APP_SOURCE/public" \
     "$APP_SOURCE/vendor" "$APP_TARGET/"
+# Composer's path repository is copied rather than symlinked. Refresh the
+# staged package from this checkout so Planner edits cannot ship stale vendor
+# contents from an earlier composer install.
+cp -R "$REPO_DIR/src/planner" "$APP_TARGET/vendor/webong/gateway/src/"
+cp "$REPO_DIR/composer.json" "$APP_TARGET/vendor/webong/gateway/composer.json"
 cp "$APP_SOURCE/artisan" "$APP_SOURCE/Caddyfile" \
     "$APP_SOURCE/composer.json" "$APP_SOURCE/composer.lock" \
     "$APP_SOURCE/bootstrap.php" "$APP_SOURCE/commands.php" \
@@ -43,6 +47,13 @@ if [ -n "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ]; then
         exit 1
     fi
     cp "$GATEWAY_ROUTER_FRANKENPHP_BIN" "$STAGE/bin/gateway-frankenphp"
+fi
+if [ -n "${GATEWAY_ROUTER_LIBRARY_BIN:-}" ]; then
+    if [ ! -x "$GATEWAY_ROUTER_LIBRARY_BIN" ]; then
+        echo "FrankenPHP library Router is not executable: $GATEWAY_ROUTER_LIBRARY_BIN" >&2
+        exit 1
+    fi
+    cp "$GATEWAY_ROUTER_LIBRARY_BIN" "$STAGE/bin/gateway-router-library"
 fi
 mv "$STAGE" "$OUTPUT"
 echo "Gateway Router distribution: $OUTPUT"

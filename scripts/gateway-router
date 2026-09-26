@@ -11,9 +11,12 @@ fi
 if [ -z "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ] && [ -x "$REPO_DIR/bin/gateway-frankenphp" ]; then
     export GATEWAY_ROUTER_FRANKENPHP_BIN="$REPO_DIR/bin/gateway-frankenphp"
 fi
+if [ -z "${GATEWAY_ROUTER_LIBRARY_BIN:-}" ] && [ -x "$REPO_DIR/bin/gateway-router-library" ]; then
+    export GATEWAY_ROUTER_LIBRARY_BIN="$REPO_DIR/bin/gateway-router-library"
+fi
 
 case "${1:-}" in
-    frankenphp|roadrunner)
+    library|frankenphp|roadrunner)
         exec "$REPO_DIR/scripts/router-start" "$1"
         ;;
     artisan)
@@ -21,7 +24,7 @@ case "${1:-}" in
         exec "$REPO_DIR/scripts/router-artisan" "$@"
         ;;
     *)
-        echo 'Usage: scripts/gateway-router {frankenphp|roadrunner|artisan <command>}' >&2
+        echo 'Usage: scripts/gateway-router {library|frankenphp|roadrunner|artisan <command>}' >&2
         exit 2
         ;;
 esac
