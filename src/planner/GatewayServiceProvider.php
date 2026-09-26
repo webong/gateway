@@ -35,7 +35,7 @@ final class GatewayServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../../config/gateway.php', 'gateway');
+        $this->mergeConfigFrom(__DIR__.'/config/gateway.php', 'gateway');
         $this->app->singleton(ServerTypeRegistry::class);
         $this->app->singleton(ServerRegistry::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
@@ -129,7 +129,7 @@ final class GatewayServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../../database/migrations');
+        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
 
         if ((bool) config('gateway.dns.enabled', false)) {
             $client = trim((string) config('gateway.dns.client', 'gateway'));
@@ -143,7 +143,7 @@ final class GatewayServiceProvider extends ServiceProvider
         }
 
         $this->publishes([
-            __DIR__.'/../../config/gateway.php' => config_path('gateway.php'),
+            __DIR__.'/config/gateway.php' => config_path('gateway.php'),
         ], 'gateway-config');
 
         $this->app->booted(function (): void {

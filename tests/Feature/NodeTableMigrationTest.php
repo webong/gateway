@@ -26,7 +26,7 @@ it('uses nodes by default and preserves an existing gateway_nodes table', functi
         'updated_at' => now(),
     ]);
 
-    $migration = require __DIR__.'/../../database/migrations/2026_09_21_000005_create_nodes_table.php';
+    $migration = require __DIR__.'/../../src/planner/database/migrations/2026_09_21_000005_create_nodes_table.php';
     $migration->up();
 
     expect(Schema::hasTable('gateway_nodes'))->toBeFalse()
