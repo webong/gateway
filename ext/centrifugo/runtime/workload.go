@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/webong/gateway/internal/provisioning"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 type serverConfiguration struct {
@@ -30,18 +30,18 @@ func (*Workload) Type() string            { return "centrifugo" }
 
 func (w *Workload) Supports(driver string) bool {
 	switch driver {
-	case provisioning.DriverLocal:
+	case provision.DriverLocal:
 		return strings.TrimSpace(w.config.Binary) != ""
-	case provisioning.DriverDocker:
+	case provision.DriverDocker:
 		return strings.TrimSpace(w.config.DockerImage) != ""
-	case provisioning.DriverKubernetes:
+	case provision.DriverKubernetes:
 		return strings.TrimSpace(w.config.KubernetesImage) != ""
 	default:
 		return false
 	}
 }
 
-func (w *Workload) Validate(spec provisioning.ServerSpec) error {
+func (w *Workload) Validate(spec provision.ServerSpec) error {
 	if spec.Type != w.Type() {
 		return fmt.Errorf("Centrifugo workload cannot provision type %q", spec.Type)
 	}
@@ -67,37 +67,37 @@ func (w *Workload) Validate(spec provisioning.ServerSpec) error {
 	return nil
 }
 
-func (w *Workload) Launch(spec provisioning.ServerSpec, driver, host string, port int) (provisioning.LaunchSpec, error) {
+func (w *Workload) Launch(spec provision.ServerSpec, driver, host string, port int) (provision.LaunchSpec, error) {
 	configuration, err := decodeConfiguration(spec)
 	if err != nil {
-		return provisioning.LaunchSpec{}, err
+		return provision.LaunchSpec{}, err
 	}
 
-	launch := provisioning.LaunchSpec{ContainerName: "centrifugo"}
+	launch := provision.LaunchSpec{ContainerName: "centrifugo"}
 	switch driver {
-	case provisioning.DriverLocal:
+	case provision.DriverLocal:
 		launch.Executable = w.config.Binary
 		launch.WorkingDirectory = w.config.WorkingDirectory
 		launch.Port = port
-	case provisioning.DriverDocker:
+	case provision.DriverDocker:
 		launch.Image = w.config.DockerImage
 		launch.Executable = w.config.DockerBinary
 		launch.Port = w.config.DockerContainerPort
 		host = "0.0.0.0"
-	case provisioning.DriverKubernetes:
+	case provision.DriverKubernetes:
 		launch.Image = w.config.KubernetesImage
 		launch.Executable = w.config.KubernetesBinary
 		launch.Port = w.config.KubernetesContainerPort
 		host = "0.0.0.0"
 	default:
-		return provisioning.LaunchSpec{}, fmt.Errorf("unsupported Centrifugo runtime %q", driver)
+		return provision.LaunchSpec{}, fmt.Errorf("unsupported Centrifugo runtime %q", driver)
 	}
 	launch.Environment = centrifugoEnvironment(configuration, host, launch.Port)
 
 	return launch, nil
 }
 
-func decodeConfiguration(spec provisioning.ServerSpec) (serverConfiguration, error) {
+func decodeConfiguration(spec provision.ServerSpec) (serverConfiguration, error) {
 	var configuration serverConfiguration
 	if err := json.Unmarshal(spec.Configuration, &configuration); err != nil {
 		return configuration, fmt.Errorf("decode Centrifugo server %q configuration: %w", spec.ID, err)
@@ -125,4 +125,4 @@ func centrifugoEnvironment(config serverConfiguration, host string, port int) []
 	return environment
 }
 
-var _ provisioning.Workload = (*Workload)(nil)
+var _ provision.Workload = (*Workload)(nil)

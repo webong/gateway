@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/gateway/internal/provisioning"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 func TestKubernetesSmoke(t *testing.T) {
@@ -17,7 +17,7 @@ func TestKubernetesSmoke(t *testing.T) {
 	if namespace == "" || image == "" {
 		t.Skip("set the Centrifugo Kubernetes smoke namespace and image to run this test")
 	}
-	driver, err := provisioning.NewKubernetesDriver(provisioning.KubernetesDriverConfig{
+	driver, err := provision.NewKubernetesDriver(provision.KubernetesDriverConfig{
 		KubectlBinary: "kubectl", NodeID: "centrifugo-kubernetes-smoke", Namespace: namespace,
 		ImagePullPolicy: "Never", RouteMode: "port-forward", StartTimeout: 30 * time.Second, StopTimeout: 15 * time.Second,
 	})
@@ -25,7 +25,7 @@ func TestKubernetesSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validCentrifugoSpec()
-	spec.Driver = provisioning.DriverKubernetes
+	spec.Driver = provision.DriverKubernetes
 	spec.Replicas = 1
 	spec.Configuration = []byte(`{
 		"client_token_hmac_secret_key":"client-smoke-secret",

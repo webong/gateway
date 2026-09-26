@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/gateway/internal/provisioning"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 func TestKubernetesSmoke(t *testing.T) {
@@ -17,7 +17,7 @@ func TestKubernetesSmoke(t *testing.T) {
 	if namespace == "" || image == "" {
 		t.Skip("set the Mercure Kubernetes smoke namespace and image to run this test")
 	}
-	driver, err := provisioning.NewKubernetesDriver(provisioning.KubernetesDriverConfig{
+	driver, err := provision.NewKubernetesDriver(provision.KubernetesDriverConfig{
 		KubectlBinary: "kubectl", NodeID: "mercure-kubernetes-smoke", Namespace: namespace,
 		ImagePullPolicy: "Never", RouteMode: "port-forward", StartTimeout: 30 * time.Second, StopTimeout: 15 * time.Second,
 	})
@@ -25,7 +25,7 @@ func TestKubernetesSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validMercureSpec()
-	spec.Driver = provisioning.DriverKubernetes
+	spec.Driver = provision.DriverKubernetes
 	process, err := driver.Start(t.Context(), spec, "33333333-3333-4333-8333-333333333333", NewWorkload(Config{
 		KubernetesImage: image, KubernetesBinary: "caddy", KubernetesConfigPath: "/etc/caddy/Caddyfile", KubernetesContainerPort: 80,
 	}))

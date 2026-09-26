@@ -12,7 +12,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 docker build -t "$IMAGE" "$ROOT"
-docker run -d --rm --name "$NAME" -p 127.0.0.1::5001 "$IMAGE" >/dev/null
+docker run -d --rm --name "$NAME" -e GATEWAY_RUNTIME=diagnostic -p 127.0.0.1::5001 "$IMAGE" >/dev/null
 
 port="$(docker inspect -f '{{(index (index .NetworkSettings.Ports "5001/tcp") 0).HostPort}}' "$NAME")"
 for _ in $(seq 1 30); do

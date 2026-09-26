@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/gateway/internal/provisioning"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 func TestDockerSmoke(t *testing.T) {
@@ -16,7 +16,7 @@ func TestDockerSmoke(t *testing.T) {
 	if image == "" {
 		t.Skip("set GATEWAY_MERCURE_DOCKER_SMOKE_IMAGE to run the live Docker smoke")
 	}
-	driver, err := provisioning.NewDockerDriver(provisioning.DockerDriverConfig{
+	driver, err := provision.NewDockerDriver(provision.DockerDriverConfig{
 		Binary: "docker", NodeID: "mercure-docker-smoke", PublishHost: "127.0.0.1",
 		StartTimeout: 20 * time.Second, StopTimeout: 10 * time.Second,
 	})
@@ -24,7 +24,7 @@ func TestDockerSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validMercureSpec()
-	spec.Driver = provisioning.DriverDocker
+	spec.Driver = provision.DriverDocker
 	process, err := driver.Start(t.Context(), spec, "11111111-1111-4111-8111-111111111111", NewWorkload(Config{
 		DockerImage: image, DockerBinary: "caddy", DockerConfigPath: "/etc/caddy/Caddyfile", DockerContainerPort: 80,
 	}))

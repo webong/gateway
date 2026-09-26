@@ -6,7 +6,7 @@ import (
 )
 
 // Config contains only settings needed to launch the Reverb workload. Generic
-// reconciliation and driver settings belong to provisioning.HostConfig.
+// reconciliation and driver settings belong to provision.HostConfig.
 type Config struct {
 	Enabled                 bool
 	PHPBinary               string

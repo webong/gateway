@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/internal/provisioning"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 func TestWorkloadBuildsCentrifugoLaunchSpecs(t *testing.T) {
@@ -18,7 +18,7 @@ func TestWorkloadBuildsCentrifugoLaunchSpecs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	local, err := workload.Launch(spec, provisioning.DriverLocal, "127.0.0.1", 12002)
+	local, err := workload.Launch(spec, provision.DriverLocal, "127.0.0.1", 12002)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestWorkloadBuildsCentrifugoLaunchSpecs(t *testing.T) {
 		}
 	}
 
-	kubernetes, err := workload.Launch(spec, provisioning.DriverKubernetes, "ignored", 0)
+	kubernetes, err := workload.Launch(spec, provision.DriverKubernetes, "ignored", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +60,10 @@ func TestWorkloadRequiresRedisForMultipleReplicas(t *testing.T) {
 	}
 }
 
-func validCentrifugoSpec() provisioning.ServerSpec {
-	return provisioning.ServerSpec{
+func validCentrifugoSpec() provision.ServerSpec {
+	return provision.ServerSpec{
 		ID: "centrifugo-1", Type: "centrifugo", Name: "events", Hostname: "events.example.test",
-		Driver: provisioning.DriverLocal, DesiredState: provisioning.DesiredRunning, Replicas: 3, Revision: 1,
+		Driver: provision.DriverLocal, DesiredState: provision.DesiredRunning, Replicas: 3, Revision: 1,
 		Configuration: []byte(`{
 			"client_token_hmac_secret_key":"client-secret",
 			"client_allowed_origins":["https://app.example.test"],

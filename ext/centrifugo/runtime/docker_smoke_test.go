@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/gateway/internal/provisioning"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 func TestDockerSmoke(t *testing.T) {
@@ -16,7 +16,7 @@ func TestDockerSmoke(t *testing.T) {
 	if image == "" {
 		t.Skip("set GATEWAY_CENTRIFUGO_DOCKER_SMOKE_IMAGE to run the live Docker smoke")
 	}
-	driver, err := provisioning.NewDockerDriver(provisioning.DockerDriverConfig{
+	driver, err := provision.NewDockerDriver(provision.DockerDriverConfig{
 		Binary: "docker", NodeID: "centrifugo-docker-smoke", PublishHost: "127.0.0.1",
 		StartTimeout: 20 * time.Second, StopTimeout: 10 * time.Second,
 	})
@@ -24,7 +24,7 @@ func TestDockerSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validCentrifugoSpec()
-	spec.Driver = provisioning.DriverDocker
+	spec.Driver = provision.DriverDocker
 	spec.Replicas = 1
 	spec.Configuration = []byte(`{
 		"client_token_hmac_secret_key":"client-smoke-secret",

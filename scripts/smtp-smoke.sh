@@ -59,8 +59,8 @@ fi
 
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/cmd/proxy"
-go build "$GO_BUILD_FLAGS" -o "$SMTP_CLIENT_BIN" "$ROOT/cmd/smtp-smoke"
+go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/src/spinner/cmd/proxy"
+go build "$GO_BUILD_FLAGS" -o "$SMTP_CLIENT_BIN" "$ROOT/src/spinner/cmd/smtp-smoke"
 
 (
     cd "$APP_PATH"

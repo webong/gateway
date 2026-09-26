@@ -7,7 +7,7 @@ GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 
 # Always verify the module on the host. The full binary build is optional
 # because it requires FrankenPHP's CGO builder image and Docker access.
-go test "$GO_BUILD_FLAGS" ./cmd/bridge/caddy
+go test "$GO_BUILD_FLAGS" ./src/spinner/cmd/bridge/caddy
 
 if [[ "${GATEWAY_FRANKENPHP_BUILD:-0}" != "1" ]]; then
 	cat >&2 <<'EOF'

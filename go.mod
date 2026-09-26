@@ -5,6 +5,7 @@ go 1.24.0
 require github.com/roadrunner-server/roadrunner/v2025 v2025.1.0
 
 require (
+	github.com/buke/quickjs-go v0.7.7
 	github.com/caddyserver/caddy/v2 v2.10.0
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.24.0
@@ -213,7 +214,7 @@ require (
 	github.com/spf13/viper v1.20.1 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.10.0 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tailscale/tscert v0.0.0-20240608151842-d3f834017e53 // indirect
 	github.com/temporalio/roadrunner-temporal/v5 v5.6.0 // indirect
