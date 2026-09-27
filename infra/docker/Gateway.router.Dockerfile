@@ -38,7 +38,7 @@ RUN ./configure \
     && make install \
     && mkdir -p /usr/local/etc/php/conf.d \
     && cp php.ini-production /usr/local/etc/php/php.ini
-COPY docker/router.php.ini /usr/local/etc/php/conf.d/router.ini
+COPY infra/docker/router.php.ini /usr/local/etc/php/conf.d/router.ini
 
 FROM php-builder AS router-builder
 

@@ -4,8 +4,8 @@ Gateway ships two independent Kubernetes configurations:
 
 | Configuration | Container | Planner | Persistent state |
 | --- | --- | --- | --- |
-| [`deploy/kubernetes/router`](../deploy/kubernetes/router) | Combined Router image from `docker/Gateway.router.Dockerfile` | Bundled in-process through the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
-| [`deploy/kubernetes/spinner`](../deploy/kubernetes/spinner) | Go-only image from the root `Dockerfile` | Separate Laravel service at `GATEWAY_LARAVEL_BACKEND_URL` | None for the default HTTP transport |
+| [`infra/kubernetes/router`](../infra/kubernetes/router) | Combined Router image from `infra/docker/Gateway.router.Dockerfile` | Bundled in-process through the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
+| [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Go-only image from the root `Dockerfile` | Separate Laravel service at `GATEWAY_LARAVEL_BACKEND_URL` | None for the default HTTP transport |
 
 Build the image you need, publish it to a registry reachable by your cluster,
 and replace the example `image:` value in that configuration before applying
@@ -15,11 +15,11 @@ attach your cluster's ingress/controller to the `router` or `spinner` Service.
 ## Combined Router
 
 ```sh
-docker build -f docker/Gateway.router.Dockerfile -t REGISTRY/router:TAG .
+docker build -f infra/docker/Gateway.router.Dockerfile -t REGISTRY/router:TAG .
 docker push REGISTRY/router:TAG
 kubectl create namespace gateway
-# Set image: REGISTRY/router:TAG in deploy/kubernetes/router/deployment.yaml.
-kubectl -n gateway apply -k deploy/kubernetes/router
+# Set image: REGISTRY/router:TAG in infra/kubernetes/router/deployment.yaml.
+kubectl -n gateway apply -k infra/kubernetes/router
 kubectl -n gateway rollout status deployment/router
 ```
 
@@ -37,10 +37,10 @@ docker build -f Dockerfile -t REGISTRY/spinner:TAG .
 docker push REGISTRY/spinner:TAG
 kubectl create namespace gateway
 # Set image: REGISTRY/spinner:TAG and your Planner URL in
-# deploy/kubernetes/spinner/deployment.yaml.
+# infra/kubernetes/spinner/deployment.yaml.
 kubectl -n gateway create secret generic spinner-planner \
   --from-file=internal-token=/secure/path/to/planner-token
-kubectl -n gateway apply -k deploy/kubernetes/spinner
+kubectl -n gateway apply -k infra/kubernetes/spinner
 kubectl -n gateway rollout status deployment/spinner
 ```
 

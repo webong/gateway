@@ -104,7 +104,7 @@ unaffected by these root archive rules.
 - `app/` is the thin PHP host for the bundled Planner, not a conventional
   Laravel application skeleton.
 - `src/planner/config/` contains the Laravel Planner package configuration;
-  root `config/` holds Caddy examples used by integration builds.
+  `infra/caddy/` holds Caddy examples used by integration builds.
 - `src/planner/Servers`, `src/planner/Reconciliation`, `src/planner/database/migrations`, and
   `src/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
@@ -1011,7 +1011,7 @@ delivers network traffic, and Laravel remains the next handler for planning
 and ordinary application requests.
 
 The example configuration is in
-`config/Caddyfile.frankenphp.example`. Copy it into the Laravel application's
+`infra/caddy/Caddyfile.frankenphp.example`. Copy it into the Laravel application's
 FrankenPHP deployment and set `APP_PUBLIC_PATH`, `SERVER_NAME`, and
 `GATEWAY_INTERNAL_TOKEN`.
 

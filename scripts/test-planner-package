@@ -14,9 +14,9 @@ cd "$TEST_DIR/source"
 
 # Representative unwanted files, including future directories and local state.
 for path in src/spinner/main.go lib/driver/go.mod ext/example/main.go app/bootstrap.php \
-    scripts/build-router docker/Dockerfile deploy/kubernetes/router.yaml tests/Test.php \
+    scripts/build-router infra/docker/Dockerfile infra/kubernetes/router.yaml tests/Test.php \
     vendor/autoload.php .gateway-router-data/gateway.env future/component.txt \
-    docs/deployment.md config/Caddyfile go.mod go.sum composer.lock .env; do
+    docs/deployment.md infra/caddy/Caddyfile go.mod go.sum composer.lock .env; do
     mkdir -p "$(dirname "$path")"
     touch "$path"
 done

@@ -13,7 +13,7 @@ if [[ "${GATEWAY_FRANKENPHP_BUILD:-0}" != "1" ]]; then
 	cat >&2 <<'EOF'
 Caddy/FrankenPHP module compilation passed.
 Set GATEWAY_FRANKENPHP_BUILD=1 to build and inspect the full FrankenPHP image
-using docker/FrankenPHP.gateway.Dockerfile.
+using infra/docker/FrankenPHP.gateway.Dockerfile.
 EOF
 	exit 0
 fi
@@ -29,6 +29,6 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 IMAGE="${GATEWAY_FRANKENPHP_IMAGE:-gateway-frankenphp:module-test}"
-docker build --file "$ROOT/docker/FrankenPHP.gateway.Dockerfile" --tag "$IMAGE" "$ROOT"
+docker build --file "$ROOT/infra/docker/FrankenPHP.gateway.Dockerfile" --tag "$IMAGE" "$ROOT"
 docker run --rm "$IMAGE" frankenphp list-modules \
 	| grep -E '(^|[[:space:]])(http\.handlers\.gateway|gateway\.smtp)($|[[:space:]])'

@@ -154,7 +154,7 @@ disabled with Go build tags.
 Build and run the image:
 
 ```bash
-docker build -f docker/Gateway.router.Dockerfile -t gateway-router:local .
+docker build -f infra/docker/Gateway.router.Dockerfile -t gateway-router:local .
 docker run -d --name gateway-router -p 8080:8080 \
   -v gateway-router-data:/data gateway-router:local
 docker exec gateway-router /gateway/scripts/gateway-router artisan gateway:endpoint orders
@@ -170,6 +170,6 @@ data directory when that runtime is selected.
 Keep the `/data` volume when replacing the container. The Go-only Spinner
 remains available from the root `Dockerfile` for separate deployment with a
 Laravel Planner over private HTTP. The existing FrankenPHP SMTP module has
-its own configuration example in `config/Caddyfile.frankenphp.example`.
+its own configuration example in `infra/caddy/Caddyfile.frankenphp.example`.
 
 For Kubernetes, use the separate [Router and Spinner manifests](kubernetes.md).

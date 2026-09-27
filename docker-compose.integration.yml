@@ -2,7 +2,7 @@ services:
   planner:
     build:
       context: .
-      dockerfile: docker/planner-fixture.Dockerfile
+      dockerfile: infra/docker/planner-fixture.Dockerfile
     environment:
       APP_ENV: testing
       APP_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -36,4 +36,4 @@ services:
     ports:
       - "${GATEWAY_INTEGRATION_TLS_PORT:-0}:8443"
     volumes:
-      - ./config/Caddyfile.integration:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/Caddyfile.integration:/etc/caddy/Caddyfile:ro

@@ -11,7 +11,7 @@ Spinner module. The command depends on Spinner transitively through
 The Docker and Kubernetes Router distributions use this same
 extension; they do not change the standalone Spinner binary.
 
-`docker/Gateway.router.Dockerfile` builds `ext/frankenphp/cmd/router` with the Go toolchain and
+`infra/docker/Gateway.router.Dockerfile` builds `ext/frankenphp/cmd/router` with the Go toolchain and
 a PHP shared library compiled with ZTS and the embed SAPI. It packages the
 result on Debian with the matching PHP CLI for Planner management commands.
 It does not inherit a FrankenPHP application image. The container build disables
