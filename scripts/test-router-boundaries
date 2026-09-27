@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-dependencies=$(go -C "$ROOT/ext/frankenphp" list -mod=readonly -deps ./runtime)
+for extension in frankenphp roadrunner; do
+dependencies=$(go -C "$ROOT/ext/$extension" list -mod=readonly -deps ./runtime)
 if grep -q '^github.com/webong/gateway/src/spinner\($\|/\)' <<<"$dependencies"; then
-    echo 'FrankenPHP must not depend on Spinner.' >&2
+    echo "$extension must not depend on Spinner." >&2
     exit 1
 fi
-modules=$(go -C "$ROOT/ext/frankenphp" list -mod=readonly -m all)
+modules=$(go -C "$ROOT/ext/$extension" list -mod=readonly -m all)
 if grep -q '^github.com/webong/gateway ' <<<"$modules"; then
-    echo 'FrankenPHP must not require the Gateway core module.' >&2
+    echo "$extension must not require the Gateway core module." >&2
     exit 1
 fi
-echo 'FrankenPHP has no Spinner implementation or Gateway core dependency.'
+echo "$extension has no Spinner implementation or Gateway core dependency."
+done

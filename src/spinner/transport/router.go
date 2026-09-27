@@ -14,6 +14,7 @@ import (
 )
 
 type Router struct {
+	settings        *config.Config
 	Executor        *bridge.RelayExecutor
 	InternalToken   string
 	MaxBodySize     int64
@@ -36,6 +37,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 	forwarder := forwarding.NewForwarder(settings, logger)
 	workerPool := workers.NewWorkerPool(settings.MaxWorkers, settings.MaxQueueSize, forwarder, logger)
 	return &Router{
+		settings:        settings,
 		Executor:        bridge.NewRelayExecutor(forwarder, workerPool),
 		InternalToken:   settings.InternalToken,
 		MaxBodySize:     settings.MaxBodySize,

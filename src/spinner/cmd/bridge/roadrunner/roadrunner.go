@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/roadrunner-server/roadrunner/v2025/lib"
 	"github.com/webong/gateway/driver/automation"
+	runtime "github.com/webong/gateway/ext/roadrunner/runtime"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
@@ -119,7 +119,7 @@ func (p *RoadRunnerPlugin) WaitProtocolPlanner(ctx context.Context) (bridge.Prot
 // EmbeddedRoadRunner owns RoadRunner's lifecycle while the Go application
 // owns the delivery executor injected into the custom middleware.
 type EmbeddedRoadRunner struct {
-	server *lib.RR
+	server *runtime.Runtime
 	plugin *RoadRunnerPlugin
 }
 
@@ -129,8 +129,7 @@ func NewEmbeddedRoadRunner(configPath string, overrides []string, executor bridg
 	}
 
 	plugin := NewRoadRunnerPlugin(executor, maxBodySize, internalToken)
-	plugins := append(lib.DefaultPluginsList(), plugin)
-	server, err := lib.NewRR(configPath, overrides, plugins)
+	server, err := runtime.New(configPath, overrides, plugin.Middleware)
 	if err != nil {
 		return nil, err
 	}

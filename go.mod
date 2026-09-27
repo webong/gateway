@@ -6,6 +6,10 @@ require github.com/roadrunner-server/roadrunner/v2025 v2025.1.0
 
 require github.com/webong/gateway/driver v0.0.0
 
+require github.com/webong/gateway/ext/roadrunner v0.0.0
+
+replace github.com/webong/gateway/ext/roadrunner => ./ext/roadrunner
+
 replace github.com/webong/gateway/driver => ./lib/driver
 
 require (

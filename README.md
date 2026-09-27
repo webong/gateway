@@ -88,6 +88,8 @@ unaffected by these root archive rules.
 
 - `lib/router` assembles Spinner and an injected in-process Planner runtime.
 - `ext/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
+- `ext/roadrunner/runtime` manages PHP workers without Spinner imports;
+  `ext/roadrunner/cmd/router` assembles its bundled deployment through `lib/router`.
 - `lib/driver` is the independent `github.com/webong/gateway/driver` Go module
   for workload and runtime-driver contracts. See its [extension and release
   guide](lib/driver/README.md); extension authors can use it without Spinner.
@@ -1022,7 +1024,8 @@ add the module path to its existing build command:
 ```bash
 --with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
 --replace github.com/webong/gateway=/path/to/gateway \
---replace github.com/webong/gateway/driver=/path/to/gateway/lib/driver
+--replace github.com/webong/gateway/driver=/path/to/gateway/lib/driver \
+--replace github.com/webong/gateway/ext/roadrunner=/path/to/gateway/ext/roadrunner
 ```
 
 For a custom FrankenPHP Docker image, add the same module to the builder's

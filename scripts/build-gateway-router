@@ -46,7 +46,7 @@ cp "$APP_SOURCE/artisan" "$APP_SOURCE/Caddyfile" \
     "$APP_SOURCE/bootstrap.php" "$APP_SOURCE/config.php" "$APP_SOURCE/index.php" "$APP_SOURCE/commands.php" \
     "$APP_SOURCE/routes.php" "$APP_SOURCE/EndpointPathResolver.php" "$APP_TARGET/"
 
-GOTELEMETRY=off go build -C "$REPO_DIR" -mod=mod -o "$STAGE/bin/gateway-spinner" ./src/spinner/cmd/proxy
+GOTELEMETRY=off go -C "$REPO_DIR/ext/roadrunner/cmd/router" build -mod=mod -o "$STAGE/bin/gateway-router-roadrunner" .
 if [ -n "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ]; then
     if [ ! -x "$GATEWAY_ROUTER_FRANKENPHP_BIN" ]; then
         echo "FrankenPHP binary is not executable: $GATEWAY_ROUTER_FRANKENPHP_BIN" >&2

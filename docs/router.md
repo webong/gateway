@@ -6,7 +6,7 @@ application skeleton or a separate service you must deploy. Choose a runtime:
 
 | Runtime | Public listener | PHP execution |
 | --- | --- | --- |
-| RoadRunner | `src/spinner/cmd/proxy` | Embedded PHP workers, no second listener |
+| RoadRunner | `ext/roadrunner/cmd/router` | Embedded PHP workers, no second listener |
 | FrankenPHP library | Optional Go extension command | In-process FrankenPHP, no Caddy module |
 | FrankenPHP/Caddy (legacy integration) | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
 
@@ -54,7 +54,7 @@ composer install --working-dir=app
 ./dist/gateway-router/scripts/gateway-router roadrunner
 ```
 
-The directory contains a prebuilt Spinner executable and the bundled Planner
+The directory contains a prebuilt RoadRunner Router executable and the bundled Planner
 with its PHP dependencies. Move it to a host with a compatible PHP runtime and
 run the same launcher there; no Go toolchain, Composer, or source checkout is
 required at runtime. Pass an output directory to `build-gateway-router` to
@@ -71,7 +71,7 @@ installation with the embed SAPI and matching `php-config` flags.
 ## Run from the source checkout
 
 Install PHP 8.3+, Composer, and Go for the RoadRunner mode. The launcher builds
-Spinner from this checkout on startup unless `GATEWAY_ROUTER_SPINNER_BIN` points
+the RoadRunner Router from this checkout on startup unless `GATEWAY_ROUTER_ROADRUNNER_BIN` points
 to a prebuilt executable.
 
 ```bash

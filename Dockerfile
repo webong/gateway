@@ -12,6 +12,7 @@ WORKDIR /app
 # Copy go mod files
 COPY go.mod go.sum ./
 COPY lib/driver/go.mod ./lib/driver/go.mod
+COPY ext/roadrunner/go.mod ./ext/roadrunner/go.mod
 
 # Download dependencies
 RUN go mod download

@@ -119,23 +119,23 @@ php -r '
     file_put_contents($argv[1], $config);
 ' "$CONFIG_PATH"
 
-export GATEWAY_RUNTIME=roadrunner
+unset GATEWAY_RUNTIME
 export ROADRUNNER_CONFIG="$CONFIG_PATH"
 
-if [ -n "${GATEWAY_ROUTER_SPINNER_BIN:-}" ]; then
-    if [ ! -x "$GATEWAY_ROUTER_SPINNER_BIN" ]; then
-        echo "Spinner binary is not executable: $GATEWAY_ROUTER_SPINNER_BIN" >&2
+if [ -n "${GATEWAY_ROUTER_ROADRUNNER_BIN:-}" ]; then
+    if [ ! -x "$GATEWAY_ROUTER_ROADRUNNER_BIN" ]; then
+        echo "RoadRunner Router binary is not executable: $GATEWAY_ROUTER_ROADRUNNER_BIN" >&2
         exit 1
     fi
     cd "$APP_DIR"
-    exec "$GATEWAY_ROUTER_SPINNER_BIN"
+    exec "$GATEWAY_ROUTER_ROADRUNNER_BIN"
 fi
 
 REPO_DIR=$(CDPATH= cd -- "$APP_DIR/.." && pwd)
 if ! command -v go >/dev/null 2>&1; then
-    echo 'Go is required to build Spinner; alternatively set GATEWAY_ROUTER_SPINNER_BIN.' >&2
+    echo 'Go is required to build Router; alternatively set GATEWAY_ROUTER_ROADRUNNER_BIN.' >&2
     exit 1
 fi
-GOTELEMETRY=off go build -C "$REPO_DIR" -mod=mod -o "$DATA_DIR/gateway-spinner" ./src/spinner/cmd/proxy
+GOTELEMETRY=off go -C "$REPO_DIR/ext/roadrunner/cmd/router" build -mod=mod -o "$DATA_DIR/gateway-router-roadrunner" .
 cd "$APP_DIR"
-exec "$DATA_DIR/gateway-spinner"
+exec "$DATA_DIR/gateway-router-roadrunner"
