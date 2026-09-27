@@ -150,6 +150,10 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "relay queue unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	if plan.ImmediateResponse != nil {
+		writeResponse(w, *plan.ImmediateResponse)
+		return
+	}
 
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("Request accepted"))

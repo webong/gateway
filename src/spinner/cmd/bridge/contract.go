@@ -64,7 +64,8 @@ type RoutePlan struct {
 }
 
 // Automation source is selected by the planner and executed by the Go router.
-// The router owns interpreter limits and the script capability surface.
+// Optional PHP planner extensions must consume their own languages and return
+// an ordinary response or relay plan before this contract crosses the bridge.
 type Automation struct {
 	Language automation.Language `json:"language"`
 	Source   string              `json:"source"`
@@ -152,8 +153,11 @@ func (p RoutePlan) Validate() error {
 			return fmt.Errorf("%w: %v", ErrInvalidPlan, err)
 		}
 	case ActionRelay:
-		if p.ImmediateResponse != nil || p.Automation != nil {
-			return fmt.Errorf("%w: relay plan cannot contain an immediate response", ErrInvalidPlan)
+		if p.Automation != nil {
+			return fmt.Errorf("%w: relay plan cannot contain automation source", ErrInvalidPlan)
+		}
+		if p.Reply != nil && p.ImmediateResponse != nil {
+			return fmt.Errorf("%w: relay plan cannot contain both a reply and an immediate response", ErrInvalidPlan)
 		}
 		if p.Reply == nil && len(p.Relays) == 0 {
 			return fmt.Errorf("%w: relay plan requires a reply or relay delivery", ErrInvalidPlan)
@@ -161,6 +165,11 @@ func (p RoutePlan) Validate() error {
 		if p.Reply != nil {
 			if err := p.Reply.Validate(); err != nil {
 				return fmt.Errorf("%w: reply: %v", ErrInvalidPlan, err)
+			}
+		}
+		if p.ImmediateResponse != nil {
+			if err := p.ImmediateResponse.Validate(); err != nil {
+				return fmt.Errorf("%w: immediate response: %v", ErrInvalidPlan, err)
 			}
 		}
 		for index := range p.Relays {
@@ -176,7 +185,7 @@ func (p RoutePlan) Validate() error {
 			return fmt.Errorf("%w: automation source is required", ErrInvalidPlan)
 		}
 		switch p.Automation.Language {
-		case automation.LanguageWebhookScript, automation.LanguageLua, automation.LanguageJavaScript:
+		case automation.LanguageLua, automation.LanguageJavaScript:
 		default:
 			return fmt.Errorf("%w: unsupported automation language %q", ErrInvalidPlan, p.Automation.Language)
 		}

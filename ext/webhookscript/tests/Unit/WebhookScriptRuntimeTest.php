@@ -1,0 +1,87 @@
+<?php
+
+declare(strict_types=1);
+
+use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\WebhookScript\WebhookScriptExecutionException;
+use Webong\Gateway\WebhookScript\WebhookScriptRuntime;
+
+function webhookScriptRequest(
+    string $query = 'product=apple',
+    array $headers = ['Content-Type' => ['application/json']],
+    string $body = '{"id":"evt_123"}',
+): IngressRequest {
+    return new IngressRequest(
+        deliveryId: 'delivery-1',
+        method: 'POST',
+        host: 'hooks.example.test',
+        path: '/incoming',
+        rawQuery: $query,
+        headers: $headers,
+        body: $body,
+    );
+}
+
+it('executes Webhook.site-style Primi syntax', function (): void {
+    $outcome = (new WebhookScriptRuntime)->execute(<<<'PRIMI'
+        products = [
+            'apple': ['price': 10],
+            'cake': ['price': 550]
+        ];
+        selected = var('request.query.product');
+        respond('Price {}'.format(products[selected]['price']), 202, ['X-Engine: Primi']);
+        PRIMI, webhookScriptRequest());
+
+    expect($outcome->response?->statusCode)->toBe(202)
+        ->and($outcome->response?->body)->toBe('Price 10')
+        ->and($outcome->response?->headers)->toBe(['X-Engine' => ['Primi']]);
+});
+
+it('exposes bounded response, variable, and delivery capabilities', function (): void {
+    $outcome = (new WebhookScriptRuntime)->execute(<<<'PRIMI'
+        payload = json_decode(var('request.content'));
+        set('result.id', payload['id']);
+        set('result.copy', variables['result.id']);
+        variables['direct'] = 'visible';
+        set('result.direct', var('direct'));
+        forward('https://subscriber.example.test/hook', json_encode(payload), 'POST', ['Content-Type: application/json']);
+        set_status(202);
+        set_header('X-Script', 'primi');
+        set_content('queued');
+        PRIMI, webhookScriptRequest());
+
+    expect($outcome->variables['result.id'])->toBe('evt_123')
+        ->and($outcome->variables['result.copy'])->toBe('evt_123')
+        ->and($outcome->variables['result.direct'])->toBe('visible')
+        ->and($outcome->deliveries)->toHaveCount(1)
+        ->and($outcome->deliveries[0]->url)->toBe('https://subscriber.example.test/hook')
+        ->and($outcome->deliveries[0]->body)->toBe('{"id":"evt_123"}')
+        ->and($outcome->response?->statusCode)->toBe(202)
+        ->and($outcome->response?->headers)->toBe(['X-Script' => ['primi']])
+        ->and($outcome->response?->body)->toBe('queued');
+});
+
+it('does not expose undeclared host capabilities', function (): void {
+    expect(fn () => (new WebhookScriptRuntime)->execute(
+        "store('secret', 'value');",
+        webhookScriptRequest(),
+    ))->toThrow(WebhookScriptExecutionException::class);
+});
+
+it('enforces the configured source limit', function (): void {
+    expect(fn () => (new WebhookScriptRuntime(maxSourceBytes: 8))->execute(
+        "respond('too long');",
+        webhookScriptRequest(),
+    ))->toThrow(WebhookScriptExecutionException::class, 'exceeds the configured limit');
+});
+
+it('interrupts scripts that exceed the configured deadline', function (): void {
+    $startedAt = microtime(true);
+
+    expect(fn () => (new WebhookScriptRuntime(timeoutSeconds: 1))->execute(
+        'while (true) {}',
+        webhookScriptRequest(),
+    ))->toThrow(WebhookScriptExecutionException::class, 'timed out');
+
+    expect(microtime(true) - $startedAt)->toBeLessThan(2.0);
+});

@@ -19,8 +19,8 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
   Laravel app and run a Go-only Spinner.
 - [Deployment](deployment.md): run Spinner with a private Planner and TLS.
 - [Subscription matching](subscription-dsl-v1.md): versioned matching rules.
-- [Gateway Automations](automations.md): Go-executed WebhookScript, Lua, and
-  JavaScript ingress logic.
+- [Gateway Automations](automations.md): Go-executed Lua and JavaScript, plus
+  the optional PHP WebhookScript extension.
 
 ## Capabilities
 
@@ -30,7 +30,7 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 | WebSocket | Upgrade and session lifecycle | Accept, reject, or deliver events |
 | SMTP | SMTP/TLS session handling | Recipient and authentication decisions |
 | DNS | Authoritative UDP/TCP service | Zone and hook decisions |
-| Automations | Execute bounded scripts; enforce delivery policy | Authorize and select script source |
+| Automations | Execute bounded JavaScript/Lua; enforce delivery policy | Authorize and select source; optional WebhookScript extension |
 | Realtime | Route managed workloads | Reverb, Mercure, Centrifugo desired state |
 
 ## Public and private surfaces

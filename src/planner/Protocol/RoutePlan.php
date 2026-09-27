@@ -38,9 +38,20 @@ final readonly class RoutePlan
     }
 
     /** @param list<Delivery> $relays */
-    public static function relay(?Delivery $reply = null, array $relays = [], array $metadata = []): self
+    public static function relay(
+        ?Delivery $reply = null,
+        array $relays = [],
+        array $metadata = [],
+        ?Response $immediateResponse = null,
+    ): self
     {
-        return new self(self::RELAY, reply: $reply, relays: $relays, metadata: $metadata);
+        return new self(
+            self::RELAY,
+            immediateResponse: $immediateResponse,
+            reply: $reply,
+            relays: $relays,
+            metadata: $metadata,
+        );
     }
 
     /** @param list<Delivery> $relays */
@@ -83,8 +94,12 @@ final readonly class RoutePlan
             throw new InvalidArgumentException('Respond plans require only an immediate response.');
         }
 
-        if ($this->action === self::RELAY && ($this->immediateResponse !== null || $this->automation !== null)) {
-            throw new InvalidArgumentException('Relay plans cannot contain an immediate response.');
+        if ($this->action === self::RELAY && $this->automation !== null) {
+            throw new InvalidArgumentException('Relay plans cannot contain automation source.');
+        }
+
+        if ($this->action === self::RELAY && $this->reply !== null && $this->immediateResponse !== null) {
+            throw new InvalidArgumentException('Relay plans cannot contain both a synchronous reply and an immediate response.');
         }
 
         if ($this->action === self::RELAY && $this->reply === null && $this->relays === []) {

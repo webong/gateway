@@ -119,6 +119,48 @@ func TestEdgeReturnsImmediatePHPResponseWithoutGoDelivery(t *testing.T) {
 	}
 }
 
+func TestEdgeQueuesRelaysBeforeReturningImmediatePlannerResponse(t *testing.T) {
+	executor := &recordingExecutor{}
+	planner := plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+		return RoutePlan{
+			Version: ProtocolVersion,
+			Action:  ActionRelay,
+			Relays:  []Delivery{{URL: "https://subscriber.example.test/hook"}},
+			ImmediateResponse: &Response{
+				StatusCode: http.StatusAccepted,
+				Headers:    map[string][]string{"X-Engine": {"Primi"}},
+				Body:       []byte("scripted"),
+			},
+		}, nil
+	})
+	edge := NewEdge(planner, executor, 1024)
+
+	record := httptest.NewRecorder()
+	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/scripted", strings.NewReader("payload")))
+
+	if record.Code != http.StatusAccepted || record.Body.String() != "scripted" || record.Header().Get("X-Engine") != "Primi" {
+		t.Fatalf("expected immediate script response, got %d %q %#v", record.Code, record.Body.String(), record.Header())
+	}
+	if len(executor.queued) != 1 || executor.queued[0].URL != "https://subscriber.example.test/hook" || string(executor.queued[0].Body) != "payload" {
+		t.Fatalf("expected queued script delivery, got %#v", executor.queued)
+	}
+}
+
+func TestRoutePlanRejectsWebhookScriptWithoutThePHPPlannerExtension(t *testing.T) {
+	plan := RoutePlan{
+		Version: ProtocolVersion,
+		Action:  ActionAutomation,
+		Automation: &Automation{
+			Language: automation.Language("webhookscript"),
+			Source:   `respond('done', 200);`,
+		},
+	}
+
+	if err := plan.Validate(); err == nil {
+		t.Fatal("expected bridge contract to reject unconsumed WebhookScript")
+	}
+}
+
 func TestEdgeExecutesGoAutomationAndQueuesItsForward(t *testing.T) {
 	executor := &recordingExecutor{}
 	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {

@@ -18,6 +18,7 @@
         "orchestra/testbench": "^10.0",
         "pestphp/pest": "^4.0",
         "pestphp/pest-plugin-laravel": "^4.0",
+        "smuuf/primi": "^0.4",
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3"
     },
@@ -42,6 +43,8 @@
             "Webong\\Gateway\\Mercure\\Tests\\": "ext/mercure/tests/",
             "Webong\\Gateway\\Reverb\\": "ext/reverb/src/",
             "Webong\\Gateway\\Reverb\\Tests\\": "ext/reverb/tests/",
+            "Webong\\Gateway\\WebhookScript\\": "ext/webhookscript/src/",
+            "Webong\\Gateway\\WebhookScript\\Tests\\": "ext/webhookscript/tests/",
             "Webong\\Gateway\\Tests\\": "tests/"
         }
     },

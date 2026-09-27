@@ -25,19 +25,13 @@ func TestJavaScriptCanSetVariablesRespondAndForward(t *testing.T) {
 	}
 }
 
-func TestWebhookScriptCompatibilityDialectUsesGatewayVariables(t *testing.T) {
-	outcome, err := (Runtime{}).Execute(context.Background(), Script{
-		Language: LanguageWebhookScript,
-		Source:   `set('request.result', var('request.value')); respond('done', 201);`,
-	}, Input{Variables: map[string]any{"request": map[string]any{"value": "ready"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value, ok := getPath(outcome.Variables, "request.result"); !ok || value != "ready" {
-		t.Fatalf("expected copied result, got %#v", outcome.Variables)
-	}
-	if outcome.Response == nil || outcome.Response.Status != 201 {
-		t.Fatalf("unexpected response %#v", outcome.Response)
+func TestWebhookScriptIsOwnedByTheOptionalPHPPlannerExtension(t *testing.T) {
+	_, err := (Runtime{}).Execute(context.Background(), Script{
+		Language: Language("webhookscript"),
+		Source:   `respond('done', 201);`,
+	}, Input{})
+	if err == nil {
+		t.Fatal("expected Go runtime to reject WebhookScript")
 	}
 }
 

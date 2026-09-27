@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "23d0b7d663477d2c734d8f02930ede95",
+    "content-hash": "3f9ba5924fb41b480838869ff71de0ea",
     "packages": [
         {
             "name": "brick/math",
@@ -11039,6 +11039,120 @@
                 }
             ],
             "time": "2025-02-07T05:00:38+00:00"
+        },
+        {
+            "name": "smuuf/php-peg",
+            "version": "2.2.3",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/smuuf/php-peg.git",
+                "reference": "270db35dc448760c7dcd27a4c0927b0b32f381eb"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/smuuf/php-peg/zipball/270db35dc448760c7dcd27a4c0927b0b32f381eb",
+                "reference": "270db35dc448760c7dcd27a4c0927b0b32f381eb",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.0"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^6.5"
+            },
+            "bin": [
+                "bin/peg"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-0": {
+                    "hafriedlander\\Peg": "lib"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Hamish Friedlander",
+                    "email": "hamish@silverstripe.com",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Premysl Karbula",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Johannes Künsebeck",
+                    "email": "kuensebeck@googlemail.com",
+                    "role": "Developer"
+                },
+                {
+                    "name": "Dan Phillimore",
+                    "email": "dan@ovms.co",
+                    "role": "Developer"
+                }
+            ],
+            "description": "PEG parser generator for PHP.",
+            "homepage": "https://github.com/smuuf/php-peg",
+            "keywords": [
+                "DSL",
+                "compiler",
+                "parser",
+                "peg"
+            ],
+            "support": {
+                "source": "https://github.com/smuuf/php-peg/tree/2.2.3"
+            },
+            "time": "2020-12-03T23:58:16+00:00"
+        },
+        {
+            "name": "smuuf/primi",
+            "version": "0.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/smuuf/primi.git",
+                "reference": "0767821f9f3b699d4efd0f652b0c9ca2820f9c4b"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/smuuf/primi/zipball/0767821f9f3b699d4efd0f652b0c9ca2820f9c4b",
+                "reference": "0767821f9f3b699d4efd0f652b0c9ca2820f9c4b",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.1",
+                "smuuf/php-peg": "^2"
+            },
+            "require-dev": {
+                "nette/tester": "^2.0",
+                "phpstan/phpstan": "^0.12",
+                "smuuf/koloader": "dev-master",
+                "smuuf/phpcb": "dev-master"
+            },
+            "type": "library",
+            "autoload": {
+                "classmap": [
+                    "src/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Premysl Karbula",
+                    "email": "premavansmuuf@gmail.com"
+                }
+            ],
+            "description": "A scripting language written in PHP & executable within PHP.",
+            "support": {
+                "issues": "https://github.com/smuuf/primi/issues",
+                "source": "https://github.com/smuuf/primi"
+            },
+            "time": "2020-03-28T11:28:46+00:00"
         },
         {
             "name": "spiral/core",

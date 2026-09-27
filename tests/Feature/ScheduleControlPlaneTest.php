@@ -33,6 +33,9 @@ it('rejects invalid cron and source', function (): void {
     $this->withToken('registry-secret')->postJson('/schedules', array_replace($base, [
         'cron' => '* * * * *', 'source' => '   ',
     ]))->assertUnprocessable();
+    $this->withToken('registry-secret')->postJson('/schedules', array_replace($base, [
+        'cron' => '* * * * *', 'language' => 'webhookscript',
+    ]))->assertUnprocessable();
 });
 
 it('claims once, rejects stale tokens and records completion', function (): void {

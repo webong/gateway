@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -21,9 +20,8 @@ import (
 type Language string
 
 const (
-	LanguageWebhookScript Language = "webhookscript"
-	LanguageLua           Language = "lua"
-	LanguageJavaScript    Language = "javascript"
+	LanguageLua        Language = "lua"
+	LanguageJavaScript Language = "javascript"
 )
 
 type Script struct {
@@ -80,8 +78,6 @@ func (r Runtime) Execute(ctx context.Context, script Script, input Input) (Outco
 	switch script.Language {
 	case LanguageJavaScript:
 		return outcome, r.executeJavaScript(ctx, script.Source, input, &outcome)
-	case LanguageWebhookScript:
-		return outcome, r.executeJavaScript(ctx, webhookScriptToJavaScript(script.Source), input, &outcome)
 	case LanguageLua:
 		return outcome, r.executeLua(ctx, script.Source, input, &outcome)
 	default:
@@ -193,20 +189,6 @@ func (r Runtime) executeLua(ctx context.Context, source string, input Input, out
 		return fmt.Errorf("evaluate lua automation: %w", err)
 	}
 	return nil
-}
-
-// WebhookScript is intentionally a compatibility dialect, not an attempt to
-// copy Webhook.site's whole product. Its variable and flow primitives compile
-// onto Gateway's restricted JavaScript capability object.
-func webhookScriptToJavaScript(source string) string {
-	replacer := strings.NewReplacer(
-		"respond(", "gateway.respond(",
-		"set(", "gateway.set(",
-		"var(", "gateway.get(",
-		" and ", " && ",
-		" or ", " || ",
-	)
-	return regexp.MustCompile(`\bstop\(\)`).ReplaceAllString(replacer.Replace(source), "throw new Error('automation stopped')")
 }
 
 func cloneMap(values map[string]any) map[string]any {

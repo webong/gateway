@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
+use Webong\Gateway\Protocol\Automation;
+use Webong\Gateway\Protocol\Delivery;
 use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
-use Webong\Gateway\Protocol\Automation;
 
 it('serializes empty response headers as a JSON map for Go', function (): void {
     $json = json_encode(
@@ -28,5 +29,23 @@ it('serializes a Go-executed automation route plan', function (): void {
             'language' => 'javascript',
             'source' => 'gateway.respond("ok", 200);',
         ],
+    ]);
+});
+
+it('serializes asynchronous relays with an immediate planner response', function (): void {
+    expect(RoutePlan::relay(
+        relays: [new Delivery(url: 'https://subscriber.example.test/hook')],
+        immediateResponse: new Response(statusCode: 202, body: 'scripted'),
+    )->toArray())->toEqual([
+        'version' => 'v1',
+        'action' => 'relay',
+        'immediate_response' => [
+            'status_code' => 202,
+            'headers' => (object) [],
+            'body' => base64_encode('scripted'),
+        ],
+        'relays' => [[
+            'url' => 'https://subscriber.example.test/hook',
+        ]],
     ]);
 });

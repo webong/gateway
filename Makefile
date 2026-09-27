@@ -21,6 +21,7 @@ test-php:
 	$(MAKE) -C ext/reverb test-php
 	$(MAKE) -C ext/mercure test-php
 	$(MAKE) -C ext/centrifugo test-php
+	$(MAKE) -C ext/webhookscript test-php
 
 test-octane:
 	bash scripts/octane-smoke.sh

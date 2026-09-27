@@ -6,7 +6,7 @@ namespace Webong\Gateway\Protocol;
 
 use InvalidArgumentException;
 
-/** Source selected by Laravel and executed exclusively by the Go router. */
+/** Source selected by Laravel for Go or an installed planner extension. */
 final readonly class Automation
 {
     public const WEBHOOKSCRIPT = 'webhookscript';
