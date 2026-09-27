@@ -68,7 +68,7 @@ Unknown properties are not part of the v1 contract and must not be sent.
 | `profile` | no | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
-| `match` | no | match object | Versioned request-selection rules. Omission means match every request. |
+| `match` | no | match object | Versioned ingress-event selection rules. Omission means match every event. |
 
 The profile itself is registered and stored by `webong/proxy` on the endpoint.
 Subscriptions retain only its name. Planner resolves the active profile and
@@ -116,16 +116,21 @@ malformed, or uses a non-HTTP driver.
 
 - `version` must be the exact string `v1`.
 - `rules` is an object with at most 64 field entries.
-- An empty `rules` object matches every request.
+- Each field name is at most 512 bytes.
+- An empty `rules` object matches every ingress event.
 - Every field entry must pass. Rules for a field use Laravel validation
   semantics and run in their listed order.
 - A failed match skips only that subscription. It does not reject the provider
   webhook or prevent other subscriptions from matching.
 - Malformed persisted rules fail closed for the affected subscription.
-- The matching document includes `protocol`, `event`, `session_id`, `method`,
-  `scheme`, `host`, `path`, `headers`, `query`, `body`, and `attributes`.
+- HTTP-only fields never match a non-HTTP event, including when their rule is
+  `nullable`; use `protocol` explicitly when a subscription should select only
+  one protocol.
+- Every matching document includes `protocol`, `event`, `session_id`, `host`,
+  `route`, `headers`, `payload`, and `attributes`. Only HTTP events also include
+  the compatibility fields `method`, `scheme`, `path`, `query`, and `body`.
   Protocol adapters expose bounded scalar metadata below `attributes`, such as
-  `attributes.qtype` and `attributes.data` for authoritative DNS queries.
+  `attributes.qtype` for authoritative DNS queries.
 
 ### Rule encodings
 
@@ -148,6 +153,13 @@ Laravel-style pipe shorthand:
 
 Pipe shorthand is normalized to the canonical array in storage and responses.
 Use arrays when a rule parameter itself needs unambiguous punctuation.
+Parameterless rules reject a colon and arguments. `between` requires exactly
+two bounded decimal values in ascending order; `min`, `max`, and `size` require
+one bounded decimal value (at most 32 characters, no exponent); `in`, `not_in`,
+`starts_with`, and `ends_with` require a non-empty value list. Malformed
+parameters, associative rule lists, and field names that collide after
+normalization are rejected during registration or patching. The JSON Schema
+checks the basic shape; Planner is authoritative for these semantic constraints.
 
 ## Incremental match updates
 
@@ -331,18 +343,29 @@ hard deletion or inactive-record lookup.
 
 ## Matching document
 
-Rules are evaluated against this PHP-owned normalized document:
+Rules are evaluated against a PHP-owned normalized gateway event. For an HTTP
+request, the document is:
 
 ```json
 {
-  "method": "POST",
-  "scheme": "https",
+  "protocol": "http",
+  "event": "request",
+  "session_id": "",
   "host": "relay.example.test",
-  "path": "/provider/events/app-123",
+  "route": "/provider/events/app-123",
   "headers": {
     "x-event-type": "message.created",
     "x-tag": ["one", "two"]
   },
+  "payload": {
+    "account": {
+      "id": "account-42"
+    }
+  },
+  "attributes": {},
+  "method": "POST",
+  "scheme": "https",
+  "path": "/provider/events/app-123",
   "query": {
     "source": "provider"
   },
@@ -356,23 +379,49 @@ Rules are evaluated against this PHP-owned normalized document:
 
 | Field | Normalization |
 | --- | --- |
-| `method` | Uppercase HTTP method received by Go. |
-| `scheme` | Ingress scheme, normally `http` or `https`. |
-| `host` | Original ingress host. |
-| `path` | Exact public request path. |
-| `headers` | Header names are lowercase. One value is a string; repeated values are an array. |
-| `query` | Parsed from the raw query string using PHP query-string semantics. |
-| `body` | JSON is decoded once into PHP values. An empty body becomes an empty array; non-JSON input remains a string. |
+| `protocol` | Ingress protocol, for example `http`, `smtp`, `websocket`, or `dns`. |
+| `event` | Protocol event kind, such as `request`, `transaction`, `authenticate`, `connect`, `message`, `close`, or `query`. |
+| `session_id` | Session identifier when the protocol has one; otherwise an empty string. |
+| `host` | Ingress host when supplied by the adapter; otherwise an empty string. |
+| `route` | Protocol-specific routing key: HTTP/WebSocket path, SMTP recipient or authentication username, or DNS hook path. |
+| `headers` | Header names are lowercase, and differently cased names are merged. One value is a string; repeated values are an array. |
+| `payload` | JSON is decoded once into PHP values. An empty payload becomes an empty array; non-JSON input remains a string. |
+| `attributes` | Protocol-specific scalar metadata supplied by the ingress adapter. |
+| `method`, `scheme`, `path`, `query`, `body` | HTTP-only compatibility fields. `query` uses PHP query-string parsing; `body` is the same decoded value as `payload`. These keys are absent for SMTP, DNS, and WebSocket events, even when the planner's internal adapter uses HTTP-shaped transport fields. |
+
+For example, a DNS subscription can select a TXT query with:
+
+```json
+{
+  "protocol": ["in:dns"],
+  "event": ["in:query"],
+  "route": ["in:/my-hook"],
+  "attributes.qtype": ["in:TXT"],
+  "payload.data": ["required", "string"]
+}
+```
+
+An SMTP subscription can match `event: transaction`, a recipient in `route`,
+the sender in `attributes.mail_from`, and raw message text in `payload`. A
+WebSocket subscription can match `event: message`, its `session_id` and `route`,
+`attributes.message_type`, and a JSON message field such as `payload.kind`.
+The WebSocket upgrade's HTTP method and query are not exposed as HTTP match
+fields for message events.
 
 Valid rule field names are:
 
-- the complete top-level fields `method`, `scheme`, `host`, `path`, `headers`,
+- the complete top-level fields `protocol`, `event`, `session_id`, `host`,
+  `route`, `headers`, `payload`, `attributes`, `method`, `scheme`, `path`,
   `query`, and `body`; or
-- nested paths beginning `headers.`, `query.`, or `body.`.
+- nested paths beginning `headers.`, `payload.`, `attributes.`, `query.`, or
+  `body.`.
 
 Nested path segments may contain ASCII letters, digits, `_`, `-`, and `*`.
 Empty segments and `..` are rejected. Header paths are normalized to lowercase.
-Laravel wildcard paths are supported, for example `body.items.*.type`.
+Laravel wildcard paths are supported, for example `payload.items.*.type`.
+As with Laravel validation, a wildcard alone does not require an array to have
+elements. To require at least one matching item, also constrain the parent,
+for example `payload.items: ["required", "array", "min:1"]`.
 
 ## Allowed rules
 

@@ -327,6 +327,21 @@ it('rejects unsafe incremental match rules', function (): void {
         ],
     )->assertUnprocessable()
         ->assertJsonPath('errors.match.0', 'Match rule [exists] is not allowed.');
+
+    $this->withToken('registry-secret')
+        ->withHeader('If-Match', subscriptionEtag(WebProxyDestination::query()->findOrFail($destination->id)))
+        ->patchJson(
+            '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions/'.$destination->id.'/match',
+            [
+                'version' => 'v1',
+                'operations' => [[
+                    'op' => 'add',
+                    'field' => 'payload.size',
+                    'rules' => ['max:1e999'],
+                ]],
+            ],
+        )->assertUnprocessable()
+        ->assertJsonPath('errors.match.0', 'Match-rule field [payload.size] has invalid [max] parameters.');
 });
 
 it('does not patch a destination through a different endpoint', function (): void {
@@ -741,4 +756,22 @@ it('rejects unsafe rules from a remote subscriber', function (): void {
         ],
     )->assertUnprocessable()
         ->assertJsonPath('errors.match.0', 'Match rule [exists] is not allowed.');
+
+    $this->withToken('registry-secret')->postJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
+        [
+            'subscriber_id' => 'workspace-42',
+            'webhook_group' => 'meta',
+            'routing_scope' => 'application',
+            'routing_key' => 'app-123',
+            'url' => 'https://subscriber.example.test/webhooks/meta',
+            'match' => [
+                'version' => 'v1',
+                'rules' => ['method' => ['required:ignored']],
+            ],
+        ],
+    )->assertUnprocessable()
+        ->assertJsonPath('errors.match.0', 'Match-rule field [method] has invalid [required] parameters.');
+
+    expect(WebProxyDestination::query()->count())->toBe(0);
 });

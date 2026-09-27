@@ -137,17 +137,19 @@
     },
     "fieldName": {
       "type": "string",
+      "maxLength": 512,
       "anyOf": [
         {
-          "enum": ["protocol", "event", "session_id", "method", "scheme", "host", "path", "headers", "query", "body", "attributes"]
+          "enum": ["protocol", "event", "session_id", "host", "route", "headers", "payload", "attributes", "method", "scheme", "path", "query", "body"]
         },
         {
-          "pattern": "^(headers|query|body|attributes)\\.[A-Za-z0-9_*-]+(?:\\.[A-Za-z0-9_*-]+)*$"
+          "pattern": "^(headers|payload|attributes|query|body)\\.[A-Za-z0-9_*-]+(?:\\.[A-Za-z0-9_*-]+)*$"
         }
       ]
     },
     "rule": {
       "type": "string",
+      "description": "Planner additionally validates parameter arity, finite numeric bounds, and normalized-field collisions.",
       "minLength": 1,
       "maxLength": 1024,
       "pattern": "^(accepted|array|bail|between|boolean|declined|ends_with|filled|in|integer|list|max|min|not_in|nullable|numeric|present|required|size|starts_with|string)(:.*)?$"

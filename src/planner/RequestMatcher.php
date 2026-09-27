@@ -10,6 +10,15 @@ use Webong\Gateway\Protocol\MatchRules;
 
 final readonly class RequestMatcher
 {
+    /** @var array<string, true> */
+    private const HTTP_ONLY_FIELDS = [
+        'method' => true,
+        'scheme' => true,
+        'path' => true,
+        'query' => true,
+        'body' => true,
+    ];
+
     public function __construct(
         private ValidationFactory $validator,
     ) {
@@ -21,6 +30,15 @@ final readonly class RequestMatcher
             return true;
         }
 
+        if ($request->protocol !== 'http') {
+            foreach (array_keys($match->rules) as $field) {
+                $root = explode('.', $field, 2)[0];
+                if (isset(self::HTTP_ONLY_FIELDS[$root])) {
+                    return false;
+                }
+            }
+        }
+
         return $this->validator->make(
             $this->matchingDocument($request),
             $match->rules,
@@ -30,21 +48,30 @@ final readonly class RequestMatcher
     /** @return array<string, mixed> */
     public function matchingDocument(IngressRequest $request): array
     {
-        parse_str($request->rawQuery, $query);
-
-        return [
+        $payload = $this->payload($request->body);
+        $document = [
             'protocol' => $request->protocol,
             'event' => $request->event,
             'session_id' => $request->sessionId,
-            'method' => $request->method,
-            'scheme' => $request->scheme,
             'host' => $request->host,
-            'path' => $request->path,
+            'route' => $request->path,
             'headers' => $this->headers($request->headers),
-            'query' => $query,
-            'body' => $this->body($request->body),
+            'payload' => $payload,
             'attributes' => $request->attributes,
         ];
+
+        // Protocol events share this adapter, but its fallback method/scheme are not ingress facts.
+        if ($request->protocol === 'http') {
+            parse_str($request->rawQuery, $query);
+
+            $document['method'] = $request->method;
+            $document['scheme'] = $request->scheme;
+            $document['path'] = $request->path;
+            $document['query'] = $query;
+            $document['body'] = $payload;
+        }
+
+        return $document;
     }
 
     /**
@@ -53,18 +80,22 @@ final readonly class RequestMatcher
      */
     private function headers(array $headers): array
     {
-        $normalized = [];
+        $grouped = [];
 
         foreach ($headers as $name => $values) {
             $name = strtolower($name);
-            $values = array_values($values);
+            $grouped[$name] = [...($grouped[$name] ?? []), ...array_values($values)];
+        }
+
+        $normalized = [];
+        foreach ($grouped as $name => $values) {
             $normalized[$name] = count($values) === 1 ? $values[0] : $values;
         }
 
         return $normalized;
     }
 
-    private function body(string $body): mixed
+    private function payload(string $body): mixed
     {
         if ($body === '') {
             return [];

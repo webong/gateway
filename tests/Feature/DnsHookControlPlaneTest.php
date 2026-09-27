@@ -103,7 +103,11 @@ it('routes DNS subscriptions and exposes query history and usage', function (): 
             'url' => 'https://subscriber.example.test/dns',
             'match' => [
                 'version' => 'v1',
-                'rules' => ['attributes.qtype' => ['required', 'in:TXT']],
+                'rules' => [
+                    'route' => ['required', 'in:/'.$hook['token']],
+                    'attributes.qtype' => ['required', 'in:TXT'],
+                    'payload.data' => ['required', 'in:hello'],
+                ],
             ],
         ],
     )->assertCreated();

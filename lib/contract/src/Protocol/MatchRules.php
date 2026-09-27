@@ -7,7 +7,7 @@ namespace Webong\Gateway\Protocol;
 use InvalidArgumentException;
 
 /**
- * Portable, Laravel-shaped request matching rules.
+ * Portable, Laravel-shaped gateway event matching rules.
  *
  * The JSON representation is the canonical contract. Only a deliberately
  * bounded rule subset is accepted because remote subscribers must never be
@@ -20,6 +20,8 @@ final readonly class MatchRules
     public const METADATA_KEY = '_gateway_match';
 
     private const MAX_FIELDS = 64;
+
+    private const MAX_FIELD_LENGTH = 512;
 
     private const MAX_RULES_PER_FIELD = 16;
 
@@ -128,8 +130,12 @@ final readonly class MatchRules
             $field = self::normalizeField($field);
             $items = is_string($fieldRules) ? explode('|', $fieldRules) : $fieldRules;
 
-            if (! is_array($items) || $items === [] || count($items) > self::MAX_RULES_PER_FIELD) {
+            if (! is_array($items) || ! array_is_list($items) || $items === [] || count($items) > self::MAX_RULES_PER_FIELD) {
                 throw new InvalidArgumentException("Match-rule field [{$field}] has an invalid rule list.");
+            }
+
+            if (array_key_exists($field, $normalized)) {
+                throw new InvalidArgumentException("Match-rule field [{$field}] is defined more than once after normalization.");
             }
 
             $normalized[$field] = array_map(
@@ -144,6 +150,8 @@ final readonly class MatchRules
                         throw new InvalidArgumentException("Match rule [{$name}] is not allowed.");
                     }
 
+                    self::validateParameters($field, $name, $parameters);
+
                     return $parameters === null ? $name : $name.':'.$parameters;
                 },
                 array_values($items),
@@ -153,15 +161,61 @@ final readonly class MatchRules
         return $normalized;
     }
 
+    private static function validateParameters(string $field, string $name, ?string $parameters): void
+    {
+        $valid = match ($name) {
+            'between' => self::validRange($parameters),
+            'max', 'min', 'size' => $parameters !== null && self::boundedDecimal($parameters),
+            'array' => $parameters === null || self::nonEmptyList($parameters),
+            'ends_with', 'in', 'not_in', 'starts_with' => self::nonEmptyList($parameters),
+            default => $parameters === null,
+        };
+
+        if (! $valid) {
+            throw new InvalidArgumentException("Match-rule field [{$field}] has invalid [{$name}] parameters.");
+        }
+    }
+
+    private static function validRange(?string $parameters): bool
+    {
+        if ($parameters === null) {
+            return false;
+        }
+
+        $bounds = explode(',', $parameters);
+
+        return count($bounds) === 2
+            && self::boundedDecimal($bounds[0])
+            && self::boundedDecimal($bounds[1])
+            && (float) $bounds[0] <= (float) $bounds[1];
+    }
+
+    private static function boundedDecimal(string $value): bool
+    {
+        return strlen($value) <= 32
+            && preg_match('/\A[+-]?\d+(?:\.\d+)?\z/D', $value) === 1
+            && is_finite((float) $value);
+    }
+
+    private static function nonEmptyList(?string $parameters): bool
+    {
+        return $parameters !== null && $parameters !== ''
+            && ! in_array('', str_getcsv($parameters, escape: '\\'), true);
+    }
+
     private static function normalizeField(string $field): string
     {
         $field = trim($field);
 
-        if (in_array($field, ['protocol', 'event', 'session_id', 'method', 'scheme', 'host', 'path', 'headers', 'query', 'body', 'attributes'], true)) {
+        if (strlen($field) > self::MAX_FIELD_LENGTH) {
+            throw new InvalidArgumentException('Match-rule field name is too long.');
+        }
+
+        if (in_array($field, ['protocol', 'event', 'session_id', 'host', 'route', 'headers', 'payload', 'attributes', 'method', 'scheme', 'path', 'query', 'body'], true)) {
             return $field;
         }
 
-        foreach (['headers.', 'query.', 'body.', 'attributes.'] as $prefix) {
+        foreach (['headers.', 'payload.', 'attributes.', 'query.', 'body.'] as $prefix) {
             if (! str_starts_with($field, $prefix)) {
                 continue;
             }
@@ -185,6 +239,6 @@ final readonly class MatchRules
             return $prefix.$path;
         }
 
-        throw new InvalidArgumentException("Match-rule field [{$field}] is outside the request matching document.");
+        throw new InvalidArgumentException("Match-rule field [{$field}] is outside the gateway event matching document.");
     }
 }

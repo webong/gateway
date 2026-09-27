@@ -19,12 +19,18 @@ it('keeps the subscription JSON schema aligned with match-rules v1', function ()
         ->toBe(MatchRules::VERSION)
         ->and($schema['$defs']['match']['properties']['rules']['maxProperties'])
         ->toBe($matchRules->getConstant('MAX_FIELDS'))
+        ->and($schema['$defs']['fieldName']['maxLength'])
+        ->toBe($matchRules->getConstant('MAX_FIELD_LENGTH'))
         ->and($schema['$defs']['match']['properties']['rules']['additionalProperties']['oneOf'][0]['maxItems'])
         ->toBe($matchRules->getConstant('MAX_RULES_PER_FIELD'))
         ->and($schema['$defs']['rule']['maxLength'])
         ->toBe($matchRules->getConstant('MAX_RULE_LENGTH'))
         ->and($schema['$defs']['ruleName']['enum'])
-        ->toBe(array_keys($matchRules->getConstant('ALLOWED_RULES')));
+        ->toBe(array_keys($matchRules->getConstant('ALLOWED_RULES')))
+        ->and($schema['$defs']['fieldName']['anyOf'][0]['enum'])
+        ->toContain('route', 'payload')
+        ->and(preg_match('/'.$schema['$defs']['fieldName']['anyOf'][1]['pattern'].'/', 'payload.data'))
+        ->toBe(1);
 });
 
 it('keeps the incremental match-patch schema aligned with its PHP contract', function (): void {
