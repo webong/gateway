@@ -17,6 +17,7 @@ final readonly class Delivery
         public string $rawQuery = '',
         public array $headers = [],
         public string $body = '',
+        public ?HttpTransport $transport = null,
     ) {
         $this->assertValid();
     }
@@ -46,6 +47,10 @@ final readonly class Delivery
             ));
         }
 
+        if (array_key_exists('transport', $payload) && ! is_array($payload['transport'])) {
+            throw new InvalidArgumentException('Delivery transport must be an object.');
+        }
+
         return new self(
             url: trim((string) $payload['url']),
             subscriberId: (string) ($payload['subscriber_id'] ?? ''),
@@ -54,6 +59,9 @@ final readonly class Delivery
             rawQuery: (string) ($payload['raw_query'] ?? ''),
             headers: $headers,
             body: $body,
+            transport: isset($payload['transport'])
+                ? HttpTransport::fromArray($payload['transport'])
+                : null,
         );
     }
 
@@ -68,7 +76,8 @@ final readonly class Delivery
             'raw_query' => $this->rawQuery,
             'headers' => $this->headers,
             'body' => base64_encode($this->body),
-        ], static fn (mixed $value): bool => $value !== '' && $value !== []);
+            'transport' => $this->transport?->toArray(),
+        ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
     }
 
     public function assertValid(): void

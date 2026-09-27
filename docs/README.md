@@ -19,6 +19,8 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
   Laravel app and run a Go-only Spinner.
 - [Deployment](deployment.md): run Spinner with a private Planner and TLS.
 - [Subscription matching](subscription-dsl-v1.md): versioned matching rules.
+- [Subscription examples](examples/subscriptions/README.md): direct PHP and
+  remote HTTP registration, including endpoint network profiles.
 - [Gateway Automations](automations.md): optional JavaScript, Lua, and PHP
   WebhookScript language extensions.
 

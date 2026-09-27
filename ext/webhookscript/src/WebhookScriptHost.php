@@ -15,6 +15,7 @@ use Smuuf\Primi\Structures\Value;
 use Webong\Gateway\Protocol\Delivery;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Response;
+use Webong\Gateway\Protocol\ScheduleCommand;
 
 /** @internal Stateful, per-execution capability surface for Primi. */
 final class WebhookScriptHost
@@ -27,11 +28,15 @@ final class WebhookScriptHost
     /** @var list<Delivery> */
     private array $deliveries = [];
 
+    /** @var list<ScheduleCommand> */
+    private array $schedules = [];
+
     private ?Response $response = null;
 
     public function __construct(
         IngressRequest $request,
         private readonly int $maxDeliveries,
+        private readonly int $maxSchedules,
         private readonly int $maxLogs,
     ) {
         $scriptVariables = Value::buildAutomatic($this->requestVariables($request));
@@ -63,6 +68,7 @@ final class WebhookScriptHost
             'hash' => fn (Value $value, StringValue $algorithm): Value => $this->hash($value, $algorithm),
             'hmac' => fn (Value $value, StringValue $algorithm, StringValue $key): Value => $this->hmac($value, $algorithm, $key),
             'forward' => fn (StringValue $url, ?Value $content = null, ?StringValue $method = null, ?ArrayValue $headers = null): Value => $this->forward($url, $content, $method, $headers),
+            'schedule' => fn (ArrayValue $definition): Value => $this->schedule($definition),
         ];
     }
 
@@ -78,6 +84,7 @@ final class WebhookScriptHost
         return new WebhookScriptOutcome(
             response: $this->response,
             deliveries: $this->deliveries,
+            schedules: $this->schedules,
             variables: is_array($variables) ? $variables : [],
             logs: $this->logs,
         );
@@ -210,6 +217,21 @@ final class WebhookScriptHost
             headers: $this->headers($headers),
             body: $content === null ? '' : $this->body($content),
         );
+
+        return new NullValue;
+    }
+
+    private function schedule(ArrayValue $definition): Value
+    {
+        if (count($this->schedules) >= $this->maxSchedules) {
+            throw new InvalidArgumentException('WebhookScript exceeded the schedule limit.');
+        }
+
+        $value = $this->toPhp($definition);
+        if (! is_array($value)) {
+            throw new InvalidArgumentException('WebhookScript schedule definition must be an object.');
+        }
+        $this->schedules[] = ScheduleCommand::fromArray($value);
 
         return new NullValue;
     }

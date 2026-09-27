@@ -7,6 +7,7 @@ use Webong\WebProxy\EndpointDefinition;
 use Webong\WebProxy\EnsureEndpoint;
 use Webong\WebProxy\Models\WebProxyDestination;
 use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\WebProxy\ProfileDefinition;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\SubscriptionState;
 use Webong\Gateway\RegistryRoutePlanner;
@@ -148,6 +149,95 @@ it('returns only subscriptions whose rules match to the Go route plan', function
         ->and($plan->relays)->toHaveCount(1)
         ->and($plan->relays[0]->subscriberId)->toBe('matching')
         ->and($plan->relays[0]->url)->toBe('https://matching.example.test/webhooks/meta');
+});
+
+it('resolves an endpoint network profile into the Go delivery contract', function (): void {
+    $endpoint = relayEndpoint();
+    $endpoint->registerProfile(new ProfileDefinition(
+        name: 'proxy',
+        configuration: [
+            'proxy' => [
+                'http' => 'http://proxy.example.test:8080',
+                'https' => 'socks5h://proxy.example.test:1080',
+                'no' => ['.internal.example.test', 'metadata.example.test'],
+            ],
+            'options' => [
+                'connect_timeout' => 5,
+                'timeout' => 15,
+            ],
+        ],
+    ));
+
+    $created = $this->withToken('registry-secret')->postJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
+        [
+            'subscriber_id' => 'profiled-subscriber',
+            'webhook_group' => 'meta',
+            'routing_scope' => 'application',
+            'routing_key' => 'app-123',
+            'url' => 'https://profiled.example.test/hook',
+            'profile' => 'proxy',
+        ],
+    );
+    $created->assertCreated()
+        ->assertJsonPath('profile', 'proxy')
+        ->assertJsonMissingPath('metadata._gateway_profile');
+
+    $plan = app(RegistryRoutePlanner::class)->plan(new IngressRequest(
+        deliveryId: 'profiled-delivery',
+        method: 'POST',
+        host: 'relay.example.test',
+        path: '/provider/events/app-123',
+        rawQuery: '',
+        headers: [],
+        body: '{}',
+    ));
+
+    expect($plan->relays)->toHaveCount(1)
+        ->and($plan->relays[0]->transport?->toArray())->toBe([
+            'proxy' => [
+                'http' => 'http://proxy.example.test:8080',
+                'https' => 'socks5h://proxy.example.test:1080',
+                'no_proxy' => ['.internal.example.test', 'metadata.example.test'],
+            ],
+            'connect_timeout_seconds' => 5.0,
+            'request_timeout_seconds' => 15.0,
+        ]);
+
+    $removed = $this->withToken('registry-secret')
+        ->withHeader('If-Match', $created->headers->get('ETag'))
+        ->patchJson(
+            '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions/'.$created->json('id'),
+            ['profile' => null],
+        );
+    $removed->assertOk()->assertJsonPath('profile', null);
+
+    expect(app(RegistryRoutePlanner::class)->plan(new IngressRequest(
+        deliveryId: 'default-delivery',
+        method: 'POST',
+        host: 'relay.example.test',
+        path: '/provider/events/app-123',
+        rawQuery: '',
+        headers: [],
+        body: '{}',
+    ))->relays[0]->transport)->toBeNull();
+});
+
+it('rejects a subscription that selects an unavailable network profile', function (): void {
+    $endpoint = relayEndpoint();
+
+    $this->withToken('registry-secret')->postJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
+        [
+            'subscriber_id' => 'profiled-subscriber',
+            'webhook_group' => 'meta',
+            'routing_scope' => 'application',
+            'routing_key' => 'app-123',
+            'url' => 'https://profiled.example.test/hook',
+            'profile' => 'missing',
+        ],
+    )->assertUnprocessable()
+        ->assertJsonPath('errors.subscription.0', 'Proxy profile [missing] is not active for endpoint ['.$endpoint->record->endpoint_key.'].');
 });
 
 it('patches subscription rules incrementally and invalidates the cached route', function (): void {

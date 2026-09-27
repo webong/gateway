@@ -9,9 +9,10 @@ use Webong\Gateway\Protocol\SubscriptionState;
 
 final readonly class ManageSubscriptions
 {
-    public function __construct(private SubscriptionRegistry $subscriptions)
-    {
-    }
+    public function __construct(
+        private SubscriptionRegistry $subscriptions,
+        private EndpointHttpTransportResolver $transportResolver,
+    ) {}
 
     /** @return list<SubscriptionResource> */
     public function route(
@@ -43,10 +44,12 @@ final readonly class ManageSubscriptions
         ?string $url = null,
         ?array $metadata = null,
         ?string $type = null,
+        ?string $profile = null,
+        bool $profileProvided = false,
         ?string $channel = null,
     ): SubscriptionResource {
-        if ($url === null && $metadata === null && $type === null) {
-            throw new InvalidArgumentException('Update at least one of url, metadata, or type.');
+        if ($url === null && $metadata === null && $type === null && ! $profileProvided) {
+            throw new InvalidArgumentException('Update at least one of url, metadata, type, or profile.');
         }
 
         if ($url !== null) {
@@ -61,12 +64,15 @@ final readonly class ManageSubscriptions
         if ($type !== null && ! in_array($type, ['relay', 'reply'], true)) {
             throw new InvalidArgumentException("Unsupported subscription type [{$type}].");
         }
+        if ($profileProvided && $profile !== null && (trim($profile) === '' || strlen($profile) > 64)) {
+            throw new InvalidArgumentException('Subscription profile must be a non-empty string of at most 64 characters.');
+        }
 
         if ($metadata !== null) {
             foreach (array_keys($metadata) as $key) {
                 if (! is_string($key)
                     || str_starts_with($key, '_')
-                    || in_array($key, ['subscriber_id', 'delivery_mode'], true)) {
+                    || in_array($key, ['subscriber_id', 'delivery_mode', 'profile'], true)) {
                     throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
                 }
             }
@@ -76,9 +82,18 @@ final readonly class ManageSubscriptions
             $endpointKey,
             $destinationId,
             $expectedRevision,
-            function (ResolvedSubscription $resolved) use ($url, $metadata, $type): array {
+            function (ResolvedSubscription $resolved) use ($url, $metadata, $type, $profile, $profileProvided): array {
                 $attributes = [];
                 $updatedMetadata = $resolved->destination->metadata;
+
+                if ($profileProvided) {
+                    if ($profile === null) {
+                        unset($updatedMetadata[SubscriptionDefinition::PROFILE_METADATA_KEY]);
+                    } else {
+                        $this->transportResolver->resolve($resolved->endpoint, $profile);
+                        $updatedMetadata[SubscriptionDefinition::PROFILE_METADATA_KEY] = $profile;
+                    }
+                }
 
                 if ($metadata !== null) {
                     foreach ($metadata as $key => $value) {

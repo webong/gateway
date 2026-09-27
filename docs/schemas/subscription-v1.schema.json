@@ -38,6 +38,12 @@
       "format": "uri",
       "pattern": "^https?://"
     },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Active endpoint-scoped webong/proxy profile used for this subscription's outbound HTTP delivery."
+    },
     "channel": {
       "type": ["string", "null"],
       "maxLength": 255
@@ -48,7 +54,7 @@
         "not": {
           "anyOf": [
             {
-              "enum": ["subscriber_id", "delivery_mode"]
+              "enum": ["subscriber_id", "delivery_mode", "profile"]
             },
             {
               "pattern": "^_"

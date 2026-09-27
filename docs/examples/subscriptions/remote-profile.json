@@ -1,0 +1,20 @@
+{
+  "subscriber_id": "audit-proxied",
+  "subscription_id": "audit-proxied-messages",
+  "type": "relay",
+  "webhook_group": "meta",
+  "routing_scope": "application",
+  "routing_key": "app-123",
+  "url": "https://proxied-subscriber.example.test/webhooks/meta",
+  "profile": "proxy",
+  "metadata": {
+    "environment": "production"
+  },
+  "match": {
+    "version": "v1",
+    "rules": {
+      "headers.x-event-type": ["required", "in:message.created"],
+      "body.account.id": ["required", "string", "in:account-42"]
+    }
+  }
+}

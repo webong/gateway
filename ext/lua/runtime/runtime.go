@@ -64,6 +64,20 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 		}
 		return 0
 	}))
+	state.SetField(gateway, "schedule", state.NewFunction(func(state *lua.LState) int {
+		var schedule automation.Schedule
+		raw, err := json.Marshal(fromLua(state.CheckTable(1)))
+		if err != nil {
+			state.RaiseError("encode schedule: %v", err)
+			return 0
+		}
+		if err := json.Unmarshal(raw, &schedule); err != nil {
+			state.RaiseError("decode schedule: %v", err)
+			return 0
+		}
+		outcome.Schedules = append(outcome.Schedules, schedule)
+		return 0
+	}))
 	state.SetGlobal("gateway", gateway)
 	if err := state.DoString(source); err != nil {
 		return automation.Outcome{}, fmt.Errorf("evaluate lua automation: %w", err)

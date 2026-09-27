@@ -16,6 +16,8 @@ use Webong\Gateway\Protocol\SubscriptionState;
  */
 final readonly class SubscriptionDefinition
 {
+    public const string PROFILE_METADATA_KEY = '_gateway_profile';
+
     /** @param array<string, mixed> $metadata */
     public function __construct(
         public string $subscriberId,
@@ -28,6 +30,7 @@ final readonly class SubscriptionDefinition
         public array $metadata = [],
         public ?string $channel = null,
         public string $type = 'relay',
+        public ?string $profile = null,
     ) {
         $this->assertValid();
     }
@@ -44,6 +47,7 @@ final readonly class SubscriptionDefinition
         array $metadata = [],
         ?string $channel = null,
         string $type = 'relay',
+        ?string $profile = null,
     ): self {
         return new self(
             subscriberId: $subscriberId,
@@ -56,6 +60,7 @@ final readonly class SubscriptionDefinition
             metadata: $metadata,
             channel: $channel,
             type: $type,
+            profile: $profile,
         );
     }
 
@@ -73,6 +78,7 @@ final readonly class SubscriptionDefinition
                 ...$this->metadata,
                 'subscriber_id' => $this->subscriberId,
                 'delivery_mode' => $this->type,
+                ...($this->profile === null ? [] : [self::PROFILE_METADATA_KEY => $this->profile]),
                 MatchRules::METADATA_KEY => $this->match->toArray(),
                 SubscriptionState::STATUS_METADATA_KEY => SubscriptionState::ACTIVE,
                 SubscriptionState::REVISION_METADATA_KEY => SubscriptionState::newRevision(),
@@ -105,13 +111,17 @@ final readonly class SubscriptionDefinition
         foreach (array_keys($this->metadata) as $key) {
             if (! is_string($key)
                 || str_starts_with($key, '_')
-                || in_array($key, ['subscriber_id', 'delivery_mode'], true)) {
+                || in_array($key, ['subscriber_id', 'delivery_mode', 'profile'], true)) {
                 throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
             }
         }
 
         if (! in_array($this->type, ['relay', 'reply'], true)) {
             throw new InvalidArgumentException("Unsupported subscription type [{$this->type}].");
+        }
+
+        if ($this->profile !== null && (trim($this->profile) === '' || strlen($this->profile) > 64)) {
+            throw new InvalidArgumentException('Subscription profile must be a non-empty string of at most 64 characters.');
         }
     }
 }

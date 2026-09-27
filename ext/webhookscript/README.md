@@ -36,6 +36,8 @@ The extension exposes a deliberately bounded host interface:
 - `respond(content, status, headers)` responds and stops the script.
 - `set_response`, `set_content`, `set_status`, and `set_header` build a response.
 - `forward(url, content, method, headers)` adds an HTTP delivery for Go to send.
+- `schedule(definition)` creates or updates a Planner-owned schedule for an
+  installed Go-side language. A stable `key` makes retries idempotent.
 - `json_encode`, `json_decode`, Base64, `hash`, and `hmac` transform values.
 - `echo`, `dump`, and `stop` provide bounded debugging and flow control.
 
@@ -52,8 +54,9 @@ egress and applies Gateway's outbound policy.
 ## Limits
 
 The extension defaults to a 64 KiB source limit, a one-second PCNTL deadline,
-32 deliveries, and 100 log entries per execution. Configure them with
+32 deliveries, 8 schedule commands, and 100 log entries per execution. Configure them with
 `GATEWAY_WEBHOOKSCRIPT_MAX_SOURCE_BYTES`,
 `GATEWAY_WEBHOOKSCRIPT_TIMEOUT_SECONDS`,
 `GATEWAY_WEBHOOKSCRIPT_MAX_DELIVERIES`, and
+`GATEWAY_WEBHOOKSCRIPT_MAX_SCHEDULES`, and
 `GATEWAY_WEBHOOKSCRIPT_MAX_LOGS`.

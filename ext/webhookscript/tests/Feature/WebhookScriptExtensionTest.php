@@ -7,10 +7,14 @@ use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
+use Webong\Gateway\Protocol\Automation;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\Protocol\ScheduleCommand;
 use Webong\Gateway\WebhookScript\PrimiRoutePlanner;
 use Webong\Gateway\WebhookScript\WebhookScriptLanguage;
+use Webong\Gateway\WebhookScript\WebhookScriptRuntime;
 
 it('decorates the configured planner only when the extension provider is installed', function (): void {
     $planner = app(RoutePlanner::class);
@@ -45,4 +49,44 @@ it('decorates the configured planner only when the extension provider is install
         ->and($plan->immediateResponse?->statusCode)->toBe(202)
         ->and($plan->immediateResponse?->body)->toBe('scripted')
         ->and($plan->metadata)->toBe(['planner' => 'fixture']);
+});
+
+it('persists emitted schedules through the Planner contract', function (): void {
+    $registrar = new class implements ScriptScheduleRegistrar
+    {
+        public string $origin = '';
+
+        /** @var list<ScheduleCommand> */
+        public array $schedules = [];
+
+        public function register(string $origin, ScheduleCommand ...$schedules): void
+        {
+            $this->origin = $origin;
+            $this->schedules = $schedules;
+        }
+    };
+    $planner = new class implements RoutePlanner
+    {
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            return RoutePlan::automate(
+                new Automation(WebhookScriptLanguage::ID, <<<'PRIMI'
+                    schedule([
+                        'key': 'daily', 'name': 'Daily', 'cron': '0 9 * * *',
+                        'language': 'javascript', 'source': "gateway.respond('ok', 200)"
+                    ]);
+                    PRIMI),
+                metadata: ['endpoint_id' => 'endpoint-1'],
+            );
+        }
+    };
+
+    $plan = (new PrimiRoutePlanner($planner, new WebhookScriptRuntime, $registrar))->plan(
+        new IngressRequest('delivery-1', 'POST', 'hooks.example.test', '/incoming', '', [], ''),
+    );
+
+    expect($plan->immediateResponse?->statusCode)->toBe(204)
+        ->and($registrar->origin)->toBe('endpoint:endpoint-1')
+        ->and($registrar->schedules)->toHaveCount(1)
+        ->and($registrar->schedules[0]->key)->toBe('daily');
 });

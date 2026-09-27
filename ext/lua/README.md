@@ -24,4 +24,4 @@ engine at runtime, so installing only the companion package fails closed.
 
 Use `gateway_javascript,gateway_lua` to install both Go language extensions.
 The runtime opens no standard host libraries and exposes only the bounded
-Gateway capability table.
+Gateway capability table, including declarative `gateway.schedule({...})`.

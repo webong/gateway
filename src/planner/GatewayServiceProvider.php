@@ -17,6 +17,7 @@ use Webong\Gateway\Contracts\ExtensionProviderRegistry;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Dns\CacheableDnsHookPathResolver;
 use Webong\Gateway\Dns\DnsHookEventRecorder;
 use Webong\Gateway\Dns\DnsHookPathResolver;
@@ -29,6 +30,7 @@ use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Schedules\Http\InternalScheduleController;
 use Webong\Gateway\Schedules\Http\ScheduleController;
+use Webong\Gateway\Schedules\PersistScriptSchedules;
 use Webong\Gateway\Servers\Http\Controllers\ApplicationController as ManagedApplicationController;
 use Webong\Gateway\Servers\Http\Controllers\InstanceController as ManagedInstanceController;
 use Webong\Gateway\Servers\Http\Controllers\ServerController as ManagedServerController;
@@ -49,6 +51,7 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->singleton(ServerTypeRegistry::class);
         $this->app->singleton(ServerRegistry::class);
+        $this->app->bind(ScriptScheduleRegistrar::class, PersistScriptSchedules::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
         $this->app->singleton(AutomationLanguageRegistry::class, function (): AutomationLanguageRegistry {
             $registry = new InMemoryAutomationLanguageRegistry;
@@ -190,6 +193,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
+            $this->app['router']->post('/_internal/gateway/schedules/register', [InternalScheduleController::class, 'register']);
             $this->app['router']->get('/_internal/provisioning/servers', InternalServerController::class);
             $this->app['router']->put('/_internal/provisioning/nodes/{node}/assignments', InternalAssignmentController::class);
             $this->app['router']->post('/_internal/provisioning/instances/reset', [InternalInstanceController::class, 'resetNode']);

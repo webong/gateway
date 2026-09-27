@@ -118,3 +118,59 @@ it('claims only schedules supported by the active Spinner worker', function (): 
         ->and(DB::table('schedules')->where('id', $id)->value('next_run_at'))
         ->not->toBeNull();
 });
+
+it('idempotently registers schedules emitted by scripts', function (): void {
+    $payload = [
+        'origin' => 'endpoint:endpoint-1',
+        'schedules' => [[
+            'key' => 'daily-report',
+            'name' => 'Daily report',
+            'cron' => '0 9 * * *',
+            'timezone' => 'Africa/Lagos',
+            'language' => 'test-script',
+            'source' => 'gateway.respond("done", 200)',
+            'payload' => ['team' => 'ops'],
+        ]],
+    ];
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/register', $payload)
+        ->assertOk()->assertJsonPath('registered', 1);
+    $row = DB::table('schedules')->sole();
+    expect($row->origin)->toBe('endpoint:endpoint-1')
+        ->and($row->key)->toBe('daily-report')
+        ->and($row->next_run_at)->not->toBeNull();
+
+    $payload['schedules'][0]['name'] = 'Updated daily report';
+    $payload['schedules'][0]['enabled'] = false;
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/register', $payload)
+        ->assertOk();
+
+    expect(DB::table('schedules')->count())->toBe(1)
+        ->and(DB::table('schedules')->value('name'))->toBe('Updated daily report')
+        ->and(DB::table('schedules')->value('enabled'))->toBe(0)
+        ->and(DB::table('schedules')->value('next_run_at'))->toBeNull();
+
+    $this->withToken('registry-secret')->getJson('/schedules/'.$row->id)->assertOk()
+        ->assertJsonPath('origin', 'endpoint:endpoint-1')
+        ->assertJsonPath('key', 'daily-report');
+});
+
+it('rejects malformed or duplicate script schedule commands', function (): void {
+    $command = [
+        'key' => 'duplicate', 'name' => 'Duplicate', 'cron' => '* * * * *',
+        'language' => 'test-script', 'source' => 'run()',
+    ];
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/register', [
+            'origin' => 'endpoint:endpoint-1',
+            'schedules' => [$command, $command],
+        ])->assertUnprocessable();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/register', [
+            'origin' => 'endpoint:endpoint-1',
+            'schedules' => [array_replace($command, ['unknown' => true])],
+        ])->assertUnprocessable();
+});

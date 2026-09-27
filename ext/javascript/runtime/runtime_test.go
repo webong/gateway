@@ -29,6 +29,19 @@ func TestJavaScriptCanSetVariablesRespondAndForward(t *testing.T) {
 	}
 }
 
+func TestJavaScriptCanDeclareASchedule(t *testing.T) {
+	outcome, err := automation.NewRuntime(New()).Execute(context.Background(), automation.Script{
+		Language: Language,
+		Source:   `gateway.schedule({key: "daily-report", name: "Daily report", cron: "0 9 * * *", timezone: "Africa/Lagos", language: "javascript", source: "gateway.respond('done', 200)", payload: {team: "ops"}});`,
+	}, automation.Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outcome.Schedules) != 1 || outcome.Schedules[0].Key != "daily-report" || outcome.Schedules[0].Payload["team"] != "ops" {
+		t.Fatalf("unexpected schedules %#v", outcome.Schedules)
+	}
+}
+
 func TestJavaScriptTimesOut(t *testing.T) {
 	engine := New()
 	engine.Timeout = 15 * time.Millisecond

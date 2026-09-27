@@ -8,5 +8,6 @@ return [
     'max_source_bytes' => (int) env('GATEWAY_WEBHOOKSCRIPT_MAX_SOURCE_BYTES', 65536),
     'timeout_seconds' => (int) env('GATEWAY_WEBHOOKSCRIPT_TIMEOUT_SECONDS', 1),
     'max_deliveries' => (int) env('GATEWAY_WEBHOOKSCRIPT_MAX_DELIVERIES', 32),
+    'max_schedules' => (int) env('GATEWAY_WEBHOOKSCRIPT_MAX_SCHEDULES', 8),
     'max_logs' => (int) env('GATEWAY_WEBHOOKSCRIPT_MAX_LOGS', 100),
 ];

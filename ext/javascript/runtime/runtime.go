@@ -55,7 +55,7 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 }
 
 const javascriptPrelude = `(function(input) {
-  const state = {variables: input.variables || {}, deliveries: [], response: null};
+  const state = {variables: input.variables || {}, deliveries: [], schedules: [], response: null};
   function freeze(value) {
     if (value && typeof value === 'object') {
       Object.values(value).forEach(freeze);
@@ -82,6 +82,9 @@ const javascriptPrelude = `(function(input) {
     },
     forward(delivery) {
       state.deliveries.push(delivery);
+    },
+    schedule(definition) {
+      state.schedules.push({...definition});
     }
   });
 `

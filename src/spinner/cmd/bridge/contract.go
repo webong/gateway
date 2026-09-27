@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -89,6 +90,21 @@ type Delivery struct {
 	RawQuery     string              `json:"raw_query,omitempty"`
 	Headers      map[string][]string `json:"headers,omitempty"`
 	Body         []byte              `json:"body,omitempty"`
+	Transport    *HTTPTransport      `json:"transport,omitempty"`
+}
+
+// HTTPTransport contains the transport-neutral subset of an endpoint-owned
+// Proxy profile that Spinner needs to execute one outbound HTTP request.
+type HTTPTransport struct {
+	Proxy                 *HTTPProxy `json:"proxy,omitempty"`
+	ConnectTimeoutSeconds float64    `json:"connect_timeout_seconds,omitempty"`
+	RequestTimeoutSeconds float64    `json:"request_timeout_seconds,omitempty"`
+}
+
+type HTTPProxy struct {
+	HTTP    string   `json:"http,omitempty"`
+	HTTPS   string   `json:"https,omitempty"`
+	NoProxy []string `json:"no_proxy,omitempty"`
 }
 
 type Response struct {
@@ -216,6 +232,38 @@ func (d Delivery) Validate() error {
 			return fmt.Errorf("%w: unsupported method %q", ErrInvalidDelivery, d.Method)
 		}
 	}
+	if d.Transport != nil {
+		if err := d.Transport.Validate(); err != nil {
+			return fmt.Errorf("%w: transport: %v", ErrInvalidDelivery, err)
+		}
+	}
+	return nil
+}
+
+func (t HTTPTransport) Validate() error {
+	if t.ConnectTimeoutSeconds < 0 || t.ConnectTimeoutSeconds > 300 {
+		return errors.New("connect timeout must be at most 300 seconds")
+	}
+	if t.RequestTimeoutSeconds < 0 || t.RequestTimeoutSeconds > 300 {
+		return errors.New("request timeout must be at most 300 seconds")
+	}
+	if t.Proxy == nil {
+		return nil
+	}
+	for name, raw := range map[string]string{"HTTP": t.Proxy.HTTP, "HTTPS": t.Proxy.HTTPS} {
+		if raw == "" {
+			continue
+		}
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Host == "" || !allowedProxySchemes[strings.ToLower(parsed.Scheme)] {
+			return fmt.Errorf("%s proxy must be an HTTP(S) or SOCKS5 URL", name)
+		}
+	}
+	for _, host := range t.Proxy.NoProxy {
+		if strings.TrimSpace(host) == "" {
+			return errors.New("no-proxy entries must be non-empty")
+		}
+	}
 	return nil
 }
 
@@ -236,6 +284,13 @@ var allowedMethods = map[string]struct{}{
 	http.MethodPost:    {},
 	http.MethodPut:     {},
 	http.MethodTrace:   {},
+}
+
+var allowedProxySchemes = map[string]bool{
+	"http":    true,
+	"https":   true,
+	"socks5":  true,
+	"socks5h": true,
 }
 
 var automationLanguagePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)

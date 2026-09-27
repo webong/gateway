@@ -169,6 +169,8 @@ final readonly class ScheduleController
     {
         return [
             'id' => $row->id,
+            'origin' => $row->origin ?? null,
+            'key' => $row->key ?? null,
             'name' => $row->name,
             'cron' => $row->cron,
             'timezone' => $row->timezone,

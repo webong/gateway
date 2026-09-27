@@ -3,16 +3,24 @@ package forwarding
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/logging"
+	"golang.org/x/net/http/httpproxy"
 )
+
+const maxTransportClients = 128
 
 type ForwardResponse struct {
 	StatusCode int
@@ -22,6 +30,10 @@ type ForwardResponse struct {
 
 type Forwarder struct {
 	client         *http.Client
+	transport      *http.Transport
+	clientsMu      sync.Mutex
+	clients        map[[sha256.Size]byte]*http.Client
+	clientOrder    [][sha256.Size]byte
 	logger         *logging.Logger
 	successCount   atomic.Uint64
 	errorCount     atomic.Uint64
@@ -35,6 +47,7 @@ func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 		logger:         logger,
 		maxBodySize:    settings.MaxBodySize,
 		addressAllowed: isAllowedTargetAddress,
+		clients:        make(map[[sha256.Size]byte]*http.Client),
 	}
 
 	// Create optimized HTTP client with connection pooling
@@ -45,7 +58,7 @@ func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 		IdleConnTimeout:     settings.IdleConnTimeout,
 		DisableCompression:  false,
 		DisableKeepAlives:   false,
-		DialContext:         forwarder.dialContext,
+		DialContext:         forwarder.dialContext(0),
 	}
 
 	client := &http.Client{
@@ -54,33 +67,36 @@ func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 	}
 
 	forwarder.client = client
+	forwarder.transport = transport
 	return forwarder
 }
 
-func (f *Forwarder) dialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	dialer := &net.Dialer{}
-	for _, candidate := range addresses {
-		if !f.addressAllowed(candidate.IP) {
-			continue
+func (f *Forwarder) dialContext(timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
 		}
-		connection, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(candidate.IP.String(), port))
-		if dialErr == nil {
-			return connection, nil
+		addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
 		}
-		err = dialErr
+		dialer := &net.Dialer{Timeout: timeout}
+		for _, candidate := range addresses {
+			if !f.addressAllowed(candidate.IP) {
+				continue
+			}
+			connection, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(candidate.IP.String(), port))
+			if dialErr == nil {
+				return connection, nil
+			}
+			err = dialErr
+		}
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("target %s resolves only to blocked addresses", host)
 	}
-	if err != nil {
-		return nil, err
-	}
-	return nil, fmt.Errorf("target %s resolves only to blocked addresses", host)
 }
 
 func (f *Forwarder) Forward(req ForwardRequest) {
@@ -149,7 +165,11 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 		}
 	}
 
-	resp, err := f.client.Do(httpReq)
+	client, err := f.clientFor(req.Transport)
+	if err != nil {
+		return ForwardResponse{}, err
+	}
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return ForwardResponse{}, err
 	}
@@ -173,6 +193,62 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 	}, nil
 }
 
+func (f *Forwarder) clientFor(settings HTTPTransport) (*http.Client, error) {
+	if settings.HTTPProxy == "" && settings.HTTPSProxy == "" && len(settings.NoProxy) == 0 &&
+		settings.ConnectTimeout == 0 && settings.RequestTimeout == 0 {
+		return f.client, nil
+	}
+
+	key := transportKey(settings)
+	f.clientsMu.Lock()
+	defer f.clientsMu.Unlock()
+	if client := f.clients[key]; client != nil {
+		return client, nil
+	}
+
+	transport := f.transport.Clone()
+	transport.DialContext = f.dialContext(settings.ConnectTimeout)
+	if settings.HTTPProxy != "" || settings.HTTPSProxy != "" || len(settings.NoProxy) > 0 {
+		proxyConfig := &httpproxy.Config{
+			HTTPProxy:  settings.HTTPProxy,
+			HTTPSProxy: settings.HTTPSProxy,
+			NoProxy:    strings.Join(settings.NoProxy, ","),
+		}
+		proxyFunc := proxyConfig.ProxyFunc()
+		transport.Proxy = func(request *http.Request) (*url.URL, error) {
+			return proxyFunc(request.URL)
+		}
+	}
+
+	timeout := f.client.Timeout
+	if settings.RequestTimeout > 0 {
+		timeout = settings.RequestTimeout
+	}
+	client := &http.Client{Transport: transport, Timeout: timeout}
+	if len(f.clients) >= maxTransportClients {
+		oldest := f.clientOrder[0]
+		f.clientOrder = f.clientOrder[1:]
+		if evicted := f.clients[oldest]; evicted != nil {
+			evicted.CloseIdleConnections()
+		}
+		delete(f.clients, oldest)
+	}
+	f.clients[key] = client
+	f.clientOrder = append(f.clientOrder, key)
+	return client, nil
+}
+
+func transportKey(settings HTTPTransport) [sha256.Size]byte {
+	parts := []string{
+		settings.HTTPProxy,
+		settings.HTTPSProxy,
+		strings.Join(settings.NoProxy, "\x00"),
+		strconv.FormatInt(int64(settings.ConnectTimeout), 10),
+		strconv.FormatInt(int64(settings.RequestTimeout), 10),
+	}
+	return sha256.Sum256([]byte(strings.Join(parts, "\x01")))
+}
+
 func (f *Forwarder) GetStats() (total, success, errors uint64) {
 	return f.totalRequests.Load(), f.successCount.Load(), f.errorCount.Load()
 }
@@ -185,5 +261,10 @@ func (f *Forwarder) CloseIdleConnections() {
 	}
 	if closer, ok := f.client.Transport.(interface{ CloseIdleConnections() }); ok {
 		closer.CloseIdleConnections()
+	}
+	f.clientsMu.Lock()
+	defer f.clientsMu.Unlock()
+	for _, client := range f.clients {
+		client.CloseIdleConnections()
 	}
 }

@@ -9,10 +9,14 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use stdClass;
+use Webong\Gateway\Protocol\ScheduleCommand;
 
 final class ScheduleStore
 {
+    private const int MAX_SCRIPT_SCHEDULES_PER_ORIGIN = 32;
+
     public function nextRun(string $cron, string $timezone, ?DateTimeImmutable $after = null): string
     {
         $next = (new CronExpression($cron))->getNextRunDate(
@@ -114,6 +118,58 @@ final class ScheduleStore
                 'completed_at' => now('UTC'),
                 'updated_at' => now('UTC'),
             ]) === 1;
+    }
+
+    /** @param list<ScheduleCommand> $schedules */
+    public function upsertScriptSchedules(string $origin, array $schedules): void
+    {
+        $prepared = array_map(function (ScheduleCommand $schedule): array {
+            try {
+                $nextRun = $schedule->enabled ? $this->nextRun($schedule->cron, $schedule->timezone) : null;
+            } catch (\Throwable) {
+                throw new InvalidArgumentException("Schedule [{$schedule->key}] has an invalid cron expression or timezone.");
+            }
+
+            return [$schedule, $nextRun];
+        }, $schedules);
+
+        DB::transaction(function () use ($origin, $prepared): void {
+            $existing = DB::table('schedules')->where('origin', $origin)
+                ->lockForUpdate()->get()->keyBy('key');
+            $newKeys = collect($prepared)
+                ->map(static fn (array $item): string => $item[0]->key)
+                ->reject(static fn (string $key): bool => $existing->has($key))
+                ->unique();
+            if ($existing->count() + $newKeys->count() > self::MAX_SCRIPT_SCHEDULES_PER_ORIGIN) {
+                throw new InvalidArgumentException('A script origin cannot own more than 32 schedules.');
+            }
+
+            $now = now('UTC');
+            $rows = [];
+            foreach ($prepared as [$schedule, $nextRun]) {
+                $row = $existing->get($schedule->key);
+                $rows[] = [
+                    'id' => $row?->id ?? (string) Str::uuid(),
+                    'origin' => $origin,
+                    'key' => $schedule->key,
+                    'name' => $schedule->name,
+                    'cron' => $schedule->cron,
+                    'timezone' => $schedule->timezone,
+                    'language' => $schedule->language,
+                    'source' => $schedule->source,
+                    'payload' => json_encode($schedule->payload, JSON_THROW_ON_ERROR),
+                    'enabled' => $schedule->enabled,
+                    'next_run_at' => $nextRun,
+                    'created_at' => $row?->created_at ?? $now,
+                    'updated_at' => $now,
+                ];
+            }
+            DB::table('schedules')->upsert(
+                $rows,
+                ['origin', 'key'],
+                ['name', 'cron', 'timezone', 'language', 'source', 'payload', 'enabled', 'next_run_at', 'updated_at'],
+            );
+        });
     }
 
     /** @return array<string, mixed> */

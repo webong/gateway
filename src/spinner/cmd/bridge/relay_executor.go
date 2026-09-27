@@ -66,6 +66,7 @@ func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Respons
 		RawQuery:    delivery.RawQuery,
 		Headers:     cloneRelayHeaders(delivery.Headers),
 		Context:     ctx,
+		Transport:   forwardTransport(delivery.Transport),
 	})
 	if err != nil {
 		return Response{}, err
@@ -85,7 +86,31 @@ func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 		Method:      delivery.Method,
 		RawQuery:    delivery.RawQuery,
 		Headers:     cloneRelayHeaders(delivery.Headers),
+		Transport:   forwardTransport(delivery.Transport),
 	})
+}
+
+func forwardTransport(transport *HTTPTransport) forwarding.HTTPTransport {
+	if transport == nil {
+		return forwarding.HTTPTransport{}
+	}
+	forward := forwarding.HTTPTransport{
+		ConnectTimeout: secondsDuration(transport.ConnectTimeoutSeconds),
+		RequestTimeout: secondsDuration(transport.RequestTimeoutSeconds),
+	}
+	if transport.Proxy != nil {
+		forward.HTTPProxy = transport.Proxy.HTTP
+		forward.HTTPSProxy = transport.Proxy.HTTPS
+		forward.NoProxy = append([]string(nil), transport.Proxy.NoProxy...)
+	}
+	return forward
+}
+
+func secondsDuration(seconds float64) time.Duration {
+	if seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {

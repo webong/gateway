@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\WebhookScript;
 
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
@@ -15,6 +16,7 @@ final readonly class PrimiRoutePlanner implements RoutePlanner
     public function __construct(
         private RoutePlanner $planner,
         private WebhookScriptRuntime $runtime,
+        private ?ScriptScheduleRegistrar $schedules = null,
     ) {
     }
 
@@ -27,7 +29,13 @@ final readonly class PrimiRoutePlanner implements RoutePlanner
 
         try {
             $outcome = $this->runtime->execute($plan->automation->source, $request);
-        } catch (WebhookScriptExecutionException) {
+            if ($outcome->schedules !== []) {
+                if ($this->schedules === null) {
+                    throw new \RuntimeException('Script schedule registration is not configured.');
+                }
+                $this->schedules->register($this->origin($request, $plan), ...$outcome->schedules);
+            }
+        } catch (\Throwable) {
             return RoutePlan::respond(
                 new Response(statusCode: 502, body: 'Automation execution failed.'),
                 metadata: $plan->metadata,
@@ -47,5 +55,15 @@ final readonly class PrimiRoutePlanner implements RoutePlanner
         }
 
         return RoutePlan::respond(new Response(statusCode: 204), metadata: $plan->metadata);
+    }
+
+    private function origin(IngressRequest $request, RoutePlan $plan): string
+    {
+        $endpoint = $plan->metadata['endpoint_id'] ?? null;
+        if (is_string($endpoint) && $endpoint !== '') {
+            return 'endpoint:'.$endpoint;
+        }
+
+        return 'route:'.hash('sha256', $request->host."\n".$request->path);
     }
 }

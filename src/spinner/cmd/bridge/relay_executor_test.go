@@ -101,3 +101,39 @@ func TestRelayExecutorRejectsUnregisteredProtocolAdapter(t *testing.T) {
 		t.Fatal("expected unconfigured SMTP delivery to be rejected")
 	}
 }
+
+func TestForwardTransportCopiesNormalizedProfileSettings(t *testing.T) {
+	transport := &HTTPTransport{
+		Proxy: &HTTPProxy{
+			HTTP:    "http://proxy.example.test:8080",
+			HTTPS:   "socks5h://proxy.example.test:1080",
+			NoProxy: []string{".internal.example.test"},
+		},
+		ConnectTimeoutSeconds: 2.5,
+		RequestTimeoutSeconds: 12,
+	}
+
+	forward := forwardTransport(transport)
+	transport.Proxy.NoProxy[0] = "changed.example.test"
+	if forward.HTTPProxy != "http://proxy.example.test:8080" || forward.HTTPSProxy != "socks5h://proxy.example.test:1080" {
+		t.Fatalf("unexpected proxy mapping: %+v", forward)
+	}
+	if len(forward.NoProxy) != 1 || forward.NoProxy[0] != ".internal.example.test" {
+		t.Fatalf("no-proxy values were not copied: %+v", forward.NoProxy)
+	}
+	if forward.ConnectTimeout != 2500*time.Millisecond || forward.RequestTimeout != 12*time.Second {
+		t.Fatalf("unexpected timeout mapping: %+v", forward)
+	}
+}
+
+func TestDeliveryRejectsMalformedHTTPTransport(t *testing.T) {
+	delivery := Delivery{
+		URL: "https://subscriber.example.test/hook",
+		Transport: &HTTPTransport{
+			Proxy: &HTTPProxy{HTTPS: "ftp://proxy.example.test"},
+		},
+	}
+	if err := delivery.Validate(); err == nil {
+		t.Fatal("expected unsupported proxy scheme to be rejected")
+	}
+}

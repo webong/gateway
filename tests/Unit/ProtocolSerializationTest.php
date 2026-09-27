@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 use Webong\Gateway\Protocol\Automation;
 use Webong\Gateway\Protocol\Delivery;
+use Webong\Gateway\Protocol\HttpTransport;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\Protocol\ScheduleCommand;
 
 it('serializes empty response headers as a JSON map for Go', function (): void {
     $json = json_encode(
@@ -70,4 +72,44 @@ it('serializes asynchronous relays with an immediate planner response', function
             'url' => 'https://subscriber.example.test/hook',
         ]],
     ]);
+});
+
+it('serializes endpoint network settings without exposing a profile identity', function (): void {
+    $delivery = new Delivery(
+        url: 'https://subscriber.example.test/hook',
+        transport: new HttpTransport(
+            httpProxy: 'http://proxy-user:proxy-pass@proxy.example.test:8080',
+            httpsProxy: 'socks5h://proxy.example.test:1080',
+            noProxy: ['.internal.example.test'],
+            connectTimeoutSeconds: 5,
+            requestTimeoutSeconds: 15,
+        ),
+    );
+
+    expect($delivery->toArray())->toBe([
+        'url' => 'https://subscriber.example.test/hook',
+        'transport' => [
+            'proxy' => [
+                'http' => 'http://proxy-user:proxy-pass@proxy.example.test:8080',
+                'https' => 'socks5h://proxy.example.test:1080',
+                'no_proxy' => ['.internal.example.test'],
+            ],
+            'connect_timeout_seconds' => 5.0,
+            'request_timeout_seconds' => 15.0,
+        ],
+    ])->and(Delivery::fromArray($delivery->toArray()))->toEqual($delivery);
+});
+
+it('round-trips declarative script schedule commands', function (): void {
+    $command = new ScheduleCommand(
+        key: 'daily-report',
+        name: 'Daily report',
+        cron: '0 9 * * *',
+        language: 'javascript',
+        source: 'gateway.respond("done", 200)',
+        timezone: 'Africa/Lagos',
+        payload: ['team' => 'ops'],
+    );
+
+    expect(ScheduleCommand::fromArray($command->toArray()))->toEqual($command);
 });

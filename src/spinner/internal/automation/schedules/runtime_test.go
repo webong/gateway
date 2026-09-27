@@ -20,6 +20,17 @@ type fakeControl struct {
 	message string
 }
 
+type fakeRegistrar struct {
+	origin    string
+	schedules []automation.Schedule
+}
+
+func (f *fakeRegistrar) RegisterSchedules(_ context.Context, origin string, schedules []automation.Schedule) error {
+	f.origin = origin
+	f.schedules = append([]automation.Schedule(nil), schedules...)
+	return nil
+}
+
 func (f *fakeControl) Claim(context.Context) ([]Run, error) { return f.runs, nil }
 func (f *fakeControl) Complete(_ context.Context, _ Run, status string, queued int, message string) error {
 	f.status, f.queued, f.message = status, queued, message
@@ -62,6 +73,21 @@ func TestPollReportsScriptFailure(t *testing.T) {
 	}
 }
 
+func TestPollRegistersSchedulesOwnedByTheParentSchedule(t *testing.T) {
+	control := &fakeControl{runs: []Run{{
+		ID: "run-4", ScheduleID: "schedule-4", Language: javascript.Language,
+		Source: `gateway.schedule({key: "child", name: "Child", cron: "0 9 * * *", language: "javascript", source: "gateway.respond('ok', 200)"})`,
+	}}}
+	registrar := &fakeRegistrar{}
+	(Runtime{
+		Control: control, Executor: automation.NewRuntime(javascript.New()), Registrar: registrar,
+		Enqueue: func(automation.Delivery) bool { return true },
+	}).Poll(context.Background())
+	if control.status != "succeeded" || registrar.origin != "schedule:schedule-4" || len(registrar.schedules) != 1 {
+		t.Fatalf("unexpected child schedule registration: control=%+v registrar=%+v", control, registrar)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -86,9 +112,24 @@ func TestHTTPControlPlaneUsesPrivateContract(t *testing.T) {
 				t.Fatalf("claim did not advertise the active languages: %v", payload.Languages)
 			}
 		}
+		if strings.HasSuffix(request.URL.Path, "/register") {
+			var payload struct {
+				Origin    string                `json:"origin"`
+				Schedules []automation.Schedule `json:"schedules"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Origin != "endpoint:one" || len(payload.Schedules) != 1 || payload.Schedules[0].Key != "daily" {
+				t.Fatalf("unexpected register payload: %#v", payload)
+			}
+		}
 		body := `{"data":[{"id":"run-1","claim_token":"claim-1","language":"lua","source":"gateway.respond('ok')"}]}`
 		if strings.HasSuffix(request.URL.Path, "/complete") {
 			body = `{"status":"succeeded"}`
+		}
+		if strings.HasSuffix(request.URL.Path, "/register") {
+			body = `{"registered":1}`
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
@@ -103,7 +144,12 @@ func TestHTTPControlPlaneUsesPrivateContract(t *testing.T) {
 	if err := control.Complete(context.Background(), runs[0], "succeeded", 0, ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 2 || paths[0] != "/base/_internal/gateway/schedules/claim" || paths[1] != "/base/_internal/gateway/schedule-runs/run-1/complete" {
+	if err := control.RegisterSchedules(context.Background(), "endpoint:one", []automation.Schedule{{
+		Key: "daily", Name: "Daily", Cron: "0 9 * * *", Language: javascript.Language, Source: "run()",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 3 || paths[0] != "/base/_internal/gateway/schedules/claim" || paths[1] != "/base/_internal/gateway/schedule-runs/run-1/complete" || paths[2] != "/base/_internal/gateway/schedules/register" {
 		t.Fatalf("unexpected private routes: %v", paths)
 	}
 }

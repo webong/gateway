@@ -25,6 +25,17 @@ type recordingExecutor struct {
 	response  Response
 }
 
+type recordingScheduleRegistrar struct {
+	origin    string
+	schedules []automation.Schedule
+}
+
+func (r *recordingScheduleRegistrar) RegisterSchedules(_ context.Context, origin string, schedules []automation.Schedule) error {
+	r.origin = origin
+	r.schedules = append([]automation.Schedule(nil), schedules...)
+	return nil
+}
+
 func (e *recordingExecutor) Deliver(_ context.Context, delivery Delivery) (Response, error) {
 	e.delivered = append(e.delivered, delivery)
 	return e.response, nil
@@ -206,5 +217,25 @@ func TestEdgeExecutesGoAutomationAndQueuesItsForward(t *testing.T) {
 	}
 	if len(executor.queued) != 1 || executor.queued[0].URL != "https://subscriber.example.test/events" || string(executor.queued[0].Body) != "payload" {
 		t.Fatalf("expected automation delivery, got %#v", executor.queued)
+	}
+}
+
+func TestEdgeRegistersAutomationSchedulesWithEndpointOrigin(t *testing.T) {
+	registrar := &recordingScheduleRegistrar{}
+	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+		return RoutePlan{
+			Version: ProtocolVersion, Action: ActionAutomation,
+			Metadata:   map[string]string{"endpoint_id": "endpoint-1"},
+			Automation: &Automation{Language: javascript.Language, Source: `gateway.schedule({key: "daily", name: "Daily", cron: "0 9 * * *", language: "javascript", source: "gateway.respond('ok', 200)"});`},
+		}, nil
+	}), &recordingExecutor{}, 1024).
+		SetAutomationExecutor(automation.NewRuntime(javascript.New())).
+		SetScheduleRegistrar(registrar)
+
+	record := httptest.NewRecorder()
+	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/scripted", nil))
+
+	if record.Code != http.StatusAccepted || registrar.origin != "endpoint:endpoint-1" || len(registrar.schedules) != 1 || registrar.schedules[0].Key != "daily" {
+		t.Fatalf("unexpected schedule registration: status=%d origin=%q schedules=%#v", record.Code, registrar.origin, registrar.schedules)
 	}
 }

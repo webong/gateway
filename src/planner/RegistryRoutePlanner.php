@@ -15,6 +15,7 @@ use Webong\WebProxy\WebhookRoute;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocol\Delivery;
+use Webong\Gateway\Protocol\HttpTransport;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
@@ -35,6 +36,7 @@ final class RegistryRoutePlanner implements RoutePlanner
         private readonly WebProxyChannelManager $channelManager,
         private readonly SubscriptionMatcher $subscriptionMatcher,
         private readonly RegistryRouteCache $routeCache,
+        private readonly EndpointHttpTransportResolver $transportResolver,
         private readonly ?DispatchWebhookProxyDestination $destinationDispatcher = null,
     ) {
     }
@@ -96,6 +98,9 @@ final class RegistryRoutePlanner implements RoutePlanner
 
         $reply = null;
         $relays = [];
+        $profileEndpoint = null;
+        /** @var array<string, HttpTransport> $profileTransports */
+        $profileTransports = [];
 
         foreach ($destinations as $destination) {
             if (! $destination instanceof DestinationRecord) {
@@ -127,12 +132,25 @@ final class RegistryRoutePlanner implements RoutePlanner
                 continue;
             }
 
+            $profile = $destination->metadata[SubscriptionDefinition::PROFILE_METADATA_KEY] ?? null;
+            if ($profile !== null && (! is_string($profile) || $profile === '')) {
+                throw new InvalidArgumentException('Subscription proxy profile is malformed.');
+            }
+            if ($profile !== null && $profileEndpoint === null) {
+                $profileEndpoint = $provider->resolveById($cachedRoute->endpointId)
+                    ?? throw new RuntimeException('Registry endpoint disappeared while resolving its proxy profile.');
+            }
+            $transport = $profile === null
+                ? null
+                : ($profileTransports[$profile] ??= $this->transportResolver->resolve($profileEndpoint, $profile));
+
             $delivery = new Delivery(
                 url: $destination->target,
                 subscriberId: $this->subscriberId($destination->owner_id, $destination->metadata),
                 id: $destination->id,
                 method: $request->method,
                 rawQuery: $request->rawQuery,
+                transport: $transport,
             );
             $mode = (string) ($destination->metadata['delivery_mode'] ?? 'relay');
 

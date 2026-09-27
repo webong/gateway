@@ -36,6 +36,7 @@ final readonly class SubscriptionController
             'routing_scope',
             'routing_key',
             'url',
+            'profile',
             'channel',
             'metadata',
             'match',
@@ -54,6 +55,7 @@ final readonly class SubscriptionController
             'routing_scope' => ['required', 'string', 'max:255'],
             'routing_key' => ['required', 'string', 'max:255'],
             'url' => ['required', 'url:http,https'],
+            'profile' => ['sometimes', 'string', 'min:1', 'max:64'],
             'channel' => ['nullable', 'string', 'max:255'],
             'metadata' => ['sometimes', 'array'],
             'match' => ['sometimes', 'array'],
@@ -91,6 +93,7 @@ final readonly class SubscriptionController
                 metadata: $input['metadata'] ?? [],
                 channel: $input['channel'] ?? null,
                 type: $input['type'] ?? 'relay',
+                profile: $input['profile'] ?? null,
             );
             $destination = $this->subscriptions->handle($endpointKey, $definition);
         } catch (EndpointNotFoundException $exception) {

@@ -16,6 +16,7 @@ final readonly class SubscribeEndpoint
     public function __construct(
         private WebProxyRegistryManager $registryManager,
         private WebProxyChannelManager $channelManager,
+        private EndpointHttpTransportResolver $transportResolver,
         private ?RegistryRouteCache $routeCache = null,
     ) {
     }
@@ -29,6 +30,10 @@ final readonly class SubscribeEndpoint
 
         if ($resolved === null) {
             throw new EndpointNotFoundException("Registered endpoint [{$endpointKey}] was not found.");
+        }
+
+        if ($subscription->profile !== null) {
+            $this->transportResolver->resolve($resolved->endpoint, $subscription->profile);
         }
 
         if ($subscription->type === 'reply') {

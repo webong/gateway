@@ -24,5 +24,5 @@ engine at runtime, so installing only the companion package fails closed.
 
 Use `gateway_javascript,gateway_lua` to install both Go language extensions.
 The engine exposes only `gateway.event`, `gateway.get`, `gateway.set`,
-`gateway.respond`, and `gateway.forward`; it does not expose host modules,
+`gateway.respond`, `gateway.forward`, and declarative `gateway.schedule`; it does not expose host modules,
 filesystem, processes, imports, or raw network access.

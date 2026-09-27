@@ -107,6 +107,8 @@ JavaScript and Lua receive the same narrow interface:
 - `gateway.respond(body, status)` — completes an HTTP request.
 - `gateway.forward({ url, method, headers, body })` — adds an asynchronous HTTP
   delivery.
+- `gateway.schedule({ key, name, cron, timezone, language, source, payload,
+  enabled })` — declaratively creates or updates a Planner-owned schedule.
 
 Lua uses that interface as a global table:
 
@@ -173,8 +175,9 @@ Schedules can run an installed Go-side language extension without an inbound
 webhook. Laravel owns cron definitions and run history; Go claims due runs
 through the private planner connection, dispatches them through the same
 extension registry, queues their HTTP deliveries, and reports the outcome.
-The optional WebhookScript planner extension does not alter scheduled
-execution.
+The optional WebhookScript planner extension does not execute scheduled jobs,
+but a WebhookScript route may create a schedule for an installed Go-side
+language with `schedule([...])`.
 
 The schedule API accepts only language identifiers registered with the
 `schedule` capability. A polling Spinner sends its active engine catalog when
@@ -223,3 +226,66 @@ queueing but before reporting, reclaiming can queue duplicates; consumers
 should use `gateway.event.run_id` as an idempotency key when building deliveries.
 This first version does not implement durable HTTP delivery, retry policies,
 response assertions, notifications, or a manual-run endpoint.
+
+### Creating schedules from scripts
+
+Scripts emit schedule commands; they never receive database access. Planner
+validates and persists each command. `key` is required and is idempotent within
+the script origin: executing the same route again updates that schedule instead
+of inserting a duplicate. Route schedules use the matched endpoint as their
+origin; schedules emitted by a scheduled run use the parent schedule. One run
+may emit at most 8 commands and one origin may own at most 32 schedules.
+
+The target `language` must be registered for Spinner-side scheduled execution.
+For JavaScript and Lua route scripts, the HTTP runtime forwards commands to the
+private Planner endpoint. Embedded RoadRunner does not currently provide that
+control-plane connection and fails the automation if it emits a schedule.
+
+JavaScript:
+
+```javascript
+gateway.schedule({
+  key: 'daily-report',
+  name: 'Daily report',
+  cron: '0 9 * * *',
+  timezone: 'Africa/Lagos',
+  language: 'javascript',
+  source: "gateway.forward({url: 'https://example.test/report', method: 'POST'})",
+  payload: {team: 'ops'},
+  enabled: true,
+});
+```
+
+Lua:
+
+```lua
+gateway.schedule({
+  key = "daily-report",
+  name = "Daily report",
+  cron = "0 9 * * *",
+  timezone = "Africa/Lagos",
+  language = "lua",
+  source = "gateway.forward({url = 'https://example.test/report', method = 'POST'})",
+  payload = {team = "ops"},
+  enabled = true
+})
+```
+
+WebhookScript / Primi:
+
+```php
+schedule([
+  'key': 'daily-report',
+  'name': 'Daily report',
+  'cron': '0 9 * * *',
+  'timezone': 'Africa/Lagos',
+  'language': 'javascript',
+  'source': "gateway.forward({url: 'https://example.test/report', method: 'POST'})",
+  'payload': ['team': 'ops'],
+  'enabled': true
+]);
+```
+
+Omit `timezone`, `payload`, or `enabled` to use `UTC`, an empty payload, and
+enabled respectively. Changing a command's `key` creates another schedule;
+use the schedule management API to inspect, disable, or delete old keys.

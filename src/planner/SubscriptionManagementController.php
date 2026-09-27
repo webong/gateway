@@ -87,13 +87,14 @@ final readonly class SubscriptionManagementController
         }
 
         $input = $request->json()->all();
-        if (array_diff(array_keys($input), ['url', 'metadata', 'type', 'channel']) !== []) {
+        if (array_diff(array_keys($input), ['url', 'profile', 'metadata', 'type', 'channel']) !== []) {
             return $this->invalid('The subscription update is invalid.', [
                 'subscription' => ['The request contains unsupported properties.'],
             ]);
         }
         $validator = $this->validator->make($input, [
             'url' => ['sometimes', 'url:http,https', 'max:2048'],
+            'profile' => ['sometimes', 'nullable', 'string', 'min:1', 'max:64'],
             'metadata' => ['sometimes', 'array'],
             'type' => ['sometimes', 'in:relay,reply'],
             'channel' => ['nullable', 'string', 'max:255'],
@@ -111,6 +112,8 @@ final readonly class SubscriptionManagementController
                 url: array_key_exists('url', $input) ? $input['url'] : null,
                 metadata: array_key_exists('metadata', $input) ? $input['metadata'] : null,
                 type: array_key_exists('type', $input) ? $input['type'] : null,
+                profile: array_key_exists('profile', $input) ? $input['profile'] : null,
+                profileProvided: array_key_exists('profile', $input),
                 channel: $input['channel'] ?? null,
             ));
         } catch (InvalidArgumentException $exception) {

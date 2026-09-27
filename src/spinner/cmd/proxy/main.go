@@ -41,17 +41,18 @@ type protocolListener interface {
 }
 
 type Server struct {
-	config           *relayconfig.Config
-	logger           *logging.Logger
-	forwarder        *forwarding.Forwarder
-	workerPool       *workers.WorkerPool
-	executorOptions  []bridge.RelayExecutorOption
-	automation       automation.Executor
-	deliveryQueue    *deliveryqueue.Queue
-	relayHandle      http.Handler
-	websocketHandler http.Handler
-	extensionHandler extensionRouteHandler
-	httpServer       *http.Server
+	config            *relayconfig.Config
+	logger            *logging.Logger
+	forwarder         *forwarding.Forwarder
+	workerPool        *workers.WorkerPool
+	executorOptions   []bridge.RelayExecutorOption
+	automation        automation.Executor
+	scheduleRegistrar automation.ScheduleRegistrar
+	deliveryQueue     *deliveryqueue.Queue
+	relayHandle       http.Handler
+	websocketHandler  http.Handler
+	extensionHandler  extensionRouteHandler
+	httpServer        *http.Server
 }
 
 func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
@@ -105,12 +106,19 @@ func (s *Server) SetExtensionHandler(handler extensionRouteHandler) {
 	s.extensionHandler = handler
 }
 
+func (s *Server) SetScheduleRegistrar(registrar automation.ScheduleRegistrar) {
+	s.scheduleRegistrar = registrar
+}
+
 func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
 	edge := bridge.NewEdge(
 		planner,
 		s.NewGatewayExecutor(),
 		s.config.MaxBodySize,
 	).SetAutomationExecutor(s.automation)
+	if s.scheduleRegistrar != nil {
+		edge.SetScheduleRegistrar(s.scheduleRegistrar)
+	}
 	if len(passThrough) > 0 {
 		edge.SetPassThrough(passThrough[0])
 	}
@@ -371,24 +379,26 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	client := newLaravelBackendClient(config)
+	control, controlErr := schedules.NewHTTPControlPlane(
+		config.LaravelBackendURL,
+		config.InternalToken,
+		client,
+		automation.Languages(server.automation)...,
+	)
+	if controlErr != nil {
+		return fmt.Errorf("failed to initialize schedule control plane: %w", controlErr)
+	}
+	server.SetScheduleRegistrar(control)
 	if config.SchedulesEnabled {
-		control, controlErr := schedules.NewHTTPControlPlane(
-			config.LaravelBackendURL,
-			config.InternalToken,
-			client,
-			automation.Languages(server.automation)...,
-		)
-		if controlErr != nil {
-			return fmt.Errorf("failed to initialize schedules: %w", controlErr)
-		}
 		scheduleCtx, cancelSchedules := context.WithCancel(context.Background())
 		defer cancelSchedules()
 		executor := server.NewGatewayExecutor()
 		(schedules.Runtime{
-			Control:  control,
-			Executor: server.automation,
-			Interval: config.SchedulePollInterval,
-			LogError: logger.Error,
+			Control:   control,
+			Executor:  server.automation,
+			Registrar: control,
+			Interval:  config.SchedulePollInterval,
+			LogError:  logger.Error,
 			Enqueue: func(delivery automation.Delivery) bool {
 				return executor.Enqueue(bridge.Delivery{
 					URL: delivery.URL, Method: delivery.Method,

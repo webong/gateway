@@ -20,8 +20,16 @@ type Edge struct {
 	planner     Planner
 	executor    Executor
 	automation  automation.Executor
+	schedules   automation.ScheduleRegistrar
 	maxBodySize int64
 	passThrough http.Handler
+}
+
+// SetScheduleRegistrar connects declarative script schedule commands to the
+// Planner control plane. Scripts never receive the registrar itself.
+func (e *Edge) SetScheduleRegistrar(registrar automation.ScheduleRegistrar) *Edge {
+	e.schedules = registrar
+	return e
 }
 
 // SetAutomationExecutor installs the optional language registry used by this
@@ -133,6 +141,12 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "automation execution failed", http.StatusBadGateway)
 			return
 		}
+		if len(outcome.Schedules) > 0 {
+			if e.schedules == nil || e.schedules.RegisterSchedules(r.Context(), automationOrigin(plan, ingress), outcome.Schedules) != nil {
+				http.Error(w, "automation schedule registration failed", http.StatusBadGateway)
+				return
+			}
+		}
 		relays := append(plan.Relays, automationDeliveries(outcome.Deliveries)...)
 		if !e.enqueueRelays(relays, ingress) {
 			http.Error(w, "relay queue unavailable", http.StatusServiceUnavailable)
@@ -172,6 +186,14 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("Request accepted"))
+}
+
+func automationOrigin(plan RoutePlan, ingress IngressRequest) string {
+	if endpointID := strings.TrimSpace(plan.Metadata["endpoint_id"]); endpointID != "" {
+		return "endpoint:" + endpointID
+	}
+	sum := sha256.Sum256([]byte(ingress.Host + "\n" + ingress.Path))
+	return fmt.Sprintf("route:%x", sum)
 }
 
 func automationDeliveries(deliveries []automation.Delivery) []Delivery {

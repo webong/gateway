@@ -46,3 +46,26 @@ func TestRuntimeValidatesExtensionOutput(t *testing.T) {
 		t.Fatal("expected invalid extension output to be rejected")
 	}
 }
+
+func TestRuntimeValidatesDeclarativeSchedules(t *testing.T) {
+	runtime := NewRuntime(fakeEngine{language: "example", outcome: Outcome{
+		Schedules: []Schedule{{
+			Key: "daily-report", Name: "Daily report", Cron: "0 9 * * *",
+			Language: "example", Source: "run()",
+		}},
+	}})
+	result, err := runtime.Execute(context.Background(), Script{Language: "example", Source: "run"}, Input{})
+	if err != nil || len(result.Schedules) != 1 {
+		t.Fatalf("expected a valid schedule declaration, got %#v, %v", result, err)
+	}
+
+	runtime = NewRuntime(fakeEngine{language: "example", outcome: Outcome{
+		Schedules: []Schedule{
+			{Key: "duplicate", Name: "One", Cron: "* * * * *", Language: "example", Source: "run()"},
+			{Key: "duplicate", Name: "Two", Cron: "* * * * *", Language: "example", Source: "run()"},
+		},
+	}})
+	if _, err := runtime.Execute(context.Background(), Script{Language: "example", Source: "run"}, Input{}); err == nil {
+		t.Fatal("expected duplicate schedule keys to fail validation")
+	}
+}

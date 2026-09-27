@@ -17,6 +17,7 @@ final readonly class WebhookScriptRuntime
         private int $timeoutSeconds = 1,
         private int $maxDeliveries = 32,
         private int $maxLogs = 100,
+        private int $maxSchedules = 8,
     ) {
     }
 
@@ -32,7 +33,7 @@ final readonly class WebhookScriptRuntime
             throw new WebhookScriptExecutionException('WebhookScript execution requires the PCNTL extension.');
         }
 
-        $host = new WebhookScriptHost($request, $this->maxDeliveries, $this->maxLogs);
+        $host = new WebhookScriptHost($request, $this->maxDeliveries, $this->maxSchedules, $this->maxLogs);
 
         try {
             $interpreter = $this->withoutVendorDeprecations(function () use ($host): Interpreter {

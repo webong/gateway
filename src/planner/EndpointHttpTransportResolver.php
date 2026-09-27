@@ -1,0 +1,87 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Webong\Gateway;
+
+use InvalidArgumentException;
+use Webong\Gateway\Protocol\HttpTransport;
+use Webong\WebProxy\Endpoint;
+
+/** @internal Adapts endpoint-owned Proxy profiles to Gateway's wire contract. */
+final class EndpointHttpTransportResolver
+{
+    public function resolve(Endpoint $endpoint, string $profileName): HttpTransport
+    {
+        $profile = $endpoint->profile($profileName);
+        if ($profile === null) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] is not active for endpoint [{$endpoint->record->endpoint_key}].");
+        }
+        if (! in_array($profile->driver, ['guzzle', 'http'], true)) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] does not use an HTTP-compatible driver.");
+        }
+
+        $configuration = $profile->configuration;
+        $options = $configuration['options'] ?? [];
+        if (! is_array($options)) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] options must be an object.");
+        }
+
+        [$httpProxy, $httpsProxy, $noProxy] = $this->proxy($configuration['proxy'] ?? null, $profileName);
+
+        return new HttpTransport(
+            httpProxy: $httpProxy,
+            httpsProxy: $httpsProxy,
+            noProxy: $noProxy,
+            connectTimeoutSeconds: $this->timeout($options, 'connect_timeout', $profileName),
+            requestTimeoutSeconds: $this->timeout($options, 'timeout', $profileName),
+        );
+    }
+
+    /** @return array{?string, ?string, list<string>} */
+    private function proxy(mixed $proxy, string $profileName): array
+    {
+        if ($proxy === null) {
+            return [null, null, []];
+        }
+        if (is_string($proxy) && $proxy !== '') {
+            return [$proxy, $proxy, []];
+        }
+        if (! is_array($proxy) || $proxy === []) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] proxy must be a non-empty string or map.");
+        }
+
+        $unsupported = array_diff(array_keys($proxy), ['http', 'https', 'no']);
+        if ($unsupported !== []) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] contains unsupported proxy schemes.");
+        }
+        $noProxy = $proxy['no'] ?? [];
+        if (! is_array($noProxy)) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] no-proxy hosts must be a list.");
+        }
+        foreach (['http', 'https'] as $scheme) {
+            if (array_key_exists($scheme, $proxy) && ! is_string($proxy[$scheme])) {
+                throw new InvalidArgumentException("Proxy profile [{$profileName}] {$scheme} proxy must be a string.");
+            }
+        }
+
+        return [
+            $proxy['http'] ?? null,
+            $proxy['https'] ?? null,
+            array_values($noProxy),
+        ];
+    }
+
+    /** @param array<string, mixed> $options */
+    private function timeout(array $options, string $key, string $profileName): ?float
+    {
+        if (! array_key_exists($key, $options)) {
+            return null;
+        }
+        if (! is_int($options[$key]) && ! is_float($options[$key])) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] {$key} must be numeric.");
+        }
+
+        return (float) $options[$key];
+    }
+}

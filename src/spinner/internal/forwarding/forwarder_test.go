@@ -43,3 +43,84 @@ func TestForwarderMergesTargetAndWebhookQueryParameters(t *testing.T) {
 		t.Fatalf("expected merged query, got %q", query)
 	}
 }
+
+func TestForwarderUsesPerDeliveryHTTPProxy(t *testing.T) {
+	proxied := make(chan *http.Request, 1)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied <- r.Clone(r.Context())
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer proxy.Close()
+
+	forwarder := NewForwarder(&config.Config{
+		MaxBodySize:     1024,
+		RequestTimeout:  time.Second,
+		IdleConnTimeout: time.Second,
+		MaxIdleConns:    1,
+		MaxConnsPerHost: 1,
+	}, logging.NewLogger("error"))
+	forwarder.addressAllowed = func(net.IP) bool { return true }
+	t.Cleanup(forwarder.CloseIdleConnections)
+
+	response, err := forwarder.ForwardSync(ForwardRequest{
+		TargetURL: "http://subscriber.example.test/hook",
+		Method:    http.MethodPost,
+		Transport: HTTPTransport{
+			HTTPProxy:      proxy.URL,
+			ConnectTimeout: 250 * time.Millisecond,
+			RequestTimeout: time.Second,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected proxy response status 202, got %d", response.StatusCode)
+	}
+
+	select {
+	case request := <-proxied:
+		if request.URL.Host != "subscriber.example.test" || request.URL.Path != "/hook" {
+			t.Fatalf("proxy received unexpected target URL %q", request.URL.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("proxy did not receive delivery")
+	}
+}
+
+func TestForwarderHonorsPerDeliveryNoProxyHosts(t *testing.T) {
+	forwarder := NewForwarder(&config.Config{
+		MaxBodySize:     1024,
+		RequestTimeout:  time.Second,
+		IdleConnTimeout: time.Second,
+		MaxIdleConns:    1,
+		MaxConnsPerHost: 1,
+	}, logging.NewLogger("error"))
+	t.Cleanup(forwarder.CloseIdleConnections)
+
+	client, err := forwarder.clientFor(HTTPTransport{
+		HTTPProxy: "http://proxy.example.test:8080",
+		NoProxy:   []string{".internal.example.test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := client.Transport.(*http.Transport)
+	directRequest := httptest.NewRequest(http.MethodPost, "http://hooks.internal.example.test/delivery", nil)
+	selected, err := transport.Proxy(directRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected != nil {
+		t.Fatalf("expected no-proxy destination to connect directly, got %s", selected)
+	}
+
+	proxiedRequest := httptest.NewRequest(http.MethodPost, "http://hooks.external.example.test/delivery", nil)
+	selected, err = transport.Proxy(proxiedRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected == nil || selected.String() != "http://proxy.example.test:8080" {
+		t.Fatalf("expected external destination to use configured proxy, got %v", selected)
+	}
+}

@@ -20,6 +20,19 @@ func TestLuaCanUseTheGatewayCapabilities(t *testing.T) {
 	}
 }
 
+func TestLuaCanDeclareASchedule(t *testing.T) {
+	outcome, err := automation.NewRuntime(New()).Execute(context.Background(), automation.Script{
+		Language: Language,
+		Source:   `gateway.schedule({key = "daily-report", name = "Daily report", cron = "0 9 * * *", language = "lua", source = "gateway.respond('done', 200)", payload = {team = "ops"}})`,
+	}, automation.Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outcome.Schedules) != 1 || outcome.Schedules[0].Key != "daily-report" || outcome.Schedules[0].Payload["team"] != "ops" {
+		t.Fatalf("unexpected schedules %#v", outcome.Schedules)
+	}
+}
+
 func TestLuaCannotOpenHostLibraries(t *testing.T) {
 	outcome, err := automation.NewRuntime(New()).Execute(context.Background(), automation.Script{
 		Language: Language,

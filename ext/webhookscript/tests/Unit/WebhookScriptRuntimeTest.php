@@ -61,6 +61,25 @@ it('exposes bounded response, variable, and delivery capabilities', function ():
         ->and($outcome->response?->body)->toBe('queued');
 });
 
+it('emits declarative schedule commands', function (): void {
+    $outcome = (new WebhookScriptRuntime)->execute(<<<'PRIMI'
+        schedule([
+            'key': 'daily-report',
+            'name': 'Daily report',
+            'cron': '0 9 * * *',
+            'timezone': 'Africa/Lagos',
+            'language': 'javascript',
+            'source': "gateway.respond('done', 200)",
+            'payload': ['team': 'ops']
+        ]);
+        PRIMI, webhookScriptRequest());
+
+    expect($outcome->schedules)->toHaveCount(1)
+        ->and($outcome->schedules[0]->key)->toBe('daily-report')
+        ->and($outcome->schedules[0]->timezone)->toBe('Africa/Lagos')
+        ->and($outcome->schedules[0]->payload)->toBe(['team' => 'ops']);
+});
+
 it('does not expose undeclared host capabilities', function (): void {
     expect(fn () => (new WebhookScriptRuntime)->execute(
         "store('secret', 'value');",

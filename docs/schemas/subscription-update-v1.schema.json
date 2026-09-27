@@ -9,13 +9,14 @@
   "properties": {
     "url": {"type": "string", "format": "uri", "pattern": "^https?://"},
     "type": {"type": "string", "enum": ["relay", "reply"]},
+    "profile": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
     "channel": {"type": ["string", "null"], "maxLength": 255},
     "metadata": {
       "type": "object",
       "propertyNames": {
         "not": {
           "anyOf": [
-            {"enum": ["subscriber_id", "delivery_mode"]},
+            {"enum": ["subscriber_id", "delivery_mode", "profile"]},
             {"pattern": "^_"}
           ]
         }
@@ -26,6 +27,7 @@
   "anyOf": [
     {"required": ["url"]},
     {"required": ["type"]},
+    {"required": ["profile"]},
     {"required": ["metadata"]}
   ]
 }

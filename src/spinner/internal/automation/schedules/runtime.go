@@ -32,11 +32,12 @@ type ControlPlane interface {
 type EnqueueFunc func(automation.Delivery) bool
 
 type Runtime struct {
-	Control  ControlPlane
-	Executor automation.Executor
-	Enqueue  EnqueueFunc
-	LogError func(string, ...any)
-	Interval time.Duration
+	Control   ControlPlane
+	Executor  automation.Executor
+	Registrar automation.ScheduleRegistrar
+	Enqueue   EnqueueFunc
+	LogError  func(string, ...any)
+	Interval  time.Duration
 }
 
 func (r Runtime) Start(ctx context.Context) {
@@ -96,6 +97,13 @@ func (r Runtime) execute(ctx context.Context, run Run) {
 		})
 	}
 	queued := 0
+	if err == nil && len(result.Schedules) > 0 {
+		if r.Registrar == nil {
+			err = fmt.Errorf("schedule registration is not configured")
+		} else {
+			err = r.Registrar.RegisterSchedules(ctx, "schedule:"+run.ScheduleID, result.Schedules)
+		}
+	}
 	if err == nil {
 		if len(result.Deliveries) > 32 {
 			err = fmt.Errorf("scheduled automation exceeded the delivery limit")
@@ -191,6 +199,17 @@ func (c *HTTPControlPlane) Complete(ctx context.Context, run Run, status string,
 	return err
 }
 
+func (c *HTTPControlPlane) RegisterSchedules(ctx context.Context, origin string, schedules []automation.Schedule) error {
+	payload, err := json.Marshal(map[string]any{
+		"origin": origin, "schedules": schedules,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = c.call(ctx, "/_internal/gateway/schedules/register", payload)
+	return err
+}
+
 func (c *HTTPControlPlane) call(ctx context.Context, endpoint string, payload []byte) ([]byte, error) {
 	target := *c.base
 	target.Path = strings.TrimRight(c.base.Path, "/") + endpoint
@@ -215,3 +234,5 @@ func (c *HTTPControlPlane) call(ctx context.Context, endpoint string, payload []
 	}
 	return body, nil
 }
+
+var _ automation.ScheduleRegistrar = (*HTTPControlPlane)(nil)

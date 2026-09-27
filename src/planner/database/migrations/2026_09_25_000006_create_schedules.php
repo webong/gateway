@@ -12,6 +12,8 @@ return new class extends Migration
     {
         Schema::create('schedules', function (Blueprint $table): void {
             $table->uuid('id')->primary();
+            $table->string('origin')->nullable();
+            $table->string('key')->nullable();
             $table->string('name');
             $table->string('cron');
             $table->string('timezone');
@@ -21,6 +23,8 @@ return new class extends Migration
             $table->boolean('enabled')->default(true);
             $table->timestamp('next_run_at')->nullable()->index();
             $table->timestamps();
+
+            $table->unique(['origin', 'key']);
         });
 
         Schema::create('schedule_runs', function (Blueprint $table): void {

@@ -10,6 +10,9 @@ Lifecycle updates use
 and
 [`schemas/subscription-status-v1.schema.json`](schemas/subscription-status-v1.schema.json).
 
+Copy-pasteable direct PHP and remote HTTP examples live in
+[`examples/subscriptions`](examples/subscriptions/README.md).
+
 ## Endpoint and authentication
 
 ```http
@@ -32,6 +35,7 @@ requested key: `webong/proxy` may suffix unmanaged endpoint keys.
   "routing_scope": "application",
   "routing_key": "app-123",
   "url": "https://subscriber.example.test/webhooks/meta",
+  "profile": "proxy",
   "channel": null,
   "metadata": {
     "environment": "production"
@@ -61,9 +65,43 @@ Unknown properties are not part of the v1 contract and must not be sent.
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
 | `url` | yes | absolute HTTP(S) URL | Go sends matching ingress traffic to this destination. |
+| `profile` | no | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
-| `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id` and `delivery_mode`, are reserved. |
+| `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
 | `match` | no | match object | Versioned request-selection rules. Omission means match every request. |
+
+The profile itself is registered and stored by `webong/proxy` on the endpoint.
+Subscriptions retain only its name. Planner resolves the active profile and
+normalizes its HTTP proxy, no-proxy, connect-timeout, and request-timeout
+settings into the Go delivery contract; Spinner performs the network request.
+Proxy credentials therefore stay encrypted in the Proxy registry and are not
+copied into subscription metadata or returned by the subscription API.
+
+Register the profile on the endpoint before a PHP or remote HTTP subscriber
+selects it:
+
+```php
+use Webong\WebProxy\ProfileDefinition;
+
+$endpoint->registerProfile(new ProfileDefinition(
+    name: 'proxy',
+    configuration: [
+        'proxy' => [
+            'http' => 'http://proxy-user:proxy-pass@proxy.example.test:8080',
+            'https' => 'socks5h://proxy.example.test:1080',
+            'no' => ['.internal.example.test'],
+        ],
+        'options' => [
+            'connect_timeout' => 5,
+            'timeout' => 15,
+        ],
+    ],
+));
+```
+
+Both the PHP `SubscriptionDefinition` DSL and the HTTP JSON DSL use the same
+profile name. Registration fails closed when the profile is absent, inactive,
+malformed, or uses a non-HTTP driver.
 
 ## Match object
 
@@ -234,7 +272,7 @@ Authorization: Bearer {REGISTRY_TOKEN}
 The response includes the complete normalized subscription and its `ETag`.
 Inspection continues to work after removal so a subscriber can be reactivated.
 
-### Update URL, metadata, or delivery type
+### Update URL, metadata, delivery type, or network profile
 
 ```http
 PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}
@@ -245,6 +283,7 @@ Content-Type: application/json
 {
   "url": "https://subscriber.example.test/webhooks/meta-v2",
   "type": "relay",
+  "profile": "proxy",
   "metadata": {
     "environment": "production",
     "obsolete_key": null
@@ -257,6 +296,8 @@ The request follows
 Metadata is patched by key; a `null` value removes that public metadata key.
 Reserved internal keys cannot be changed. Switching to `reply` is rejected if
 another active synchronous reply already owns the route.
+Set `profile` to another active endpoint profile to change the outbound network
+configuration, or to `null` to return to Spinner's default HTTP client.
 
 ### Pause, reactivate, or remove
 

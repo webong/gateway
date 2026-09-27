@@ -5,13 +5,18 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
 
-const MaxDeliveries = 32
+const (
+	MaxDeliveries = 32
+	MaxSchedules  = 8
+)
 
 var ErrUnsupportedLanguage = errors.New("unsupported automation language")
 
@@ -40,10 +45,30 @@ type Response struct {
 	Body    string              `json:"body,omitempty"`
 }
 
+// Schedule is a declarative request to create or update one Planner-owned
+// schedule. Key is stable within the script origin, making retries idempotent.
+type Schedule struct {
+	Key      string         `json:"key"`
+	Name     string         `json:"name"`
+	Cron     string         `json:"cron"`
+	Timezone string         `json:"timezone,omitempty"`
+	Language Language       `json:"language"`
+	Source   string         `json:"source"`
+	Payload  map[string]any `json:"payload,omitempty"`
+	Enabled  *bool          `json:"enabled,omitempty"`
+}
+
 type Outcome struct {
 	Variables  map[string]any
 	Deliveries []Delivery
+	Schedules  []Schedule
 	Response   *Response
+}
+
+// ScheduleRegistrar is the control-plane capability used by automation hosts.
+// Engines emit declarations; they never receive database or registry access.
+type ScheduleRegistrar interface {
+	RegisterSchedules(context.Context, string, []Schedule) error
 }
 
 // Engine is implemented by one optional language package. Engines receive no
@@ -159,6 +184,47 @@ func validateOutcome(outcome Outcome) error {
 		if strings.TrimSpace(delivery.URL) == "" {
 			return fmt.Errorf("returned a delivery without a URL")
 		}
+	}
+	if len(outcome.Schedules) > MaxSchedules {
+		return fmt.Errorf("exceeded the schedule limit")
+	}
+	seenScheduleKeys := make(map[string]struct{}, len(outcome.Schedules))
+	for _, schedule := range outcome.Schedules {
+		if err := validateSchedule(schedule); err != nil {
+			return err
+		}
+		if _, exists := seenScheduleKeys[schedule.Key]; exists {
+			return fmt.Errorf("returned duplicate schedule key %q", schedule.Key)
+		}
+		seenScheduleKeys[schedule.Key] = struct{}{}
+	}
+	return nil
+}
+
+var scheduleKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
+
+func validateSchedule(schedule Schedule) error {
+	if strings.TrimSpace(schedule.Key) == "" || len(schedule.Key) > 255 || !scheduleKeyPattern.MatchString(schedule.Key) {
+		return fmt.Errorf("returned a schedule with an invalid key")
+	}
+	if strings.TrimSpace(schedule.Name) == "" || len(schedule.Name) > 255 {
+		return fmt.Errorf("returned schedule %q without a valid name", schedule.Key)
+	}
+	if strings.TrimSpace(schedule.Cron) == "" || len(schedule.Cron) > 100 {
+		return fmt.Errorf("returned schedule %q without a valid cron expression", schedule.Key)
+	}
+	if schedule.Timezone != "" && len(schedule.Timezone) > 100 {
+		return fmt.Errorf("returned schedule %q with an invalid timezone", schedule.Key)
+	}
+	if strings.TrimSpace(string(schedule.Language)) == "" || len(schedule.Language) > 64 {
+		return fmt.Errorf("returned schedule %q without a valid language", schedule.Key)
+	}
+	if strings.TrimSpace(schedule.Source) == "" || len(schedule.Source) > 65535 {
+		return fmt.Errorf("returned schedule %q without valid source", schedule.Key)
+	}
+	payload, err := json.Marshal(schedule.Payload)
+	if err != nil || len(payload) > 65535 {
+		return fmt.Errorf("returned schedule %q with an invalid payload", schedule.Key)
 	}
 	return nil
 }

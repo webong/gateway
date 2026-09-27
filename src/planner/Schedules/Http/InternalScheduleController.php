@@ -6,9 +6,12 @@ namespace Webong\Gateway\Schedules\Http;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
+use Webong\Gateway\Protocol\ScheduleCommand;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Schedules\ScheduleStore;
 
@@ -18,6 +21,7 @@ final readonly class InternalScheduleController
         private InternalRequestAuthenticator $authenticator,
         private ScheduleStore $store,
         private AutomationLanguageRegistry $languages,
+        private ScriptScheduleRegistrar $registrar,
     ) {}
 
     public function claim(Request $request): JsonResponse
@@ -51,5 +55,26 @@ final readonly class InternalScheduleController
         }
 
         return response()->json(['status' => $data['status']]);
+    }
+
+    public function register(Request $request): JsonResponse
+    {
+        $this->authenticator->authorizeOrHide($request);
+        $data = $request->validate([
+            'origin' => ['required', 'string', 'max:255'],
+            'schedules' => ['required', 'array', 'min:1', 'max:8'],
+            'schedules.*' => ['required', 'array'],
+        ]);
+        try {
+            $commands = array_map(
+                static fn (array $schedule): ScheduleCommand => ScheduleCommand::fromArray($schedule),
+                $data['schedules'],
+            );
+            $this->registrar->register($data['origin'], ...$commands);
+        } catch (InvalidArgumentException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
+
+        return response()->json(['registered' => count($commands)]);
     }
 }
