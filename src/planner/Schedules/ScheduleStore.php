@@ -26,14 +26,20 @@ final class ScheduleStore
     }
 
     /** @return list<array<string, mixed>> */
-    public function claim(int $limit = 5): array
+    /** @param list<string> $languages */
+    public function claim(int $limit = 5, array $languages = []): array
     {
-        return DB::transaction(function () use ($limit): array {
+        if ($languages === []) {
+            return [];
+        }
+
+        return DB::transaction(function () use ($limit, $languages): array {
             $now = now('UTC');
             $claims = [];
             $expired = DB::table('schedule_runs')
                 ->join('schedules', 'schedules.id', '=', 'schedule_runs.schedule_id')
                 ->where('schedules.enabled', true)
+                ->whereIn('schedule_runs.language', $languages)
                 ->where('schedule_runs.status', 'claimed')
                 ->where('schedule_runs.lease_until', '<=', $now)
                 ->orderBy('schedule_runs.lease_until')->limit($limit)
@@ -54,6 +60,7 @@ final class ScheduleStore
                 return $claims;
             }
             $schedules = DB::table('schedules')->where('enabled', true)
+                ->whereIn('language', $languages)
                 ->where('next_run_at', '<=', $now)->orderBy('next_run_at')
                 ->limit($remaining)->lockForUpdate()->get();
 

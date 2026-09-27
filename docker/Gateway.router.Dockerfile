@@ -47,13 +47,13 @@ COPY --from=go-toolchain /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-ce
 ENV PATH="/usr/local/go/bin:${PATH}" GOTELEMETRY=off
 
 COPY . /src/gateway
-WORKDIR /src/gateway/ext/frankenphp
+WORKDIR /src/gateway/ext/frankenphp/cmd/router
 
 RUN CGO_ENABLED=1 \
     CGO_CFLAGS="$(php-config --includes)" \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     go build -mod=readonly -tags=nobrotli,nowatcher,nomercure \
-    -o /tmp/gateway-router-library ./cmd/router
+    -o /tmp/gateway-router-library .
 
 FROM debian:bookworm-slim AS php-base
 

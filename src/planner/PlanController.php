@@ -7,12 +7,12 @@ namespace Webong\Gateway;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Protocol\IngressRequest;
 
 final class PlanController
 {
-    public function __invoke(Request $request, RoutePlanner $planner): JsonResponse
+    public function __invoke(Request $request, CapabilityAwareRoutePlanner $planner): JsonResponse
     {
         $token = (string) config('gateway.internal_token', '');
         $provided = (string) $request->header('X-Gateway-Internal', '');

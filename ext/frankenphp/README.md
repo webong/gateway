@@ -1,13 +1,17 @@
 # FrankenPHP library extension
 
 This optional Go module embeds the bundled PHP Planner in the Router process
-through FrankenPHP's Go library. It does not import the standalone Spinner
-service command or add a FrankenPHP dependency to the core Go module. The
-Router command composes the extension's PHP handler with Spinner's public HTTP
-transport module. The Docker and Kubernetes Router distributions use this same
+through FrankenPHP's Go library. It imports no Spinner code and has no Gateway
+core module dependency. `lib/router` owns Router assembly; the thin executable
+in `ext/frankenphp/cmd/router` supplies this extension's PHP handler to that library.
+The executable has a separate Go module so its Spinner dependencies stay out
+of runtime-adapter consumers. Native PHP dependencies remain outside the core
+Spinner module. The command depends on Spinner transitively through
+`lib/router`; the runtime adapter does not.
+The Docker and Kubernetes Router distributions use this same
 extension; they do not change the standalone Spinner binary.
 
-`docker/Gateway.router.Dockerfile` builds this module with the Go toolchain and
+`docker/Gateway.router.Dockerfile` builds `ext/frankenphp/cmd/router` with the Go toolchain and
 a PHP shared library compiled with ZTS and the embed SAPI. It packages the
 result on Debian with the matching PHP CLI for Planner management commands.
 It does not inherit a FrankenPHP application image. The container build disables

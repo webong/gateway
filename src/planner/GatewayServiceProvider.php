@@ -7,7 +7,13 @@ namespace Webong\Gateway;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
+use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
+use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationExecutionTarget;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\CacheablePathResolver;
+use Webong\Gateway\Contracts\ExtensionProviderRegistry;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
@@ -36,9 +42,37 @@ final class GatewayServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/config/gateway.php', 'gateway');
+
+        foreach (ExtensionProviderRegistry::providers() as $provider) {
+            $this->app->register($provider);
+        }
+
         $this->app->singleton(ServerTypeRegistry::class);
         $this->app->singleton(ServerRegistry::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
+        $this->app->singleton(AutomationLanguageRegistry::class, function (): AutomationLanguageRegistry {
+            $registry = new InMemoryAutomationLanguageRegistry;
+            $languages = config('gateway.automation.languages', []);
+
+            if (! is_array($languages)) {
+                throw new RuntimeException('gateway.automation.languages must be a list of language identifiers.');
+            }
+
+            foreach ($languages as $language) {
+                if (! is_string($language)) {
+                    throw new RuntimeException('gateway.automation.languages must contain only strings.');
+                }
+
+                $registry->register(
+                    $language,
+                    AutomationExecutionTarget::SPINNER,
+                    AutomationCapability::ROUTE,
+                    AutomationCapability::SCHEDULE,
+                );
+            }
+
+            return $registry;
+        });
 
         $this->app->singleton(RegistryRouteCache::class, function (): RegistryRouteCache {
             $enabled = (bool) config('gateway.cache.enabled', true);
@@ -101,8 +135,13 @@ final class GatewayServiceProvider extends ServiceProvider
             return $resolved;
         });
 
+        $this->app->bind(CapabilityAwareRoutePlanner::class, fn (): CapabilityAwareRoutePlanner => new CapabilityAwareRoutePlanner(
+            planner: $this->app->make(RoutePlanner::class),
+            languages: $this->app->make(AutomationLanguageRegistry::class),
+        ));
+
         $this->app->bind(RegistryProtocolPlanner::class, fn (): RegistryProtocolPlanner => new RegistryProtocolPlanner(
-            routePlanner: $this->app->make(RoutePlanner::class),
+            routePlanner: $this->app->make(CapabilityAwareRoutePlanner::class),
             dnsEvents: $this->app->make(DnsHookEventRecorder::class),
         ));
 

@@ -3,7 +3,7 @@
 }
 
 {$GATEWAY_ROUTER_LISTEN} {
-    root * {$GATEWAY_ROUTER_APP_DIR}/public
+    root * {$GATEWAY_ROUTER_APP_DIR}
 
     route {
         gateway {
@@ -14,6 +14,8 @@
             max_queue_size 1000
         }
 
-        php_server
+        # Only the front controller is executable; never serve host files.
+        rewrite * /index.php
+        php
     }
 }

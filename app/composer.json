@@ -1,5 +1,5 @@
 {
-    "name": "webong/gateway-router-planner",
+    "name": "webong/gateway-planner",
     "description": "Bundled PHP Planner host for Gateway Router",
     "license": "MIT",
     "type": "project",
@@ -8,7 +8,8 @@
         "laravel/framework": "^12.0",
         "laravel/octane": "^2.17",
         "spiral/roadrunner-http": "^3.3",
-        "webong/gateway": "dev-main"
+        "webong/gateway": "dev-main",
+        "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
         {
@@ -17,8 +18,40 @@
             "options": { "symlink": false }
         },
         {
-            "type": "vcs",
-            "url": "https://github.com/webong/web-proxy.git"
+            "type": "package",
+            "package": {
+                "name": "webong/proxy",
+                "version": "dev-feature/proxy-package",
+                "type": "library",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/proxy.git",
+                    "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/proxy/zipball/b01cf9c646507556cf4d7781b8638f5533a3b011",
+                    "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
+                },
+                "require": {
+                    "php": "^8.3 || ^8.4",
+                    "guzzlehttp/guzzle": "^7.10",
+                    "illuminate/contracts": "^12.0",
+                    "illuminate/support": "^12.0",
+                    "spatie/laravel-webhook-client": "^3.5",
+                    "spatie/laravel-webhook-server": "^3.10"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\WebProxy\\": "src/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": ["Webong\\WebProxy\\WebProxyServiceProvider"]
+                    }
+                }
+            }
         }
     ],
     "minimum-stability": "dev",
@@ -33,13 +66,27 @@
             "@php artisan package:discover --ansi"
         ]
     },
+    "extra": {
+        "merge-plugin": {
+            "include": [
+                "../ext/*/composer.json"
+            ],
+            "recurse": false,
+            "replace": false,
+            "merge-dev": false,
+            "merge-extra": false,
+            "merge-scripts": false
+        }
+    },
     "config": {
+        "vendor-dir": "../vendor",
         "platform": {
             "php": "8.3.0"
         },
         "sort-packages": true,
         "allow-plugins": {
-            "pestphp/pest-plugin": true
+            "pestphp/pest-plugin": true,
+            "wikimedia/composer-merge-plugin": true
         }
     }
 }

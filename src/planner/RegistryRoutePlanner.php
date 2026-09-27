@@ -20,7 +20,7 @@ use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
 
 /**
- * Default bridge planner for webong/web-proxy.
+ * Default bridge planner for webong/proxy.
  *
  * Path ownership stays with the host application through PathResolver. Once
  * a path is bound, this class performs endpoint lookup and destination

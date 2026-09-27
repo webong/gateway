@@ -11,12 +11,12 @@ import (
 
 func TestRuntimeServesFrontControllerWithoutASecondPHPListener(t *testing.T) {
 	appDir := t.TempDir()
-	publicDir := filepath.Join(appDir, "public")
-	if err := os.Mkdir(publicDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	publicDir := appDir
 	code := `<?php echo ($_SERVER['REQUEST_URI'] ?? '').'|'.($_SERVER['HTTP_X_TEST_HEADER'] ?? 'missing');`
 	if err := os.WriteFile(filepath.Join(publicDir, "index.php"), []byte(code), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "config.php"), []byte("<?php echo 'private configuration';"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -35,5 +35,10 @@ func TestRuntimeServesFrontControllerWithoutASecondPHPListener(t *testing.T) {
 	}
 	if got := strings.TrimSpace(response.Body.String()); got != "/health?check=1|missing" {
 		t.Fatalf("unexpected Planner response %q", got)
+	}
+	response = httptest.NewRecorder()
+	runtime.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://router.test/config.php", nil))
+	if got := strings.TrimSpace(response.Body.String()); got != "/config.php|missing" {
+		t.Fatalf("request bypassed the flat front controller: %q", got)
 	}
 }

@@ -1,22 +1,39 @@
-.PHONY: build test test-go test-driver-release test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-with-script-extensions test test-go test-go-extensions test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
+GATEWAY_BUILD_TAGS ?=
+GATEWAY_TAG_FLAGS = $(if $(strip $(GATEWAY_BUILD_TAGS)),-tags $(GATEWAY_BUILD_TAGS),)
 
 build:
 	mkdir -p bin
-	CGO_ENABLED=1 go build $(GOFLAGS) -o bin/gateway ./src/spinner/cmd/proxy
+	CGO_ENABLED=1 go build $(GOFLAGS) $(GATEWAY_TAG_FLAGS) -o bin/gateway ./src/spinner/cmd/proxy
+
+build-with-script-extensions:
+	$(MAKE) build GATEWAY_BUILD_TAGS=gateway_javascript,gateway_lua
 
 test: test-go test-php
 
 test-go:
 	go -C lib/driver test ./...
 	go test $(GOFLAGS) ./...
+	$(MAKE) test-go-extensions
+	$(MAKE) test-automation-extension-boundaries
 	$(MAKE) test-driver-release
+
+test-go-extensions:
+	go test $(GOFLAGS) -tags gateway_javascript,gateway_lua ./src/spinner/extensions/automation ./src/spinner/cmd/proxy
+
+test-automation-extension-boundaries:
+	bash scripts/test-automation-extension-boundaries
 
 test-driver-release:
 	bash scripts/test-driver-release
 
+test-contract-package:
+	bash scripts/test-contract-package
+
 test-php:
+	$(MAKE) test-contract-package
 	composer test
 	$(MAKE) -C ext/reverb test-php
 	$(MAKE) -C ext/mercure test-php

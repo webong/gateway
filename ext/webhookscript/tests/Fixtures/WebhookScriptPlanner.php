@@ -8,6 +8,7 @@ use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocol\Automation;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\WebhookScript\WebhookScriptLanguage;
 
 final class WebhookScriptPlanner implements RoutePlanner
 {
@@ -15,7 +16,7 @@ final class WebhookScriptPlanner implements RoutePlanner
     {
         return RoutePlan::automate(
             new Automation(
-                language: Automation::WEBHOOKSCRIPT,
+                language: WebhookScriptLanguage::ID,
                 source: <<<'PRIMI'
                     forward('https://subscriber.example.test/hook', var('request.content'), 'POST');
                     respond('scripted', 202, ['X-Engine: Primi']);

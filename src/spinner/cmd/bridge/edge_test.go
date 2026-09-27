@@ -9,7 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/src/spinner/internal/automation"
+	"github.com/webong/gateway/driver/automation"
+	javascript "github.com/webong/gateway/ext/javascript/runtime"
 )
 
 type plannerFunc func(context.Context, IngressRequest) (RoutePlan, error)
@@ -146,7 +147,7 @@ func TestEdgeQueuesRelaysBeforeReturningImmediatePlannerResponse(t *testing.T) {
 	}
 }
 
-func TestRoutePlanRejectsWebhookScriptWithoutThePHPPlannerExtension(t *testing.T) {
+func TestRoutePlanAllowsExtensionLanguageIdentifiers(t *testing.T) {
 	plan := RoutePlan{
 		Version: ProtocolVersion,
 		Action:  ActionAutomation,
@@ -156,23 +157,46 @@ func TestRoutePlanRejectsWebhookScriptWithoutThePHPPlannerExtension(t *testing.T
 		},
 	}
 
-	if err := plan.Validate(); err == nil {
-		t.Fatal("expected bridge contract to reject unconsumed WebhookScript")
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("expected extension language to pass the transport contract: %v", err)
 	}
 }
 
-func TestEdgeExecutesGoAutomationAndQueuesItsForward(t *testing.T) {
-	executor := &recordingExecutor{}
+func TestEdgeFailsClosedWhenLanguageExtensionIsNotInstalled(t *testing.T) {
 	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
 		return RoutePlan{
 			Version: ProtocolVersion,
 			Action:  ActionAutomation,
 			Automation: &Automation{
-				Language: automation.LanguageJavaScript,
+				Language: javascript.Language,
+				Source:   `gateway.respond("scripted", 202);`,
+			},
+		}, nil
+	}), &recordingExecutor{}, 1024).SetAutomationExecutor(automation.NewRuntime())
+
+	record := httptest.NewRecorder()
+	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/scripted", nil))
+
+	if record.Code != http.StatusBadGateway {
+		t.Fatalf("expected missing extension to fail closed, got %d", record.Code)
+	}
+}
+
+func TestEdgeExecutesGoAutomationAndQueuesItsForward(t *testing.T) {
+	executor := &recordingExecutor{}
+	edge := NewEdge(plannerFunc(func(_ context.Context, ingress IngressRequest) (RoutePlan, error) {
+		if len(ingress.Runtime.AutomationLanguages) != 1 || ingress.Runtime.AutomationLanguages[0] != javascript.Language {
+			t.Fatalf("planner did not receive the active engine catalog: %v", ingress.Runtime.AutomationLanguages)
+		}
+		return RoutePlan{
+			Version: ProtocolVersion,
+			Action:  ActionAutomation,
+			Automation: &Automation{
+				Language: javascript.Language,
 				Source:   `gateway.forward({url: "https://subscriber.example.test/events", method: "POST", body: gateway.event.body}); gateway.respond("scripted", 202);`,
 			},
 		}, nil
-	}), executor, 1024)
+	}), executor, 1024).SetAutomationExecutor(automation.NewRuntime(javascript.New()))
 
 	record := httptest.NewRecorder()
 	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/scripted", strings.NewReader("payload")))

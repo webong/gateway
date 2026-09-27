@@ -67,7 +67,7 @@ touch "$DATABASE_FILE"
     REGISTRY_TOKEN="$REGISTRY_TOKEN" \
     DB_CONNECTION=sqlite \
     DB_DATABASE="$DATABASE_FILE" \
-    WEB_PROXY_URL="$RELAY_URL" \
+    PROXY_URL="$RELAY_URL" \
     php -S "127.0.0.1:$PHP_PORT" -t public public/index.php
 ) >"$PHP_LOG" 2>&1 &
 PHP_PID=$!

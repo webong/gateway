@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/webong/gateway/src/spinner/internal/automation"
+	"github.com/webong/gateway/driver/automation"
 )
 
 // Edge is the Go-side HTTP adapter mounted in RoadRunner's HTTP pipeline. It
@@ -19,8 +19,16 @@ import (
 type Edge struct {
 	planner     Planner
 	executor    Executor
+	automation  automation.Executor
 	maxBodySize int64
 	passThrough http.Handler
+}
+
+// SetAutomationExecutor installs the optional language registry used by this
+// edge. Without one, automation plans fail closed.
+func (e *Edge) SetAutomationExecutor(executor automation.Executor) *Edge {
+	e.automation = executor
+	return e
 }
 
 func NewEdge(planner Planner, executor Executor, maxBodySize int64) *Edge {
@@ -60,6 +68,9 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RawQuery:   r.URL.RawQuery,
 		Headers:    headers,
 		Body:       body,
+		Runtime: RuntimeCapabilities{
+			AutomationLanguages: automation.Languages(e.automation),
+		},
 	}
 
 	plan, err := e.planner.Plan(r.Context(), ingress)
@@ -90,7 +101,11 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if plan.Action == ActionAutomation {
-		outcome, automationErr := (automation.Runtime{}).Execute(r.Context(), automation.Script{
+		if e.automation == nil {
+			http.Error(w, "automation execution failed", http.StatusBadGateway)
+			return
+		}
+		outcome, automationErr := e.automation.Execute(r.Context(), automation.Script{
 			Language: plan.Automation.Language,
 			Source:   plan.Automation.Source,
 		}, automation.Input{

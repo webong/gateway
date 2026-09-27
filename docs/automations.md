@@ -1,23 +1,86 @@
 # Gateway Automations
 
 Gateway Automations run small, bounded ingress logic after Laravel has matched
-and authorized a route. Core Gateway executes JavaScript and Lua in Go. The
-optional `webong/gateway-webhookscript` extension executes WebhookScript in PHP
-with Primi before the plan crosses the bridge.
+and authorized a route. The standalone Gateway Driver module owns the
+language-neutral execution interface, dispatcher, and output validation.
+Spinner builds on that interface and owns composition and network policy.
+JavaScript, Lua, and WebhookScript are separate language extensions.
 
 ```text
-JavaScript / Lua: public event -> Laravel route plan -> Go sandbox -> response / delivery queue
+JavaScript / Lua: public event -> Laravel route plan -> installed Go extension -> response / delivery queue
 WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary route plan -> Go network I/O
 ```
 
-## Core languages
+## Optional Go language extensions
 
-- `javascript` runs in the pinned QuickJS-NG engine supplied by the
-  `github.com/buke/quickjs-go` Go module through Gateway's small adapter.
-- `lua` runs in the embedded Lua runtime.
+- [`ext/javascript`](../ext/javascript/README.md) adds `javascript` using the
+  pinned QuickJS-NG adapter.
+- [`ext/lua`](../ext/lua/README.md) adds `lua` using gopher-lua without
+  standard host libraries.
 
-Laravel selects a core automation in its `RoutePlan`; Go owns compilation,
-execution, timeouts, memory limits, and the script capability surface.
+Neither interpreter is linked into a default Gateway build. Select the
+extensions at the Go composition root with build tags:
+
+```bash
+# no script engines
+make build
+
+# QuickJS-NG and Lua
+make build-with-script-extensions
+
+# one engine only
+make build GATEWAY_BUILD_TAGS=gateway_javascript
+make build GATEWAY_BUILD_TAGS=gateway_lua
+```
+
+Install the matching Planner companion package in the Laravel application:
+
+```bash
+composer require webong/gateway-javascript webong/gateway-lua
+```
+
+In this monorepo, the root development project and bundled Router host use
+Composer Merge Plugin to discover `ext/*/composer.json`. Each extension owns
+its PHP autoload rules, dependencies, and a tiny autoload registration file;
+the root package does not duplicate extension namespaces or provider names.
+Installing a published extension package continues to work through ordinary
+Composer and Laravel package discovery.
+
+Planner does not contain a built-in language list. Each extension's Laravel
+provider registers its execution target and route/schedule capabilities. A
+framework-free `ExtensionProviderRegistry` in `lib/contract` carries the
+Composer-discovered provider class names into Planner, while the
+`AutomationLanguageRegistry` carries their capabilities. Spinner independently
+advertises the engines present in the running binary with each plan and
+schedule-claim request. Planner therefore fails closed unless both the
+companion package and the matching Go engine are present.
+
+`GATEWAY_AUTOMATION_LANGUAGES` remains an explicit deployment-policy fallback
+for a third-party Spinner extension that has not shipped a Planner companion.
+It registers the listed languages as Spinner-executed route and schedule
+capabilities, but Spinner must still advertise the engine at runtime.
+
+For a container image, pass the same selection as a build argument:
+
+```bash
+docker build \
+  --build-arg GATEWAY_BUILD_TAGS=gateway_javascript,gateway_lua \
+  -t gateway-with-scripts .
+```
+
+The same tags work with direct `go build` commands and the FrankenPHP image
+build. A valid route plan whose language is not installed fails closed with
+HTTP 502; Gateway never falls back to evaluating source in another runtime.
+Laravel selects the language and source in its `RoutePlan`; the installed Go
+extension owns compilation, execution limits, and its script capability
+surface.
+
+Third-party Go language extensions implement `automation.Engine` from
+`github.com/webong/gateway/driver/automation`. They depend only on the
+standard-library Driver module, not on Spinner. Their optional PHP companion
+depends on the framework-free interfaces under `lib/contract`, not Planner's
+implementation source. Spinner's composition root registers selected engines
+with the Driver dispatcher.
 
 ```php
 use Webong\Gateway\Protocol\Automation;
@@ -62,10 +125,12 @@ application needs it:
 composer require webong/gateway-webhookscript
 ```
 
-Laravel package discovery registers its provider and decorates the configured
-`RoutePlanner`. A `webhookscript` plan is evaluated with Primi 0.4 in PHP and
-converted into an ordinary Gateway response/relay plan. Go therefore remains
-responsible only for ingress and egress network traffic.
+Composer/Laravel package discovery registers its provider and decorates the
+configured `RoutePlanner`. In the bundled Router, Composer Merge Plugin performs
+the same discovery from the extension-owned manifest. A `webhookscript` plan is
+evaluated with Primi 0.4 in PHP and converted into an ordinary Gateway
+response/relay plan. Go therefore remains responsible only for ingress and
+egress network traffic.
 
 ```php
 return RoutePlan::automate(new Automation(
@@ -95,18 +160,27 @@ arbitrary HTTP clients. Forwarding returns a delivery plan to Go; the router
 then applies Gateway's URL validation, SSRF protections, timeouts, queue
 capacity, retries, and audit behavior.
 
-QuickJS runs per request with router-owned memory, stack, and execution-time
-limits. Lua receives a deadline-bound execution context. The WebhookScript
-extension applies its own PHP-side source, time, delivery, and log limits.
+The JavaScript extension runs QuickJS per request with extension-owned memory,
+stack, and execution-time limits. The Lua extension receives a deadline-bound
+execution context. Core validates the common response and delivery outcome
+before network I/O. The WebhookScript extension applies its own PHP-side
+source, time, delivery, and log limits.
 Keep scripts short; use normal workers for long-running or CPU-heavy work.
 
 ## Scheduled automations
 
-Schedules run Go-side `javascript` or `lua` scripts without an inbound webhook.
-Laravel owns cron definitions and run history; Go claims due runs through the
-private planner connection, executes scripts, queues their HTTP deliveries,
-and reports the outcome. The optional WebhookScript planner extension does not
-alter scheduled execution.
+Schedules can run an installed Go-side language extension without an inbound
+webhook. Laravel owns cron definitions and run history; Go claims due runs
+through the private planner connection, dispatches them through the same
+extension registry, queues their HTTP deliveries, and reports the outcome.
+The optional WebhookScript planner extension does not alter scheduled
+execution.
+
+The schedule API accepts only language identifiers registered with the
+`schedule` capability. A polling Spinner sends its active engine catalog when
+claiming work, and Planner claims only schedules that worker can execute.
+Additional runtime extensions therefore require no Planner source changes and
+mixed worker builds cannot accidentally claim unsupported jobs.
 
 A schedule's `gateway.event` contains `type: "schedule"`, `run_id`,
 `schedule_id`, `scheduled_for`, and the configured `payload`.

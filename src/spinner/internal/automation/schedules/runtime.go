@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webong/gateway/src/spinner/internal/automation"
+	"github.com/webong/gateway/driver/automation"
 )
 
 type Run struct {
@@ -33,6 +33,7 @@ type EnqueueFunc func(automation.Delivery) bool
 
 type Runtime struct {
 	Control  ControlPlane
+	Executor automation.Executor
 	Enqueue  EnqueueFunc
 	LogError func(string, ...any)
 	Interval time.Duration
@@ -77,17 +78,23 @@ func (r Runtime) Poll(ctx context.Context) {
 }
 
 func (r Runtime) execute(ctx context.Context, run Run) {
-	result, err := (automation.Runtime{}).Execute(ctx, automation.Script{
-		Language: run.Language,
-		Source:   run.Source,
-	}, automation.Input{
-		Event: map[string]any{
-			"type": "schedule", "run_id": run.ID,
-			"schedule_id": run.ScheduleID, "scheduled_for": run.ScheduledFor,
-			"payload": run.Payload,
-		},
-		Variables: map[string]any{"payload": run.Payload},
-	})
+	var result automation.Outcome
+	var err error
+	if r.Executor == nil {
+		err = fmt.Errorf("automation language %q is not installed", run.Language)
+	} else {
+		result, err = r.Executor.Execute(ctx, automation.Script{
+			Language: run.Language,
+			Source:   run.Source,
+		}, automation.Input{
+			Event: map[string]any{
+				"type": "schedule", "run_id": run.ID,
+				"schedule_id": run.ScheduleID, "scheduled_for": run.ScheduledFor,
+				"payload": run.Payload,
+			},
+			Variables: map[string]any{"payload": run.Payload},
+		})
+	}
 	queued := 0
 	if err == nil {
 		if len(result.Deliveries) > 32 {
@@ -129,12 +136,13 @@ func (r Runtime) log(format string, args ...any) {
 }
 
 type HTTPControlPlane struct {
-	client *http.Client
-	base   *url.URL
-	token  string
+	client    *http.Client
+	base      *url.URL
+	token     string
+	languages []automation.Language
 }
 
-func NewHTTPControlPlane(baseURL, token string, client *http.Client) (*HTTPControlPlane, error) {
+func NewHTTPControlPlane(baseURL, token string, client *http.Client, languages ...automation.Language) (*HTTPControlPlane, error) {
 	base, err := url.Parse(baseURL)
 	if err != nil || base.Host == "" || (base.Scheme != "http" && base.Scheme != "https") {
 		return nil, fmt.Errorf("invalid schedule control-plane URL")
@@ -145,11 +153,20 @@ func NewHTTPControlPlane(baseURL, token string, client *http.Client) (*HTTPContr
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &HTTPControlPlane{client: client, base: base, token: token}, nil
+	return &HTTPControlPlane{
+		client:    client,
+		base:      base,
+		token:     token,
+		languages: append([]automation.Language(nil), languages...),
+	}, nil
 }
 
 func (c *HTTPControlPlane) Claim(ctx context.Context) ([]Run, error) {
-	response, err := c.call(ctx, "/_internal/gateway/schedules/claim", []byte("{}"))
+	payload, err := json.Marshal(map[string]any{"automation_languages": c.languages})
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.call(ctx, "/_internal/gateway/schedules/claim", payload)
 	if err != nil {
 		return nil, err
 	}

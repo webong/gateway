@@ -25,12 +25,9 @@ type Router struct {
 }
 
 func NewRouterFromEnvironment() (*Router, error) {
-	settings, err := config.LoadConfig()
+	settings, err := config.LoadRouterConfig()
 	if err != nil {
 		return nil, err
-	}
-	if settings.Runtime != "http" {
-		return nil, fmt.Errorf("the embedded Router requires GATEWAY_RUNTIME=http")
 	}
 	if settings.InternalToken == "" {
 		return nil, fmt.Errorf("GATEWAY_INTERNAL_TOKEN is required")

@@ -14,9 +14,12 @@ composer require webong/gateway-webhookscript
 
 Laravel package discovery registers
 `Webong\Gateway\WebhookScript\WebhookScriptExtensionServiceProvider`. The
-provider decorates Gateway's configured `RoutePlanner`: JavaScript and Lua
-plans continue to Go, while `webhookscript` plans run in PHP and are converted
-to ordinary response and relay plans before they cross the Go bridge.
+provider registers its route capability through Gateway's
+`AutomationLanguageRegistry` contract and decorates the configured
+`RoutePlanner`: Go-runtime language plans continue to Go, while
+`webhookscript` plans run in PHP and are converted to ordinary response and
+relay plans before they cross the Go bridge. It deliberately does not register
+scheduled execution support.
 
 The PHP runtime requires `pcntl` and `mbstring`. Its defaults can be
 published with:

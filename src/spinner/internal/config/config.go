@@ -81,6 +81,24 @@ func LoadConfig() (*Config, error) {
 	if runtime != "roadrunner" && runtime != "http" && runtime != "diagnostic" {
 		return nil, fmt.Errorf("unsupported GATEWAY_RUNTIME %q (expected roadrunner, http, or diagnostic)", runtime)
 	}
+	return loadConfig(runtime)
+}
+
+// LoadRouterConfig loads Spinner settings for a Router that already owns its
+// in-process Planner adapter. It never selects a network backend from the
+// standalone Spinner runtime setting.
+func LoadRouterConfig() (*Config, error) {
+	if value := strings.TrimSpace(os.Getenv("GATEWAY_RUNTIME")); value != "" {
+		return nil, fmt.Errorf("GATEWAY_RUNTIME=%s is for standalone Spinner; the bundled Router selects its Planner adapter in-process", value)
+	}
+	return loadConfig("embedded")
+}
+
+func loadConfig(runtime string) (*Config, error) {
+	runtime = strings.ToLower(strings.TrimSpace(runtime))
+	if runtime != "roadrunner" && runtime != "http" && runtime != "diagnostic" && runtime != "embedded" {
+		return nil, fmt.Errorf("unsupported runtime %q (expected roadrunner, http, diagnostic, or embedded)", runtime)
+	}
 
 	provisioningConfig, err := provision.LoadConfig(runtime)
 	if err != nil {
@@ -163,10 +181,13 @@ func LoadConfig() (*Config, error) {
 		Centrifugo:             centrifugoConfig,
 	}
 	if config.LaravelBackendSocket != "" && config.Runtime != "http" {
-		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_SOCKET requires GATEWAY_RUNTIME=http")
+		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_SOCKET requires an external Planner HTTP connection")
 	}
 	if config.SchedulesEnabled && config.Runtime != "http" {
-		return nil, fmt.Errorf("GATEWAY_SCHEDULES_ENABLED currently requires GATEWAY_RUNTIME=http")
+		return nil, fmt.Errorf("GATEWAY_SCHEDULES_ENABLED currently requires an external Planner HTTP connection")
+	}
+	if config.Runtime == "embedded" && config.LaravelBackendURL != "" {
+		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_URL is for an external Planner; the bundled Router uses its in-process Planner")
 	}
 	if config.SchedulePollInterval <= 0 {
 		return nil, fmt.Errorf("GATEWAY_SCHEDULE_POLL_INTERVAL must be positive")

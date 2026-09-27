@@ -19,7 +19,7 @@ Content-Type: application/json
 ```
 
 Use the resolved `endpoint_key` returned by `POST /registry/endpoints`, not the
-requested key: `webong/web-proxy` may suffix unmanaged endpoint keys.
+requested key: `webong/proxy` may suffix unmanaged endpoint keys.
 
 ## Complete request
 
@@ -57,11 +57,11 @@ Unknown properties are not part of the v1 contract and must not be sent.
 | `subscriber_id` | yes | non-empty string, max 255 | Stable identity of the subscriber. |
 | `subscription_id` | no | non-empty string, max 255 | Stable registration identity. Defaults to `subscriber_id`. |
 | `type` | no | `relay` or `reply` | Defaults to `relay`. A route may have only one synchronous `reply` subscription. |
-| `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/web-proxy` to manage the destination. |
+| `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/proxy` to manage the destination. |
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
 | `url` | yes | absolute HTTP(S) URL | Go sends matching ingress traffic to this destination. |
-| `channel` | no | string, max 255, or `null` | Selects a configured `web-proxy` channel. The default channel is used when omitted or `null`. |
+| `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id` and `delivery_mode`, are reserved. |
 | `match` | no | match object | Versioned request-selection rules. Omission means match every request. |
 
@@ -212,7 +212,7 @@ All lifecycle routes use the same bearer token as subscription creation.
 
 ### List a route
 
-`web-proxy` exposes provider-neutral destination selection by route, so the
+`proxy` exposes provider-neutral destination selection by route, so the
 collection API is deliberately route-scoped:
 
 ```http
@@ -274,7 +274,7 @@ Content-Type: application/json
 Use `{"status":"active"}` to reactivate either a paused or removed
 subscription. Pause and removal are Gateway lifecycle states stored in
 reserved destination metadata, which keeps the behavior portable across
-`web-proxy` providers. PHP excludes both states from route plans.
+`proxy` providers. PHP excludes both states from route plans.
 
 Remove a subscription with its current revision:
 
@@ -285,7 +285,7 @@ If-Match: "{revision}"
 ```
 
 Removal returns `204` and a new ETag. It is recoverable through the status
-endpoint. This avoids assuming that every custom `web-proxy` provider supports
+endpoint. This avoids assuming that every custom `proxy` provider supports
 hard deletion or inactive-record lookup.
 
 ## Matching document
@@ -414,7 +414,7 @@ Validation failures use this shape:
 
 ## PHP equivalent
 
-The PHP DSL and HTTP JSON compile to the same `webong/web-proxy` destination
+The PHP DSL and HTTP JSON compile to the same `webong/proxy` destination
 metadata. This PHP definition is equivalent to the request above:
 
 ```php

@@ -16,7 +16,7 @@ services:
       REGISTRY_TOKEN: "${REGISTRY_TOKEN:-registry-container-integration-token}"
       DB_CONNECTION: sqlite
       DB_DATABASE: /tmp/registry.sqlite
-      WEB_PROXY_URL: http://gateway:5001
+      PROXY_URL: http://gateway:5001
 
   gateway:
     build: .

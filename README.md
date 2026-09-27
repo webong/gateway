@@ -45,7 +45,7 @@ outbound HTTP connection pooling, DNS/SSRF checks, synchronous replies,
 asynchronous delivery queues, and the selected host runtime lifecycle.
 
 PHP/Laravel owns endpoint and subscription management through
-`webong/web-proxy`, the public registry JSON API, request validation, matching,
+`webong/proxy`, the public registry JSON API, request validation, matching,
 subscriber resolution, and route planning. The bundled `RegistryRoutePlanner`
 uses an application-provided `PathResolver` to read the registry, resolve
 subscribers, and bind an arbitrary path. Applications may replace it with a
@@ -65,7 +65,8 @@ selected runtime adapter.
 ## Planner package distribution
 
 Composer distribution archives contain only `composer.json`, `LICENSE`,
-`README.md`, and `src/planner/` (including configuration and migrations).
+`README.md`, `src/planner/` (including configuration and migrations), and the
+framework-free PHP interfaces and protocol values in `lib/contract/src/`.
 The Go Spinner, extension sources, Go driver library, bundled Router app,
 tests, and deployment/build tooling are not downloaded into the consuming
 application's vendor directory with these archives. Dependencies are still
@@ -85,9 +86,14 @@ unaffected by these root archive rules.
 
 ## Repository layout
 
+- `lib/router` assembles Spinner and an injected in-process Planner runtime.
+- `ext/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
 - `lib/driver` is the independent `github.com/webong/gateway/driver` Go module
   for workload and runtime-driver contracts. See its [extension and release
   guide](lib/driver/README.md); extension authors can use it without Spinner.
+- `lib/contract` is the framework-free PHP seam shared by Planner and its
+  optional PHP companion packages; it contains interfaces and protocol values,
+  never Planner implementations.
 - `src/spinner/cmd/proxy` is the Spinner executable and lifecycle wiring.
 - `src/spinner/cmd/bridge` is the transport-neutral Go edge and protocol boundary.
 - `src/spinner/cmd/bridge/roadrunner` and `src/spinner/cmd/bridge/caddy` are the optional RoadRunner
@@ -110,7 +116,8 @@ unaffected by these root archive rules.
   launch contracts to the same core runtime.
 
 The root Go module keeps native FrankenPHP out of Spinner-only builds;
-`ext/frankenphp` is a separate optional Go module. When the
+`ext/frankenphp` and its nested `cmd/router` are separate optional Go modules. The PHP
+extension imports no Spinner code; only `lib/router` assembles them. When the
 PHP `vendor/` directory exists, use `-mod=mod` for Go commands because that
 directory belongs to Composer, not Go.
 
@@ -141,8 +148,11 @@ bundled registry planner and a `PathResolver`. Then choose one of these modes:
   This is the standard/Octane-compatible path and can also start SMTP.
 - `diagnostic` starts only Go health and metrics listeners for adapter tests.
 
-Set `GATEWAY_RUNTIME` to `http` (the default), `roadrunner`, or `diagnostic`.
-The combined Router's launcher configures the chosen runtime for you.
+For the standalone Spinner executable, set `GATEWAY_RUNTIME` to `http` (the
+default), `roadrunner`, or `diagnostic`. The bundled FrankenPHP Router selects
+its in-process Planner when launched with `gateway-router library`; it does not
+need `GATEWAY_RUNTIME`. The Router launcher sets `roadrunner` when using its
+managed PHP workers.
 
 The `Planner` interface is the transport seam. Goridge is used by the embedded
 RoadRunner adapter because it is RoadRunner's PHP worker transport; it is not
@@ -154,7 +164,8 @@ the standard non-RoadRunner deployment is `http` mode.
 
 For every path, the Go edge:
 
-1. captures the method, host, path, query, headers, and body;
+1. captures the method, host, path, query, headers, body, and active automation
+   engine catalog;
 2. calculates a stable SHA-256 delivery ID;
 3. asks the PHP application for a `v1` route plan through the selected
    planner adapter;
@@ -401,7 +412,7 @@ the DNS zone and each hook, and wraps the application's existing path resolver
 with token lookup. Gateway-specific attributes live in the endpoint's reserved
 `metadata._gateway` object, including the kind, protocol, hostname, route, and
 parent zone endpoint key. No DNS-specific endpoint or destination storage is
-added to `webong/web-proxy`.
+added to `webong/proxy`.
 
 DNS history uses the generic `events` table, linked to the
 underlying WebProxy endpoint. This is intentionally the only protocol-neutral
@@ -464,7 +475,7 @@ type and transport. Pausing or deleting a hook invalidates its cached binding
 immediately; the underlying WebProxy endpoint is retained so subscription and
 audit records are not orphaned.
 
-`GATEWAY_DNS_WEB_PROXY_CLIENT`, `GATEWAY_DNS_HOOKS_TABLE`, and
+`GATEWAY_DNS_PROXY_CLIENT`, `GATEWAY_DNS_HOOKS_TABLE`, and
 `GATEWAY_DNS_EVENTS_TABLE` customize the built-in client and Laravel-owned
 tables. `GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
 while leaving explicit custom protocol planners available.
@@ -595,7 +606,7 @@ PHP-side cache settings:
   `30`)
 - `GATEWAY_MISSING_CACHE_TTL` - negative lookup TTL (default `5`)
 - `GATEWAY_CACHE_PREFIX` - cache-key prefix (default `gateway`)
-- `GATEWAY_CACHE_CUSTOM_PROVIDERS` - opt custom `web-proxy` providers into
+- `GATEWAY_CACHE_CUSTOM_PROVIDERS` - opt custom `proxy` providers into
   route caching (default `false`)
 - `GATEWAY_MUTATION_LOCK_STORE` - shared cache store used for conditional
   subscription mutations; defaults to `GATEWAY_CACHE_STORE`
@@ -682,11 +693,11 @@ registry, and return one of:
 
 With `RegistryRoutePlanner`, the resolver returns a `PathBinding` containing an
 endpoint key, route scope/key, destination metadata criteria, and optional
-channel. The planner then uses `webong/web-proxy` to resolve the endpoint and
+channel. The planner then uses `webong/proxy` to resolve the endpoint and
 its active destinations. A destination with
 `metadata.delivery_mode=reply` becomes the single synchronous reply; all other
 HTTP destinations become subscriber relays. PHP-native event and job
-destinations are dispatched by `webong/web-proxy` in the planner process.
+destinations are dispatched by `webong/proxy` in the planner process.
 `subscriber_id` metadata is used when present; otherwise the destination owner
 identifier is carried across the bridge.
 
@@ -777,7 +788,7 @@ final class ApplicationPathResolver implements CacheablePathResolver
 ```
 
 `EndpointController` and `SubscribeEndpoint` rotate cache generations after
-successful writes. If application code mutates `web-proxy` directly, invalidate
+successful writes. If application code mutates `proxy` directly, invalidate
 the affected snapshot explicitly:
 
 ```php
@@ -816,7 +827,7 @@ The matching document contains `method`, `scheme`, `host`, `path`, `headers`,
 value is a string; repeated values are a list. A JSON body is decoded once and
 non-JSON bodies remain strings.
 
-The PHP-facing DSL compiles to a normal `webong/web-proxy` destination:
+The PHP-facing DSL compiles to a normal `webong/proxy` destination:
 
 ```php
 use Webong\Gateway\Protocol\MatchRules;
@@ -850,7 +861,7 @@ Planner owns the registry management API. In a distributed deployment set
 routes are public through the shared RoadRunner listener and require that
 bearer token. Go only transports these ordinary HTTP requests to Laravel.
 
-Create or ensure an endpoint through `webong/web-proxy`:
+Create or ensure an endpoint through `webong/proxy`:
 
 ```bash
 curl -X POST https://relay.example.test/registry/endpoints \
@@ -900,7 +911,7 @@ rules; only one synchronous reply may be registered for a routing scope/key.
 
 The API is deliberately application-owned: the bridge does not assume a
 tenant model, a `/webhook` prefix, or a Go-side registry schema. Endpoint and
-destination storage are provided by the configured `webong/web-proxy`
+destination storage are provided by the configured `webong/proxy`
 registry; its Laravel migrations remain PHP-owned.
 
 ## Managed servers

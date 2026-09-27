@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Webong\Gateway\WebhookScript;
 
 use Illuminate\Support\ServiceProvider;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationExecutionTarget;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\RoutePlanner;
 
 final class WebhookScriptExtensionServiceProvider extends ServiceProvider
@@ -28,6 +31,12 @@ final class WebhookScriptExtensionServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->app->make(AutomationLanguageRegistry::class)->register(
+            WebhookScriptLanguage::ID,
+            AutomationExecutionTarget::PLANNER,
+            AutomationCapability::ROUTE,
+        );
+
         $this->publishes([
             __DIR__.'/../config/webhookscript.php' => config_path('gateway-webhookscript.php'),
         ], 'gateway-webhookscript-config');

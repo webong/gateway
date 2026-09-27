@@ -40,10 +40,10 @@ abstract class TestCase extends Orchestra
                 'driver' => 'array',
                 'serialize' => true,
             ],
-            'web-proxy.base_url' => 'https://relay.example.test',
-            'web-proxy.defaults.channel' => 'default',
-            'web-proxy.defaults.registry' => 'local',
-            'web-proxy.channels' => [[
+            'proxy.base_url' => 'https://relay.example.test',
+            'proxy.defaults.channel' => 'default',
+            'proxy.defaults.registry' => 'local',
+            'proxy.channels' => [[
                 'name' => 'default',
                 'driver' => 'webhook',
                 'path' => '/',
@@ -51,19 +51,20 @@ abstract class TestCase extends Orchestra
                 'registries' => ['local'],
                 'client' => ['store_headers' => '*'],
             ]],
-            'web-proxy.registries.local' => [
+            'proxy.registries.local' => [
                 'driver' => 'database',
                 'provider' => 'database',
             ],
-            'web-proxy.providers.database' => [
+            'proxy.providers.database' => [
                 'driver' => 'database',
             ],
-            'web-proxy.routers' => [
+            'proxy.routers' => [
                 'relay-test' => Support\TestRouter::class,
             ],
             'gateway.path_resolver' => Support\TestPathResolver::class,
             'gateway.registry_token' => 'registry-secret',
             'gateway.internal_token' => 'internal-secret',
+            'gateway.automation.languages' => ['test-script'],
             'gateway.dns.enabled' => true,
             'gateway.dns.zone' => 'dns.example.test',
             'gateway.dns.client' => 'gateway',

@@ -1,0 +1,27 @@
+{
+    "name": "webong/gateway-lua",
+    "description": "Lua automation extension and Planner companion for Gateway",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "webong/gateway": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\Gateway\\Lua\\": "php/src/"
+        },
+        "files": [
+            "php/register.php"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webong\\Gateway\\Lua\\LuaExtensionServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

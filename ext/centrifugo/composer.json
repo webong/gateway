@@ -11,7 +11,10 @@
     "autoload": {
         "psr-4": {
             "Webong\\Gateway\\Centrifugo\\": "src/"
-        }
+        },
+        "files": [
+            "register.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

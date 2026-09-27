@@ -24,6 +24,6 @@ final class ReverbSmokeServiceProvider extends ServiceProvider
         }
 
         $provider = new ReflectionClass(GatewayServiceProvider::class);
-        $migrator->run(dirname((string) $provider->getFileName(), 2).'/database/migrations');
+        $migrator->run(dirname((string) $provider->getFileName()).'/database/migrations');
     }
 }

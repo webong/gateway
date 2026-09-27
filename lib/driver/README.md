@@ -12,6 +12,21 @@ import "github.com/webong/gateway/driver"
 var _ driver.Workload = (*MyWorkload)(nil)
 ```
 
+Automation language extensions use the module's `automation` package:
+
+```go
+import gatewayautomation "github.com/webong/gateway/driver/automation"
+
+var _ gatewayautomation.Engine = (*MyLanguage)(nil)
+```
+
+That package owns the language-neutral script, input, outcome, engine, and
+executor interfaces plus the standard dispatcher and output validation.
+Spinner and language extensions both depend on it; language extensions never
+import Spinner. The dispatcher also implements `LanguageCatalog`; Spinner
+advertises that catalog to Planner so a PHP companion cannot make an absent Go
+engine appear executable.
+
 `Workload` describes a technology: its name, supported runtimes, configuration
 validation, and launch specification. `Launch` describes what to run; the host
 executes it. `Driver` starts that workload on a runtime and returns a `Process`
@@ -36,11 +51,12 @@ go -C lib/driver test ./...
 make test-driver-release
 ```
 
-The release test creates an isolated Git repository and release tag. An example
-third-party extension then downloads that tag using Go's normal GitHub module
-resolution, redirected to the local fixture. It uses no `replace` directive,
-no network, no CGO, and no Spinner source. Its complete module graph is just
-the extension and this library. The example lives in `testdata/extension`.
+The release test creates an isolated Git repository and release tag. Example
+third-party workload and automation extensions then download that tag using
+Go's normal GitHub module resolution, redirected to the local fixture. They
+use no `replace` directive, no network, no CGO, and no Spinner source. Their
+complete module graph is just the extension and this library. The examples
+live in `testdata/extension`.
 
 ## Publish
 

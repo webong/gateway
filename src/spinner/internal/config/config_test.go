@@ -51,6 +51,48 @@ func TestLoadConfigDefaultsToHTTP(t *testing.T) {
 	}
 }
 
+func TestLoadRouterConfigSelectsInProcessPlannerWithoutRuntimeSetting(t *testing.T) {
+	setConfigEnv(t, "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
+	config, err := LoadRouterConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Runtime != "embedded" || config.RoadRunnerEnabled || config.InternalToken != "gateway-token" {
+		t.Fatalf("unexpected Router config: %+v", config)
+	}
+}
+
+func TestLoadRouterConfigRejectsStandaloneConnectionSettings(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "runtime", key: "GATEWAY_RUNTIME", value: "http"},
+		{name: "backend URL", key: "GATEWAY_LARAVEL_BACKEND_URL", value: "http://planner:8080"},
+		{name: "backend socket", key: "GATEWAY_LARAVEL_BACKEND_SOCKET", value: "/run/planner.sock"},
+		{name: "schedule polling", key: "GATEWAY_SCHEDULES_ENABLED", value: "true"},
+		{name: "provisioning", key: "GATEWAY_PROVISIONING_ENABLED", value: "true"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			setConfigEnv(t, "")
+			t.Setenv("GATEWAY_SCHEDULES_ENABLED", "false")
+			t.Setenv(test.key, test.value)
+			if _, err := LoadRouterConfig(); err == nil {
+				t.Fatalf("expected Router to reject %s", test.key)
+			}
+		})
+	}
+}
+
+func TestLoadConfigRejectsEmbeddedRuntimeForStandaloneSpinner(t *testing.T) {
+	setConfigEnv(t, "embedded")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("standalone Spinner must not select the embedded Router adapter")
+	}
+}
+
 func TestLoadConfigRejectsOldStandaloneName(t *testing.T) {
 	setConfigEnv(t, "standalone")
 	if _, err := LoadConfig(); err == nil {

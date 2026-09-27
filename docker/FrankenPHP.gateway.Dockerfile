@@ -1,5 +1,7 @@
 FROM dunglas/frankenphp:builder AS builder
 
+ARG GATEWAY_BUILD_TAGS=""
+
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 COPY . /src/gateway
 WORKDIR /src/gateway
@@ -8,6 +10,7 @@ WORKDIR /src/gateway
 # Gateway Caddy module is compiled into the same binary as FrankenPHP.
 RUN CGO_ENABLED=1 \
     XCADDY_SETCAP=1 \
+    GOFLAGS="-tags=${GATEWAY_BUILD_TAGS}" \
     CGO_CFLAGS="$(php-config --includes)" \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     xcaddy build \

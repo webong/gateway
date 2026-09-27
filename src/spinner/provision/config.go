@@ -37,7 +37,7 @@ func LoadConfig(gatewayRuntime string) (HostConfig, error) {
 		},
 	}
 	if config.Enabled && gatewayRuntime != "http" {
-		return HostConfig{}, fmt.Errorf("GATEWAY_PROVISIONING_ENABLED currently requires GATEWAY_RUNTIME=http")
+		return HostConfig{}, fmt.Errorf("GATEWAY_PROVISIONING_ENABLED currently requires an external Planner HTTP connection")
 	}
 
 	return config, nil

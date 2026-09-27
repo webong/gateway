@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-router-host.XXXXXX")
+trap 'rm -rf "$TEST_DIR"' EXIT
+export GATEWAY_ROUTER_DATA_DIR="$TEST_DIR"
+export DB_DATABASE="$TEST_DIR/gateway.sqlite"
+export APP_KEY="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
+export SESSION_DRIVER=array
+export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
+cd "$ROOT"
+
+php app/artisan package:discover --no-ansi
+check_host() {
+    php <<'PHP'
+<?php
+$app = require 'app/bootstrap.php';
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$check = static function (bool $condition, string $message): void {
+    if (! $condition) { file_put_contents('php://stderr', $message.PHP_EOL); exit(1); }
+};
+$check(config('cache.default') === 'file', 'Flat cache configuration not loaded');
+$check(config('database.connections.sqlite.database') === getenv('DB_DATABASE'), 'Flat env configuration not loaded');
+$check(config('proxy.defaults.registry') === 'local', 'Proxy host configuration missing');
+$check(config('gateway') !== null, 'Planner package defaults missing');
+$check($app->providerIsLoaded(Webong\WebProxy\WebProxyServiceProvider::class), 'Proxy provider not discovered');
+$check($app->providerIsLoaded(Webong\Gateway\GatewayServiceProvider::class), 'Planner provider missing');
+$check($app->providerIsLoaded(Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider::class), 'JavaScript companion not discovered');
+$check($app->providerIsLoaded(Webong\Gateway\Lua\LuaExtensionServiceProvider::class), 'Lua companion not discovered');
+$check($app->providerIsLoaded(Webong\Gateway\WebhookScript\WebhookScriptExtensionServiceProvider::class), 'WebhookScript extension not discovered');
+$languages = $app->make(Webong\Gateway\Contracts\AutomationLanguageRegistry::class);
+$check($languages->target('javascript') === Webong\Gateway\Contracts\AutomationExecutionTarget::SPINNER, 'JavaScript companion target missing');
+$check($languages->target('lua') === Webong\Gateway\Contracts\AutomationExecutionTarget::SPINNER, 'Lua companion target missing');
+$check($languages->target('webhookscript') === Webong\Gateway\Contracts\AutomationExecutionTarget::PLANNER, 'WebhookScript companion target missing');
+$check($app->make(Illuminate\Foundation\PackageManifest::class)->vendorPath === getcwd().'/vendor', 'Discovery uses wrong vendor directory');
+$check(class_exists(Gateway\Router\EndpointPathResolver::class), 'Host namespace not autoloadable');
+$kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
+foreach (['/health' => 204, '/config.php' => 404, '/bootstrap.php' => 404] as $path => $status) {
+    $request = Illuminate\Http\Request::create($path);
+    $response = $kernel->handle($request);
+    $check($response->getStatusCode() === $status, 'Unexpected response for '.$path.': '.$response->getStatusCode());
+    $kernel->terminate($request, $response);
+}
+echo "Router host configuration, discovery, and routing passed.\n";
+PHP
+}
+check_host
+php app/artisan config:cache --no-ansi
+check_host
+php app/artisan config:clear --no-ansi
+check_host

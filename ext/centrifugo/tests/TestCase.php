@@ -30,6 +30,6 @@ abstract class TestCase extends Orchestra
     protected function defineDatabaseMigrations(): void
     {
         $provider = new ReflectionClass(GatewayServiceProvider::class);
-        $this->loadMigrationsFrom(dirname((string) $provider->getFileName(), 2).'/database/migrations');
+        $this->loadMigrationsFrom(dirname((string) $provider->getFileName()).'/database/migrations');
     }
 }

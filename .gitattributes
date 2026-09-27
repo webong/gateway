@@ -6,3 +6,8 @@
 /src -export-ignore
 /src/* export-ignore
 /src/planner -export-ignore
+/lib -export-ignore
+/lib/* export-ignore
+/lib/contract -export-ignore
+/lib/contract/* export-ignore
+/lib/contract/src -export-ignore

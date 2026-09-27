@@ -17,7 +17,10 @@
     "autoload": {
         "psr-4": {
             "Webong\\Gateway\\Reverb\\": "src/"
-        }
+        },
+        "files": [
+            "register.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

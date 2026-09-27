@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/webong/gateway/driver/automation"
 	centrifugoruntime "github.com/webong/gateway/ext/centrifugo/runtime"
 	mercureruntime "github.com/webong/gateway/ext/mercure/runtime"
 	reverbruntime "github.com/webong/gateway/ext/reverb/runtime"
@@ -21,7 +22,7 @@ import (
 	smtpgateway "github.com/webong/gateway/src/spinner/cmd/bridge/smtp"
 	smtpout "github.com/webong/gateway/src/spinner/cmd/bridge/smtpout"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
-	"github.com/webong/gateway/src/spinner/internal/automation"
+	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	"github.com/webong/gateway/src/spinner/internal/automation/schedules"
 	relayconfig "github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
@@ -45,6 +46,7 @@ type Server struct {
 	forwarder        *forwarding.Forwarder
 	workerPool       *workers.WorkerPool
 	executorOptions  []bridge.RelayExecutorOption
+	automation       automation.Executor
 	deliveryQueue    *deliveryqueue.Queue
 	relayHandle      http.Handler
 	websocketHandler http.Handler
@@ -61,6 +63,7 @@ func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
 		logger:     logger,
 		forwarder:  forwarder,
 		workerPool: workerPool,
+		automation: automationextensions.Runtime(),
 	}
 
 	mux := http.NewServeMux()
@@ -107,7 +110,7 @@ func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handle
 		planner,
 		s.NewGatewayExecutor(),
 		s.config.MaxBodySize,
-	)
+	).SetAutomationExecutor(s.automation)
 	if len(passThrough) > 0 {
 		edge.SetPassThrough(passThrough[0])
 	}
@@ -369,7 +372,12 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	client := newLaravelBackendClient(config)
 	if config.SchedulesEnabled {
-		control, controlErr := schedules.NewHTTPControlPlane(config.LaravelBackendURL, config.InternalToken, client)
+		control, controlErr := schedules.NewHTTPControlPlane(
+			config.LaravelBackendURL,
+			config.InternalToken,
+			client,
+			automation.Languages(server.automation)...,
+		)
 		if controlErr != nil {
 			return fmt.Errorf("failed to initialize schedules: %w", controlErr)
 		}
@@ -378,6 +386,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		executor := server.NewGatewayExecutor()
 		(schedules.Runtime{
 			Control:  control,
+			Executor: server.automation,
 			Interval: config.SchedulePollInterval,
 			LogError: logger.Error,
 			Enqueue: func(delivery automation.Delivery) bool {
@@ -404,9 +413,9 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	edge := server.NewRelayEdge(runtime.Planner(), runtime.PassThrough())
 	server.SetRelayHandler(runtime.Handler(edge))
 	if config.LaravelBackendSocket != "" {
-		logger.Info("Using HTTP Laravel backend through Unix socket %s", config.LaravelBackendSocket)
+		logger.Info("Planner connection: external HTTP through Unix socket %s", config.LaravelBackendSocket)
 	} else {
-		logger.Info("Using HTTP Laravel backend at %s", config.LaravelBackendURL)
+		logger.Info("Planner connection: external HTTP at %s", config.LaravelBackendURL)
 	}
 
 	protocolPlanner, err := bridge.NewHTTPProtocolPlanner(
@@ -490,6 +499,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to initialize embedded RoadRunner: %w", err)
 	}
+	logger.Info("Planner connection: managed RoadRunner PHP workers")
 
 	runnerErrors := make(chan error, 1)
 	go func() { runnerErrors <- runner.Serve() }()

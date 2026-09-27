@@ -6,9 +6,10 @@ export LC_ALL=C
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-package.XXXXXX")
 trap 'rm -rf "$TEST_DIR"' EXIT
-mkdir -p "$TEST_DIR/source/src" "$TEST_DIR/output"
+mkdir -p "$TEST_DIR/source/src" "$TEST_DIR/source/lib" "$TEST_DIR/output"
 cp "$ROOT/composer.json" "$ROOT/.gitattributes" "$ROOT/LICENSE" "$ROOT/README.md" "$TEST_DIR/source/"
 cp -R "$ROOT/src/planner" "$TEST_DIR/source/src/planner"
+cp -R "$ROOT/lib/contract" "$TEST_DIR/source/lib/contract"
 cd "$TEST_DIR/source"
 
 # Representative unwanted files, including future directories and local state.
@@ -20,9 +21,10 @@ for path in src/spinner/main.go lib/driver/go.mod ext/example/main.go app/bootst
     touch "$path"
 done
 
-{ printf '%s\n' composer.json LICENSE README.md; find src/planner -type f; } | LC_ALL=C sort > "$TEST_DIR/expected"
+{ printf '%s\n' composer.json LICENSE README.md; find src/planner lib/contract/src -type f; } | LC_ALL=C sort > "$TEST_DIR/expected"
 test -f src/planner/GatewayServiceProvider.php
 test -f src/planner/config/gateway.php
+test -f lib/contract/src/Contracts/AutomationLanguageRegistry.php
 test -n "$(find src/planner/database/migrations -name '*.php' -print -quit)"
 
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
@@ -43,4 +45,4 @@ for archive in git composer; do
     (cd "$TEST_DIR/output/$archive" && find . -type f | sed 's#^\./##' | sort) > "$TEST_DIR/actual"
     diff -u "$TEST_DIR/expected" "$TEST_DIR/actual"
 done
-printf 'Planner Git and Composer archives contain exactly the PHP package files.\n'
+printf 'Planner Git and Composer archives contain exactly the PHP package and contract files.\n'

@@ -8,9 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 
-	"github.com/webong/gateway/src/spinner/internal/automation"
+	"github.com/webong/gateway/driver/automation"
 )
 
 const ProtocolVersion = "v1"
@@ -45,6 +46,13 @@ type IngressRequest struct {
 	RawQuery   string              `json:"raw_query,omitempty"`
 	Headers    map[string][]string `json:"headers,omitempty"`
 	Body       []byte              `json:"body,omitempty"`
+	Runtime    RuntimeCapabilities `json:"runtime"`
+}
+
+// RuntimeCapabilities describes capabilities available in the specific
+// Spinner process asking Planner for a decision.
+type RuntimeCapabilities struct {
+	AutomationLanguages []automation.Language `json:"automation_languages"`
 }
 
 // RoutePlan is returned by PHP after it validates the request, resolves the
@@ -184,10 +192,8 @@ func (p RoutePlan) Validate() error {
 		if strings.TrimSpace(p.Automation.Source) == "" {
 			return fmt.Errorf("%w: automation source is required", ErrInvalidPlan)
 		}
-		switch p.Automation.Language {
-		case automation.LanguageLua, automation.LanguageJavaScript:
-		default:
-			return fmt.Errorf("%w: unsupported automation language %q", ErrInvalidPlan, p.Automation.Language)
+		if !automationLanguagePattern.MatchString(string(p.Automation.Language)) {
+			return fmt.Errorf("%w: invalid automation language %q", ErrInvalidPlan, p.Automation.Language)
 		}
 		for index := range p.Relays {
 			if err := p.Relays[index].Validate(); err != nil {
@@ -231,3 +237,5 @@ var allowedMethods = map[string]struct{}{
 	http.MethodPut:     {},
 	http.MethodTrace:   {},
 }
+
+var automationLanguagePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)

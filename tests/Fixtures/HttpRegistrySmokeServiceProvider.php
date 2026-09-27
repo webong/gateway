@@ -27,8 +27,8 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
                 'prefix' => '',
                 'foreign_key_constraints' => true,
             ],
-            'web-proxy.base_url' => getenv('WEB_PROXY_URL') ?: 'http://127.0.0.1',
-            'web-proxy.routers.http-smoke' => TestRouter::class,
+            'proxy.base_url' => getenv('PROXY_URL') ?: 'http://127.0.0.1',
+            'proxy.routers.http-smoke' => TestRouter::class,
             'gateway.cache.enabled' => false,
             'gateway.mutations.lock_store' => 'array',
         ]);

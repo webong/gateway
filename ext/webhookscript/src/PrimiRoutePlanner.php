@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace Webong\Gateway\WebhookScript;
 
 use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Protocol\Automation;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
 
-/** Executes WebhookScript in PHP and leaves JavaScript/Lua execution in Go. */
+/** Executes this extension's language in PHP and passes other plans through. */
 final readonly class PrimiRoutePlanner implements RoutePlanner
 {
     public function __construct(
@@ -22,7 +21,7 @@ final readonly class PrimiRoutePlanner implements RoutePlanner
     public function plan(IngressRequest $request): RoutePlan
     {
         $plan = $this->planner->plan($request);
-        if ($plan->action !== RoutePlan::AUTOMATION || $plan->automation?->language !== Automation::WEBHOOKSCRIPT) {
+        if ($plan->action !== RoutePlan::AUTOMATION || $plan->automation?->language !== WebhookScriptLanguage::ID) {
             return $plan;
         }
 

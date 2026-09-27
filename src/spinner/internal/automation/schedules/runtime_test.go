@@ -2,12 +2,15 @@ package schedules
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/src/spinner/internal/automation"
+	"github.com/webong/gateway/driver/automation"
+	javascript "github.com/webong/gateway/ext/javascript/runtime"
+	lua "github.com/webong/gateway/ext/lua/runtime"
 )
 
 type fakeControl struct {
@@ -26,12 +29,12 @@ func (f *fakeControl) Complete(_ context.Context, _ Run, status string, queued i
 func TestPollExecutesGoScriptAndReportsQueuedDeliveries(t *testing.T) {
 	control := &fakeControl{runs: []Run{{
 		ID: "run-1", ScheduleID: "schedule-1", ScheduledFor: "2026-09-25 10:00:00",
-		Language: automation.LanguageLua,
+		Language: lua.Language,
 		Source:   `gateway.forward({url = "https://example.test/hook", body = gateway.event.payload.value})`,
 		Payload:  map[string]any{"value": "hello"},
 	}}}
 	var delivered automation.Delivery
-	(Runtime{Control: control, Enqueue: func(d automation.Delivery) bool {
+	(Runtime{Control: control, Executor: automation.NewRuntime(lua.New()), Enqueue: func(d automation.Delivery) bool {
 		delivered = d
 		return true
 	}}).Poll(context.Background())
@@ -42,18 +45,18 @@ func TestPollExecutesGoScriptAndReportsQueuedDeliveries(t *testing.T) {
 
 func TestPollReportsQueueFailure(t *testing.T) {
 	control := &fakeControl{runs: []Run{{
-		ID: "run-2", Language: automation.LanguageJavaScript,
+		ID: "run-2", Language: javascript.Language,
 		Source: `gateway.forward({url: 'https://example.test/hook'})`,
 	}}}
-	(Runtime{Control: control, Enqueue: func(automation.Delivery) bool { return false }}).Poll(context.Background())
+	(Runtime{Control: control, Executor: automation.NewRuntime(javascript.New()), Enqueue: func(automation.Delivery) bool { return false }}).Poll(context.Background())
 	if control.status != "failed" || control.queued != 0 || control.message == "" {
 		t.Fatalf("unexpected run result: %+v", control)
 	}
 }
 
 func TestPollReportsScriptFailure(t *testing.T) {
-	control := &fakeControl{runs: []Run{{ID: "run-3", Language: automation.LanguageLua, Source: `error("boom")`}}}
-	(Runtime{Control: control, Enqueue: func(automation.Delivery) bool { return true }}).Poll(context.Background())
+	control := &fakeControl{runs: []Run{{ID: "run-3", Language: lua.Language, Source: `error("boom")`}}}
+	(Runtime{Control: control, Executor: automation.NewRuntime(lua.New()), Enqueue: func(automation.Delivery) bool { return true }}).Poll(context.Background())
 	if control.status != "failed" || control.queued != 0 || control.message == "" {
 		t.Fatalf("unexpected run result: %+v", control)
 	}
@@ -72,18 +75,29 @@ func TestHTTPControlPlaneUsesPrivateContract(t *testing.T) {
 			t.Fatal("missing private schedule authentication")
 		}
 		paths = append(paths, request.URL.Path)
+		if strings.HasSuffix(request.URL.Path, "/claim") {
+			var payload struct {
+				Languages []automation.Language `json:"automation_languages"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if len(payload.Languages) != 1 || payload.Languages[0] != lua.Language {
+				t.Fatalf("claim did not advertise the active languages: %v", payload.Languages)
+			}
+		}
 		body := `{"data":[{"id":"run-1","claim_token":"claim-1","language":"lua","source":"gateway.respond('ok')"}]}`
 		if strings.HasSuffix(request.URL.Path, "/complete") {
 			body = `{"status":"succeeded"}`
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}
-	control, err := NewHTTPControlPlane("http://planner.test/base", "secret", client)
+	control, err := NewHTTPControlPlane("http://planner.test/base", "secret", client, lua.Language)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runs, err := control.Claim(context.Background())
-	if err != nil || len(runs) != 1 || runs[0].Language != automation.LanguageLua {
+	if err != nil || len(runs) != 1 || runs[0].Language != lua.Language {
 		t.Fatalf("unexpected claims: %+v, %v", runs, err)
 	}
 	if err := control.Complete(context.Background(), runs[0], "succeeded", 0, ""); err != nil {

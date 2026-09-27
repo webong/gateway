@@ -10,8 +10,10 @@ import (
 	"sync"
 
 	"github.com/roadrunner-server/roadrunner/v2025/lib"
+	"github.com/webong/gateway/driver/automation"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 )
 
 const RoadRunnerPluginName = "gateway"
@@ -22,6 +24,7 @@ const RoadRunnerPluginName = "gateway"
 // Laravel pages.
 type RoadRunnerPlugin struct {
 	Executor        bridge.Executor
+	Automation      automation.Executor
 	MaxBodySize     int64
 	RelayPathPrefix string
 	PlanPath        string
@@ -36,6 +39,7 @@ type RoadRunnerPlugin struct {
 func NewRoadRunnerPlugin(executor bridge.Executor, maxBodySize int64, internalToken string) *RoadRunnerPlugin {
 	return &RoadRunnerPlugin{
 		Executor:      executor,
+		Automation:    automationextensions.Runtime(),
 		MaxBodySize:   maxBodySize,
 		PlanPath:      bridge.PHPPlannerPath,
 		InternalToken: internalToken,
@@ -64,7 +68,9 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 	p.protocolPlanner = protocolPlanner
 	p.protocolMu.Unlock()
 	p.protocolReadyDo.Do(func() { close(p.protocolReady) })
-	edge := bridge.NewEdge(planner, p.Executor, p.MaxBodySize).SetPassThrough(next)
+	edge := bridge.NewEdge(planner, p.Executor, p.MaxBodySize).
+		SetAutomationExecutor(p.Automation).
+		SetPassThrough(next)
 	websocketHandler := gatewayws.NewHandler(
 		protocolPlanner,
 		p.Executor,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Webong\Gateway\Protocol\Automation;
 use Webong\Gateway\Protocol\Delivery;
+use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Response;
 use Webong\Gateway\Protocol\RoutePlan;
 
@@ -20,16 +21,37 @@ it('serializes empty response headers as a JSON map for Go', function (): void {
 
 it('serializes a Go-executed automation route plan', function (): void {
     expect(RoutePlan::automate(new Automation(
-        language: Automation::JAVASCRIPT,
+        language: 'test-script',
         source: 'gateway.respond("ok", 200);',
     ))->toArray())->toBe([
         'version' => 'v1',
         'action' => 'automation',
         'automation' => [
-            'language' => 'javascript',
+            'language' => 'test-script',
             'source' => 'gateway.respond("ok", 200);',
         ],
     ]);
+});
+
+it('allows an installed extension to define its language identifier', function (): void {
+    expect((new Automation('acme_script', 'run()'))->toArray())->toBe([
+        'language' => 'acme_script',
+        'source' => 'run()',
+    ]);
+});
+
+it('accepts the active Spinner language catalog from the bridge', function (): void {
+    $request = IngressRequest::fromArray([
+        'delivery_id' => 'delivery-1',
+        'method' => 'POST',
+        'path' => '/hook',
+        'body' => base64_encode(''),
+        'runtime' => [
+            'automation_languages' => ['lua', 'javascript', 'lua'],
+        ],
+    ]);
+
+    expect($request->automationLanguages)->toBe(['javascript', 'lua']);
 });
 
 it('serializes asynchronous relays with an immediate planner response', function (): void {

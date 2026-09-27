@@ -23,6 +23,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	relayconfig "github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
 	"github.com/webong/gateway/src/spinner/internal/logging"
@@ -185,7 +186,9 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		MaxBodySize:   g.MaxBodySize,
 	}
 	passThrough := &caddyPassThrough{handler: next}
-	edge := bridge.NewEdge(planner, g.executor, g.MaxBodySize).SetPassThrough(passThrough)
+	edge := bridge.NewEdge(planner, g.executor, g.MaxBodySize).
+		SetAutomationExecutor(automationextensions.Runtime()).
+		SetPassThrough(passThrough)
 	edge.ServeHTTP(w, r)
 
 	return passThrough.err

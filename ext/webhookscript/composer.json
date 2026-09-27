@@ -18,7 +18,10 @@
     "autoload": {
         "psr-4": {
             "Webong\\Gateway\\WebhookScript\\": "src/"
-        }
+        },
+        "files": [
+            "register.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

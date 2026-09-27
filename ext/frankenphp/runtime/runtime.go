@@ -19,7 +19,7 @@ type Runtime struct {
 }
 
 func Start(appDir string) (*Runtime, error) {
-	publicDir, err := filepath.Abs(filepath.Join(appDir, "public"))
+	publicDir, err := filepath.Abs(appDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Planner public directory: %w", err)
 	}

@@ -12,7 +12,7 @@ return new class extends Migration
     {
         Schema::create('events', function (Blueprint $table): void {
             $table->uuid('id')->primary();
-            $table->foreignUuid('endpoint_id')->constrained('web_proxy_endpoints')->cascadeOnDelete();
+            $table->foreignUuid('endpoint_id')->constrained((string) config('proxy.tables.endpoints', 'endpoints'))->cascadeOnDelete();
             $table->string('event_id')->unique();
             $table->string('protocol', 32);
             $table->string('kind', 32);

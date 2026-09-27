@@ -10,7 +10,7 @@ it('creates and updates authenticated schedules with run history', function (): 
     $schedule = $this->withToken('registry-secret')->postJson('/schedules', [
         'name' => 'Check upstream',
         'cron' => '* * * * *',
-        'language' => 'javascript',
+        'language' => 'test-script',
         'source' => "gateway.forward({url: 'https://example.test/check'})",
         'payload' => ['account' => 42],
     ])->assertCreated()->json();
@@ -28,29 +28,33 @@ it('creates and updates authenticated schedules with run history', function (): 
 });
 
 it('rejects invalid cron and source', function (): void {
-    $base = ['name' => 'bad', 'cron' => 'not cron', 'language' => 'lua', 'source' => 'gateway.respond("ok")'];
+    $base = ['name' => 'bad', 'cron' => 'not cron', 'language' => 'test-script', 'source' => 'gateway.respond("ok")'];
     $this->withToken('registry-secret')->postJson('/schedules', $base)->assertUnprocessable();
     $this->withToken('registry-secret')->postJson('/schedules', array_replace($base, [
         'cron' => '* * * * *', 'source' => '   ',
     ]))->assertUnprocessable();
     $this->withToken('registry-secret')->postJson('/schedules', array_replace($base, [
-        'cron' => '* * * * *', 'language' => 'webhookscript',
+        'cron' => '* * * * *', 'language' => 'disabled-script',
     ]))->assertUnprocessable();
 });
 
 it('claims once, rejects stale tokens and records completion', function (): void {
     $id = $this->withToken('registry-secret')->postJson('/schedules', [
         'name' => 'Minute job', 'cron' => '* * * * *',
-        'language' => 'lua', 'source' => 'gateway.respond("ok")',
+        'language' => 'test-script', 'source' => 'gateway.respond("ok")',
     ])->assertCreated()->json('id');
     DB::table('schedules')->where('id', $id)->update(['next_run_at' => now('UTC')->subMinute()]);
 
     $claim = $this->withHeader('X-Gateway-Internal', 'internal-secret')
-        ->postJson('/_internal/gateway/schedules/claim', [])->assertOk()->json('data.0');
+        ->postJson('/_internal/gateway/schedules/claim', [
+            'automation_languages' => ['test-script'],
+        ])->assertOk()->json('data.0');
     expect($claim['schedule_id'])->toBe($id)
-        ->and($claim['language'])->toBe('lua');
+        ->and($claim['language'])->toBe('test-script');
     $this->withHeader('X-Gateway-Internal', 'internal-secret')
-        ->postJson('/_internal/gateway/schedules/claim', [])->assertOk()->assertJsonCount(0, 'data');
+        ->postJson('/_internal/gateway/schedules/claim', [
+            'automation_languages' => ['test-script'],
+        ])->assertOk()->assertJsonCount(0, 'data');
 
     $this->withHeader('X-Gateway-Internal', 'internal-secret')->postJson(
         '/_internal/gateway/schedule-runs/'.$claim['id'].'/complete',
@@ -68,14 +72,18 @@ it('claims once, rejects stale tokens and records completion', function (): void
 it('reclaims expired leases without creating a second occurrence', function (): void {
     $id = $this->withToken('registry-secret')->postJson('/schedules', [
         'name' => 'Minute job', 'cron' => '* * * * *',
-        'language' => 'lua', 'source' => 'gateway.respond("ok")',
+        'language' => 'test-script', 'source' => 'gateway.respond("ok")',
     ])->assertCreated()->json('id');
     DB::table('schedules')->where('id', $id)->update(['next_run_at' => now('UTC')->subMinute()]);
     $first = $this->withHeader('X-Gateway-Internal', 'internal-secret')
-        ->postJson('/_internal/gateway/schedules/claim', [])->assertOk()->json('data.0');
+        ->postJson('/_internal/gateway/schedules/claim', [
+            'automation_languages' => ['test-script'],
+        ])->assertOk()->json('data.0');
     DB::table('schedule_runs')->where('id', $first['id'])->update(['lease_until' => now('UTC')->subSecond()]);
     $second = $this->withHeader('X-Gateway-Internal', 'internal-secret')
-        ->postJson('/_internal/gateway/schedules/claim', [])->assertOk()->json('data.0');
+        ->postJson('/_internal/gateway/schedules/claim', [
+            'automation_languages' => ['test-script'],
+        ])->assertOk()->json('data.0');
     expect($second['id'])->toBe($first['id'])
         ->and($second['claim_token'])->not->toBe($first['claim_token'])
         ->and(DB::table('schedule_runs')->count())->toBe(1);
@@ -83,5 +91,30 @@ it('reclaims expired leases without creating a second occurrence', function (): 
     $this->withToken('registry-secret')->patchJson('/schedules/'.$id, ['enabled' => false])->assertOk();
     DB::table('schedule_runs')->where('id', $first['id'])->update(['lease_until' => now('UTC')->subSecond()]);
     $this->withHeader('X-Gateway-Internal', 'internal-secret')
-        ->postJson('/_internal/gateway/schedules/claim', [])->assertOk()->assertJsonCount(0, 'data');
+        ->postJson('/_internal/gateway/schedules/claim', [
+            'automation_languages' => ['test-script'],
+        ])->assertOk()->assertJsonCount(0, 'data');
+});
+
+it('claims only schedules supported by the active Spinner worker', function (): void {
+    $id = $this->withToken('registry-secret')->postJson('/schedules', [
+        'name' => 'Capability-aware job',
+        'cron' => '* * * * *',
+        'language' => 'test-script',
+        'source' => 'run()',
+    ])->assertCreated()->json('id');
+    DB::table('schedules')->where('id', $id)->update(['next_run_at' => now('UTC')->subMinute()]);
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/claim', [])
+        ->assertOk()->assertJsonCount(0, 'data');
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/claim', [
+            'automation_languages' => [],
+        ])->assertOk()->assertJsonCount(0, 'data');
+
+    expect(DB::table('schedule_runs')->count())->toBe(0)
+        ->and(DB::table('schedules')->where('id', $id)->value('next_run_at'))
+        ->not->toBeNull();
 });

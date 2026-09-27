@@ -11,7 +11,7 @@ case "$RUNTIME" in
     *) echo 'Usage: start [library|frankenphp|roadrunner]' >&2; exit 2 ;;
 esac
 
-if [ ! -f "$APP_DIR/vendor/autoload.php" ]; then
+if [ ! -f "$APP_DIR/../vendor/autoload.php" ]; then
     echo "Planner dependencies are missing; run composer install --working-dir=$APP_DIR" >&2
     exit 1
 fi
@@ -55,7 +55,7 @@ if [ ! -f "$DB_DATABASE" ]; then
     touch "$DB_DATABASE"
 fi
 
-php "$APP_DIR/artisan" migrate --path=vendor/webong/web-proxy/database/migrations --force
+php "$APP_DIR/artisan" migrate --realpath --path="$APP_DIR/../vendor/webong/proxy/database/migrations" --force
 php "$APP_DIR/artisan" migrate --force
 
 if [ "$RUNTIME" = library ]; then
@@ -64,7 +64,6 @@ if [ "$RUNTIME" = library ]; then
         echo 'Build the FrankenPHP library Router with scripts/build-router-library first.' >&2
         exit 1
     fi
-    export GATEWAY_RUNTIME=http
     exec "$LIBRARY_BIN"
 fi
 
@@ -77,8 +76,8 @@ if [ "$RUNTIME" = frankenphp ]; then
     exec "$FRANKENPHP_BIN" run --config "$APP_DIR/Caddyfile"
 fi
 
-if [ ! -x "$APP_DIR/vendor/bin/roadrunner-worker" ]; then
-    echo "RoadRunner worker is missing from $APP_DIR/vendor/bin; install Planner dependencies." >&2
+if [ ! -x "$APP_DIR/../vendor/bin/roadrunner-worker" ]; then
+    echo "RoadRunner worker is missing from $APP_DIR/../vendor/bin; install Planner dependencies." >&2
     exit 1
 fi
 
@@ -99,9 +98,9 @@ php -r '
     $quote = static fn (string $value): string => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $app = getenv("GATEWAY_ROUTER_APP_DIR");
     $octane = getenv("GATEWAY_ROUTER_DATA_DIR")."/octane";
-    $worker = "php vendor/bin/roadrunner-worker";
+    $worker = "php ../vendor/bin/roadrunner-worker";
     $config = "version: \"3\"\nserver:\n  command: ".$quote($worker)."\n  env:\n";
-    foreach (["APP_BASE_PATH" => $octane, "COMPOSER_VENDOR_DIR" => $app."/vendor", "LARAVEL_OCTANE" => "1"] as $key => $value) {
+    foreach (["APP_BASE_PATH" => $octane, "COMPOSER_VENDOR_DIR" => dirname($app)."/vendor", "LARAVEL_OCTANE" => "1"] as $key => $value) {
         $config .= "    ".$key.": ".$quote($value)."\n";
     }
     foreach (["APP_ENV", "APP_KEY", "DB_CONNECTION", "DB_DATABASE", "SESSION_DRIVER", "GATEWAY_ROUTER_DATA_DIR", "LARAVEL_STORAGE_PATH", "APP_SERVICES_CACHE", "APP_PACKAGES_CACHE", "APP_CONFIG_CACHE", "APP_ROUTES_CACHE", "APP_EVENTS_CACHE", "GATEWAY_PATH_RESOLVER", "GATEWAY_INTERNAL_TOKEN", "REGISTRY_TOKEN", "GATEWAY_PUBLIC_URL"] as $key) {

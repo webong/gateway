@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Schedules\Http;
 
+use Closure;
 use Cron\CronExpression;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,6 +12,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\RegistryRequestAuthenticator;
 use Webong\Gateway\Schedules\ScheduleStore;
 
@@ -19,6 +22,7 @@ final readonly class ScheduleController
     public function __construct(
         private RegistryRequestAuthenticator $authenticator,
         private ScheduleStore $store,
+        private AutomationLanguageRegistry $languages,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -44,7 +48,7 @@ final readonly class ScheduleController
             'name' => ['required', 'string', 'max:255'],
             'cron' => ['required', 'string', 'max:100'],
             'timezone' => ['sometimes', 'string', 'timezone'],
-            'language' => ['required', 'in:javascript,lua'],
+            'language' => ['required', $this->enabledLanguage(...)],
             'source' => ['required', 'string', 'max:65535'],
             'payload' => ['sometimes', 'array'],
             'enabled' => ['sometimes', 'boolean'],
@@ -103,7 +107,7 @@ final readonly class ScheduleController
             'name' => ['sometimes', 'string', 'max:255'],
             'cron' => ['sometimes', 'string', 'max:100'],
             'timezone' => ['sometimes', 'string', 'timezone'],
-            'language' => ['sometimes', 'in:javascript,lua'],
+            'language' => ['sometimes', $this->enabledLanguage(...)],
             'source' => ['sometimes', 'string', 'max:65535'],
             'payload' => ['sometimes', 'array'],
             'enabled' => ['sometimes', 'boolean'],
@@ -176,6 +180,14 @@ final readonly class ScheduleController
             'created_at' => $row->created_at,
             'updated_at' => $row->updated_at,
         ];
+    }
+
+    private function enabledLanguage(string $attribute, mixed $value, Closure $fail): void
+    {
+        if (! is_string($value)
+            || ! $this->languages->supports($value, AutomationCapability::SCHEDULE)) {
+            $fail("The {$attribute} is not enabled for scheduled automation.");
+        }
     }
 
     private function invalid(string $message): JsonResponse

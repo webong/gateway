@@ -13,6 +13,36 @@ application skeleton or a separate service you must deploy. Choose a runtime:
 All runtimes use the same Planner package, SQLite registry, `/hooks/{key}`
 route convention, and management CLI. A container is optional.
 
+The launcher chooses the Planner connection from the selected Router runtime.
+`library` injects FrankenPHP's in-process handler; `roadrunner` uses its managed
+PHP workers. Do not set `GATEWAY_RUNTIME` for `library`: that variable selects
+the adapter only when running Spinner alone. The library Router also rejects
+external Planner URL/socket settings, schedule polling, and provisioning,
+which currently require the separate HTTP Planner topology.
+
+The host uses `app/index.php`, `app/bootstrap.php`, and one `app/config.php`
+array instead of Laravel's public/config/bootstrap directory skeleton.
+Host configuration overrides framework defaults before providers register;
+installed Composer packages are discovered normally and merge their own defaults.
+The monorepo host also uses Composer Merge Plugin to load
+`../ext/*/composer.json`. Those extension-owned manifests supply their
+dependencies, autoload paths, and Planner companion registration without
+adding extension names to Planner.
+The current Proxy dependency uses the `proxy` configuration namespace.
+For this integration test, both Composer manifests pin `webong/proxy` to
+feature commit `b01cf9c` while the repository's `main` branch still declares
+the former package name. Replace the temporary package repository entries with
+the normal VCS repository after the Proxy rename reaches `main`.
+Dependencies live in the shared root `vendor/` directory (`app/composer.json`
+sets `vendor-dir` to `../vendor`). Use the app Composer manifest for a production
+Router build; it shares a vendor location with the development manifest, so do
+not alternate installs in a running deployment.
+
+Laravel cache commands receive a generated compatibility bootstrap under the
+data directory. No generated cache or storage files belong in `app/`.
+Run `bash scripts/test-router-host` to check discovery, configuration caching,
+and host routing using temporary runtime state.
+
 ## Build a native distribution
 
 From the source checkout, install Planner dependencies and build a portable
@@ -56,6 +86,13 @@ The `app/` tree stays free of runtime state. Set
 keep the data directory across restarts and back it up as one unit. On first
 start the launcher generates a Laravel key, an internal Spinner-to-Planner
 credential, and a registry credential, then applies migrations.
+
+An existing Router database created with `webong/web-proxy` needs the opt-in
+Proxy legacy migration before its first start with this version. Back up the
+Router data directory, load its usual database and app-key environment, and
+run `app/artisan migrate --realpath` against
+`vendor/webong/proxy/database/legacy-migrations` once. The normal startup then
+applies the renamed Proxy migrations and creates the `profiles` table.
 
 For the FrankenPHP Go-library extension, build and run the Router directly.
 Spinner owns the listener, and the bundled Planner executes in the same process
@@ -104,7 +141,8 @@ controlled public HTTPS receiver.
 
 ## Optional Docker image
 
-The image builds the `ext/frankenphp` Go-library Router with Go 1.26 and bundles
+The image builds `ext/frankenphp/cmd/router`, which connects `lib/router` to the
+`ext/frankenphp` PHP adapter, with Go 1.26 and bundles
 the Planner on Debian. It compiles PHP 8.4 from the upstream release archive
 with ZTS, the embed SAPI, and Linux execution timers, following FrankenPHP's
 [library compilation requirements](https://frankenphp.dev/docs/library/).
