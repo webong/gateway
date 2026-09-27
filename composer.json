@@ -48,8 +48,22 @@
             "Webong\\Gateway\\Tests\\": "tests/"
         }
     },
+    "archive": {
+        "exclude": [
+            "/*",
+            "/.*",
+            "!/composer.json",
+            "!/LICENSE",
+            "!/README.md",
+            "!/src",
+            "/src/*",
+            "!/src/planner",
+            "!/src/planner/**"
+        ]
+    },
     "scripts": {
-        "test": "pest"
+        "test": "pest",
+        "test-package": "bash scripts/test-planner-package"
     },
     "extra": {
         "laravel": {

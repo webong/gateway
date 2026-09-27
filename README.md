@@ -62,6 +62,27 @@ storage, evaluates match rules, or runs PHP migrations. It handles ingress and
 egress traffic and asks the PHP application for a route plan through the
 selected runtime adapter.
 
+## Planner package distribution
+
+Composer distribution archives contain only `composer.json`, `LICENSE`,
+`README.md`, and `src/planner/` (including configuration and migrations).
+The Go Spinner, extension sources, Go driver library, bundled Router app,
+tests, and deployment/build tooling are not downloaded into the consuming
+application's vendor directory with these archives. Dependencies are still
+resolved normally by Composer.
+
+`.gitattributes` controls GitHub/Git source archives; `archive.exclude` in
+`composer.json` controls Composer-built archives. No install-time cleanup or
+Composer plugin is needed. Verify both independently with `composer test-package`
+from a source checkout.
+
+This applies to releases containing these packaging rules, not existing tags
+or cached archives. `--prefer-source` (or a fallback to a Git clone) still
+downloads the full repository. Use a Git clone for Router/Spinner builds:
+the repository's generated source ZIP/tar downloads are Planner-only too.
+The driver release script constructs its own separate release tree and is
+unaffected by these root archive rules.
+
 ## Repository layout
 
 - `lib/driver` is the independent `github.com/webong/gateway/driver` Go module

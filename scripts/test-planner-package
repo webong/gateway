@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export LC_ALL=C
+
+# Exercise both archive mechanisms without modifying this checkout or its index.
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-package.XXXXXX")
+trap 'rm -rf "$TEST_DIR"' EXIT
+mkdir -p "$TEST_DIR/source/src" "$TEST_DIR/output"
+cp "$ROOT/composer.json" "$ROOT/.gitattributes" "$ROOT/LICENSE" "$ROOT/README.md" "$TEST_DIR/source/"
+cp -R "$ROOT/src/planner" "$TEST_DIR/source/src/planner"
+cd "$TEST_DIR/source"
+
+# Representative unwanted files, including future directories and local state.
+for path in src/spinner/main.go lib/driver/go.mod ext/example/main.go app/bootstrap.php \
+    scripts/build-router docker/Dockerfile deploy/kubernetes/router.yaml tests/Test.php \
+    vendor/autoload.php .gateway-router-data/gateway.env future/component.txt \
+    docs/deployment.md config/Caddyfile go.mod go.sum composer.lock .env; do
+    mkdir -p "$(dirname "$path")"
+    touch "$path"
+done
+
+{ printf '%s\n' composer.json LICENSE README.md; find src/planner -type f; } | LC_ALL=C sort > "$TEST_DIR/expected"
+test -f src/planner/GatewayServiceProvider.php
+test -f src/planner/config/gateway.php
+test -n "$(find src/planner/database/migrations -name '*.php' -print -quit)"
+
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+git init -q
+git add --all
+TREE=$(git write-tree)
+git archive --format=tar --output="$TEST_DIR/output/git.tar" "$TREE"
+
+# Remove Git attributes so Composer's own exclusions must work independently.
+rm .gitattributes
+COMPOSER_ROOT_VERSION=dev-main composer --no-plugins --no-scripts archive \
+    --format=tar --file=composer --dir="$TEST_DIR/output" --no-interaction
+
+for archive in git composer; do
+    mkdir "$TEST_DIR/output/$archive"
+    tar -xf "$TEST_DIR/output/$archive.tar" -C "$TEST_DIR/output/$archive"
+    (cd "$TEST_DIR/output/$archive" && find . -type f | sed 's#^\./##' | sort) > "$TEST_DIR/actual"
+    diff -u "$TEST_DIR/expected" "$TEST_DIR/actual"
+done
+printf 'Planner Git and Composer archives contain exactly the PHP package files.\n'

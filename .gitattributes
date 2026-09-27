@@ -1,0 +1,8 @@
+# Repository archives are the Composer Planner distribution, not Router source bundles.
+/* export-ignore
+/composer.json -export-ignore
+/LICENSE -export-ignore
+/README.md -export-ignore
+/src -export-ignore
+/src/* export-ignore
+/src/planner -export-ignore
