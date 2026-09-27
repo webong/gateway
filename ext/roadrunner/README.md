@@ -20,7 +20,9 @@ Do not set `GATEWAY_RUNTIME` for the bundled Router: its command selects the ada
 
 The old Spinner `GATEWAY_RUNTIME=roadrunner` entrypoint remains compatible and
 delegates server ownership to this extension. It is not used by the new bundled
-launcher. The existing Router Docker image still selects FrankenPHP.
+launcher. Build the RoadRunner image with
+`docker build -f infra/docker/RoadRunner.router.Dockerfile -t gateway-router:roadrunner-local .`.
+It uses the same port 8080 and persistent `/data` convention as the FrankenPHP image.
 
 Test each module separately with `go test ./...` from `ext/roadrunner` and
 `ext/roadrunner/cmd/router`. Use `bash scripts/test-router-boundaries` from the

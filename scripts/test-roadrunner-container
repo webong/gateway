@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IMAGE=${1:-gateway-router:roadrunner-local}
+NAME="gateway-rr-smoke-$$-$RANDOM"
+VOLUME="$NAME-data"
+cleanup() {
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+docker volume create "$VOLUME" >/dev/null
+docker run -d --name "$NAME" --read-only --tmpfs /tmp -p 127.0.0.1::8080 \
+    --mount "type=volume,source=$VOLUME,target=/data" "$IMAGE" >/dev/null
+ADDRESS=$(docker port "$NAME" 8080/tcp)
+wait_ready() {
+    for ((attempt=0; attempt<60; attempt++)); do
+        if [[ $(docker inspect -f '{{.State.Running}}' "$NAME") != true ]]; then
+            docker logs "$NAME" >&2
+            exit 1
+        fi
+        if [[ $(curl --max-time 2 -s -o /dev/null -w '%{http_code}' "http://$ADDRESS/health" || true) == 204 ]]; then
+            return
+        fi
+        sleep 1
+    done
+    docker logs "$NAME" >&2
+    echo 'RoadRunner Router failed to become ready.' >&2
+    exit 1
+}
+wait_ready
+[[ $(docker exec "$NAME" id -u) != 0 ]]
+for path in /_internal/gateway/plan /config.php /bootstrap.php; do
+    [[ $(curl --max-time 5 -s -o /dev/null -w '%{http_code}' "http://$ADDRESS$path") == 404 ]]
+done
+KEY_HASH=$(docker exec "$NAME" sha256sum /data/gateway.env)
+docker exec "$NAME" test -s /data/gateway.sqlite
+docker exec "$NAME" /gateway/scripts/gateway-router artisan gateway:endpoint container-smoke >/dev/null
+docker restart "$NAME" >/dev/null
+ADDRESS=$(docker port "$NAME" 8080/tcp)
+wait_ready
+[[ $(docker exec "$NAME" sha256sum /data/gateway.env) == "$KEY_HASH" ]]
+docker exec "$NAME" test -s /data/gateway.sqlite
+docker exec "$NAME" php -r '
+    $db = new PDO("sqlite:/data/gateway.sqlite");
+    $query = $db->prepare("SELECT COUNT(*) FROM endpoints WHERE external_id = ?");
+    $query->execute(["container-smoke"]);
+    exit((int) $query->fetchColumn() === 1 ? 0 : 1);
+'
+echo 'RoadRunner Router: health, non-root execution, private routes, CLI, and restart persistence passed.'

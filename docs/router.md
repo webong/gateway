@@ -173,3 +173,26 @@ Laravel Planner over private HTTP. The existing FrankenPHP SMTP module has
 its own configuration example in `infra/caddy/Caddyfile.frankenphp.example`.
 
 For Kubernetes, use the separate [Router and Spinner manifests](kubernetes.md).
+
+### RoadRunner Docker image
+
+The alternative image packages `ext/roadrunner/cmd/router`, ordinary PHP CLI
+workers, and the same Planner host. It does not use FrankenPHP, ZTS, or a
+separate Planner service. It runs as `www-data`, listens on port 8080, and
+persists credentials, SQLite, storage, and generated worker configuration in `/data`.
+
+```sh
+docker build -f infra/docker/RoadRunner.router.Dockerfile -t gateway-router:roadrunner-local .
+docker run -d --name gateway-router -p 8080:8080 \
+  -v gateway-router-data:/data gateway-router:roadrunner-local
+docker exec gateway-router /gateway/scripts/gateway-router artisan gateway:endpoint orders
+```
+
+Choose either Router image for a deployment; do not run both against the same
+SQLite volume concurrently. The existing single-replica Kubernetes Router
+configuration can use this image by changing its image reference. The default
+Docker image definition remains the FrankenPHP variant.
+
+Run `bash scripts/test-roadrunner-container gateway-router:roadrunner-local`
+to check health, non-root execution, private-route isolation, management CLI,
+and restart persistence. The test deletes its own temporary container and volume.

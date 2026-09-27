@@ -12,6 +12,12 @@ and replace the example `image:` value in that configuration before applying
 it. The manifests intentionally do not create an Ingress or configure TLS;
 attach your cluster's ingress/controller to the `router` or `spinner` Service.
 
+For a RoadRunner-based combined Router, build
+`infra/docker/RoadRunner.router.Dockerfile` instead of the FrankenPHP Dockerfile
+and set that image on the same Router Deployment. Both images use port 8080,
+the `/health` probe, UID/GID 33, and the `/data` PVC. Keep the single-replica
+SQLite deployment strategy with either image.
+
 ## Combined Router
 
 ```sh
