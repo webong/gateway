@@ -561,6 +561,14 @@ disconnect cancels the source connection. Endpoint-owned WebProxy profile
 transport settings remain attached to the source; the normal request timeout is
 not applied to an established stream.
 
+For a protected source, attach an endpoint-scoped Proxy profile to the reply
+subscription. Its encrypted `options.headers` are sent only with the selected
+Webstream source request (for example, `Authorization: Bearer …`); they are
+not exposed through registry resources, copied from the client, or used for
+ordinary relay deliveries. Source profile headers override a same-named client
+header; connection-framing headers and `Last-Event-ID` are reserved, so the
+resume marker always remains client-controlled.
+
 Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
 reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
 built-in registry planner forwards it only to the selected source. It emits a

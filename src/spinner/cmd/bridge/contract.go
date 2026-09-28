@@ -96,9 +96,10 @@ type Delivery struct {
 // HTTPTransport contains the transport-neutral subset of an endpoint-owned
 // Proxy profile that Spinner needs to execute one outbound HTTP request.
 type HTTPTransport struct {
-	Proxy                 *HTTPProxy `json:"proxy,omitempty"`
-	ConnectTimeoutSeconds float64    `json:"connect_timeout_seconds,omitempty"`
-	RequestTimeoutSeconds float64    `json:"request_timeout_seconds,omitempty"`
+	Proxy                 *HTTPProxy          `json:"proxy,omitempty"`
+	ConnectTimeoutSeconds float64             `json:"connect_timeout_seconds,omitempty"`
+	RequestTimeoutSeconds float64             `json:"request_timeout_seconds,omitempty"`
+	StreamHeaders         map[string][]string `json:"stream_headers,omitempty"`
 }
 
 type HTTPProxy struct {
@@ -247,6 +248,16 @@ func (t HTTPTransport) Validate() error {
 	if t.RequestTimeoutSeconds < 0 || t.RequestTimeoutSeconds > 300 {
 		return errors.New("request timeout must be at most 300 seconds")
 	}
+	for name, values := range t.StreamHeaders {
+		if !validStreamHeaderName(name) {
+			return fmt.Errorf("invalid webstream header name %q", name)
+		}
+		for _, value := range values {
+			if strings.ContainsAny(value, "\r\n") {
+				return fmt.Errorf("webstream header %q contains a line break", name)
+			}
+		}
+	}
 	if t.Proxy == nil {
 		return nil
 	}
@@ -265,6 +276,17 @@ func (t HTTPTransport) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validStreamHeaderName(name string) bool {
+	if name == "" || strings.ContainsAny(name, "()<>@,;:\\\"/[]?={} \t\r\n") {
+		return false
+	}
+	switch strings.ToLower(name) {
+	case "connection", "content-length", "host", "last-event-id", "transfer-encoding", "upgrade":
+		return false
+	}
+	return true
 }
 
 func (r Response) Validate() error {

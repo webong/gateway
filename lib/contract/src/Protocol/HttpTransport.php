@@ -10,11 +10,12 @@ final readonly class HttpTransport
 {
     private const int MAX_TIMEOUT_SECONDS = 300;
 
-    /** @param list<string> $noProxy */
+    /** @param list<string> $noProxy @param array<string, list<string>> $streamHeaders */
     public function __construct(
         public ?string $httpProxy = null,
         public ?string $httpsProxy = null,
         public array $noProxy = [],
+        public array $streamHeaders = [],
         public ?float $connectTimeoutSeconds = null,
         public ?float $requestTimeoutSeconds = null,
     ) {
@@ -37,11 +38,27 @@ final readonly class HttpTransport
             }
         }
 
+        foreach ($this->streamHeaders as $name => $values) {
+            if (! is_string($name) || preg_match('/^[!#$%&\'*+.^_`|~0-9A-Za-z-]+$/', $name) !== 1 || self::reservedStreamHeader($name) || ! is_array($values)) {
+                throw new InvalidArgumentException('Webstream headers must be a valid string-to-list map.');
+            }
+            foreach ($values as $value) {
+                if (! is_string($value) || str_contains($value, "\r") || str_contains($value, "\n")) {
+                    throw new InvalidArgumentException('Webstream header values must not contain line breaks.');
+                }
+            }
+        }
+
         foreach (['connect' => $this->connectTimeoutSeconds, 'request' => $this->requestTimeoutSeconds] as $name => $seconds) {
             if ($seconds !== null && ($seconds <= 0 || $seconds > self::MAX_TIMEOUT_SECONDS)) {
                 throw new InvalidArgumentException(ucfirst($name).' timeout must be greater than 0 and at most 300 seconds.');
             }
         }
+    }
+
+    private static function reservedStreamHeader(string $name): bool
+    {
+        return in_array(strtolower($name), ['connection', 'content-length', 'host', 'last-event-id', 'transfer-encoding', 'upgrade'], true);
     }
 
     /** @param array<string, mixed> $payload */
@@ -69,10 +86,23 @@ final readonly class HttpTransport
             }
         }
 
+        $headers = $payload['stream_headers'] ?? [];
+        if (! is_array($headers)) {
+            throw new InvalidArgumentException('Webstream headers must be an object.');
+        }
+        $normalizedHeaders = [];
+        foreach ($headers as $name => $values) {
+            if (! is_string($name) || ! is_array($values)) {
+                throw new InvalidArgumentException('Webstream headers must be a string-to-list map.');
+            }
+            $normalizedHeaders[$name] = array_values($values);
+        }
+
         return new self(
             httpProxy: $proxy['http'] ?? null,
             httpsProxy: $proxy['https'] ?? null,
             noProxy: array_values($noProxy),
+            streamHeaders: $normalizedHeaders,
             connectTimeoutSeconds: isset($payload['connect_timeout_seconds'])
                 ? (float) $payload['connect_timeout_seconds']
                 : null,
@@ -93,6 +123,7 @@ final readonly class HttpTransport
             ], static fn (mixed $value): bool => $value !== null && $value !== []),
             'connect_timeout_seconds' => $this->connectTimeoutSeconds,
             'request_timeout_seconds' => $this->requestTimeoutSeconds,
+            'stream_headers' => $this->streamHeaders,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);
     }
 }

@@ -126,6 +126,17 @@ func TestForwardTransportCopiesNormalizedProfileSettings(t *testing.T) {
 	}
 }
 
+func TestWebstreamSourceHeadersPreferEndpointProfileCredentials(t *testing.T) {
+	headers := streamHeaders(GatewayDelivery{
+		Protocol: ProtocolHTTP, Target: "https://events.example.test/stream",
+		Headers:   map[string][]string{"Last-Event-ID": {"event-42"}, "Authorization": {"Bearer client-token"}},
+		Transport: &HTTPTransport{StreamHeaders: map[string][]string{"Authorization": {"Bearer source-secret"}, "X-Source-Scope": {"orders"}}},
+	})
+	if headers["Authorization"][0] != "Bearer source-secret" || headers["Last-Event-ID"][0] != "event-42" || headers["X-Source-Scope"][0] != "orders" {
+		t.Fatalf("unexpected source headers: %v", headers)
+	}
+}
+
 func TestDeliveryRejectsMalformedHTTPTransport(t *testing.T) {
 	delivery := Delivery{
 		URL: "https://subscriber.example.test/hook",

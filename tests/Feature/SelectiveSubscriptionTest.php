@@ -164,6 +164,10 @@ it('resolves an endpoint network profile into the Go delivery contract', functio
             'options' => [
                 'connect_timeout' => 5,
                 'timeout' => 15,
+                'headers' => [
+                    'Authorization' => 'Bearer source-secret',
+                    'X-Source-Scope' => ['orders', 'events'],
+                ],
             ],
         ],
     ));
@@ -202,6 +206,10 @@ it('resolves an endpoint network profile into the Go delivery contract', functio
             ],
             'connect_timeout_seconds' => 5.0,
             'request_timeout_seconds' => 15.0,
+            'stream_headers' => [
+                'Authorization' => ['Bearer source-secret'],
+                'X-Source-Scope' => ['orders', 'events'],
+            ],
         ]);
 
     $removed = $this->withToken('registry-secret')

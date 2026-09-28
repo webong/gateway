@@ -33,9 +33,43 @@ final class EndpointHttpTransportResolver
             httpProxy: $httpProxy,
             httpsProxy: $httpsProxy,
             noProxy: $noProxy,
+            streamHeaders: $this->streamHeaders($options, $profileName),
             connectTimeoutSeconds: $this->timeout($options, 'connect_timeout', $profileName),
             requestTimeoutSeconds: $this->timeout($options, 'timeout', $profileName),
         );
+    }
+
+    /** @param array<string, mixed> $options @return array<string, list<string>> */
+    private function streamHeaders(array $options, string $profileName): array
+    {
+        $headers = $options['headers'] ?? [];
+        if (! is_array($headers)) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] headers must be an object.");
+        }
+
+        $normalized = [];
+        foreach ($headers as $name => $values) {
+            if (! is_string($name) || preg_match('/^[!#$%&\'*+.^_`|~0-9A-Za-z-]+$/', $name) !== 1 || $this->reservedStreamHeader($name)) {
+                throw new InvalidArgumentException("Proxy profile [{$profileName}] contains an invalid header name.");
+            }
+            $values = is_string($values) ? [$values] : $values;
+            if (! is_array($values)) {
+                throw new InvalidArgumentException("Proxy profile [{$profileName}] header values must be strings or lists.");
+            }
+            foreach ($values as $value) {
+                if (! is_string($value) || str_contains($value, "\r") || str_contains($value, "\n")) {
+                    throw new InvalidArgumentException("Proxy profile [{$profileName}] contains an invalid header value.");
+                }
+            }
+            $normalized[$name] = array_values($values);
+        }
+
+        return $normalized;
+    }
+
+    private function reservedStreamHeader(string $name): bool
+    {
+        return in_array(strtolower($name), ['connection', 'content-length', 'host', 'last-event-id', 'transfer-encoding', 'upgrade'], true);
     }
 
     /** @return array{?string, ?string, list<string>} */

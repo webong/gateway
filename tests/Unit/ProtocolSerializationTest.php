@@ -81,6 +81,7 @@ it('serializes endpoint network settings without exposing a profile identity', f
             httpProxy: 'http://proxy-user:proxy-pass@proxy.example.test:8080',
             httpsProxy: 'socks5h://proxy.example.test:1080',
             noProxy: ['.internal.example.test'],
+            streamHeaders: ['Authorization' => ['Bearer source-secret']],
             connectTimeoutSeconds: 5,
             requestTimeoutSeconds: 15,
         ),
@@ -96,8 +97,14 @@ it('serializes endpoint network settings without exposing a profile identity', f
             ],
             'connect_timeout_seconds' => 5.0,
             'request_timeout_seconds' => 15.0,
+            'stream_headers' => ['Authorization' => ['Bearer source-secret']],
         ],
     ])->and(Delivery::fromArray($delivery->toArray()))->toEqual($delivery);
+});
+
+it('does not permit a static source profile to replace the SSE resume marker', function (): void {
+    expect(fn () => new HttpTransport(streamHeaders: ['Last-Event-ID' => ['stale']]))
+        ->toThrow(InvalidArgumentException::class);
 });
 
 it('round-trips declarative script schedule commands', function (): void {

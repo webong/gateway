@@ -17,7 +17,17 @@ func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDeliv
 	if e == nil || e.forwarder == nil {
 		return nil, fmt.Errorf("webstream transport is not configured")
 	}
-	return e.forwarder.OpenStream(ctx, delivery.Target, delivery.Headers, forwardTransport(delivery.Transport))
+	return e.forwarder.OpenStream(ctx, delivery.Target, streamHeaders(delivery), forwardTransport(delivery.Transport))
+}
+
+func streamHeaders(delivery GatewayDelivery) http.Header {
+	headers := cloneRelayHeaders(delivery.Headers)
+	if delivery.Transport != nil {
+		for name, values := range delivery.Transport.StreamHeaders {
+			headers[name] = append([]string(nil), values...)
+		}
+	}
+	return headers
 }
 
 // RelayExecutor adapts the Go transport implementation to the Go/PHP bridge.
