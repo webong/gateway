@@ -11,6 +11,8 @@ import (
 )
 
 type DockerDriverConfig struct {
+	TargetID        string
+	Context         string
 	Binary          string
 	NodeID          string
 	Network         string
@@ -47,14 +49,21 @@ func newDockerDriver(config DockerDriverConfig, runner commandRunner) (*DockerDr
 		return nil, fmt.Errorf("provisioning Docker command runner is required")
 	}
 
+	if config.Context != "" {
+		runner = prefixedCommandRunner{runner: runner, arguments: []string{"--context", config.Context}}
+	}
 	return &DockerDriver{config: config, runner: runner}, nil
 }
 
 func (d *DockerDriver) Prepare(ctx context.Context) error {
-	containers, err := d.runner.Output(ctx, nil, d.config.Binary,
+	args := []string{
 		"ps", "--all", "--quiet",
-		"--filter", "label=gateway.provisioning.node="+runtimeLabelValue(d.config.NodeID),
-	)
+		"--filter", "label=gateway.provisioning.node=" + runtimeLabelValue(d.config.NodeID),
+	}
+	if d.config.TargetID != "" {
+		args = append(args, "--filter", "label=gateway.provisioning.target="+d.config.TargetID)
+	}
+	containers, err := d.runner.Output(ctx, nil, d.config.Binary, args...)
 	if err != nil {
 		return err
 	}
@@ -158,6 +167,9 @@ func dockerRunArguments(config DockerDriverConfig, spec ServerSpec, instanceID, 
 	}
 	if config.Network != "" {
 		arguments = append(arguments, "--network", config.Network)
+	}
+	if config.TargetID != "" {
+		arguments = append(arguments, "--label", "gateway.provisioning.target="+config.TargetID)
 	}
 	if config.EnvironmentFile != "" {
 		arguments = append(arguments, "--env-file", config.EnvironmentFile)

@@ -35,6 +35,7 @@ final readonly class ServerRegistry
                 'hostname' => $attributes['hostname'],
                 'path' => self::normalizePath((string) ($attributes['path'] ?? $type->defaultPath())),
                 'driver' => $attributes['driver'] ?? 'local',
+                'target_id' => $attributes['target_id'] ?? null,
                 'desired_state' => 'stopped',
                 'replicas' => $attributes['replicas'] ?? 1,
                 'revision' => 1,

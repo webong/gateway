@@ -21,8 +21,8 @@ final readonly class InternalAssignmentController
 
     public function __invoke(Request $request, string $node): JsonResponse
     {
-        $this->authenticator->authorizeOrHide($request);
-        $validator = $this->validator->make(['node_id' => $node, ...$request->json()->all()], [
+        $target = $this->authenticator->target($request);
+        $validator = $this->validator->make([...$request->json()->all(), 'node_id' => $node], [
             'node_id' => ['required', 'string', 'max:255'],
             'drivers' => ['required', 'array', 'min:1'],
             'drivers.*' => ['string', 'in:local,docker,kubernetes'],
@@ -31,7 +31,11 @@ final readonly class InternalAssignmentController
             return response()->json(['message' => 'The provisioning node heartbeat is invalid.', 'errors' => $validator->errors()->toArray()], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $assignment = $this->coordinator->assignments($node, $validator->validated()['drivers']);
+        $drivers = $validator->validated()['drivers'];
+        if ($target !== null && $drivers !== [$target->driver]) {
+            return response()->json(['message' => 'Worker drivers must match its target.'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        $assignment = $this->coordinator->assignments($node, $drivers, $target?->getKey());
 
         return response()->json(['data' => $assignment['data'], 'meta' => ['leader_id' => $assignment['leader_id']]]);
     }

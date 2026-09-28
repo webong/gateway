@@ -10,6 +10,8 @@ import (
 )
 
 type Config struct {
+	TargetID                       string
+	TargetToken                    string
 	CoordinationLease              time.Duration
 	PollInterval                   time.Duration
 	StartTimeout                   time.Duration
@@ -39,9 +41,25 @@ type Runtime struct {
 }
 
 func Start(config Config, backendURL, internalToken string, client *http.Client, logger Logger, workloads ...Workload) (*Runtime, error) {
+	if config.TargetID != "" {
+		internalToken = config.TargetToken
+	}
 	control, err := NewHTTPControlPlane(backendURL, internalToken, client)
 	if err != nil {
 		return nil, fmt.Errorf("initialize provisioning control plane: %w", err)
+	}
+	control.targetID = config.TargetID
+	var target *DeploymentTarget
+	if config.TargetID != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), config.StartTimeout)
+		target, err = control.Target(ctx)
+		if err == nil {
+			err = target.Check(ctx, config, execCommandRunner{})
+		}
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("verify deployment target: %w", err)
+		}
 	}
 	localDriver, err := NewLocalDriver(LocalDriverConfig{
 		StartTimeout: config.StartTimeout,
@@ -51,9 +69,19 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		return nil, fmt.Errorf("initialize local provisioning driver: %w", err)
 	}
 
-	drivers := map[string]Driver{DriverLocal: localDriver}
-	if hasDriver(workloads, DriverDocker) {
+	drivers := map[string]Driver{}
+	if target == nil || target.Driver == DriverLocal {
+		drivers[DriverLocal] = localDriver
+	}
+	if hasDriver(workloads, DriverDocker) && (target == nil || target.Driver == DriverDocker) {
+		if target != nil {
+			config.DockerPublishHost = target.Connection.PublishHost
+			config.DockerRouteHost = target.Connection.RouteHost
+			config.DockerNetwork = target.Connection.Network
+		}
 		dockerDriver, driverErr := NewDockerDriver(DockerDriverConfig{
+			TargetID:        config.TargetID,
+			Context:         targetContext(target),
 			Binary:          config.DockerBinary,
 			NodeID:          config.NodeID,
 			Network:         config.DockerNetwork,
@@ -68,8 +96,17 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		}
 		drivers[DriverDocker] = dockerDriver
 	}
-	if hasDriver(workloads, DriverKubernetes) {
+	if hasDriver(workloads, DriverKubernetes) && (target == nil || target.Driver == DriverKubernetes) {
+		kubeconfig := ""
+		if target != nil {
+			kubeconfig = target.Connection.Kubeconfig
+			config.KubernetesNamespace = target.Connection.Namespace
+			config.KubernetesRouteMode = target.Connection.RouteMode
+		}
 		kubernetesDriver, driverErr := NewKubernetesDriver(KubernetesDriverConfig{
+			TargetID:             config.TargetID,
+			Context:              targetContext(target),
+			Kubeconfig:           kubeconfig,
 			KubectlBinary:        config.KubernetesKubectl,
 			NodeID:               config.NodeID,
 			Namespace:            config.KubernetesNamespace,
@@ -86,13 +123,23 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		}
 		drivers[DriverKubernetes] = kubernetesDriver
 	}
+	if target != nil && !hasDriver(workloads, target.Driver) {
+		return nil, fmt.Errorf("no enabled workload supports target driver %s", target.Driver)
+	}
 
 	driver, err := NewDriverRegistry(drivers, workloads)
 	if err != nil {
 		return nil, fmt.Errorf("initialize provisioning driver registry: %w", err)
 	}
 	prepareContext, cancelPrepare := context.WithTimeout(context.Background(), config.StopTimeout)
-	prepareErr := control.ResetNode(prepareContext, config.NodeID)
+	var prepareErr error
+	if target != nil {
+		// Authorize/register node ownership before resetting state or deleting workloads.
+		_, _, prepareErr = control.Assignments(prepareContext, config.NodeID, supportedDrivers(drivers))
+	}
+	if prepareErr == nil {
+		prepareErr = control.ResetNode(prepareContext, config.NodeID)
+	}
 	if prepareErr == nil {
 		prepareErr = driver.Prepare(prepareContext)
 	}

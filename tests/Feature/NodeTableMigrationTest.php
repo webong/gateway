@@ -11,6 +11,8 @@ it('uses nodes by default and preserves an existing gateway_nodes table', functi
     expect(ServerTables::nodes())->toBe('nodes')
         ->and(Schema::hasTable('nodes'))->toBeTrue();
 
+    $targets = require __DIR__.'/../../src/planner/database/migrations/2026_09_28_000007_create_deployment_targets.php';
+    $targets->down();
     Schema::drop('nodes');
     Schema::create('gateway_nodes', function (Blueprint $table): void {
         $table->string('id')->primary();
@@ -28,8 +30,10 @@ it('uses nodes by default and preserves an existing gateway_nodes table', functi
 
     $migration = require __DIR__.'/../../src/planner/database/migrations/2026_09_21_000005_create_nodes_table.php';
     $migration->up();
+    $targets->up();
 
     expect(Schema::hasTable('gateway_nodes'))->toBeFalse()
         ->and(Schema::hasTable('nodes'))->toBeTrue()
-        ->and(DB::table('nodes')->where('id', 'node-a')->exists())->toBeTrue();
+        ->and(DB::table('nodes')->where('id', 'node-a')->exists())->toBeTrue()
+        ->and(DB::table('nodes')->where('id', 'node-a')->value('target_id'))->toBeNull();
 });

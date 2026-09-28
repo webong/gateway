@@ -14,6 +14,7 @@ use LogicException;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\RegistryRequestAuthenticator;
 use Webong\Gateway\Servers\Models\Server;
+use Webong\Gateway\Servers\Models\DeploymentTarget;
 use Webong\Gateway\Servers\ServerRegistry;
 use Webong\Gateway\Servers\ServerTables;
 use Webong\Gateway\Servers\ServerTypeRegistry;
@@ -77,7 +78,7 @@ final readonly class ServerController
         }
 
         $input = $request->json()->all();
-        if (($unsupported = array_values(array_diff(array_keys($input), ['type', 'name', 'hostname', 'path', 'driver', 'replicas', 'configuration']))) !== []) {
+        if (($unsupported = array_values(array_diff(array_keys($input), ['type', 'name', 'hostname', 'path', 'driver', 'target_id', 'replicas', 'configuration']))) !== []) {
             return $this->invalid('The server is invalid.', ['server' => ['Unsupported properties: '.implode(', ', $unsupported).'.']]);
         }
 
@@ -98,6 +99,13 @@ final readonly class ServerController
         }
 
         $validated = $validator->validated();
+        if (! empty($validated['target_id'])) {
+            $target = DeploymentTarget::query()->findOrFail($validated['target_id']);
+            if (isset($validated['driver']) && $validated['driver'] !== $target->driver) {
+                return $this->invalid('The server is invalid.', ['driver' => ['The driver must match the deployment target.']]);
+            }
+            $validated['driver'] = $target->driver;
+        }
         try {
             $validated['configuration'] = $type->validateConfiguration(
                 is_array($validated['configuration'] ?? null) ? $validated['configuration'] : [],
@@ -155,6 +163,9 @@ final readonly class ServerController
         }
 
         $validated = $validator->validated();
+        if ($model->target_id !== null && isset($validated['driver']) && $validated['driver'] !== $model->driver) {
+            return $this->invalid('The server is invalid.', ['driver' => ['The driver is fixed by the deployment target.']]);
+        }
         if (array_key_exists('configuration', $validated) || array_key_exists('replicas', $validated)) {
             try {
                 $configuration = $type->validateConfiguration(
@@ -202,6 +213,7 @@ final readonly class ServerController
             'hostname' => [$required, 'string', 'max:253', 'regex:/^(?=.{1,253}$)(?!-)[A-Za-z0-9.-]+(?<!-)$/'],
             'path' => ['sometimes', 'nullable', 'string', 'max:255', 'regex:/^(\/[^?#]*)?$/'],
             'driver' => ['sometimes', Rule::in(['local', 'docker', 'kubernetes'])],
+            'target_id' => [$server === null ? 'sometimes' : 'prohibited', 'nullable', 'uuid', Rule::exists(ServerTables::targets(), 'id')],
             'replicas' => ['sometimes', 'integer', 'min:1', 'max:64'],
             'configuration' => ['sometimes', 'array'],
         ];

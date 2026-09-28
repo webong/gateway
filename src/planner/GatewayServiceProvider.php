@@ -27,6 +27,7 @@ use Webong\Gateway\Dns\Http\DnsHookUsageController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalAssignmentController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
+use Webong\Gateway\Reconciliation\Http\Controllers\InternalTargetController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Schedules\Http\InternalScheduleController;
 use Webong\Gateway\Schedules\Http\ScheduleController;
@@ -35,6 +36,7 @@ use Webong\Gateway\Servers\Http\Controllers\ApplicationController as ManagedAppl
 use Webong\Gateway\Servers\Http\Controllers\InstanceController as ManagedInstanceController;
 use Webong\Gateway\Servers\Http\Controllers\ServerController as ManagedServerController;
 use Webong\Gateway\Servers\Http\Controllers\ServerLifecycleController;
+use Webong\Gateway\Servers\Http\Controllers\TargetController;
 use Webong\Gateway\Servers\ServerRegistry;
 use Webong\Gateway\Servers\ServerTypeRegistry;
 use Webong\WebProxy\WebProxy;
@@ -200,6 +202,12 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->put('/_internal/provisioning/servers/{server}/instances/{instance}', [InternalInstanceController::class, 'update']);
 
             $this->app['router']->get('/servers', [ManagedServerController::class, 'index']);
+            $this->app['router']->get('/targets', [TargetController::class, 'index']);
+            $this->app['router']->post('/targets', [TargetController::class, 'store']);
+            $this->app['router']->get('/targets/{target}', [TargetController::class, 'show']);
+            $this->app['router']->delete('/targets/{target}', [TargetController::class, 'destroy']);
+            $this->app['router']->post('/targets/{target}/rotate-token', [TargetController::class, 'rotateToken']);
+            $this->app['router']->get('/_internal/provisioning/targets/{target}', InternalTargetController::class);
             $this->app['router']->post('/servers', [ManagedServerController::class, 'store']);
             $this->app['router']->get('/servers/{server}', [ManagedServerController::class, 'show']);
             $this->app['router']->patch('/servers/{server}', [ManagedServerController::class, 'update']);

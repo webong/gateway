@@ -6,6 +6,11 @@ namespace Webong\Gateway\Servers;
 
 final class ServerTables
 {
+    public static function targets(): string
+    {
+        return self::configured('targets', 'targets');
+    }
+
     public static function servers(): string
     {
         return self::configured('servers', 'servers');

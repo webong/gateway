@@ -21,9 +21,10 @@ type ControlPlane interface {
 }
 
 type HTTPControlPlane struct {
-	client *http.Client
-	base   *url.URL
-	token  string
+	client   *http.Client
+	base     *url.URL
+	token    string
+	targetID string
 }
 
 func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPControlPlane, error) {
@@ -35,7 +36,7 @@ func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPCo
 		return nil, fmt.Errorf("provisioning control-plane URL must use http or https")
 	}
 	if strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("GATEWAY_INTERNAL_TOKEN is required for provisioning reconciliation")
+		return nil, fmt.Errorf("a provisioning credential is required (target token or legacy internal token)")
 	}
 	if client == nil {
 		client = http.DefaultClient
@@ -74,6 +75,9 @@ func (c *HTTPControlPlane) Assignments(ctx context.Context, nodeID string, drive
 		return nil, "", fmt.Errorf("decode provisioned assignments: %w", err)
 	}
 	for _, spec := range document.Data {
+		if spec.TargetID != c.targetID {
+			return nil, "", fmt.Errorf("received assignment for a different deployment target")
+		}
 		if err := spec.Validate(); err != nil {
 			return nil, "", err
 		}
@@ -141,6 +145,9 @@ func (c *HTTPControlPlane) request(ctx context.Context, method, endpoint string,
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-Gateway-Internal", c.token)
+	if c.targetID != "" {
+		request.Header.Set("X-Gateway-Target", c.targetID)
+	}
 
 	return request, nil
 }

@@ -50,7 +50,8 @@ func TestDockerRunArgumentsDescribeManagedWorkloadContainer(t *testing.T) {
 	spec := validServerSpec()
 	spec.Driver = DriverDocker
 	config := DockerDriverConfig{
-		NodeID: "node-a", Network: "gateway", EnvironmentFile: "/run/gateway/server.env", PublishHost: "127.0.0.1",
+		TargetID: "target-a",
+		NodeID:   "node-a", Network: "gateway", EnvironmentFile: "/run/gateway/server.env", PublishHost: "127.0.0.1",
 	}
 	launch := LaunchSpec{
 		Image: "registry.example.test/server:v1", Executable: "server",
@@ -65,6 +66,7 @@ func TestDockerRunArgumentsDescribeManagedWorkloadContainer(t *testing.T) {
 		"--env SERVER_ID=server-1",
 		"--label gateway.provisioning.type=test",
 		"--label gateway.provisioning.node=node-a",
+		"--label gateway.provisioning.target=target-a",
 		"registry.example.test/server:v1 server serve --port=8080",
 	} {
 		if !strings.Contains(arguments, expected) {
@@ -84,7 +86,8 @@ func TestKubernetesManifestDescribesManagedWorkloadPod(t *testing.T) {
 	spec := validServerSpec()
 	spec.Driver = DriverKubernetes
 	config := KubernetesDriverConfig{
-		NodeID: "node-a", Namespace: "servers", ServiceAccount: "gateway",
+		TargetID: "target-a",
+		NodeID:   "node-a", Namespace: "servers", ServiceAccount: "gateway",
 		EnvironmentSecret: "server-secrets", EnvironmentConfigMap: "server-config",
 		ImagePullPolicy: "IfNotPresent", StopTimeout: 15 * time.Second,
 	}
@@ -108,6 +111,7 @@ func TestKubernetesManifestDescribesManagedWorkloadPod(t *testing.T) {
 		`"name":"SERVER_ID","value":"server-1"`,
 		`"gateway.webong.dev/type":"test"`,
 		`"gateway.webong.dev/node":"node-a"`,
+		`"gateway.webong.dev/target":"target-a"`,
 		`"containerPort":8080`,
 	} {
 		if !strings.Contains(encoded, expected) {

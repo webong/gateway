@@ -13,6 +13,9 @@ import (
 )
 
 type KubernetesDriverConfig struct {
+	TargetID             string
+	Context              string
+	Kubeconfig           string
 	KubectlBinary        string
 	NodeID               string
 	Namespace            string
@@ -57,14 +60,30 @@ func newKubernetesDriver(config KubernetesDriverConfig, runner commandRunner) (*
 		return nil, fmt.Errorf("provisioning Kubernetes command runner is required")
 	}
 
+	runner = prefixedCommandRunner{runner: runner, arguments: config.connectionArguments()}
 	return &KubernetesDriver{config: config, runner: runner}, nil
 }
 
+func (c KubernetesDriverConfig) connectionArguments() []string {
+	var args []string
+	if c.Kubeconfig != "" {
+		args = append(args, "--kubeconfig", c.Kubeconfig)
+	}
+	if c.Context != "" {
+		args = append(args, "--context", c.Context)
+	}
+	return args
+}
+
 func (d *KubernetesDriver) Prepare(ctx context.Context) error {
+	selector := "gateway.webong.dev/node=" + runtimeLabelValue(d.config.NodeID)
+	if d.config.TargetID != "" {
+		selector += ",gateway.webong.dev/target=" + d.config.TargetID
+	}
 	_, err := d.runner.Output(ctx, nil, d.config.KubectlBinary,
 		"--namespace", d.config.Namespace,
 		"delete", "pods",
-		"--selector", "gateway.webong.dev/node="+runtimeLabelValue(d.config.NodeID),
+		"--selector", selector,
 		"--ignore-not-found=true", "--wait=true", "--timeout="+d.config.StopTimeout.String(),
 	)
 
@@ -141,12 +160,13 @@ func (d *KubernetesDriver) startPortForward(name string, remotePort int) (*local
 	if err != nil {
 		return nil, err
 	}
-	command := exec.Command(d.config.KubectlBinary,
+	arguments := append(d.config.connectionArguments(),
 		"--namespace", d.config.Namespace,
 		"port-forward", "pod/"+name,
 		"--address="+host,
 		strconv.Itoa(port)+":"+strconv.Itoa(remotePort),
 	)
+	command := exec.Command(d.config.KubectlBinary, arguments...)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
@@ -251,6 +271,9 @@ func kubernetesPodManifest(config KubernetesDriverConfig, spec ServerSpec, insta
 			},
 		},
 		"spec": podSpec,
+	}
+	if config.TargetID != "" {
+		manifest["metadata"].(map[string]any)["labels"].(map[string]string)["gateway.webong.dev/target"] = config.TargetID
 	}
 
 	encoded, err := json.Marshal(manifest)

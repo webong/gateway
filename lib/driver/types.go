@@ -17,6 +17,7 @@ const (
 
 type ServerSpec struct {
 	AssignmentID  string          `json:"assignment_id"`
+	TargetID      string          `json:"target_id,omitempty"`
 	ID            string          `json:"id"`
 	Type          string          `json:"type"`
 	Name          string          `json:"name"`

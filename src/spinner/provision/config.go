@@ -17,6 +17,8 @@ func LoadConfig(gatewayRuntime string) (HostConfig, error) {
 	config := HostConfig{
 		Enabled: envBool("GATEWAY_PROVISIONING_ENABLED", false),
 		Config: Config{
+			TargetID:                       env("GATEWAY_PROVISIONING_TARGET_ID", ""),
+			TargetToken:                    env("GATEWAY_PROVISIONING_TARGET_TOKEN", ""),
 			CoordinationLease:              envSeconds("GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS", 15*time.Second),
 			PollInterval:                   envDuration("GATEWAY_PROVISIONING_POLL_INTERVAL", 5*time.Second),
 			StartTimeout:                   envDuration("GATEWAY_PROVISIONING_START_TIMEOUT", 15*time.Second),

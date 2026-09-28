@@ -19,26 +19,30 @@ final class ProvisioningCoordinator
     /** @param list<string> $drivers
      *  @return array{data: list<array<string, mixed>>, leader_id: string|null}
      */
-    public function assignments(string $nodeId, array $drivers): array
+    public function assignments(string $nodeId, array $drivers, ?string $targetId = null): array
     {
         $now = CarbonImmutable::now();
         $drivers = array_values(array_unique(array_filter($drivers, static fn (mixed $driver): bool => is_string($driver) && in_array($driver, ['local', 'docker', 'kubernetes'], true))));
         sort($drivers);
 
-        ProvisioningNode::query()->updateOrCreate(['id' => $nodeId], [
+        $existing = ProvisioningNode::query()->firstOrCreate(['id' => $nodeId], [
+            'target_id' => $targetId,
             'drivers' => $drivers,
             'heartbeat_at' => $now,
         ]);
+        abort_if($existing->target_id !== $targetId, 409, 'Node IDs cannot be reused across deployment targets.');
+        $existing->update(['drivers' => $drivers, 'heartbeat_at' => $now]);
 
         $lease = max(2, (int) config('gateway.servers.coordination_lease_seconds', 15));
         $nodes = ProvisioningNode::query()
+            ->where('target_id', $targetId)
             ->where('heartbeat_at', '>=', $now->subSeconds($lease))
             ->orderBy('id')
             ->get();
         $leader = $nodes->first()?->getKey();
         $assigned = [];
 
-        foreach (Server::query()->where('desired_state', 'running')->orderBy('id')->get() as $server) {
+        foreach (Server::query()->where('target_id', $targetId)->where('desired_state', 'running')->orderBy('id')->get() as $server) {
             $eligible = $nodes
                 ->filter(static fn (ProvisioningNode $node): bool => in_array($server->driver, $node->drivers ?? [], true))
                 ->values();

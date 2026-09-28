@@ -11,6 +11,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Servers\Models\Instance;
 use Webong\Gateway\Servers\Models\Server;
+use Webong\Gateway\Servers\Models\ProvisioningNode;
 use Webong\Gateway\Servers\Resources\ServerResources;
 
 final readonly class InternalInstanceController
@@ -23,9 +24,9 @@ final readonly class InternalInstanceController
 
     public function update(Request $request, string $server, string $instance): JsonResponse
     {
-        $this->authenticator->authorizeOrHide($request);
+        $target = $this->authenticator->target($request);
 
-        if (! Server::query()->whereKey($server)->exists()) {
+        if (! Server::query()->whereKey($server)->where('target_id', $target?->getKey())->exists()) {
             return response()->json(['message' => 'Provisioned server not found.'], Response::HTTP_NOT_FOUND);
         }
 
@@ -47,6 +48,11 @@ final readonly class InternalInstanceController
         }
 
         $attributes = $validator->validated();
+        if ($target !== null && ! ProvisioningNode::query()->whereKey($attributes['node_id'])->where('target_id', $target->getKey())->exists()) {
+            abort(Response::HTTP_NOT_FOUND);
+        }
+        $existing = Instance::query()->find($instance);
+        abort_if($existing !== null && $existing->server_id !== $server, Response::HTTP_CONFLICT);
         $now = now();
         $attributes['heartbeat_at'] = $now;
         if (in_array($attributes['state'], ['starting', 'running'], true)) {
@@ -66,7 +72,7 @@ final readonly class InternalInstanceController
 
     public function resetNode(Request $request): JsonResponse
     {
-        $this->authenticator->authorizeOrHide($request);
+        $target = $this->authenticator->target($request);
 
         $validator = $this->validator->make($request->json()->all(), [
             'node_id' => ['required', 'string', 'max:255'],
@@ -79,8 +85,11 @@ final readonly class InternalInstanceController
         }
 
         $now = now();
+        $node = ProvisioningNode::query()->find($validator->validated()['node_id']);
+        abort_if($node !== null && $node->target_id !== $target?->getKey(), Response::HTTP_NOT_FOUND);
         $updated = Instance::query()
             ->where('node_id', $validator->validated()['node_id'])
+            ->whereIn('server_id', Server::query()->where('target_id', $target?->getKey())->select('id'))
             ->whereIn('state', ['starting', 'running', 'stopping'])
             ->update([
                 'state' => 'stopped',
