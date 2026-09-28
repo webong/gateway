@@ -4,10 +4,10 @@ Gateway Automations run small, bounded ingress logic after Laravel has matched
 and authorized a route. The standalone Gateway Driver module owns the
 language-neutral execution interface, dispatcher, and output validation.
 Spinner builds on that interface and owns composition and network policy.
-JavaScript, Lua, and WebhookScript are separate language extensions.
+JavaScript, Lua, Shell, and WebhookScript are separate language extensions.
 
 ```text
-JavaScript / Lua: public event -> Laravel route plan -> installed Go extension -> response / delivery queue
+JavaScript / Lua / Shell: public event -> Laravel route plan -> installed Go extension -> response / delivery queue
 WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary route plan -> Go network I/O
 ```
 
@@ -17,6 +17,8 @@ WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary
   pinned QuickJS-NG adapter.
 - [`ext/lua`](../ext/lua/README.md) adds `lua` using gopher-lua without
   standard host libraries.
+- [`ext/shell`](../ext/shell/README.md) adds `shell` as an opt-in local hook
+  executor rooted to one configured directory.
 
 Neither interpreter is linked into a default Gateway build. Select the
 extensions at the Go composition root with build tags:
@@ -31,12 +33,14 @@ make build-with-script-extensions
 # one engine only
 make build GATEWAY_BUILD_TAGS=gateway_javascript
 make build GATEWAY_BUILD_TAGS=gateway_lua
+make build GATEWAY_BUILD_TAGS=gateway_shell
 ```
 
 Install the matching Planner companion package in the Laravel application:
 
 ```bash
 composer require webong/gateway-javascript webong/gateway-lua
+composer require webong/gateway-shell
 ```
 
 In this monorepo, the root development project and bundled Router host use

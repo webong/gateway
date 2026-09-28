@@ -5,6 +5,7 @@ package gateway
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -113,10 +114,11 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "automation execution failed", http.StatusBadGateway)
 			return
 		}
-		outcome, automationErr := e.automation.Execute(r.Context(), automation.Script{
+		script := automation.Script{
 			Language: plan.Automation.Language,
 			Source:   plan.Automation.Source,
-		}, automation.Input{
+		}
+		input := automation.Input{
 			Event: map[string]any{
 				"delivery_id": ingress.DeliveryID,
 				"method":      ingress.Method,
@@ -136,10 +138,26 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					"content": string(ingress.Body),
 				},
 			},
-		})
+		}
+		if mode := shellStreamMode(r, script.Language); mode != "" {
+			if len(plan.Relays) > 0 {
+				http.Error(w, "streaming shell hooks cannot include relay deliveries", http.StatusBadGateway)
+				return
+			}
+			e.streamAutomation(w, r, script, input, mode)
+			return
+		}
+		outcome, automationErr := e.automation.Execute(r.Context(), script, input)
 		if automationErr != nil {
+			if errors.Is(automationErr, automation.ErrBusy) {
+				http.Error(w, "automation capacity exhausted", http.StatusServiceUnavailable)
+				return
+			}
 			http.Error(w, "automation execution failed", http.StatusBadGateway)
 			return
+		}
+		if outcome.RunID != "" {
+			w.Header().Set("X-Gateway-Shell-Run-Id", outcome.RunID)
 		}
 		if len(outcome.Schedules) > 0 {
 			if e.schedules == nil || e.schedules.RegisterSchedules(r.Context(), automationOrigin(plan, ingress), outcome.Schedules) != nil {
@@ -186,6 +204,62 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("Request accepted"))
+}
+
+func shellStreamMode(r *http.Request, language automation.Language) string {
+	if language != "shell" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
+		return "sse"
+	}
+	if strings.EqualFold(r.Header.Get("X-Hook-Mode"), "chunked") {
+		return "chunked"
+	}
+	return ""
+}
+
+func (e *Edge) streamAutomation(w http.ResponseWriter, r *http.Request, script automation.Script, input automation.Input, mode string) {
+	flusher, ok := w.(http.Flusher)
+	streamer, supported := e.automation.(automation.StreamingExecutor)
+	if !ok || !supported {
+		http.Error(w, "automation streaming is unavailable", http.StatusBadGateway)
+		return
+	}
+	stream, err := streamer.OpenStream(r.Context(), script, input)
+	if err != nil {
+		if errors.Is(err, automation.ErrBusy) {
+			http.Error(w, "automation capacity exhausted", http.StatusServiceUnavailable)
+			return
+		}
+		http.Error(w, "automation execution failed", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("X-Gateway-Shell-Run-Id", stream.ID)
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if mode == "sse" {
+		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	w.WriteHeader(http.StatusOK)
+	for chunk := range stream.Chunks {
+		if mode == "sse" {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", strings.ReplaceAll(strings.ReplaceAll(string(chunk), "\r", ""), "\n", "\ndata: "))
+		} else {
+			_, _ = w.Write(chunk)
+		}
+		flusher.Flush()
+	}
+	if err := <-stream.Done; err != nil && r.Context().Err() == nil {
+		if mode == "sse" {
+			_, _ = io.WriteString(w, "event: error\ndata: hook execution failed\n\n")
+		} else {
+			_, _ = io.WriteString(w, "\n[hook execution failed]\n")
+		}
+		flusher.Flush()
+	}
 }
 
 func automationOrigin(plan RoutePlan, ingress IngressRequest) string {

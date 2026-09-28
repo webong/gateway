@@ -6,11 +6,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/webong/gateway/driver/automation"
 	javascript "github.com/webong/gateway/ext/javascript/runtime"
+	shell "github.com/webong/gateway/ext/shell/runtime"
 )
 
 type plannerFunc func(context.Context, IngressRequest) (RoutePlan, error)
@@ -237,5 +240,51 @@ func TestEdgeRegistersAutomationSchedulesWithEndpointOrigin(t *testing.T) {
 
 	if record.Code != http.StatusAccepted || registrar.origin != "endpoint:endpoint-1" || len(registrar.schedules) != 1 || registrar.schedules[0].Key != "daily" {
 		t.Fatalf("unexpected schedule registration: status=%d origin=%q schedules=%#v", record.Code, registrar.origin, registrar.schedules)
+	}
+}
+
+func TestEdgeStreamsPlannerSelectedShellHook(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "progress")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'running'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := shell.New(shell.Config{HooksDir: root, OutputMode: shell.ModeBuffered})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := NewEdge(plannerFunc(func(_ context.Context, request IngressRequest) (RoutePlan, error) {
+		if len(request.Runtime.AutomationLanguages) != 1 || request.Runtime.AutomationLanguages[0] != shell.Language {
+			t.Fatalf("shell capability missing from plan request: %+v", request.Runtime)
+		}
+		return RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
+			Automation: &Automation{Language: shell.Language, Source: "progress"}}, nil
+	}), &recordingExecutor{}, 1024).SetAutomationExecutor(automation.NewRuntime(engine))
+	record := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/custom/hook", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	edge.ServeHTTP(record, request)
+	if record.Code != http.StatusOK || record.Header().Get("X-Gateway-Shell-Run-Id") == "" || !strings.Contains(record.Body.String(), "data: running") {
+		t.Fatalf("unexpected streaming response: %d %q %#v", record.Code, record.Body.String(), record.Header())
+	}
+}
+
+func TestEdgeReturnsShellRunIDForAcceptedHook(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "accept"), []byte("#!/bin/sh\nprintf '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := shell.New(shell.Config{HooksDir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+		return RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
+			Automation: &Automation{Language: shell.Language, Source: "accept"}}, nil
+	}), &recordingExecutor{}, 1024).SetAutomationExecutor(automation.NewRuntime(engine))
+	record := httptest.NewRecorder()
+	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/custom/hook", nil))
+	if record.Code != http.StatusAccepted || record.Header().Get("X-Gateway-Shell-Run-Id") == "" {
+		t.Fatalf("expected accepted hook with run ID, got %d %#v", record.Code, record.Header())
 	}
 }

@@ -19,6 +19,7 @@ const (
 )
 
 var ErrUnsupportedLanguage = errors.New("unsupported automation language")
+var ErrBusy = errors.New("automation executor is busy")
 
 type Language string
 
@@ -59,6 +60,7 @@ type Schedule struct {
 }
 
 type Outcome struct {
+	RunID      string `json:"-"`
 	Variables  map[string]any
 	Deliveries []Delivery
 	Schedules  []Schedule
@@ -82,6 +84,22 @@ type Engine interface {
 type Executor interface {
 	Execute(context.Context, Script, Input) (Outcome, error)
 	Supports(Language) bool
+}
+
+// Stream carries raw hook output after a host has selected a route and
+// admitted the execution. The host owns HTTP framing and backpressure.
+type Stream struct {
+	ID     string
+	Chunks <-chan []byte
+	Done   <-chan error
+}
+
+type StreamEngine interface {
+	OpenStream(context.Context, string, Input) (*Stream, error)
+}
+
+type StreamingExecutor interface {
+	OpenStream(context.Context, Script, Input) (*Stream, error)
 }
 
 // LanguageCatalog is implemented by executors that can report the engines
@@ -163,6 +181,18 @@ func (r *Runtime) Execute(ctx context.Context, script Script, input Input) (Outc
 		return Outcome{}, fmt.Errorf("%s automation: %w", script.Language, err)
 	}
 	return outcome, nil
+}
+
+func (r *Runtime) OpenStream(ctx context.Context, script Script, input Input) (*Stream, error) {
+	if r == nil || strings.TrimSpace(script.Source) == "" {
+		return nil, ErrUnsupportedLanguage
+	}
+	engine, ok := r.engines[script.Language].(StreamEngine)
+	if !ok {
+		return nil, fmt.Errorf("%w %q", ErrUnsupportedLanguage, script.Language)
+	}
+	input.Variables = CloneVariables(input.Variables)
+	return engine.OpenStream(ctx, script.Source, input)
 }
 
 func CloneVariables(values map[string]any) map[string]any {

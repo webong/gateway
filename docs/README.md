@@ -21,8 +21,8 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 - [Subscription matching](subscription-dsl-v1.md): versioned matching rules.
 - [Subscription examples](examples/subscriptions/README.md): direct PHP and
   remote HTTP registration, including endpoint network profiles.
-- [Gateway Automations](automations.md): optional JavaScript, Lua, and PHP
-  WebhookScript language extensions.
+- [Gateway Automations](automations.md): optional JavaScript, Lua, Shell, and
+  PHP WebhookScript language extensions.
 
 ## Capabilities
 
