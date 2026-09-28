@@ -128,7 +128,7 @@ GATEWAY_PROVISIONING_STOP_TIMEOUT=15s
 GATEWAY_NODE_ID=<machine hostname>
 
 # Reverb workload
-GATEWAY_REVERB_ENABLED=false
+GATEWAY_EXTENSION_PATHS=/absolute/path/to/gateway-reverb
 GATEWAY_REVERB_PHP_BINARY=php
 GATEWAY_REVERB_ARTISAN=artisan
 GATEWAY_REVERB_WORKING_DIRECTORY=.
@@ -157,6 +157,9 @@ GATEWAY_REVERB_KUBERNETES_PHP_BINARY=php
 GATEWAY_REVERB_KUBERNETES_ARTISAN=artisan
 GATEWAY_REVERB_KUBERNETES_CONTAINER_PORT=8080
 ```
+
+Build with `go build -mod=readonly -o gateway-reverb ./ext/reverb/cmd/plugin`
+from the repository root, or use `scripts/build-gateway-extensions`.
 
 The shared tables are configured through `gateway.servers.tables.servers`,
 `.applications`, and `.instances`.

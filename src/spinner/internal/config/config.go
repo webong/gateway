@@ -7,9 +7,6 @@ import (
 	"strings"
 	"time"
 
-	centrifugoruntime "github.com/webong/gateway/ext/centrifugo/runtime"
-	mercureruntime "github.com/webong/gateway/ext/mercure/runtime"
-	reverbruntime "github.com/webong/gateway/ext/reverb/runtime"
 	"github.com/webong/gateway/src/spinner/provision"
 )
 
@@ -67,9 +64,6 @@ type Config struct {
 	DNSRateLimit           int
 	DNSRateBurst           int
 	Provisioning           provision.HostConfig
-	Reverb                 reverbruntime.Config
-	Mercure                mercureruntime.Config
-	Centrifugo             centrifugoruntime.Config
 }
 
 func LoadConfig() (*Config, error) {
@@ -104,11 +98,12 @@ func loadConfig(runtime string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	reverbConfig := reverbruntime.LoadConfig()
-	mercureConfig := mercureruntime.LoadConfig()
-	centrifugoConfig := centrifugoruntime.LoadConfig()
-	if (reverbConfig.Enabled || mercureConfig.Enabled || centrifugoConfig.Enabled) && !provisioningConfig.Enabled {
-		return nil, fmt.Errorf("enabled server workloads require GATEWAY_PROVISIONING_ENABLED")
+	legacyEnabled := getEnvBool("GATEWAY_REVERB_ENABLED", false) || getEnvBool("GATEWAY_MERCURE_ENABLED", false) || getEnvBool("GATEWAY_CENTRIFUGO_ENABLED", false)
+	if (legacyEnabled || os.Getenv("GATEWAY_EXTENSION_PATHS") != "") && !provisioningConfig.Enabled {
+		return nil, fmt.Errorf("executable server extensions require GATEWAY_PROVISIONING_ENABLED")
+	}
+	if legacyEnabled && os.Getenv("GATEWAY_EXTENSION_PATHS") == "" {
+		return nil, fmt.Errorf("set GATEWAY_EXTENSION_PATHS to executable workload extensions; GATEWAY_*_ENABLED alone no longer loads Go code")
 	}
 
 	dnsAddress := getEnv("GATEWAY_DNS_ADDR", "")
@@ -176,9 +171,6 @@ func loadConfig(runtime string) (*Config, error) {
 		DNSRateLimit:           getEnvInt("GATEWAY_DNS_RATE_LIMIT", 5000),
 		DNSRateBurst:           getEnvInt("GATEWAY_DNS_RATE_BURST", 10000),
 		Provisioning:           provisioningConfig,
-		Reverb:                 reverbConfig,
-		Mercure:                mercureConfig,
-		Centrifugo:             centrifugoConfig,
 	}
 	if config.LaravelBackendSocket != "" && config.Runtime != "http" {
 		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_SOCKET requires an external Planner HTTP connection")

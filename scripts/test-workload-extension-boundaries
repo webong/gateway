@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+for entrypoint in src/spinner/cmd/proxy src/spinner/cmd/provision; do
+    dependencies=$(go -C "$ROOT" list -mod=readonly -deps "./$entrypoint")
+    if grep -Eq '^github\.com/webong/gateway/ext/(centrifugo|mercure|reverb)/runtime$' <<<"$dependencies"; then
+        echo "$entrypoint imports a server workload implementation." >&2
+        exit 1
+    fi
+done
+echo 'Spinner entrypoints have no compiled server workload imports.'

@@ -922,6 +922,18 @@ Gateway core owns the complete managed-server control plane. Extensions only
 register a server-technology provider and Go workload; core composes that with
 the selected `local`, `docker`, or `kubernetes` runtime driver.
 
+Registered **deployment targets** select an explicit remote Docker context or
+Kubernetes cluster/namespace. A target-bound `gateway-provision` worker runs
+without Spinner's public traffic listener and uses a target-scoped token.
+Workload extensions are separate executables selected with
+`GATEWAY_EXTENSION_PATHS`; Spinner loads them through the versioned
+`github.com/webong/gateway/driver/workloadplugin` protocol. Build the bundled
+Reverb, Mercure and Centrifugo executables with `scripts/build-gateway-extensions`.
+See [executable extensions](docs/executable-extensions.md) for the published
+driver SDK, protocol, and third-party authoring example.
+See [remote provisioning](docs/provisioning-targets.md) for setup, permission
+checks, compatibility, and the remaining lifecycle/routing limitations.
+
 ```text
 POST   /servers
 GET    /servers
@@ -963,7 +975,7 @@ the same lease value on every Gateway node.
 
 The configurable table environment variables remain
 `GATEWAY_SERVERS_TABLE`, `GATEWAY_APPLICATIONS_TABLE`, and
-`GATEWAY_INSTANCES_TABLE`. Their Laravel keys are under
+`GATEWAY_INSTANCES_TABLE`, `GATEWAY_NODES_TABLE`, and `GATEWAY_TARGETS_TABLE`. Their Laravel keys are under
 `gateway.servers.tables`.
 
 See [`ext/reverb`](ext/reverb), [`ext/mercure`](ext/mercure), and

@@ -12,9 +12,6 @@ import (
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
-	centrifugoruntime "github.com/webong/gateway/ext/centrifugo/runtime"
-	mercureruntime "github.com/webong/gateway/ext/mercure/runtime"
-	reverbruntime "github.com/webong/gateway/ext/reverb/runtime"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryqueue"
 	dnsgateway "github.com/webong/gateway/src/spinner/cmd/bridge/dns"
@@ -446,16 +443,17 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 
 	var provisioningRuntime *provision.Runtime
 	if config.Provisioning.Enabled {
-		workloads := make([]provision.Workload, 0, 3)
-		if config.Reverb.Enabled {
-			workloads = append(workloads, reverbruntime.NewWorkload(config.Reverb))
+		paths, pathErr := provision.PluginPaths()
+		if pathErr != nil {
+			server.workerPool.Shutdown()
+			return pathErr
 		}
-		if config.Mercure.Enabled {
-			workloads = append(workloads, mercureruntime.NewWorkload(config.Mercure))
+		plugins, workloads, pluginErr := provision.LoadPlugins(paths)
+		if pluginErr != nil {
+			server.workerPool.Shutdown()
+			return pluginErr
 		}
-		if config.Centrifugo.Enabled {
-			workloads = append(workloads, centrifugoruntime.NewWorkload(config.Centrifugo))
-		}
+		defer plugins.Close()
 		provisioningRuntime, err = provision.Start(
 			config.Provisioning.Config,
 			config.LaravelBackendURL,

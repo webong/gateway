@@ -59,11 +59,11 @@ relax that constraint when cluster configuration is supplied.
 
 ## Runtime
 
-Enable both provisioning and this workload:
+Enable provisioning and provide this workload executable:
 
 ```text
 GATEWAY_PROVISIONING_ENABLED=true
-GATEWAY_MERCURE_ENABLED=true
+GATEWAY_EXTENSION_PATHS=/absolute/path/to/gateway-mercure
 GATEWAY_MERCURE_BINARY=mercure
 GATEWAY_MERCURE_WORKING_DIRECTORY=.
 GATEWAY_MERCURE_CONFIG=
@@ -76,6 +76,10 @@ GATEWAY_MERCURE_KUBERNETES_BINARY=caddy
 GATEWAY_MERCURE_KUBERNETES_CONFIG=/etc/caddy/Caddyfile
 GATEWAY_MERCURE_KUBERNETES_CONTAINER_PORT=80
 ```
+
+Build with `go build -mod=readonly -o gateway-mercure ./ext/mercure/cmd/plugin`
+from the repository root, or use `scripts/build-gateway-extensions`. Only
+installed executable paths appear in `GATEWAY_EXTENSION_PATHS`.
 
 The adapter follows the official [Mercure Hub installation](https://mercure.rocks/docs/hub/install)
 and [configuration](https://mercure.rocks/docs/hub/config) contracts.

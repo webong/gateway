@@ -19,6 +19,7 @@ GATEWAY_LOG="$TEMP_DIR/gateway.log"
 DATABASE_FILE="$TEMP_DIR/reverb.sqlite"
 BODY="$TEMP_DIR/body.json"
 GATEWAY_BIN="$TEMP_DIR/gateway"
+PLUGIN_BIN="$TEMP_DIR/gateway-reverb"
 CLIENT_BIN="$TEMP_DIR/reverb-smoke"
 PHP_PID=""
 GATEWAY_PID=""
@@ -37,7 +38,7 @@ cleanup() {
         return
     fi
 
-    rm -f "$PHP_LOG" "$GATEWAY_LOG" "$DATABASE_FILE" "$BODY" "$GATEWAY_BIN" "$CLIENT_BIN"
+    rm -f "$PHP_LOG" "$GATEWAY_LOG" "$DATABASE_FILE" "$BODY" "$GATEWAY_BIN" "$PLUGIN_BIN" "$CLIENT_BIN"
     rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -51,6 +52,7 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/src/spinner/cmd/proxy"
+go build "$GO_BUILD_FLAGS" -o "$PLUGIN_BIN" "$ROOT/ext/reverb/cmd/plugin"
 go build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" "$ROOT/ext/reverb/cmd/reverb-smoke"
 
 (
@@ -127,8 +129,8 @@ GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
 GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
 GATEWAY_PROVISIONING_ENABLED=true \
+GATEWAY_EXTENSION_PATHS="$PLUGIN_BIN" \
 GATEWAY_PROVISIONING_POLL_INTERVAL=250ms \
-GATEWAY_REVERB_ENABLED=true \
 GATEWAY_REVERB_PHP_BINARY="$PHP_BIN" \
 GATEWAY_REVERB_WORKING_DIRECTORY="$APP_PATH" \
 COMPOSER_VENDOR_DIR="$ROOT/vendor" \

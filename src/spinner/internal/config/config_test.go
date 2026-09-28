@@ -200,18 +200,26 @@ func TestLoadConfigRequiresDNSZoneAndNameservers(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRegistersAllProvisionedWorkloadSettings(t *testing.T) {
+func TestLoadConfigAcceptsExecutableWorkloadPaths(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "true")
-	t.Setenv("GATEWAY_MERCURE_ENABLED", "true")
-	t.Setenv("GATEWAY_CENTRIFUGO_ENABLED", "true")
+	t.Setenv("GATEWAY_EXTENSION_PATHS", "/opt/gateway/extensions/mercure:/opt/gateway/extensions/centrifugo")
 
 	config, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !config.Provisioning.Enabled || !config.Mercure.Enabled || !config.Centrifugo.Enabled {
+	if !config.Provisioning.Enabled {
 		t.Fatalf("unexpected workload configuration: %+v", config)
+	}
+}
+
+func TestLoadConfigRejectsLegacyWorkloadToggleWithoutExecutable(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "true")
+	t.Setenv("GATEWAY_CENTRIFUGO_ENABLED", "true")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("expected executable path requirement")
 	}
 }
 

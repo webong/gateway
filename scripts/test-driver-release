@@ -49,5 +49,6 @@ export GOPROXY=direct GOSUMDB=off GOPRIVATE=github.com/webong/gateway/driver
 export GOMODCACHE="$TEST_DIR/modules" GOWORK=off GOTOOLCHAIN=local
 export GOTELEMETRY=off CGO_ENABLED=0 GOFLAGS=-modcacherw
 go -C "$TEST_DIR/extension" test -mod=mod ./...
+go -C "$TEST_DIR/extension" build -mod=mod -o "$TEST_DIR/example-workload" ./cmd/plugin
 test "$(go -C "$TEST_DIR/extension" list -m all | wc -l | tr -d ' ')" = 2
-echo 'Published-path consumer passed with only the driver module and standard library.'
+echo 'Published-path executable extension passed with only the driver module and standard library.'

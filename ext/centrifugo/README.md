@@ -59,7 +59,7 @@ metrics, health and admin handlers away from Gateway's public edge.
 
 ```text
 GATEWAY_PROVISIONING_ENABLED=true
-GATEWAY_CENTRIFUGO_ENABLED=true
+GATEWAY_EXTENSION_PATHS=/absolute/path/to/gateway-centrifugo
 GATEWAY_CENTRIFUGO_BINARY=centrifugo
 GATEWAY_CENTRIFUGO_WORKING_DIRECTORY=.
 GATEWAY_CENTRIFUGO_DOCKER_IMAGE=centrifugo/centrifugo:v6
@@ -69,6 +69,12 @@ GATEWAY_CENTRIFUGO_KUBERNETES_IMAGE=centrifugo/centrifugo:v6
 GATEWAY_CENTRIFUGO_KUBERNETES_BINARY=centrifugo
 GATEWAY_CENTRIFUGO_KUBERNETES_CONTAINER_PORT=8000
 ```
+
+Build this executable with `go build -mod=readonly -o gateway-centrifugo ./ext/centrifugo/cmd/plugin`
+from the repository root, or use `scripts/build-gateway-extensions`. Put the
+absolute executable path in `GATEWAY_EXTENSION_PATHS`. Multiple paths use the
+platform path-list separator. The worker loads the executable through the
+published `driver/workloadplugin` protocol; it does not import this runtime.
 
 Configuration is translated to the official
 [`CENTRIFUGO_*` environment format](https://centrifugal.dev/docs/server/configuration).

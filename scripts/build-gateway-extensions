@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OUTPUT=${1:-"$ROOT/dist/gateway-extensions"}
+case "$OUTPUT" in
+    /*) ;;
+    *) OUTPUT="$(pwd)/$OUTPUT" ;;
+esac
+if [[ -e "$OUTPUT" ]]; then
+    echo "Output already exists: $OUTPUT" >&2
+    exit 1
+fi
+mkdir -p "$(dirname -- "$OUTPUT")"
+STAGE=$(mktemp -d "${OUTPUT}.tmp.XXXXXX")
+trap 'rm -rf -- "$STAGE"' EXIT
+for extension in centrifugo mercure reverb; do
+    GOTELEMETRY=off go -C "$ROOT" build -mod=readonly -trimpath \
+        -o "$STAGE/gateway-$extension" "./ext/$extension/cmd/plugin"
+done
+mv "$STAGE" "$OUTPUT"
+trap - EXIT
+echo "Gateway executable extensions: $OUTPUT"
