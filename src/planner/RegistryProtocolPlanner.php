@@ -68,7 +68,9 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
 
         return match ($plan->action) {
             RoutePlan::RESPOND => $this->respond($event, $plan),
-            RoutePlan::RELAY => $this->deliver($event, $plan),
+            RoutePlan::RELAY => $event->protocol === Protocol::WEBSTREAM
+                ? $this->stream($event, $plan)
+                : $this->deliver($event, $plan),
             RoutePlan::PASS_THROUGH => new GatewayDecision(
                 protocol: $event->protocol,
                 action: GatewayAction::REJECT,
@@ -76,6 +78,39 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                 message: 'No registered gateway route.',
             ),
         };
+    }
+
+    private function stream(GatewayEvent $event, RoutePlan $plan): GatewayDecision
+    {
+        if ($plan->reply === null) {
+            return new GatewayDecision(
+                protocol: $event->protocol,
+                action: GatewayAction::REJECT,
+                statusCode: 404,
+                message: 'No Webstream source is registered.',
+            );
+        }
+
+        $source = $this->delivery($plan->reply, $event);
+        if (($lastEventId = $event->headers['Last-Event-ID'][0] ?? null) !== null) {
+            $source = new GatewayDelivery(
+                protocol: $source->protocol,
+                target: $source->target,
+                subscriberId: $source->subscriberId,
+                headers: [...$source->headers, 'Last-Event-ID' => [$lastEventId]],
+                attributes: $source->attributes,
+                payload: $source->payload,
+                adapter: $source->adapter,
+                transport: $source->transport,
+            );
+        }
+
+        return new GatewayDecision(
+            protocol: $event->protocol,
+            action: GatewayAction::STREAM,
+            stream: $source,
+            metadata: $plan->metadata,
+        );
     }
 
     private function respond(GatewayEvent $event, RoutePlan $plan): GatewayDecision
@@ -140,6 +175,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                 'raw_query' => $delivery->rawQuery,
             ], static fn (mixed $value): bool => $value !== ''),
             payload: $delivery->body !== '' ? $delivery->body : $event->payload,
+            transport: $delivery->transport,
         );
     }
 }

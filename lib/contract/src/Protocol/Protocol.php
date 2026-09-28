@@ -8,6 +8,7 @@ enum Protocol: string
 {
     case HTTP = 'http';
     case WEBSOCKET = 'websocket';
+    case WEBSTREAM = 'webstream';
     case SMTP = 'smtp';
     case DNS = 'dns';
 }

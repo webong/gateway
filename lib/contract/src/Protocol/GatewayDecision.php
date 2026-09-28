@@ -20,6 +20,7 @@ final readonly class GatewayDecision
         public array $deliveries = [],
         public array $metadata = [],
         public string $version = 'v1',
+        public ?GatewayDelivery $stream = null,
     ) {
         if ($this->version !== 'v1') {
             throw new InvalidArgumentException('Unsupported gateway decision version.');
@@ -27,6 +28,10 @@ final readonly class GatewayDecision
 
         if ($this->action === GatewayAction::DELIVER && $this->reply === null && $this->deliveries === []) {
             throw new InvalidArgumentException('Deliver decisions require a reply or destination.');
+        }
+        if ($this->action === GatewayAction::STREAM
+            && ($this->protocol !== Protocol::WEBSTREAM || $this->stream === null || $this->stream->protocol !== Protocol::HTTP)) {
+            throw new InvalidArgumentException('Webstream decisions require one HTTP stream source.');
         }
 
         foreach ($this->deliveries as $delivery) {
@@ -53,6 +58,7 @@ final readonly class GatewayDecision
                 $this->deliveries,
             ),
             'metadata' => $this->metadata,
+            'stream' => $this->stream?->toArray(),
         ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== 0 && $value !== []);
     }
 }

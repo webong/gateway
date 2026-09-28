@@ -8,6 +8,7 @@ use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
 use Webong\Gateway\Protocol\GatewayEvent;
 use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Protocol\HttpTransport;
 use Webong\Gateway\Protocol\Protocol;
 use Webong\Gateway\Protocol\RoutePlan;
 use Webong\Gateway\RegistryProtocolPlanner;
@@ -36,6 +37,7 @@ it('adapts a registry route plan to a protocol-neutral SMTP delivery decision', 
         kind: EventKind::TRANSACTION,
         route: 'recipient@example.test',
         host: 'gateway.example.test',
+        headers: ['Last-Event-ID' => ['event-42']],
         attributes: ['mail_from' => 'sender@example.test'],
         payload: "Subject: hello\r\n\r\nmessage",
     ));
@@ -111,4 +113,32 @@ it('turns an unmatched protocol route into an SMTP rejection', function (): void
 
     expect($decision->action)->toBe(GatewayAction::REJECT)
         ->and($decision->statusCode)->toBe(550);
+});
+
+it('uses the WebProxy reply destination as the authorized Webstream source', function (): void {
+    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            return RoutePlan::relay(reply: new Delivery(
+                url: 'https://events.example.test/stream',
+                subscriberId: 'stream-source',
+                transport: new HttpTransport(httpProxy: 'http://proxy.example.test:8080'),
+            ));
+        }
+    });
+
+    $decision = $planner->planEvent(new GatewayEvent(
+        id: 'stream-1',
+        protocol: Protocol::WEBSTREAM,
+        kind: EventKind::CONNECT,
+        route: '/hooks/updates',
+        host: 'gateway.example.test',
+        headers: ['Last-Event-ID' => ['event-42']],
+    ));
+
+    expect($decision->action)->toBe(GatewayAction::STREAM)
+        ->and($decision->stream?->target)->toBe('https://events.example.test/stream')
+        ->and($decision->stream?->subscriberId)->toBe('stream-source')
+        ->and($decision->stream?->headers['Last-Event-ID'])->toBe(['event-42'])
+        ->and($decision->stream?->transport?->httpProxy)->toBe('http://proxy.example.test:8080');
 });

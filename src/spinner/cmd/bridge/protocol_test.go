@@ -88,6 +88,20 @@ func TestGatewayDecisionAllowsSynchronousReply(t *testing.T) {
 	}
 }
 
+func TestGatewayDecisionRequiresHTTPSourceForWebstream(t *testing.T) {
+	decision := GatewayDecision{
+		Version: ProtocolVersion, Protocol: ProtocolWebstream, Action: GatewayStream,
+		Stream: &GatewayDelivery{Protocol: ProtocolHTTP, Target: "https://events.example.test/stream"},
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	decision.Stream.Protocol = ProtocolSMTP
+	if err := decision.Validate(); err == nil {
+		t.Fatal("expected non-HTTP Webstream source to fail")
+	}
+}
+
 func TestGatewayDeliveryRejectsUnsafeAdapterNames(t *testing.T) {
 	delivery := GatewayDelivery{
 		Protocol: ProtocolSMTP,

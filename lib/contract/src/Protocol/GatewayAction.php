@@ -11,4 +11,5 @@ enum GatewayAction: string
     case RESPOND = 'respond';
     case DELIVER = 'deliver';
     case CLOSE = 'close';
+    case STREAM = 'stream';
 }

@@ -2,12 +2,23 @@ package gateway
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
 	"github.com/webong/gateway/src/spinner/internal/workers"
 )
+
+// OpenWebstream opens a Planner-authorized long-lived HTTP source. Unlike a
+// webhook reply, the response body is not buffered and follows ctx lifetime.
+func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDelivery) (*http.Response, error) {
+	if e == nil || e.forwarder == nil {
+		return nil, fmt.Errorf("webstream transport is not configured")
+	}
+	return e.forwarder.OpenStream(ctx, delivery.Target, delivery.Headers, forwardTransport(delivery.Transport))
+}
 
 // RelayExecutor adapts the Go transport implementation to the Go/PHP bridge.
 // It contains no registry or route-binding logic.

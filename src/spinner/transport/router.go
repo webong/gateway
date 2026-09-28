@@ -14,12 +14,14 @@ import (
 )
 
 type Router struct {
-	settings        *config.Config
-	Executor        *bridge.RelayExecutor
-	InternalToken   string
-	MaxBodySize     int64
-	RequestTimeout  time.Duration
-	ShutdownTimeout time.Duration
+	settings           *config.Config
+	Executor           *bridge.RelayExecutor
+	InternalToken      string
+	MaxBodySize        int64
+	RequestTimeout     time.Duration
+	WebstreamHeartbeat time.Duration
+	WebstreamRetry     time.Duration
+	ShutdownTimeout    time.Duration
 
 	forwarder  *forwarding.Forwarder
 	workerPool *workers.WorkerPool
@@ -37,14 +39,16 @@ func NewRouterFromEnvironment() (*Router, error) {
 	forwarder := forwarding.NewForwarder(settings, logger)
 	workerPool := workers.NewWorkerPool(settings.MaxWorkers, settings.MaxQueueSize, forwarder, logger)
 	return &Router{
-		settings:        settings,
-		Executor:        bridge.NewRelayExecutor(forwarder, workerPool),
-		InternalToken:   settings.InternalToken,
-		MaxBodySize:     settings.MaxBodySize,
-		RequestTimeout:  settings.RequestTimeout,
-		ShutdownTimeout: settings.ShutdownTimeout,
-		forwarder:       forwarder,
-		workerPool:      workerPool,
+		settings:           settings,
+		Executor:           bridge.NewRelayExecutor(forwarder, workerPool),
+		InternalToken:      settings.InternalToken,
+		MaxBodySize:        settings.MaxBodySize,
+		RequestTimeout:     settings.RequestTimeout,
+		WebstreamHeartbeat: settings.WebstreamHeartbeat,
+		WebstreamRetry:     settings.WebstreamRetry,
+		ShutdownTimeout:    settings.ShutdownTimeout,
+		forwarder:          forwarder,
+		workerPool:         workerPool,
 	}, nil
 }
 

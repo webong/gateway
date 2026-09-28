@@ -544,6 +544,39 @@ reject, respond on the socket, or resolve HTTP subscriber deliveries. The
 same handler is mounted by the FrankenPHP/Caddy `gateway` module; no separate
 WebSocket port or Laravel listener is required.
 
+### Webstream transport
+
+Webstream is Gateway's one-way Web capability. A client opens a normal `GET`
+request with `Accept: text/event-stream` under a Gateway route; Spinner sends a
+`webstream`/`connect` event to Planner. Planner applies the same path binding,
+registry matching, and authorization policy used for Gateway routes. A matched
+WebProxy **reply** destination is the single upstream SSE source, not a webhook
+reply: Planner returns an explicit `stream` decision and Spinner proxies its
+bytes to the client without buffering them.
+
+The upstream must return a successful `text/event-stream` response. Spinner
+flushes each read to the client, blocks on slow client writes (so backpressure
+propagates), and uses the client request context for the upstream request, so a
+disconnect cancels the source connection. Endpoint-owned WebProxy profile
+transport settings remain attached to the source; the normal request timeout is
+not applied to an established stream.
+
+Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
+reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
+built-in registry planner forwards it only to the selected source. It emits a
+comment heartbeat every 15 seconds by default; configure
+`GATEWAY_WEBSTREAM_RETRY` and `GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL` (set the
+heartbeat interval to `0` to disable it). `/metrics` exposes
+`webstreams_active`, `webstreams_opened_total`, and `webstreams_failed_total`
+in the standalone Spinner runtime.
+
+Webstream is deliberately not webhook forwarding: it does not queue, retry, or
+fan out messages. It is also not a WebSocket session: clients cannot send
+messages after connecting, and Planner does not receive per-message events.
+Use a normal `relay` subscription for asynchronous webhooks, a `reply`
+destination on a Webstream route for the SSE source, and WebSocket for
+bidirectional sessions.
+
 ### Go configuration
 
 - `GATEWAY_RUNTIME` - `http` (default), `roadrunner`, or `diagnostic` for

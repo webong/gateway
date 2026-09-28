@@ -21,6 +21,8 @@ type Config struct {
 	MaxWorkers             int
 	MaxQueueSize           int
 	RequestTimeout         time.Duration
+	WebstreamHeartbeat     time.Duration
+	WebstreamRetry         time.Duration
 	MaxBodySize            int64
 	MaxIdleConns           int
 	MaxConnsPerHost        int
@@ -128,6 +130,8 @@ func loadConfig(runtime string) (*Config, error) {
 		MaxWorkers:             getEnvInt("MAX_WORKERS", 100),
 		MaxQueueSize:           getEnvInt("MAX_QUEUE_SIZE", 1000),
 		RequestTimeout:         getEnvDuration("REQUEST_TIMEOUT", 30*time.Second),
+		WebstreamHeartbeat:     getEnvDuration("GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL", 15*time.Second),
+		WebstreamRetry:         getEnvDuration("GATEWAY_WEBSTREAM_RETRY", 3*time.Second),
 		MaxBodySize:            getEnvInt64("MAX_BODY_SIZE", 10*1024*1024),
 		MaxIdleConns:           getEnvInt("MAX_IDLE_CONNS", 100),
 		MaxConnsPerHost:        getEnvInt("MAX_CONNS_PER_HOST", 100),
@@ -183,6 +187,9 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.SchedulePollInterval <= 0 {
 		return nil, fmt.Errorf("GATEWAY_SCHEDULE_POLL_INTERVAL must be positive")
+	}
+	if config.WebstreamHeartbeat < 0 || config.WebstreamRetry <= 0 {
+		return nil, fmt.Errorf("GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL must be non-negative and GATEWAY_WEBSTREAM_RETRY must be positive")
 	}
 	if (config.SMTPRelayUsername == "") != (config.SMTPRelayPassword == "") {
 		return nil, fmt.Errorf("GATEWAY_SMTP_RELAY_USERNAME and GATEWAY_SMTP_RELAY_PASSWORD must be configured together")

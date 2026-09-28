@@ -1,4 +1,4 @@
-.PHONY: build build-with-script-extensions test test-go test-go-extensions test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-websocket test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-with-script-extensions test test-go test-go-extensions test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-websocket test-webstream test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 GATEWAY_BUILD_TAGS ?=
@@ -54,6 +54,9 @@ test-dns:
 
 test-websocket:
 	bash scripts/websocket-smoke.sh
+
+test-webstream:
+	bash scripts/webstream-smoke.sh
 
 test-frankenphp:
 	bash scripts/frankenphp-build.sh

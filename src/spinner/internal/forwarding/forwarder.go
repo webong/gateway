@@ -136,6 +136,23 @@ func (f *Forwarder) ForwardSync(req ForwardRequest) (ForwardResponse, error) {
 	return response, nil
 }
 
+// OpenStream keeps the response body open. Its caller's context owns the
+// stream lifetime, including cancellation when the downstream client leaves.
+func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.Header, settings HTTPTransport) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header = headers.Clone()
+	client, err := f.clientFor(settings)
+	if err != nil {
+		return nil, err
+	}
+	streamClient := *client
+	streamClient.Timeout = 0
+	return streamClient.Do(request)
+}
+
 func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardResponse, error) {
 	targetURL, err := url.Parse(req.TargetURL)
 	if err != nil {

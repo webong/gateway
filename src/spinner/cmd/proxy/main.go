@@ -19,6 +19,7 @@ import (
 	smtpgateway "github.com/webong/gateway/src/spinner/cmd/bridge/smtp"
 	smtpout "github.com/webong/gateway/src/spinner/cmd/bridge/smtpout"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	"github.com/webong/gateway/src/spinner/internal/automation/schedules"
 	relayconfig "github.com/webong/gateway/src/spinner/internal/config"
@@ -48,6 +49,7 @@ type Server struct {
 	deliveryQueue     *deliveryqueue.Queue
 	relayHandle       http.Handler
 	websocketHandler  http.Handler
+	webstreamHandler  *gatewaystream.Handler
 	extensionHandler  extensionRouteHandler
 	httpServer        *http.Server
 }
@@ -97,6 +99,10 @@ func (s *Server) SetRelayHandler(handler http.Handler) {
 
 func (s *Server) SetWebSocketHandler(handler http.Handler) {
 	s.websocketHandler = handler
+}
+
+func (s *Server) SetWebstreamHandler(handler *gatewaystream.Handler) {
+	s.webstreamHandler = handler
 }
 
 func (s *Server) SetExtensionHandler(handler extensionRouteHandler) {
@@ -186,6 +192,10 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		s.websocketHandler.ServeHTTP(w, r)
 		return
 	}
+	if s.webstreamHandler != nil && gatewaystream.IsRequest(r) {
+		s.webstreamHandler.ServeHTTP(w, r)
+		return
+	}
 	if s.relayHandle == nil {
 		http.Error(w, "PHP relay planner is not configured", http.StatusServiceUnavailable)
 		return
@@ -207,6 +217,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"forwarded_requests_errors":  errors,
 		"worker_pool_size":           s.config.MaxWorkers,
 		"worker_queue_capacity":      s.config.MaxQueueSize,
+	}
+	if s.webstreamHandler != nil {
+		streamMetrics := s.webstreamHandler.Metrics()
+		metrics["webstreams_active"] = streamMetrics.Active
+		metrics["webstreams_opened_total"] = streamMetrics.Opened
+		metrics["webstreams_failed_total"] = streamMetrics.Failed
 	}
 	if s.deliveryQueue != nil {
 		pending, failed, err := s.deliveryQueue.Counts()
@@ -439,6 +455,11 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		protocolPlanner,
 		server.NewGatewayExecutor(),
 		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout},
+	))
+	server.SetWebstreamHandler(gatewaystream.NewHandler(
+		protocolPlanner,
+		server.NewGatewayExecutor(),
+		gatewaystream.Config{PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry},
 	))
 
 	var provisioningRuntime *provision.Runtime

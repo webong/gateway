@@ -23,6 +23,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	relayconfig "github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
@@ -176,6 +177,13 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 			g.executor,
 			gatewayws.Config{MaxMessageSize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout)},
 		).ServeHTTP(w, r)
+		return nil
+	}
+	if gatewaystream.IsRequest(r) {
+		protocolPlanner := bridge.NewPHPProtocolPlanner(&caddyHTTPAdapter{handler: next}, g.MaxBodySize)
+		protocolPlanner.InternalToken = g.InternalToken
+		source, _ := g.executor.(gatewaystream.Source)
+		gatewaystream.NewHandler(protocolPlanner, source, gatewaystream.Config{PlannerTimeout: time.Duration(g.RequestTimeout), HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second}).ServeHTTP(w, r)
 		return nil
 	}
 

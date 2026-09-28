@@ -11,13 +11,14 @@ type Protocol string
 const (
 	ProtocolHTTP      Protocol = "http"
 	ProtocolWebSocket Protocol = "websocket"
+	ProtocolWebstream Protocol = "webstream"
 	ProtocolSMTP      Protocol = "smtp"
 	ProtocolDNS       Protocol = "dns"
 )
 
 func (p Protocol) Validate() error {
 	switch p {
-	case ProtocolHTTP, ProtocolWebSocket, ProtocolSMTP, ProtocolDNS:
+	case ProtocolHTTP, ProtocolWebSocket, ProtocolWebstream, ProtocolSMTP, ProtocolDNS:
 		return nil
 	default:
 		return fmt.Errorf("unsupported gateway protocol %q", p)
@@ -98,6 +99,7 @@ const (
 	GatewayRespond GatewayAction = "respond"
 	GatewayDeliver GatewayAction = "deliver"
 	GatewayClose   GatewayAction = "close"
+	GatewayStream  GatewayAction = "stream"
 )
 
 // GatewayDelivery is the protocol-neutral destination shape. HTTP Delivery
@@ -111,6 +113,7 @@ type GatewayDelivery struct {
 	Headers      map[string][]string `json:"headers,omitempty"`
 	Attributes   map[string]string   `json:"attributes,omitempty"`
 	Payload      []byte              `json:"payload,omitempty"`
+	Transport    *HTTPTransport      `json:"transport,omitempty"`
 }
 
 func (d GatewayDelivery) Validate() error {
@@ -122,6 +125,11 @@ func (d GatewayDelivery) Validate() error {
 	}
 	if d.Adapter != "" && !validAdapterName(d.Adapter) {
 		return fmt.Errorf("invalid gateway delivery adapter %q", d.Adapter)
+	}
+	if d.Transport != nil {
+		if err := d.Transport.Validate(); err != nil {
+			return fmt.Errorf("transport: %w", err)
+		}
 	}
 	return nil
 }
@@ -158,6 +166,7 @@ type GatewayDecision struct {
 	Payload    []byte              `json:"payload,omitempty"`
 	Reply      *GatewayDelivery    `json:"reply,omitempty"`
 	Deliveries []GatewayDelivery   `json:"deliveries,omitempty"`
+	Stream     *GatewayDelivery    `json:"stream,omitempty"`
 	Metadata   map[string]string   `json:"metadata,omitempty"`
 }
 
@@ -169,16 +178,26 @@ func (d GatewayDecision) Validate() error {
 		return err
 	}
 	switch d.Action {
-	case GatewayAccept, GatewayReject, GatewayRespond, GatewayDeliver, GatewayClose:
+	case GatewayAccept, GatewayReject, GatewayRespond, GatewayDeliver, GatewayClose, GatewayStream:
 	default:
 		return fmt.Errorf("unsupported gateway action %q", d.Action)
 	}
 	if d.Action == GatewayDeliver && d.Reply == nil && len(d.Deliveries) == 0 {
 		return fmt.Errorf("deliver decision requires a reply or destination")
 	}
+	if d.Action == GatewayStream {
+		if d.Protocol != ProtocolWebstream || d.Stream == nil || d.Stream.Protocol != ProtocolHTTP {
+			return fmt.Errorf("webstream decisions require one HTTP stream source")
+		}
+	}
 	if d.Reply != nil {
 		if err := d.Reply.Validate(); err != nil {
 			return fmt.Errorf("reply: %w", err)
+		}
+	}
+	if d.Stream != nil {
+		if err := d.Stream.Validate(); err != nil {
+			return fmt.Errorf("stream: %w", err)
 		}
 	}
 	for index := range d.Deliveries {

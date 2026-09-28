@@ -33,3 +33,10 @@ Route::post('/http-smoke/receiver', static function (Request $request) {
 })->withoutMiddleware([
     ValidateCsrfToken::class,
 ]);
+
+Route::get('/http-smoke/stream', static function (Request $request) {
+    return response("id: event-43\nevent: smoke\ndata: resumed=".$request->header('Last-Event-ID', '')."\n\n", 200, [
+        'Content-Type' => 'text/event-stream',
+        'Cache-Control' => 'no-cache',
+    ]);
+});

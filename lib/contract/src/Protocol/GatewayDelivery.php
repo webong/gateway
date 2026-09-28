@@ -17,6 +17,7 @@ final readonly class GatewayDelivery
         public array $attributes = [],
         public string $payload = '',
         public string $adapter = '',
+        public ?HttpTransport $transport = null,
     ) {
         if (trim($this->target) === '') {
             throw new InvalidArgumentException('Gateway delivery target is required.');
@@ -38,6 +39,7 @@ final readonly class GatewayDelivery
             'headers' => $this->headers,
             'attributes' => $this->attributes,
             'payload' => base64_encode($this->payload),
+            'transport' => $this->transport?->toArray(),
         ], static fn (mixed $value): bool => $value !== '' && $value !== []);
     }
 }

@@ -9,6 +9,7 @@ import (
 
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	"github.com/webong/gateway/src/spinner/transport"
 )
@@ -48,7 +49,8 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
 			MaxMessageSize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
 		})
-		return routerHandler(next, edge, websocket)
+		webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry})
+		return routerHandler(next, edge, websocket, webstream)
 	})
 	if err != nil {
 		return err

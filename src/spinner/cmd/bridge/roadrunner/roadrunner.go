@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/webong/gateway/driver/automation"
 	runtime "github.com/webong/gateway/ext/roadrunner/runtime"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 )
 
@@ -76,6 +78,7 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 		p.Executor,
 		gatewayws.Config{MaxMessageSize: p.MaxBodySize},
 	)
+	webstreamHandler := gatewaystream.NewHandler(protocolPlanner, executorStreamSource(p.Executor), gatewaystream.Config{HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second})
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isPathUnder(request.URL.Path, p.PlanPath) {
@@ -90,8 +93,17 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 			websocketHandler.ServeHTTP(writer, request)
 			return
 		}
+		if gatewaystream.IsRequest(request) {
+			webstreamHandler.ServeHTTP(writer, request)
+			return
+		}
 		edge.ServeHTTP(writer, request)
 	})
+}
+
+func executorStreamSource(executor bridge.Executor) gatewaystream.Source {
+	source, _ := executor.(gatewaystream.Source)
+	return source
 }
 
 // WaitProtocolPlanner waits until RoadRunner has assembled the HTTP

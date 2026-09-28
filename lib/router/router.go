@@ -14,6 +14,7 @@ import (
 
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
+	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	"github.com/webong/gateway/src/spinner/transport"
 )
@@ -59,7 +60,8 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		MaxMessageSize: spinner.MaxBodySize,
 		PlannerTimeout: spinner.RequestTimeout,
 	})
-	handler := routerHandler(planner, edge, websocket)
+	webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry})
+	handler := routerHandler(planner, edge, websocket, webstream)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -88,7 +90,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	return server.Shutdown(shutdown)
 }
 
-func routerHandler(planner, edge, websocket http.Handler) http.Handler {
+func routerHandler(planner, edge, websocket http.Handler, streams ...http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if under(r.URL.Path, "/_internal") {
 			http.NotFound(w, r)
@@ -97,6 +99,10 @@ func routerHandler(planner, edge, websocket http.Handler) http.Handler {
 		if under(r.URL.Path, "/hooks") {
 			if gatewayws.IsUpgrade(r) {
 				websocket.ServeHTTP(w, r)
+				return
+			}
+			if len(streams) > 0 && gatewaystream.IsRequest(r) {
+				streams[0].ServeHTTP(w, r)
 				return
 			}
 			edge.ServeHTTP(w, r)
