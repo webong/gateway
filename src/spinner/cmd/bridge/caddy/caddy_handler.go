@@ -142,6 +142,11 @@ func (g *CaddyHandler) Provision(ctx caddy.Context) error {
 		DeliveryPollInterval:     time.Duration(g.PollInterval),
 		DeliveryReceiptRetention: time.Duration(*g.ReceiptRetention),
 	}
+	privateSources, err := relayconfig.ParseWebstreamPrivateSources(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES"))
+	if err != nil {
+		return err
+	}
+	settings.WebstreamPrivateSources = privateSources
 	if g.SpoolPath != "" {
 		// The SMTP Caddy app may use the root spool path. Its files and
 		// worker must never overlap with this HTTP handler's queue.

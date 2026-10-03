@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -32,25 +33,27 @@ type ForwardResponse struct {
 }
 
 type Forwarder struct {
-	client         *http.Client
-	transport      *http.Transport
-	clientsMu      sync.Mutex
-	clients        map[[sha256.Size]byte]*http.Client
-	clientOrder    [][sha256.Size]byte
-	logger         *logging.Logger
-	successCount   atomic.Uint64
-	errorCount     atomic.Uint64
-	totalRequests  atomic.Uint64
-	maxBodySize    int64
-	addressAllowed func(net.IP) bool
+	client               *http.Client
+	transport            *http.Transport
+	clientsMu            sync.Mutex
+	clients              map[[sha256.Size]byte]*http.Client
+	clientOrder          [][sha256.Size]byte
+	logger               *logging.Logger
+	successCount         atomic.Uint64
+	errorCount           atomic.Uint64
+	totalRequests        atomic.Uint64
+	maxBodySize          int64
+	addressAllowed       func(net.IP) bool
+	privateStreamSources map[string][]netip.Prefix
 }
 
 func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 	forwarder := &Forwarder{
-		logger:         logger,
-		maxBodySize:    settings.MaxBodySize,
-		addressAllowed: isAllowedTargetAddress,
-		clients:        make(map[[sha256.Size]byte]*http.Client),
+		logger:               logger,
+		maxBodySize:          settings.MaxBodySize,
+		addressAllowed:       isAllowedTargetAddress,
+		privateStreamSources: settings.WebstreamPrivateSources,
+		clients:              make(map[[sha256.Size]byte]*http.Client),
 	}
 
 	// Create optimized HTTP client with connection pooling
@@ -75,6 +78,10 @@ func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 }
 
 func (f *Forwarder) dialContext(timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+	return f.dialContextAllowed(timeout, func(ip net.IP) bool { return f.addressAllowed(ip) })
+}
+
+func (f *Forwarder) dialContextAllowed(timeout time.Duration, allowed func(net.IP) bool) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
@@ -86,7 +93,7 @@ func (f *Forwarder) dialContext(timeout time.Duration) func(context.Context, str
 		}
 		dialer := &net.Dialer{Timeout: timeout}
 		for _, candidate := range addresses {
-			if !f.addressAllowed(candidate.IP) {
+			if !allowed(candidate.IP) {
 				continue
 			}
 			connection, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(candidate.IP.String(), port))
@@ -184,6 +191,33 @@ func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.
 	if err != nil {
 		cancel()
 		return nil, err
+	}
+	if ranges := f.privateStreamSources[request.URL.Scheme+"://"+request.URL.Host]; len(ranges) > 0 {
+		// An operator grant applies only to this exact SSE origin. Bypass any
+		// profile proxy and pin the DNS result at dial time to granted ranges.
+		if settings.HTTPProxy != "" || settings.HTTPSProxy != "" {
+			cancel()
+			return nil, fmt.Errorf("private Webstream source cannot use an HTTP proxy")
+		}
+		transport := f.transport.Clone()
+		transport.Proxy = nil
+		transport.DialContext = f.dialContextAllowed(settings.ConnectTimeout, func(ip net.IP) bool {
+			address, ok := netip.AddrFromSlice(ip)
+			if !ok {
+				return false
+			}
+			address = address.Unmap()
+			for _, prefix := range ranges {
+				if prefix.Contains(address) {
+					return true
+				}
+			}
+			return false
+		})
+		defer transport.CloseIdleConnections()
+		privateClient := *client
+		privateClient.Transport = transport
+		client = &privateClient
 	}
 	streamClient := *client
 	streamClient.Timeout = 0

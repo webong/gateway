@@ -617,6 +617,21 @@ ordinary relay deliveries. Source profile headers override a same-named client
 header case-insensitively; connection-framing headers and `Last-Event-ID` are reserved, so the
 resume marker always remains client-controlled.
 
+Production Spinner blocks private SSE source addresses by default, even when
+the source was selected by Planner. An operator who owns the private source may
+grant one exact, lowercase origin and its private address range in Spinner's
+`GATEWAY_WEBSTREAM_PRIVATE_SOURCES` JSON setting, for example:
+
+```sh
+GATEWAY_WEBSTREAM_PRIVATE_SOURCES='{"http://events.internal:8080":["10.42.7.19/32"]}'
+```
+
+The grant applies only to Webstream, never ordinary webhook forwarding. It
+requires an explicit port, accepts only RFC 1918 or IPv6 unique-local CIDRs,
+checks the resolved address again when dialing, disallows a source profile
+proxy, and does not follow redirects. Keep the CIDR as narrow as possible;
+the operator is authorizing every SSE route that can select that origin.
+
 Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
 reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
 built-in registry planner forwards it only to the selected source. It emits a

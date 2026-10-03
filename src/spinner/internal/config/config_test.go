@@ -1,9 +1,39 @@
 package config
 
 import (
+	"net/netip"
 	"testing"
 	"time"
 )
+
+func TestWebstreamPrivateSourceGrantsAreExactAndPrivate(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES", `{"http://events.internal:8080":["10.42.1.0/24","fd00::/64"]}`)
+	settings, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	grants := settings.WebstreamPrivateSources["http://events.internal:8080"]
+	if len(grants) != 2 || grants[0] != netip.MustParsePrefix("10.42.1.0/24") {
+		t.Fatalf("unexpected private source grants: %v", grants)
+	}
+	for _, invalid := range []string{
+		`{"http://events.internal:8080/path":["10.0.0.0/8"]}`,
+		`{"http://localhost:8080":["10.0.0.0/8"]}`,
+		`{"http://127.0.0.1:8080":["10.0.0.0/8"]}`,
+		`{"http://events.internal:8080":["127.0.0.0/8"]}`,
+		`{"http://events.internal:8080":["10.0.0.0/7"]}`,
+		`{"http://events.internal:8080":["169.254.0.0/16"]}`,
+		`{"http://events.internal:8080":["0.0.0.0/0"]}`,
+		`{"http://events.internal:8080":["10.1.2.3/24"]}`,
+		`{"http://events.internal:8080":[]}`,
+	} {
+		t.Setenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES", invalid)
+		if _, err := LoadConfig(); err == nil {
+			t.Fatalf("accepted unsafe Webstream grant: %s", invalid)
+		}
+	}
+}
 
 func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")

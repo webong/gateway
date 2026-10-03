@@ -134,9 +134,12 @@ It checks STARTTLS, recipient decisions, relay acceptance, and the private
 delivery-admin connection, not public MX reachability or deliverability.
 The optional `--with-webstream` mode registers a private in-cluster SSE
 source through the production Planner and verifies that the production
-Spinner rejects it before contacting the source. This checks the default
-private-address protection; it does not establish successful streaming from
-a publicly reachable SSE source or authorize private application services.
+Spinner rejects it before contacting the source. It then grants that exact
+source origin and Service IP to Spinner, restarts the Pod, and verifies the
+SSE event arrives through the local TLS edge. This checks the default
+private-address protection and an explicitly authorized in-cluster source;
+it does not establish successful streaming from a publicly reachable source
+or general permission to connect to other private application services.
 
 The manifest's `/data`, `/config`, and `/tmp` mounts are disposable. All
 durable Planner state lives in PostgreSQL; back it up and keep `APP_KEY` stable

@@ -320,6 +320,33 @@ if [[ "$WITH_WEBSTREAM" == true ]]; then
         echo 'Private Webstream source received a request despite Spinner SSRF protection.' >&2
         exit 1
     fi
+    SOURCE_IP=$(kubectl -n "$NAMESPACE" get service webstream-source -o jsonpath='{.spec.clusterIP}')
+    if [[ ! "$SOURCE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo 'Webstream fixture has no IPv4 Service address for its exact-origin grant.' >&2
+        exit 1
+    fi
+    SOURCE_GRANT="{\"http://webstream-source:8080\":[\"$SOURCE_IP/32\"]}"
+    OLD_SPINNER=$(kubectl -n "$NAMESPACE" get pods \
+        -l app.kubernetes.io/name=spinner -o jsonpath='{.items[0].metadata.name}')
+    kubectl -n "$NAMESPACE" set env deployment/spinner \
+        "GATEWAY_WEBSTREAM_PRIVATE_SOURCES=$SOURCE_GRANT" >/dev/null
+    kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null
+    kubectl -n "$NAMESPACE" wait --for=delete "pod/$OLD_SPINNER" --timeout=120s >/dev/null
+    TLS_OUTPUT_FILE="$TLS_DIR/webstream-authorized-response"
+    STREAM_STATUS=$(tls_status -H 'Accept: text/event-stream' \
+        "$TLS_URL/hooks/planner-tls-smoke")
+    if [[ "$STREAM_STATUS" != 200 ]]; then
+        echo "Production Spinner did not open the explicitly authorized private SSE source (HTTP $STREAM_STATUS)." >&2
+        sed -n '1,10p' "$TLS_DIR/curl.err" >&2
+        sed -n '1,10p' "$TLS_OUTPUT_FILE" >&2 || true
+        kubectl -n "$NAMESPACE" logs -l app.kubernetes.io/name=spinner --tail=40 --max-log-requests=10 >&2 || true
+        exit 1
+    fi
+    unset TLS_OUTPUT_FILE
+    if ! grep -Fx 'data: private-source-reached' "$TLS_DIR/webstream-authorized-response" >/dev/null; then
+        echo 'Production Spinner did not stream the authorized SSE event.' >&2
+        exit 1
+    fi
 fi
 
 OLD_PLANNER=$(kubectl -n "$NAMESPACE" get pods \
@@ -610,5 +637,5 @@ if [[ "$WITH_EMAIL" == true ]]; then
     echo 'Production Planner and Spinner Email relay overlay passed STARTTLS, alias routing, relay acceptance, and private delivery-admin access.'
 fi
 if [[ "$WITH_WEBSTREAM" == true ]]; then
-    echo 'Production Planner selected a Webstream source; Spinner blocked its reachable private address before connecting.'
+    echo 'Production Planner selected a Webstream source; Spinner blocked it by default, then streamed it through an exact-origin private-address grant.'
 fi

@@ -7,12 +7,46 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
 	"github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/logging"
 )
+
+func TestOperatorPrivateSourceGrantOnlyAppliesToExactWebstreamOrigin(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: authorized\n\n")
+	}))
+	defer source.Close()
+	f := NewForwarder(&config.Config{
+		RequestTimeout: time.Second,
+		WebstreamPrivateSources: map[string][]netip.Prefix{
+			source.URL: {netip.MustParsePrefix("127.0.0.0/8")},
+		},
+	}, logging.NewLogger("error"))
+	defer f.CloseIdleConnections()
+	response, err := f.OpenStream(context.Background(), source.URL+"/events", nil, HTTPTransport{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil || string(body) != "data: authorized\n\n" {
+		t.Fatalf("private Webstream response = %q, %v", body, err)
+	}
+	if _, err := f.ForwardSync(ForwardRequest{TargetURL: source.URL + "/events", Method: http.MethodGet}); err == nil {
+		t.Fatal("private grant leaked into ordinary webhook forwarding")
+	}
+	if _, err := f.OpenStream(context.Background(), source.URL+"1/events", nil, HTTPTransport{}); err == nil {
+		t.Fatal("private grant applied to a different port")
+	}
+	if _, err := f.OpenStream(context.Background(), source.URL+"/events", nil, HTTPTransport{HTTPProxy: "http://proxy.invalid:8080"}); err == nil {
+		t.Fatal("private grant accepted a profile proxy")
+	}
+}
 
 func TestStreamOpeningDeadlineAndRedirectPolicy(t *testing.T) {
 	f := NewForwarder(&config.Config{RequestTimeout: 50 * time.Millisecond}, logging.NewLogger("error"))

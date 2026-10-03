@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
+	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +32,7 @@ type Config struct {
 	WebstreamRetry             time.Duration
 	WebstreamMaxConnections    int
 	WebstreamMaxDuration       time.Duration
+	WebstreamPrivateSources    map[string][]netip.Prefix
 	MaxBodySize                int64
 	MaxIdleConns               int
 	MaxConnsPerHost            int
@@ -133,6 +137,58 @@ type IMAPUpstreamSpec struct {
 	ServerName string `json:"server_name"`
 }
 
+// ParseWebstreamPrivateSources validates operator grants scoped to exact SSE
+// origins and private address ranges. Public subscriptions cannot create them.
+func ParseWebstreamPrivateSources(raw string) (map[string][]netip.Prefix, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var entries map[string][]string
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil || len(entries) == 0 {
+		return nil, fmt.Errorf("GATEWAY_WEBSTREAM_PRIVATE_SOURCES must be a non-empty JSON origin-to-CIDR map")
+	}
+	privateRanges := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("172.16.0.0/12"),
+		netip.MustParsePrefix("192.168.0.0/16"),
+		netip.MustParsePrefix("fc00::/7"),
+	}
+	result := make(map[string][]netip.Prefix, len(entries))
+	for origin, cidrs := range entries {
+		parsed, err := url.Parse(origin)
+		port := 0
+		if err == nil && parsed != nil {
+			port, _ = strconv.Atoi(parsed.Port())
+		}
+		if err != nil || parsed == nil || !parsed.IsAbs() ||
+			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.Hostname() == "" || port < 1 || port > 65535 ||
+			parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" ||
+			origin != parsed.Scheme+"://"+strings.ToLower(parsed.Host) || net.ParseIP(parsed.Hostname()) != nil ||
+			strings.EqualFold(parsed.Hostname(), "localhost") || strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".localhost") || len(cidrs) == 0 {
+			return nil, fmt.Errorf("invalid GATEWAY_WEBSTREAM_PRIVATE_SOURCES origin %q", origin)
+		}
+		for _, cidr := range cidrs {
+			prefix, err := netip.ParsePrefix(cidr)
+			if err != nil || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
+				return nil, fmt.Errorf("invalid private Webstream CIDR %q", cidr)
+			}
+			private := false
+			for _, allowed := range privateRanges {
+				if prefix.Bits() >= allowed.Bits() && allowed.Contains(prefix.Addr()) {
+					private = true
+					break
+				}
+			}
+			if !private {
+				return nil, fmt.Errorf("Webstream CIDR %q is not wholly inside a private address range", cidr)
+			}
+			result[origin] = append(result[origin], prefix)
+		}
+	}
+	return result, nil
+}
+
 func LoadConfig() (*Config, error) {
 	runtime := getEnv("GATEWAY_RUNTIME", "")
 	if runtime == "" {
@@ -162,6 +218,10 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 
 	provisioningConfig, err := provision.LoadConfig(runtime)
+	if err != nil {
+		return nil, err
+	}
+	privateSources, err := ParseWebstreamPrivateSources(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES"))
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +281,7 @@ func loadConfig(runtime string) (*Config, error) {
 		WebstreamRetry:             getEnvDuration("GATEWAY_WEBSTREAM_RETRY", 3*time.Second),
 		WebstreamMaxConnections:    getEnvInt("GATEWAY_WEBSTREAM_MAX_CONNECTIONS", 1000),
 		WebstreamMaxDuration:       getEnvDuration("GATEWAY_WEBSTREAM_MAX_DURATION", 24*time.Hour),
+		WebstreamPrivateSources:    privateSources,
 		MaxBodySize:                getEnvInt64("MAX_BODY_SIZE", 10*1024*1024),
 		MaxIdleConns:               getEnvInt("MAX_IDLE_CONNS", 100),
 		MaxConnsPerHost:            getEnvInt("MAX_CONNS_PER_HOST", 100),
