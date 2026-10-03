@@ -1,7 +1,9 @@
 package forwarding
 
 import (
+	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,63 @@ import (
 	"github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/logging"
 )
+
+func TestStreamOpeningDeadlineAndRedirectPolicy(t *testing.T) {
+	f := NewForwarder(&config.Config{RequestTimeout: 50 * time.Millisecond}, logging.NewLogger("error"))
+	f.addressAllowed = func(net.IP) bool { return true }
+	defer f.CloseIdleConnections()
+	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer stalled.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := f.OpenStream(ctx, stalled.URL, nil, HTTPTransport{}); err == nil || ctx.Err() != nil {
+		t.Fatalf("opening deadline not applied: %v", err)
+	}
+	called := make(chan struct{}, 1)
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called <- struct{}{} }))
+	defer other.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, other.URL, http.StatusFound) }))
+	defer redirect.Close()
+	response, err := f.OpenStream(context.Background(), redirect.URL, http.Header{"X-Api-Key": {"secret"}}, HTTPTransport{RequestTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusFound {
+		t.Fatal("redirect followed")
+	}
+	select {
+	case <-called:
+		t.Fatal("credential destination was contacted")
+	default:
+	}
+}
+
+func TestEstablishedStreamOutlivesOpeningTimeout(t *testing.T) {
+	f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
+	f.addressAllowed = func(net.IP) bool { return true }
+	defer f.CloseIdleConnections()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		select {
+		case <-time.After(150 * time.Millisecond):
+			io.WriteString(w, "data: still open\n\n")
+		case <-r.Context().Done():
+		}
+	}))
+	defer source.Close()
+	response, err := f.OpenStream(context.Background(), source.URL, nil, HTTPTransport{RequestTimeout: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || string(body) != "data: still open\n\n" {
+		t.Fatalf("opening timeout affected established stream: %q %v", body, err)
+	}
+}
 
 func TestForwarderMergesTargetAndWebhookQueryParameters(t *testing.T) {
 	receivedQuery := make(chan string, 1)

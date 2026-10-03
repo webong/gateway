@@ -376,12 +376,24 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
 
         $source = $this->delivery($plan->reply, $event);
-        if (($lastEventId = $event->headers['Last-Event-ID'][0] ?? null) !== null) {
+        $lastEventId = null;
+        foreach ($event->headers as $name => $values) {
+            if (strcasecmp($name, 'Last-Event-ID') === 0) {
+                $lastEventId = $values[0] ?? null;
+                break;
+            }
+        }
+        if ($lastEventId !== null) {
+            $headers = array_filter(
+                $source->headers,
+                static fn (string $name): bool => strcasecmp($name, 'Last-Event-ID') !== 0,
+                ARRAY_FILTER_USE_KEY,
+            );
             $source = new GatewayDelivery(
                 protocol: $source->protocol,
                 target: $source->target,
                 subscriberId: $source->subscriberId,
-                headers: [...$source->headers, 'Last-Event-ID' => [$lastEventId]],
+                headers: [...$headers, 'Last-Event-ID' => [$lastEventId]],
                 attributes: $source->attributes,
                 payload: $source->payload,
                 adapter: $source->adapter,

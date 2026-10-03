@@ -159,19 +159,56 @@ func (f *Forwarder) ForwardStatus(req ForwardRequest) (int, error) {
 // OpenStream keeps the response body open. Its caller's context owns the
 // stream lifetime, including cancellation when the downstream client leaves.
 func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.Header, settings HTTPTransport) (*http.Response, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	// Bound DNS, dialing, TLS and response headers, but not the response body.
+	timeout := settings.RequestTimeout
+	if timeout <= 0 {
+		timeout = f.client.Timeout
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	timer := time.AfterFunc(timeout, cancel)
+	defer timer.Stop()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	request.Header = headers.Clone()
+	if request.Header == nil {
+		request.Header = make(http.Header)
+	}
+	request.Header.Set("Accept", "text/event-stream")
 	client, err := f.clientFor(settings)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	streamClient := *client
 	streamClient.Timeout = 0
-	return streamClient.Do(request)
+	// A selected source must not redirect its credentials to another URL.
+	streamClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := streamClient.Do(request)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	if !timer.Stop() {
+		response.Body.Close()
+		cancel()
+		return nil, context.DeadlineExceeded
+	}
+	response.Body = &streamBody{ReadCloser: response.Body, cancel: cancel}
+	return response, nil
 }
+
+type streamBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *streamBody) Close() error { b.cancel(); return b.ReadCloser.Close() }
 
 func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardResponse, error) {
 	targetURL, err := url.Parse(req.TargetURL)

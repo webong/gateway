@@ -221,7 +221,7 @@ it('turns an unmatched protocol route into an SMTP rejection', function (): void
         ->and($decision->statusCode)->toBe(550);
 });
 
-it('uses the WebProxy reply destination as the authorized Webstream source', function (): void {
+it('uses the Proxy reply destination as the authorized Webstream source', function (string $resumeHeader): void {
     $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
         public function plan(IngressRequest $request): RoutePlan
         {
@@ -239,7 +239,7 @@ it('uses the WebProxy reply destination as the authorized Webstream source', fun
         kind: EventKind::CONNECT,
         route: '/hooks/updates',
         host: 'gateway.example.test',
-        headers: ['Last-Event-ID' => ['event-42']],
+        headers: [$resumeHeader => ['event-42']],
     ));
 
     expect($decision->action)->toBe(GatewayAction::STREAM)
@@ -247,4 +247,4 @@ it('uses the WebProxy reply destination as the authorized Webstream source', fun
         ->and($decision->stream?->subscriberId)->toBe('stream-source')
         ->and($decision->stream?->headers['Last-Event-ID'])->toBe(['event-42'])
         ->and($decision->stream?->transport?->httpProxy)->toBe('http://proxy.example.test:8080');
-});
+})->with(['Last-Event-ID', 'Last-Event-Id', 'last-event-id']);

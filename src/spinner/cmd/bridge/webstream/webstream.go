@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -36,6 +37,7 @@ type Config struct {
 	MaxConnections    int
 	MaxDuration       time.Duration
 	Admission         *Admission
+	WriteTimeout      time.Duration
 }
 
 // Admission limits all streams sharing it, including streams still being planned.
@@ -79,6 +81,9 @@ func NewHandler(planner bridge.ProtocolPlanner, source Source, config Config) *H
 	}
 	if config.MaxDuration <= 0 {
 		config.MaxDuration = 24 * time.Hour
+	}
+	if config.WriteTimeout <= 0 {
+		config.WriteTimeout = 30 * time.Second
 	}
 	if config.Admission == nil {
 		config.Admission = NewAdmission(config.MaxConnections)
@@ -131,6 +136,11 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	switch decision.Action {
 	case bridge.GatewayStream:
+		// Replace the server's whole-response deadline with a per-write limit.
+		controller := http.NewResponseController(writer)
+		_ = controller.SetWriteDeadline(time.Time{})
+		defer controller.SetWriteDeadline(time.Time{})
+		writer = &streamWriter{ResponseWriter: writer, controller: controller, timeout: h.config.WriteTimeout}
 		response, openErr := h.source.OpenWebstream(streamContext, *decision.Stream)
 		if openErr != nil {
 			h.failed.Add(1)
@@ -138,12 +148,17 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		defer response.Body.Close()
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusNoContent {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if response.StatusCode != http.StatusOK {
 			h.failed.Add(1)
 			http.Error(writer, "Webstream source rejected connection", http.StatusBadGateway)
 			return
 		}
-		if !strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+		mediaType, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
+		if mediaErr != nil || !strings.EqualFold(mediaType, "text/event-stream") {
 			h.failed.Add(1)
 			http.Error(writer, "Webstream source did not return Server-Sent Events", http.StatusBadGateway)
 			return
@@ -154,9 +169,13 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-cache")
 		writer.Header().Set("X-Accel-Buffering", "no")
 		writer.WriteHeader(response.StatusCode)
-		_, _ = writer.Write([]byte("retry: " + strconv.FormatInt(h.config.ReconnectDelay.Milliseconds(), 10) + "\n\n"))
-		if flusher, ok := writer.(http.Flusher); ok {
-			flusher.Flush()
+		if _, err := writer.Write([]byte("retry: " + strconv.FormatInt(h.config.ReconnectDelay.Milliseconds(), 10) + "\n\n")); err != nil {
+			h.failed.Add(1)
+			return
+		}
+		if err := http.NewResponseController(writer).Flush(); err != nil {
+			h.failed.Add(1)
+			return
 		}
 		h.opened.Add(1)
 		h.active.Add(1)
@@ -180,7 +199,9 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 }
 
 func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader, heartbeat time.Duration) error {
-	flusher, _ := writer.(http.Flusher)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	controller := http.NewResponseController(writer)
 	// The retry prelude ends with an empty line. Heartbeats may only be
 	// inserted at another event boundary; a source read can stop mid-event.
 	boundary := sseBoundary{complete: true}
@@ -227,8 +248,8 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 			if _, err := writer.Write([]byte(": gateway heartbeat\n\n")); err != nil {
 				return err
 			}
-			if flusher != nil {
-				flusher.Flush()
+			if err := controller.Flush(); err != nil {
+				return err
 			}
 		case result := <-reads:
 			if len(result.bytes) > 0 {
@@ -236,8 +257,8 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 					return err
 				}
 				boundary.feed(result.bytes)
-				if flusher != nil {
-					flusher.Flush()
+				if err := controller.Flush(); err != nil {
+					return err
 				}
 			}
 			if result.err != nil {
@@ -248,6 +269,23 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 			}
 		}
 	}
+}
+
+type streamWriter struct {
+	http.ResponseWriter
+	controller *http.ResponseController
+	timeout    time.Duration
+}
+
+func (w *streamWriter) Write(p []byte) (int, error) {
+	_ = w.controller.SetWriteDeadline(time.Now().Add(w.timeout))
+	return w.ResponseWriter.Write(p)
+}
+func (w *streamWriter) FlushError() error {
+	_ = w.controller.SetWriteDeadline(time.Now().Add(w.timeout))
+	err := w.controller.Flush()
+	_ = w.controller.SetWriteDeadline(time.Time{})
+	return err
 }
 
 // sseBoundary tracks whether the byte stream ends after an empty SSE line.

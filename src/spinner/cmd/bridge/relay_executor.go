@@ -21,10 +21,15 @@ func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDeliv
 }
 
 func streamHeaders(delivery GatewayDelivery) http.Header {
-	headers := cloneRelayHeaders(delivery.Headers)
+	headers := make(http.Header)
+	for name, values := range delivery.Headers {
+		for _, value := range values {
+			headers.Add(name, value)
+		}
+	}
 	if delivery.Transport != nil {
 		for name, values := range delivery.Transport.StreamHeaders {
-			headers[name] = append([]string(nil), values...)
+			headers[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
 		}
 	}
 	return headers

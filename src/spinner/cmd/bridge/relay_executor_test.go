@@ -168,8 +168,15 @@ func TestWebstreamSourceHeadersPreferEndpointProfileCredentials(t *testing.T) {
 		Headers:   map[string][]string{"Last-Event-ID": {"event-42"}, "Authorization": {"Bearer client-token"}},
 		Transport: &HTTPTransport{StreamHeaders: map[string][]string{"Authorization": {"Bearer source-secret"}, "X-Source-Scope": {"orders"}}},
 	})
-	if headers["Authorization"][0] != "Bearer source-secret" || headers["Last-Event-ID"][0] != "event-42" || headers["X-Source-Scope"][0] != "orders" {
+	if headers.Get("Authorization") != "Bearer source-secret" || headers.Get("Last-Event-ID") != "event-42" || headers.Get("X-Source-Scope") != "orders" {
 		t.Fatalf("unexpected source headers: %v", headers)
+	}
+}
+
+func TestStreamProfileOverridesHeadersCaseInsensitively(t *testing.T) {
+	headers := streamHeaders(GatewayDelivery{Headers: map[string][]string{"AUTHORIZATION": {"client"}}, Transport: &HTTPTransport{StreamHeaders: map[string][]string{"authorization": {"source"}}}})
+	if len(headers.Values("Authorization")) != 1 || headers.Get("Authorization") != "source" {
+		t.Fatal("profile did not replace existing credential")
 	}
 }
 

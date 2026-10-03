@@ -594,23 +594,27 @@ Webstream is Gateway's one-way Web capability. A client opens a normal `GET`
 request with `Accept: text/event-stream` under a Gateway route; Spinner sends a
 `webstream`/`connect` event to Planner. Planner applies the same path binding,
 registry matching, and authorization policy used for Gateway routes. A matched
-WebProxy **reply** destination is the single upstream SSE source, not a webhook
+Proxy **reply** destination is the single upstream SSE source, not a webhook
 reply: Planner returns an explicit `stream` decision and Spinner proxies its
 bytes to the client without buffering them.
 
-The upstream must return a successful `text/event-stream` response. Spinner
+The upstream must return HTTP 200 with `text/event-stream`, or HTTP 204 to tell
+the client to stop reconnecting. Redirects are not followed: configure the final
+source URL so credentials cannot be forwarded to a different destination. Spinner
 flushes each read to the client, blocks on slow client writes (so backpressure
 propagates), and uses the client request context for the upstream request, so a
-disconnect cancels the source connection. Endpoint-owned WebProxy profile
-transport settings remain attached to the source; the normal request timeout is
-not applied to an established stream.
+disconnect cancels the source connection. Endpoint-owned Proxy profile
+transport settings remain attached to the source. The request timeout bounds
+opening the source through receipt of response headers, not the established
+stream. Streaming clears the HTTP server's connection-wide write deadline and
+uses a 30-second deadline per write/flush to disconnect stalled readers.
 
 For a protected source, attach an endpoint-scoped Proxy profile to the reply
 subscription. Its encrypted `options.headers` are sent only with the selected
 Webstream source request (for example, `Authorization: Bearer …`); they are
 not exposed through registry resources, copied from the client, or used for
 ordinary relay deliveries. Source profile headers override a same-named client
-header; connection-framing headers and `Last-Event-ID` are reserved, so the
+header case-insensitively; connection-framing headers and `Last-Event-ID` are reserved, so the
 resume marker always remains client-controlled.
 
 Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
