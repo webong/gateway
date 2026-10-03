@@ -1,13 +1,15 @@
-package router
+package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
+	"github.com/webong/gateway/lib/router"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
@@ -15,20 +17,21 @@ import (
 	"github.com/webong/gateway/src/spinner/transport"
 )
 
-// WorkerServer owns an embedded PHP worker server and its listener.
-type WorkerServer interface {
+// workerServer owns an embedded PHP worker server and its listener.
+type workerServer interface {
 	Serve() error
 	Stop()
 }
 
 type plannerReady struct {
 	planner bridge.ProtocolPlanner
+	handler http.Handler
 	control *transport.ScheduleControl
 	err     error
 }
 
-// RunRoadRunner composes Spinner's middleware with a managed PHP worker server.
-func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler) http.Handler) (WorkerServer, error)) error {
+// runRoadRunner composes Spinner's middleware with a managed PHP worker server.
+func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler) http.Handler) (workerServer, error)) error {
 	if newServer == nil {
 		return fmt.Errorf("a worker server factory is required")
 	}
@@ -44,7 +47,7 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 	websocketAdmission := gatewayws.NewAdmission(spinner.WebSocketMaxConnections)
 	webstreamAdmission := gatewaystream.NewAdmission(spinner.WebstreamMaxConnections)
 	engine := automationextensions.Runtime()
-	managed, err := managedRouteProxy(spinner)
+	managed, err := router.ManagedRouteProxy(spinner)
 	if err != nil {
 		return err
 	}
@@ -56,7 +59,7 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		protocolPlanner.InternalToken = spinner.InternalToken
 		control, controlErr := transport.EmbeddedScheduleControl(next, spinner, engine)
 		select {
-		case ready <- plannerReady{planner: protocolPlanner, control: control, err: controlErr}:
+		case ready <- plannerReady{planner: protocolPlanner, handler: next, control: control, err: controlErr}:
 		default:
 		}
 		if controlErr != nil {
@@ -71,7 +74,7 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			MaxDuration: spinner.WebSocketMaxDuration, Admission: websocketAdmission,
 		})
 		webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxDuration: spinner.WebstreamMaxDuration, Admission: webstreamAdmission})
-		return routerHandler(next, edge, websocket, webstream, managed)
+		return router.NewHandler(next, edge, websocket, webstream, managed)
 	})
 	if err != nil {
 		return err
@@ -80,7 +83,9 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 	done := make(chan error, 1)
 	go func() { done <- server.Serve() }()
 	var listeners []transport.ProtocolListener
-	listenerErrors := make(chan error, 3)
+	listenerErrors := make(chan error, 4)
+	controlListen := os.Getenv("GATEWAY_ROUTER_CONTROL_LISTEN")
+	var controlServer *http.Server
 	if spinner.DeliveryAdminServer != nil {
 		go func() {
 			if err := spinner.ServeDeliveryAdmin(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -88,7 +93,7 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			}
 		}()
 	}
-	if spinner.HasProtocolListeners() || spinner.SchedulesEnabled {
+	if spinner.HasProtocolListeners() || spinner.SchedulesEnabled || controlListen != "" {
 		startup, cancel := context.WithTimeout(ctx, spinner.RequestTimeout)
 		var prepared plannerReady
 		var err error
@@ -110,6 +115,25 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			server.Stop()
 			<-done
 			return err
+		}
+		if controlListen != "" {
+			controlListener, listenErr := net.Listen("tcp", controlListen)
+			if listenErr != nil {
+				server.Stop()
+				<-done
+				return fmt.Errorf("listen for private provisioning control: %w", listenErr)
+			}
+			controlServer = router.NewProvisioningControlServer(prepared.handler)
+			go func() {
+				if serveErr := controlServer.Serve(controlListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+					listenerErrors <- fmt.Errorf("private provisioning control listener: %w", serveErr)
+				}
+			}()
+			defer func() {
+				shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
+				defer cancel()
+				_ = controlServer.Shutdown(shutdown)
+			}()
 		}
 		if spinner.SchedulesEnabled {
 			scheduleCtx, cancelSchedules := context.WithCancel(ctx)

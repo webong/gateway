@@ -103,6 +103,32 @@ export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
 export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
 export GATEWAY_ROUTER_APP_DIR="$APP_DIR"
 export GATEWAY_ROUTER_LISTEN=${GATEWAY_ROUTER_LISTEN:-:8080}
+# Provisioning workers can reach this listener only when operators explicitly
+# bind it to a trusted private interface; the default is local to the Router.
+export GATEWAY_ROUTER_CONTROL_LISTEN=${GATEWAY_ROUTER_CONTROL_LISTEN:-127.0.0.1:5053}
+if [ "$RUNTIME" = frankenphp ]; then
+    case "$GATEWAY_ROUTER_CONTROL_LISTEN" in
+        *:*)
+            GATEWAY_ROUTER_CONTROL_BIND=${GATEWAY_ROUTER_CONTROL_LISTEN%:*}
+            GATEWAY_ROUTER_CONTROL_PORT=${GATEWAY_ROUTER_CONTROL_LISTEN##*:}
+            ;;
+        *)
+            echo 'GATEWAY_ROUTER_CONTROL_LISTEN must be an IP address and port.' >&2
+            exit 1
+            ;;
+    esac
+    case "$GATEWAY_ROUTER_CONTROL_BIND" in
+        \[*\])
+            GATEWAY_ROUTER_CONTROL_BIND=${GATEWAY_ROUTER_CONTROL_BIND#\[}
+            GATEWAY_ROUTER_CONTROL_BIND=${GATEWAY_ROUTER_CONTROL_BIND%\]}
+            ;;
+    esac
+    if [ -z "$GATEWAY_ROUTER_CONTROL_BIND" ] || [ -z "$GATEWAY_ROUTER_CONTROL_PORT" ]; then
+        echo 'GATEWAY_ROUTER_CONTROL_LISTEN must be an IP address and port.' >&2
+        exit 1
+    fi
+    export GATEWAY_ROUTER_CONTROL_BIND GATEWAY_ROUTER_CONTROL_PORT
+fi
 export LOG_LEVEL=${LOG_LEVEL:-info}
 export MAX_WORKERS=${MAX_WORKERS:-4}
 

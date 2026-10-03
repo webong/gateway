@@ -75,11 +75,11 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		MaxDuration:    spinner.WebSocketMaxDuration,
 	})
 	webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxConnections: spinner.WebstreamMaxConnections, MaxDuration: spinner.WebstreamMaxDuration})
-	managed, err := managedRouteProxy(spinner)
+	managed, err := ManagedRouteProxy(spinner)
 	if err != nil {
 		return err
 	}
-	handler := routerHandler(planner, edge, websocket, webstream, managed)
+	handler := NewHandler(planner, edge, websocket, webstream, managed)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -87,6 +87,16 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return fmt.Errorf("listen for Router requests: %w", err)
+	}
+	var controlServer *http.Server
+	var controlListener net.Listener
+	if controlListen := os.Getenv("GATEWAY_ROUTER_CONTROL_LISTEN"); controlListen != "" {
+		controlListener, err = net.Listen("tcp", controlListen)
+		if err != nil {
+			_ = listener.Close()
+			return fmt.Errorf("listen for private provisioning control: %w", err)
+		}
+		controlServer = NewProvisioningControlServer(planner)
 	}
 	server := &http.Server{
 		Handler:           handler,
@@ -96,6 +106,10 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.Serve(listener) }()
+	controlErrors := make(chan error, 1)
+	if controlServer != nil {
+		go func() { controlErrors <- controlServer.Serve(controlListener) }()
+	}
 	adminErrors := make(chan error, 1)
 	if spinner.DeliveryAdminServer != nil {
 		go func() { adminErrors <- spinner.ServeDeliveryAdmin() }()
@@ -110,28 +124,35 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		if !errors.Is(err, http.ErrServerClosed) {
 			runErr = fmt.Errorf("delivery admin listener: %w", err)
 		}
+	case err := <-controlErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf("private provisioning control listener: %w", err)
+		}
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
 	defer cancel()
-	if err := server.Shutdown(shutdown); err != nil {
-		return err
+	publicShutdownErr := server.Shutdown(shutdown)
+	if controlServer != nil {
+		if err := controlServer.Shutdown(shutdown); err != nil {
+			return errors.Join(publicShutdownErr, err)
+		}
 	}
-	return runErr
+	return errors.Join(runErr, publicShutdownErr)
 }
 
-type managedRouteHandler interface {
+type ManagedRouteHandler interface {
 	ServeWithPlanner(http.ResponseWriter, *http.Request, http.Handler) bool
 }
 
-func managedRouteProxy(spinner *transport.Router) (managedRouteHandler, error) {
+func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 	if !spinner.ProvisioningRouteProxy {
 		return nil, nil
 	}
 	return provision.NewRemoteRouter("http://planner.internal", spinner.InternalToken, nil, spinner.ProvisioningRouteCIDRs)
 }
 
-func routerHandler(planner, edge, websocket, webstream http.Handler, managed managedRouteHandler) http.Handler {
+func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if under(r.URL.Path, "/_internal") {
 			http.NotFound(w, r)

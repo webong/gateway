@@ -25,3 +25,19 @@
         php
     }
 }
+
+# Never route this listener through the public gateway handler. Planner verifies
+# the internal or target-worker credential on every provisioning request.
+:{$GATEWAY_ROUTER_CONTROL_PORT} {
+    bind {$GATEWAY_ROUTER_CONTROL_BIND}
+    root * {$GATEWAY_ROUTER_APP_DIR}
+
+    route {
+        @provisioning path /_internal/provisioning /_internal/provisioning/*
+        handle @provisioning {
+            rewrite * /index.php
+            php
+        }
+        respond 404
+    }
+}

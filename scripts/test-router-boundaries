@@ -14,3 +14,10 @@ if grep -q '^github.com/webong/gateway ' <<<"$modules"; then
 fi
 echo "$extension has no Spinner implementation or Gateway core dependency."
 done
+
+dependencies=$(go -C "$ROOT" list -mod=readonly -deps ./lib/router)
+if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/ext/roadrunner\($\|/\)' <<<"$dependencies"; then
+    echo 'Shared Router library must not depend on RoadRunner.' >&2
+    exit 1
+fi
+echo 'Shared Router library has no RoadRunner dependency.'

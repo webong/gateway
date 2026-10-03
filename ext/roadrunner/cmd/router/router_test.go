@@ -1,4 +1,4 @@
-package router
+package main
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"testing"
@@ -22,7 +23,7 @@ func TestRoadRunnerStopsWorkerServerOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	server := &testWorkerServer{done: make(chan struct{}), cancel: cancel}
-	err := RunRoadRunner(ctx, func(path string, middleware func(http.Handler) http.Handler) (WorkerServer, error) {
+	err := runRoadRunner(ctx, func(path string, middleware func(http.Handler) http.Handler) (workerServer, error) {
 		if path != "test.yaml" || middleware == nil {
 			t.Fatal("missing worker configuration")
 		}
@@ -49,7 +50,7 @@ func TestRoadRunnerPollsSchedulesThroughEmbeddedPlanner(t *testing.T) {
 	defer cancel()
 	claims := make(chan string, 1)
 	server := &passiveWorkerServer{done: make(chan struct{})}
-	err := RunRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (WorkerServer, error) {
+	err := runRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (workerServer, error) {
 		middleware(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if request.URL.Path == "/_internal/gateway/schedules/claim" {
 				claims <- request.Header.Get("X-Gateway-Internal")
@@ -100,7 +101,7 @@ func TestRoadRunnerRoutesManagedWorkloadThroughEmbeddedPlanner(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	server := &testWorkerServer{done: make(chan struct{}), cancel: cancel}
-	err = RunRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (WorkerServer, error) {
+	err = runRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (workerServer, error) {
 		planner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/_internal/provisioning/routes/resolve" {
 				if r.Header.Get("X-Gateway-Internal") != "test-token" || r.URL.Query().Get("hostname") != "events.example.test" {
@@ -125,6 +126,74 @@ func TestRoadRunnerRoutesManagedWorkloadThroughEmbeddedPlanner(t *testing.T) {
 	}
 }
 
+func TestRoadRunnerServesPrivateProvisioningControl(t *testing.T) {
+	t.Setenv("GATEWAY_RUNTIME", "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
+	t.Setenv("ROADRUNNER_CONFIG", "test.yaml")
+	t.Setenv("GATEWAY_SMTP_ADDR", "")
+	t.Setenv("GATEWAY_DNS_ADDR", "")
+	t.Setenv("GATEWAY_ROUTER_CONTROL_LISTEN", unusedLoopbackAddress(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := &passiveWorkerServer{done: make(chan struct{})}
+	finished := make(chan error, 1)
+	go func() {
+		finished <- runRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (workerServer, error) {
+			planner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("X-Gateway-Internal") != "worker-secret" || r.Header.Get("X-Gateway-Target") != "target-1" {
+					http.NotFound(w, r)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			})
+			public := middleware(planner)
+			response := httptest.NewRecorder()
+			public.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/_internal/provisioning/targets/target-1", nil))
+			if response.Code != http.StatusNotFound {
+				t.Errorf("public Router exposed provisioning API: %d", response.Code)
+			}
+			return server, nil
+		})
+	}()
+	controlURL := "http://" + os.Getenv("GATEWAY_ROUTER_CONTROL_LISTEN")
+	request, err := http.NewRequest(http.MethodGet, controlURL+"/_internal/provisioning/targets/target-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("X-Gateway-Internal", "worker-secret")
+	request.Header.Set("X-Gateway-Target", "target-1")
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		response, requestErr := client.Do(request)
+		if requestErr == nil {
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("private provisioning route returned %d", response.StatusCode)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("RoadRunner private control listener unavailable: %v", requestErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	response := awaitControlResponse(t, controlURL+"/registry/endpoints")
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("private control exposed registry route: %d", response.StatusCode)
+	}
+	_ = response.Body.Close()
+	cancel()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RoadRunner did not stop")
+	}
+}
+
 type testWorkerServer struct {
 	done   chan struct{}
 	cancel context.CancelFunc
@@ -141,3 +210,30 @@ type passiveWorkerServer struct {
 
 func (s *passiveWorkerServer) Serve() error { <-s.done; return nil }
 func (s *passiveWorkerServer) Stop()        { s.once.Do(func() { close(s.done) }) }
+
+func unusedLoopbackAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	_ = listener.Close()
+	return address
+}
+
+func awaitControlResponse(t *testing.T, address string) *http.Response {
+	t.Helper()
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		response, err := client.Get(address)
+		if err == nil {
+			return response
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("private control listener unavailable: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

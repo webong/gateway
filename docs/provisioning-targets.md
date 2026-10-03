@@ -389,9 +389,17 @@ if traffic proxying and provisioning are intentionally colocated.
 - Separate HTTP Spinner and combined Router runtimes can use the opt-in
   Planner-backed route lookup described above. The legacy Caddy handler uses
   its `managed_route_cidrs` directive. DNS/TLS/ingress automation is not included.
-- Connect to an externally reachable Planner HTTP host. Bundled FrankenPHP and
-  RoadRunner Router public listeners still hide `/_internal`; a dedicated private
-  control listener for those deployments is a follow-up, not enabled here.
+- A worker needs a private HTTP path to Planner. Separate Planner deployments
+  use their private Planner Service. Bundled library, RoadRunner, and Caddy
+  Router launchers bind `GATEWAY_ROUTER_CONTROL_LISTEN` to
+  `127.0.0.1:5053` by default. This listener forwards only
+  `/_internal/provisioning` routes to the bundled Planner; the public Router
+  still returns 404 for all `/_internal` routes. For a worker in another
+  container or host, bind this listener to a trusted private interface and
+  set the worker's `GATEWAY_LARAVEL_BACKEND_URL` to that private origin.
+  Do not publish port 5053 through public ingress. Enforce network policy or
+  host firewall restrictions, and use TLS or a trusted private transport.
+  Planner still authenticates target-worker and internal-token requests.
 - A management UI, persisted operation logs, streamed workload logs, cloud machine
   creation, bare-host bootstrapping, graceful handoff, cross-host recovery
   verification, and live Kubernetes worker deployment/recovery verification
