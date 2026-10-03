@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Events\EventRetention;
 use Webong\Gateway\Protocol\GatewayDecision;
 use Webong\Gateway\Protocol\GatewayEvent;
 use Webong\Gateway\Protocol\Protocol;
@@ -18,6 +19,7 @@ final readonly class DnsHookEventRecorder
     public function __construct(
         private ConnectionInterface $database,
         private DnsHookRegistry $hooks,
+        private EventRetention $retention,
         private ?LoggerInterface $logger = null,
     ) {}
 
@@ -29,6 +31,7 @@ final readonly class DnsHookEventRecorder
 
         try {
             $this->persist($event, $decision, $failure);
+            $this->retention->maybePrune();
         } catch (Throwable $exception) {
             // A history write exception must not replace the route decision.
             $this->logger?->warning('Unable to record Gateway DNS hook event.', [
@@ -41,7 +44,7 @@ final readonly class DnsHookEventRecorder
     private function persist(GatewayEvent $event, ?GatewayDecision $decision, ?Throwable $failure): void
     {
         $token = (string) ($event->attributes['endpoint'] ?? ltrim($event->route, '/'));
-        $hook = $this->hooks->find($token);
+        $hook = $this->hooks->find($token, $event->attributes['zone'] ?? null);
         if ($hook === null) {
             return;
         }

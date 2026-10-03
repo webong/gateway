@@ -33,6 +33,13 @@ final readonly class GatewayEvent
         if ($this->protocol === Protocol::DNS && $this->kind !== EventKind::QUERY) {
             throw new InvalidArgumentException('DNS gateway events must use the query kind.');
         }
+
+        if ($this->protocol === Protocol::POP3 && ! in_array($this->kind, [EventKind::AUTHENTICATE, EventKind::CONNECT, EventKind::CLOSE], true)) {
+            throw new InvalidArgumentException('POP3 gateway events must authenticate, connect, or close.');
+        }
+        if ($this->protocol === Protocol::IMAP && ! in_array($this->kind, [EventKind::AUTHENTICATE, EventKind::CONNECT, EventKind::CLOSE], true)) {
+            throw new InvalidArgumentException('IMAP gateway events must authenticate, connect, or close.');
+        }
     }
 
     /** @param array<string, mixed> $payload */

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spinner
+spec:
+  template:
+    spec:
+      containers:
+        - name: spinner
+          ports:
+            - name: dns-udp
+              containerPort: 5353
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: 5353
+              protocol: TCP
+          env:
+            - name: GATEWAY_DNS_ADDR
+              value: ":5353"
+            - name: GATEWAY_DNS_ZONES
+              valueFrom:
+                configMapKeyRef:
+                  name: gateway-dns
+                  key: zones

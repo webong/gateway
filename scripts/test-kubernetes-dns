@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $(kubectl config current-context) != orbstack ]]; then
+    echo 'The disposable DNS smoke requires the orbstack Kubernetes context.' >&2
+    exit 2
+fi
+if ! command -v dig >/dev/null 2>&1; then
+    echo 'dig is required for the Kubernetes DNS smoke.' >&2
+    exit 2
+fi
+
+NAMESPACE="gateway-dns-smoke-$$-$RANDOM"
+ZONES='[{"name":"first.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15},{"name":"second.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":25}]'
+CREATED=false
+cleanup() {
+    if [[ "$CREATED" == true ]]; then
+        if ! kubectl delete namespace "$NAMESPACE" --wait=true --timeout=120s >/dev/null; then
+            echo "Warning: disposable namespace $NAMESPACE may need manual cleanup." >&2
+        fi
+    fi
+}
+trap cleanup EXIT
+
+if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Disposable namespace $NAMESPACE already exists; refusing to reuse it." >&2
+    exit 1
+fi
+kubectl create namespace "$NAMESPACE" >/dev/null
+CREATED=true
+echo "Using disposable DNS namespace $NAMESPACE."
+
+APP_KEY="base64:$(openssl rand -base64 32)"
+INTERNAL_TOKEN=$(openssl rand -hex 24)
+kubectl -n "$NAMESPACE" create configmap gateway-dns --from-literal=zones="$ZONES" >/dev/null
+kubectl -n "$NAMESPACE" create secret generic planner-credentials \
+    --from-literal=APP_KEY="$APP_KEY" \
+    --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)" \
+    --from-literal=GATEWAY_INTERNAL_TOKEN="$INTERNAL_TOKEN" \
+    --from-literal=GATEWAY_DNS_ZONES="$ZONES" \
+    --from-literal=GATEWAY_DNS_SMOKE=1 \
+    --from-literal=GATEWAY_HTTP_REGISTRY_SMOKE=1 \
+    --from-literal='GATEWAY_PATH_RESOLVER=Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
+    --from-literal=APP_ENV=testing \
+    --from-literal=DB_CONNECTION=sqlite \
+    --from-literal=DB_DATABASE=/tmp/registry.sqlite \
+    --from-literal=COMPOSER_VENDOR_DIR=/app/vendor >/dev/null
+unset APP_KEY
+kubectl -n "$NAMESPACE" create secret generic spinner-planner \
+    --from-literal=internal-token="$INTERNAL_TOKEN" >/dev/null
+unset INTERNAL_TOKEN
+
+kubectl -n "$NAMESPACE" apply -f tests/Fixtures/provision-k8s-planner.yaml >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" apply -k infra/kubernetes/spinner-dns >/dev/null
+kubectl -n "$NAMESPACE" set image deployment/spinner spinner=gateway-dns-spinner-smoke:local >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" describe pods -l app.kubernetes.io/name=spinner >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/spinner >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" patch service spinner-dns --type=merge -p '{"spec":{"type":"NodePort"}}' >/dev/null
+UDP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns -o jsonpath='{.spec.ports[?(@.protocol=="UDP")].nodePort}')
+TCP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns -o jsonpath='{.spec.ports[?(@.protocol=="TCP")].nodePort}')
+NODE_IP=$(kubectl get node orbstack -o json | php -r '
+    $node = json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
+    foreach ($node["status"]["addresses"] ?? [] as $address) {
+        if ($address["type"] === "InternalIP" && filter_var($address["address"], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            echo $address["address"];
+            exit(0);
+        }
+    }
+')
+if [[ ! "$NODE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ||
+      ! "$UDP_PORT" =~ ^[0-9]{4,5}$ || ! "$TCP_PORT" =~ ^[0-9]{4,5}$ ]]; then
+    echo "OrbStack did not assign usable DNS NodePorts: $NODE_IP udp=$UDP_PORT tcp=$TCP_PORT" >&2
+    exit 1
+fi
+
+create_hook() {
+    local zone=$1
+    kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $body = json_encode(["external_id" => "kubernetes", "zone" => $argv[1]], JSON_THROW_ON_ERROR);
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => $body,
+            "timeout" => 5,
+        ]]);
+        $response = file_get_contents("http://127.0.0.1:8080/dns/hooks", false, $context);
+        if ($response === false) { exit(1); }
+        $value = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_string($value["token"] ?? null)) { exit(1); }
+        echo $value["token"];
+    ' "$zone"
+}
+FIRST_TOKEN=$(create_hook first.example.test)
+SECOND_TOKEN=$(create_hook second.example.test)
+if [[ -z "$FIRST_TOKEN" || -z "$SECOND_TOKEN" || "$FIRST_TOKEN" == "$SECOND_TOKEN" ]]; then
+    echo 'Planner did not create distinct DNS hook tokens.' >&2
+    exit 1
+fi
+
+expect_dns() {
+    local protocol=$1 query=$2 expected=$3 port answer
+    if [[ "$protocol" == udp ]]; then port=$UDP_PORT; else port=$TCP_PORT; fi
+    for ((attempt=0; attempt<20; attempt++)); do
+        if [[ "$protocol" == udp ]]; then
+            answer=$(dig @"$NODE_IP" -p "$port" +time=1 +tries=1 +noall +comments +authority "$query" TXT 2>/dev/null || true)
+        else
+            answer=$(dig +tcp @"$NODE_IP" -p "$port" +time=1 +tries=1 +noall +comments +authority "$query" TXT 2>/dev/null || true)
+        fi
+        if [[ "$answer" == *"status: $expected"* && "$answer" == *'flags: qr aa'* ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "$protocol DNS query $query did not return authoritative $expected through $NODE_IP:$port:" >&2
+    echo "$answer" >&2
+    kubectl -n "$NAMESPACE" logs deployment/spinner --tail=80 >&2 || true
+    return 1
+}
+
+expect_dns udp "hello.$FIRST_TOKEN.first.example.test" NOERROR
+expect_dns tcp "hello.$SECOND_TOKEN.second.example.test" NOERROR
+expect_dns udp 'hello.unregistered.first.example.test' NXDOMAIN
+expect_dns tcp 'hello.unregistered.second.example.test' NXDOMAIN
+
+kubectl -n "$NAMESPACE" scale deployment/spinner --replicas=2 >/dev/null
+kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null
+POD_TO_STOP=$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=spinner \
+    -o jsonpath='{.items[0].metadata.name}')
+kubectl -n "$NAMESPACE" delete pod "$POD_TO_STOP" --wait=false >/dev/null
+expect_dns udp "hello.$FIRST_TOKEN.first.example.test" NOERROR
+expect_dns tcp "hello.$SECOND_TOKEN.second.example.test" NOERROR
+
+echo 'OrbStack DNS: production Spinner overlay answered authoritative two-zone queries over UDP/TCP NodePorts and survived one Pod replacement.'

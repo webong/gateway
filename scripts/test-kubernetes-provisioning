@@ -1,0 +1,341 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WORKER_IMAGE=${1:-gateway-provision-k8s-smoke:local}
+PLANNER_IMAGE=${2:-gateway-k8s-planner-smoke:local}
+WORKLOAD_IMAGE=${3:-centrifugo/centrifugo:v6}
+ROUTER_IMAGE=${4:-gateway-k8s-router-smoke:local}
+if [[ "$WORKER_IMAGE" != gateway-provision-k8s-smoke:local ||
+      "$PLANNER_IMAGE" != gateway-k8s-planner-smoke:local ||
+      "$WORKLOAD_IMAGE" != centrifugo/centrifugo:v6 ||
+      "$ROUTER_IMAGE" != gateway-k8s-router-smoke:local ]]; then
+    echo 'The live smoke manifests require their documented disposable image tags.' >&2
+    exit 2
+fi
+if [[ $(kubectl config current-context) != orbstack ]]; then
+    echo 'This disposable live-cluster smoke requires the orbstack Kubernetes context.' >&2
+    exit 2
+fi
+NAMESPACE="gateway-smoke-$$-$RANDOM"
+CREATED=false
+TLS_DIR=''
+cleanup() {
+    if [[ "$CREATED" == true ]]; then
+        if ! kubectl delete namespace "$NAMESPACE" --wait=true --timeout=120s >/dev/null; then
+            echo "Warning: disposable namespace $NAMESPACE may need manual cleanup." >&2
+        fi
+    fi
+    if [[ -n "$TLS_DIR" && -d "$TLS_DIR" ]]; then
+        rm -r -- "$TLS_DIR"
+    fi
+}
+trap cleanup EXIT
+
+if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Disposable namespace $NAMESPACE already exists; refusing to reuse it." >&2
+    exit 1
+fi
+kubectl create namespace "$NAMESPACE" >/dev/null
+CREATED=true
+echo "Using disposable Kubernetes namespace $NAMESPACE."
+
+APP_KEY="base64:$(openssl rand -base64 32)"
+kubectl -n "$NAMESPACE" create secret generic planner-credentials \
+    --from-literal=APP_KEY="$APP_KEY" \
+    --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)" \
+    --from-literal=GATEWAY_INTERNAL_TOKEN="$(openssl rand -hex 24)" \
+    --from-literal=APP_ENV=testing \
+    --from-literal=DB_CONNECTION=sqlite \
+    --from-literal=DB_DATABASE=/tmp/registry.sqlite \
+    --from-literal=COMPOSER_VENDOR_DIR=/app/vendor >/dev/null
+unset APP_KEY
+kubectl -n "$NAMESPACE" apply -f tests/Fixtures/provision-k8s-planner.yaml >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" describe pods -l app.kubernetes.io/name=gateway-planner-smoke >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+    $db = new PDO("sqlite:/tmp/registry.sqlite");
+    $db->query("SELECT COUNT(*) FROM targets");
+' >/dev/null
+
+TARGET_JSON=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+    php /app/tests/Fixtures/provision-k8s-target.php "$NAMESPACE")
+TARGET_ID=$(php -r '$value=json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR); echo $value["id"];' <<< "$TARGET_JSON")
+TARGET_TOKEN=$(php -r '$value=json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR); echo $value["worker_token"];' <<< "$TARGET_JSON")
+unset TARGET_JSON
+if [[ ! "$TARGET_ID" =~ ^[a-f0-9-]{36}$ || ! "$TARGET_TOKEN" =~ ^[a-f0-9]{64}$ ]]; then
+    echo 'Planner returned invalid disposable target credentials.' >&2
+    exit 1
+fi
+
+kubectl -n "$NAMESPACE" create secret generic provision-worker-target \
+    --from-literal=target-id="$TARGET_ID" --from-literal=worker-token="$TARGET_TOKEN" >/dev/null
+unset TARGET_TOKEN
+kubectl -n "$NAMESPACE" create serviceaccount provision-worker >/dev/null
+kubectl -n "$NAMESPACE" create role provision-worker \
+    --verb=get,list,watch,create,delete,deletecollection --resource=pods >/dev/null
+kubectl -n "$NAMESPACE" create rolebinding provision-worker \
+    --role=provision-worker --serviceaccount="$NAMESPACE:provision-worker" >/dev/null
+kubectl -n "$NAMESPACE" apply -f tests/Fixtures/provision-k8s-worker-check.yaml >/dev/null
+
+json_field() {
+    php -r '
+        $value = json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
+        echo $value[$argv[1]] ?? "";
+    ' "$1"
+}
+
+check_managed_route() {
+    local mode=${1:-websocket}
+    local output=''
+    for ((route_attempt=0; route_attempt<20; route_attempt++)); do
+        if [[ "$mode" == denied ]]; then
+            if output=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+                php /app/tests/Fixtures/provision-k8s-route-smoke.php denied 2>&1); then
+                echo "$output"
+                return 0
+            fi
+        elif output=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+            php /app/tests/Fixtures/provision-k8s-route-smoke.php 2>&1); then
+            echo "$output"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Managed route $mode probe failed: $output" >&2
+    kubectl -n "$NAMESPACE" get pods,services,endpointslices -o wide >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/router --tail=80 >&2 || true
+    return 1
+}
+
+check_nodeport_route() {
+    local output=''
+    for ((route_attempt=0; route_attempt<20; route_attempt++)); do
+        if output=$(php tests/Fixtures/provision-k8s-route-smoke.php "$NODE_IP" "$NODE_PORT" 2>&1); then
+            echo "NodePort $NODE_IP:$NODE_PORT: $output"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Host-to-NodePort managed route failed: $output" >&2
+    kubectl -n "$NAMESPACE" get pods,services,endpointslices -o wide >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/router --tail=80 >&2 || true
+    return 1
+}
+
+check_tls_route() {
+    local output=''
+    for ((route_attempt=0; route_attempt<20; route_attempt++)); do
+        if output=$(php tests/Fixtures/provision-k8s-route-smoke.php \
+            "$NODE_IP" "$TLS_NODE_PORT" "$TLS_DIR/tls.crt" 2>&1); then
+            echo "TLS NodePort $NODE_IP:$TLS_NODE_PORT: $output"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Host-to-TLS managed route failed: $output" >&2
+    kubectl -n "$NAMESPACE" get pods,services,endpointslices -o wide >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/gateway-tls-edge --tail=80 >&2 || true
+    return 1
+}
+
+for ((attempt=0; attempt<120; attempt++)); do
+    PHASE=$(kubectl -n "$NAMESPACE" get pod provision-worker-check -o jsonpath='{.status.phase}')
+    if [[ "$PHASE" == Succeeded ]]; then
+        OUTPUT=$(kubectl -n "$NAMESPACE" logs provision-worker-check)
+        if [[ "$OUTPUT" != *'Target connection checks passed. No workloads changed.'* ]]; then
+            printf 'Worker check exited without its success marker:\n%s\n' "$OUTPUT" >&2
+            exit 1
+        fi
+        GATEWAY_CENTRIFUGO_KUBERNETES_SMOKE_NAMESPACE="$NAMESPACE" \
+        GATEWAY_CENTRIFUGO_KUBERNETES_SMOKE_IMAGE="$WORKLOAD_IMAGE" \
+        GOTELEMETRY=off go test -mod=mod -count=1 -timeout=2m \
+            -run '^TestKubernetesSmoke$' ./ext/centrifugo/runtime
+        break
+    fi
+    if [[ "$PHASE" == Failed ]]; then
+        kubectl -n "$NAMESPACE" logs provision-worker-check >&2 || true
+        kubectl -n "$NAMESPACE" describe pod provision-worker-check >&2 || true
+        exit 1
+    fi
+    REASON=$(kubectl -n "$NAMESPACE" get pod provision-worker-check \
+        -o jsonpath='{.status.containerStatuses[0].state.waiting.reason}')
+    if [[ "$REASON" == CreateContainerConfigError || "$REASON" == ErrImageNeverPull ||
+          "$REASON" == ImagePullBackOff ]]; then
+        kubectl -n "$NAMESPACE" describe pod provision-worker-check >&2 || true
+        exit 1
+    fi
+    sleep 1
+done
+if [[ "$PHASE" != Succeeded ]]; then
+    kubectl -n "$NAMESPACE" describe pod provision-worker-check >&2 || true
+    echo 'Timed out waiting for the in-cluster worker check.' >&2
+    exit 1
+fi
+
+SERVER_ID=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+    php /app/tests/Fixtures/provision-k8s-server.php "$TARGET_ID")
+if [[ ! "$SERVER_ID" =~ ^[a-f0-9-]{36}$ ]]; then
+    echo 'Planner did not create a disposable Centrifugo server.' >&2
+    exit 1
+fi
+kubectl -n "$NAMESPACE" apply -f tests/Fixtures/provision-k8s-worker-live.yaml >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/provision-worker-live --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/provision-worker-live >&2 || true
+    exit 1
+fi
+
+WORKLOAD_UID=''
+for ((attempt=0; attempt<90; attempt++)); do
+    INSTANCE_JSON=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+        php /app/tests/Fixtures/provision-k8s-observe.php instance "$SERVER_ID")
+    STATE=$(printf '%s' "$INSTANCE_JSON" | json_field state)
+    HOST=$(printf '%s' "$INSTANCE_JSON" | json_field host)
+    PORT=$(printf '%s' "$INSTANCE_JSON" | json_field port)
+    if [[ "$STATE" == running && "$HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ && "$PORT" == 8000 ]]; then
+        WORKLOAD_UID=$(kubectl -n "$NAMESPACE" get pods \
+            -l "gateway.webong.dev/server=$SERVER_ID" -o jsonpath='{.items[0].metadata.uid}')
+        if [[ -n "$WORKLOAD_UID" ]]; then
+            kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+                $headers = @get_headers("http://".$argv[1].":".$argv[2]."/health");
+                exit(is_array($headers) && str_contains($headers[0], " 200 ") ? 0 : 1);
+            ' "$HOST" "$PORT"
+            break
+        fi
+    fi
+    sleep 2
+done
+if [[ -z "$WORKLOAD_UID" ]]; then
+    kubectl -n "$NAMESPACE" logs deployment/provision-worker-live >&2 || true
+    kubectl -n "$NAMESPACE" get pods -o wide >&2 || true
+    echo 'Packaged worker did not start a healthy Centrifugo Pod.' >&2
+    exit 1
+fi
+
+kubectl -n "$NAMESPACE" apply -f tests/Fixtures/provision-k8s-router.yaml >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/router --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/router >&2 || true
+    exit 1
+fi
+check_managed_route denied
+kubectl -n "$NAMESPACE" set env deployment/router "GATEWAY_PROVISIONING_ROUTE_CIDRS=$HOST/32" >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/router --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/router >&2 || true
+    exit 1
+fi
+check_managed_route
+kubectl -n "$NAMESPACE" patch service router --type=merge -p '{"spec":{"type":"NodePort"}}' >/dev/null
+NODE_PORT=$(kubectl -n "$NAMESPACE" get service router -o jsonpath='{.spec.ports[0].nodePort}')
+NODE_IP=$(kubectl get node orbstack -o json | php -r '
+    $node = json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
+    foreach ($node["status"]["addresses"] ?? [] as $address) {
+        if ($address["type"] === "InternalIP" && filter_var($address["address"], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            echo $address["address"];
+            exit(0);
+        }
+    }
+')
+if [[ ! "$NODE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ || ! "$NODE_PORT" =~ ^[0-9]{4,5}$ ]]; then
+    echo "OrbStack did not assign a usable NodePort: $NODE_IP:$NODE_PORT" >&2
+    exit 1
+fi
+check_nodeport_route
+TLS_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-k8s-tls.XXXXXX")
+chmod 700 "$TLS_DIR"
+openssl req -x509 -newkey rsa:2048 -noenc -days 1 \
+    -subj '/CN=live.example.test' \
+    -addext 'basicConstraints=critical,CA:TRUE' \
+    -addext 'subjectAltName=DNS:live.example.test' \
+    -keyout "$TLS_DIR/tls.key" -out "$TLS_DIR/tls.crt" >/dev/null 2>&1
+kubectl -n "$NAMESPACE" create secret tls gateway-tls \
+    --cert="$TLS_DIR/tls.crt" --key="$TLS_DIR/tls.key" >/dev/null
+kubectl -n "$NAMESPACE" apply -k infra/kubernetes/tls-edge >/dev/null
+kubectl -n "$NAMESPACE" set env deployment/gateway-tls-edge \
+    GATEWAY_PUBLIC_HOST=live.example.test GATEWAY_TLS_UPSTREAM=http://router:8080 >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/gateway-tls-edge --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" describe pods -l app.kubernetes.io/name=gateway-tls-edge >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/gateway-tls-edge --tail=80 >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" patch service gateway-tls-edge --type=merge -p '{"spec":{"type":"NodePort"}}' >/dev/null
+TLS_NODE_PORT=$(kubectl -n "$NAMESPACE" get service gateway-tls-edge -o jsonpath='{.spec.ports[0].nodePort}')
+if [[ ! "$TLS_NODE_PORT" =~ ^[0-9]{4,5}$ ]]; then
+    echo "OrbStack did not assign a usable TLS NodePort: $TLS_NODE_PORT" >&2
+    exit 1
+fi
+check_tls_route
+
+SESSION_JSON=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+    php /app/tests/Fixtures/provision-k8s-observe.php session provision-worker-live)
+SESSION_BEFORE=$(printf '%s' "$SESSION_JSON" | json_field session_id)
+HEARTBEAT_BEFORE=$(printf '%s' "$INSTANCE_JSON" | json_field heartbeat_at)
+if [[ -z "$SESSION_BEFORE" || -z "$HEARTBEAT_BEFORE" ]]; then
+    echo 'Planner did not record the first worker session and workload heartbeat.' >&2
+    exit 1
+fi
+OLD_WORKER=$(kubectl -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=gateway-provision-worker-live \
+    -o jsonpath='{.items[0].metadata.name}')
+RESTARTS_BEFORE=$(kubectl -n "$NAMESPACE" get pod "$OLD_WORKER" \
+    -o jsonpath='{.status.containerStatuses[0].restartCount}')
+# Deleting the Pod can trigger a graceful worker shutdown and stop its
+# workload. PID 1 also ignores SIGKILL sent from within its own PID namespace.
+# OrbStack uses the same Docker daemon: verify the exact Pod labels, then send
+# SIGKILL from the host so Kubernetes restarts only this worker container.
+CONTAINER_REF=$(kubectl -n "$NAMESPACE" get pod "$OLD_WORKER" \
+    -o jsonpath='{.status.containerStatuses[0].containerID}')
+if [[ ! "$CONTAINER_REF" =~ ^docker://[a-f0-9]{64}$ ]]; then
+    echo "Disposable worker is not backed by an identifiable Docker container: $CONTAINER_REF" >&2
+    exit 1
+fi
+CONTAINER_ID=${CONTAINER_REF#docker://}
+CONTAINER_NAMESPACE=$(docker inspect "$CONTAINER_ID" \
+    --format '{{index .Config.Labels "io.kubernetes.pod.namespace"}}')
+CONTAINER_POD=$(docker inspect "$CONTAINER_ID" \
+    --format '{{index .Config.Labels "io.kubernetes.pod.name"}}')
+if [[ "$CONTAINER_NAMESPACE" != "$NAMESPACE" || "$CONTAINER_POD" != "$OLD_WORKER" ]]; then
+    echo 'Resolved Docker container does not belong to the disposable Gateway worker Pod.' >&2
+    exit 1
+fi
+docker kill --signal=KILL "$CONTAINER_ID" >/dev/null
+
+ADOPTED=false
+for ((attempt=0; attempt<90; attempt++)); do
+    CURRENT_UID=$(kubectl -n "$NAMESPACE" get pods \
+        -l "gateway.webong.dev/server=$SERVER_ID" -o jsonpath='{.items[0].metadata.uid}')
+    if [[ "$CURRENT_UID" != "$WORKLOAD_UID" ]]; then
+        kubectl -n "$NAMESPACE" get pods -o wide >&2 || true
+        echo "Centrifugo Pod identity changed during worker recovery: $WORKLOAD_UID -> $CURRENT_UID." >&2
+        exit 1
+    fi
+    RESTARTS_AFTER=$(kubectl -n "$NAMESPACE" get pod "$OLD_WORKER" \
+        -o jsonpath='{.status.containerStatuses[0].restartCount}')
+    SESSION_JSON=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+        php /app/tests/Fixtures/provision-k8s-observe.php session provision-worker-live)
+    SESSION_AFTER=$(printf '%s' "$SESSION_JSON" | json_field session_id)
+    INSTANCE_JSON=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+        php /app/tests/Fixtures/provision-k8s-observe.php instance "$SERVER_ID")
+    STATE=$(printf '%s' "$INSTANCE_JSON" | json_field state)
+    HEARTBEAT_AFTER=$(printf '%s' "$INSTANCE_JSON" | json_field heartbeat_at)
+    if [[ "$RESTARTS_AFTER" -gt "$RESTARTS_BEFORE" &&
+          -n "$SESSION_AFTER" && "$SESSION_AFTER" != "$SESSION_BEFORE" &&
+          "$STATE" == running && "$HEARTBEAT_AFTER" != "$HEARTBEAT_BEFORE" ]]; then
+        ADOPTED=true
+        break
+    fi
+    sleep 2
+done
+if [[ "$ADOPTED" != true ]]; then
+    kubectl -n "$NAMESPACE" logs -l app.kubernetes.io/name=gateway-provision-worker-live --all-containers=true --tail=80 >&2 || true
+    kubectl -n "$NAMESPACE" get pods -o wide >&2 || true
+    echo 'Replacement worker did not adopt and report the original Centrifugo Pod.' >&2
+    exit 1
+fi
+
+check_managed_route
+check_nodeport_route
+check_tls_route
+
+echo 'Live OrbStack: packaged worker started a healthy Centrifugo Pod; Router proxied its WebSocket through the in-cluster Service, host NodePort, and trusted TLS edge before and after adopting the same Pod UID on worker restart.'

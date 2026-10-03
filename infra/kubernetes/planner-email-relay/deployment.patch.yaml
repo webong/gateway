@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planner
+spec:
+  template:
+    spec:
+      containers:
+        - name: planner
+          env:
+            - name: GATEWAY_DELIVERY_ADMIN_URL
+              value: http://spinner-delivery-admin:5052

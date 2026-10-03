@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,11 +14,14 @@ import (
 
 	"github.com/webong/gateway/driver/automation"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
+	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryadmin"
+	"github.com/webong/gateway/src/spinner/cmd/bridge/deliverymembership"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryqueue"
 	dnsgateway "github.com/webong/gateway/src/spinner/cmd/bridge/dns"
+	imapgateway "github.com/webong/gateway/src/spinner/cmd/bridge/imap"
+	pop3gateway "github.com/webong/gateway/src/spinner/cmd/bridge/pop3"
 	roadrunner "github.com/webong/gateway/src/spinner/cmd/bridge/roadrunner"
 	smtpgateway "github.com/webong/gateway/src/spinner/cmd/bridge/smtp"
-	smtpout "github.com/webong/gateway/src/spinner/cmd/bridge/smtpout"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
@@ -27,6 +31,7 @@ import (
 	"github.com/webong/gateway/src/spinner/internal/logging"
 	"github.com/webong/gateway/src/spinner/internal/workers"
 	"github.com/webong/gateway/src/spinner/provision"
+	"github.com/webong/gateway/src/spinner/transport"
 )
 
 type extensionRouteHandler interface {
@@ -39,19 +44,21 @@ type protocolListener interface {
 }
 
 type Server struct {
-	config            *relayconfig.Config
-	logger            *logging.Logger
-	forwarder         *forwarding.Forwarder
-	workerPool        *workers.WorkerPool
-	executorOptions   []bridge.RelayExecutorOption
-	automation        automation.Executor
-	scheduleRegistrar automation.ScheduleRegistrar
-	deliveryQueue     *deliveryqueue.Queue
-	relayHandle       http.Handler
-	websocketHandler  http.Handler
-	webstreamHandler  *gatewaystream.Handler
-	extensionHandler  extensionRouteHandler
-	httpServer        *http.Server
+	config              *relayconfig.Config
+	logger              *logging.Logger
+	forwarder           *forwarding.Forwarder
+	workerPool          *workers.WorkerPool
+	executorOptions     []bridge.RelayExecutorOption
+	automation          automation.Executor
+	scheduleRegistrar   automation.ScheduleRegistrar
+	deliveryQueue       deliveryqueue.Backend
+	deliveryAdminServer *http.Server
+	relayHandle         http.Handler
+	readinessCheck      func(context.Context) error
+	websocketHandler    http.Handler
+	webstreamHandler    *gatewaystream.Handler
+	extensionHandler    extensionRouteHandler
+	httpServer          *http.Server
 }
 
 func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
@@ -68,6 +75,7 @@ func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", server.handleHealth)
+	mux.HandleFunc("/ready", server.handleReady)
 	mux.HandleFunc("/metrics", server.handleMetrics)
 	// The selected runtime populates the relay handler. Health and metrics stay
 	// on the Go host in every mode.
@@ -95,6 +103,10 @@ func (s *Server) SetRelayPlanner(planner bridge.Planner) {
 // when they need to provide both a planner and a Laravel pass-through handler.
 func (s *Server) SetRelayHandler(handler http.Handler) {
 	s.relayHandle = handler
+}
+
+func (s *Server) SetReadinessCheck(check func(context.Context) error) {
+	s.readinessCheck = check
 }
 
 func (s *Server) SetWebSocketHandler(handler http.Handler) {
@@ -132,59 +144,70 @@ func (s *Server) NewGatewayExecutor() *bridge.RelayExecutor {
 	return bridge.NewRelayExecutor(s.forwarder, s.workerPool, s.executorOptions...)
 }
 
-func (s *Server) ConfigureSMTPRelay() error {
-	if s == nil || s.config == nil || s.config.SMTPRelayAddress == "" {
+func (s *Server) ConfigureDeliveryQueue() error {
+	if s == nil || s.config == nil {
 		return nil
 	}
-
-	sender, err := smtpout.NewSender(smtpout.Config{
-		Address:    s.config.SMTPRelayAddress,
-		LocalName:  s.config.SMTPRelayLocalName,
-		ServerName: s.config.SMTPRelayServerName,
-		Username:   s.config.SMTPRelayUsername,
-		Password:   s.config.SMTPRelayPassword,
-		TLSMode:    smtpout.TLSMode(s.config.SMTPRelayTLSMode),
-		Timeout:    s.config.SMTPRelayTimeout,
-	})
+	queue, err := transport.NewDeliveryQueue(s.config, s.forwarder, s.logger)
 	if err != nil {
 		return err
 	}
-	adapter, err := smtpout.NewGatewayAdapter(sender)
-	if err != nil {
-		return err
+	if queue == nil {
+		return nil
 	}
-	queue, err := deliveryqueue.New(deliveryqueue.Config{
-		Path: s.config.DeliverySpoolPath,
-		Adapters: map[string]bridge.GatewayDeliveryAdapter{
-			string(bridge.ProtocolSMTP): adapter,
-		},
-		Observer: deliveryqueue.ObserverFunc(func(event deliveryqueue.Event) {
-			switch event.State {
-			case deliveryqueue.StateFailed:
-				s.logger.Error("Delivery %s failed after %d attempts: %s", event.ID, event.Attempts, event.Error)
-			case deliveryqueue.StateDeferred:
-				s.logger.Warn("Delivery %s deferred after attempt %d: %s", event.ID, event.Attempts, event.Error)
-			default:
-				s.logger.Debug("Delivery %s entered state %s", event.ID, event.State)
+	if s.config.DeliveryAdminAddress != "" {
+		var options []deliveryadmin.HandlerOption
+		if s.config.SMTPRelayAddress != "" {
+			adapter, adapterErr := transport.NewSMTPAdapter(s.config)
+			if adapterErr != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				_ = queue.Close(ctx)
+				cancel()
+				return adapterErr
 			}
-		}),
-		MaxAttempts:     s.config.DeliveryMaxAttempts,
-		InitialBackoff:  s.config.DeliveryInitialBackoff,
-		MaxBackoff:      s.config.DeliveryMaxBackoff,
-		DeliveryTimeout: s.config.SMTPRelayTimeout,
-		PollInterval:    s.config.DeliveryPollInterval,
-	})
-	if err != nil {
-		return err
+			scanner, _, protectionErr := transport.NewEmailProtection(s.config)
+			if protectionErr != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				_ = queue.Close(ctx)
+				cancel()
+				return protectionErr
+			}
+			options = append(options, deliveryadmin.WithEmailSubmission(queue, adapter, scanner, s.config.SMTPMaxMessageSize, []byte(s.config.InternalToken), s.config.EmailDSNDomain != ""))
+		}
+		handler, err := deliveryadmin.NewHandler(queue, s.config.InternalToken, options...)
+		if err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = queue.Close(ctx)
+			cancel()
+			return err
+		}
+		s.deliveryAdminServer = &http.Server{
+			Addr: s.config.DeliveryAdminAddress, Handler: handler,
+			ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second,
+		}
 	}
 	s.deliveryQueue = queue
 	s.executorOptions = append(s.executorOptions, bridge.WithGatewayDeliveryQueue(queue))
-	s.logger.Info("Configured outbound SMTP relay at %s", s.config.SMTPRelayAddress)
-	s.logger.Info("Using durable delivery spool at %s", s.config.DeliverySpoolPath)
+	if s.config.SMTPRelayAddress != "" {
+		s.logger.Info("Configured outbound SMTP relay at %s", s.config.SMTPRelayAddress)
+	}
+	if s.config.DeliveryDatabaseURL != "" {
+		s.logger.Info("Using shared PostgreSQL delivery queue")
+	} else {
+		s.logger.Info("Using durable delivery spool at %s", s.config.DeliverySpoolPath)
+	}
 	return nil
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/email/submissions" {
+		if s.relayHandle == nil {
+			http.Error(w, "PHP relay planner is not configured", http.StatusServiceUnavailable)
+			return
+		}
+		s.relayHandle.ServeHTTP(w, r)
+		return
+	}
 	if s.extensionHandler != nil && s.extensionHandler.ServeIfMatched(w, r) {
 		return
 	}
@@ -206,6 +229,18 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("OK"))
+}
+
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if s.readinessCheck != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.readinessCheck(ctx); err != nil {
+			http.Error(w, "Planner unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
@@ -281,13 +316,13 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
-	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.DNSAddress != "") {
+	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "") {
 		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http or roadrunner")
 	}
 	server := NewServer(config, logger)
-	if err := server.ConfigureSMTPRelay(); err != nil {
+	if err := server.ConfigureDeliveryQueue(); err != nil {
 		server.workerPool.Shutdown()
-		return fmt.Errorf("failed to configure outbound SMTP relay: %w", err)
+		return fmt.Errorf("failed to configure delivery queue: %w", err)
 	}
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
@@ -313,12 +348,16 @@ func runDiagnostic(config *relayconfig.Config, server *Server, logger *logging.L
 }
 
 func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger, listeners ...protocolListener) error {
-	serverErrors := make(chan error, 1+len(listeners))
+	serverErrors := make(chan error, 2+len(listeners))
 	go func() { serverErrors <- server.Start() }()
+	if server.deliveryAdminServer != nil {
+		go func() {
+			serverErrors <- deliverymembership.ListenAndServe(server.deliveryAdminServer, config.DeliveryDatabaseURL, config.DeliveryAdminAdvertiseURL, config.InternalToken)
+		}()
+	}
 	for _, listener := range listeners {
 		go func(listener protocolListener) { serverErrors <- listener.ListenAndServe() }(listener)
 	}
-
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	var listenerErr error
@@ -333,6 +372,11 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 
 	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
 	defer cancel()
+	if server.deliveryAdminServer != nil {
+		if err := server.deliveryAdminServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("delivery admin shutdown error: %w", err)
+		}
+	}
 
 	for _, listener := range listeners {
 		if err := listener.Shutdown(ctx); err != nil && !expectedListenerClose(err) {
@@ -351,7 +395,7 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 }
 
 func expectedListenerClose(err error) bool {
-	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, smtpgateway.ErrServerClosed) || errors.Is(err, dnsgateway.ErrServerClosed)
+	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, smtpgateway.ErrServerClosed) || errors.Is(err, dnsgateway.ErrServerClosed) || errors.Is(err, pop3gateway.ErrServerClosed) || errors.Is(err, imapgateway.ErrServerClosed)
 }
 
 func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor bridge.GatewayExecutor) (*smtpgateway.Server, error) {
@@ -359,18 +403,50 @@ func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, e
 	if err != nil {
 		return nil, err
 	}
+	submitter, err := transport.NewSMTPAdapter(config)
+	if err != nil {
+		return nil, err
+	}
+	var submitAdapter bridge.GatewayDeliveryAdapter
+	var signingChecker smtpgateway.SigningDomainChecker
+	if submitter != nil {
+		submitAdapter = submitter
+		signingChecker = submitter
+	}
+	scanner, quarantine, err := transport.NewEmailProtection(config)
+	if err != nil {
+		return nil, err
+	}
+	domainResolver, err := transport.NewEmailDomainResolver(config)
+	if err != nil {
+		return nil, err
+	}
 
 	return smtpgateway.NewServer(smtpgateway.Config{
-		Address:        config.SMTPAddress,
-		Hostname:       config.SMTPHostname,
-		MaxMessageSize: config.SMTPMaxMessageSize,
-		MaxRecipients:  config.SMTPMaxRecipients,
-		ReadTimeout:    config.SMTPReadTimeout,
-		WriteTimeout:   config.SMTPWriteTimeout,
-		PlannerTimeout: config.SMTPPlannerTimeout,
-		TLSConfig:      tlsConfig,
-		ImplicitTLS:    config.SMTPImplicitTLS,
-		AuthEnabled:    config.SMTPAuthEnabled,
+		Address:                 config.SMTPAddress,
+		Hostname:                config.SMTPHostname,
+		MaxMessageSize:          config.SMTPMaxMessageSize,
+		MaxRecipients:           config.SMTPMaxRecipients,
+		MaxConnections:          config.SMTPMaxConnections,
+		MessagesPerMinute:       config.SMTPMessagesPerMinute,
+		MessageBurst:            config.SMTPMessageBurst,
+		ReadTimeout:             config.SMTPReadTimeout,
+		WriteTimeout:            config.SMTPWriteTimeout,
+		PlannerTimeout:          config.SMTPPlannerTimeout,
+		SubmitTimeout:           config.SMTPRelayTimeout,
+		Submitter:               submitAdapter,
+		SigningDomainChecker:    signingChecker,
+		Scanner:                 scanner,
+		ScanTimeout:             config.EmailClamdTimeout,
+		Quarantine:              quarantine,
+		QuarantineRetention:     config.EmailQuarantineRetention,
+		DomainExistenceResolver: domainResolver,
+		DomainExistenceTimeout:  config.EmailDomainLookupTimeout,
+		LoopKey:                 []byte(config.InternalToken),
+		TLSConfig:               tlsConfig,
+		ImplicitTLS:             config.SMTPImplicitTLS,
+		AuthEnabled:             config.SMTPAuthEnabled,
+		RecipientPreflight:      config.SMTPRecipientPreflight,
 	}, planner, executor)
 }
 
@@ -378,6 +454,7 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 	return dnsgateway.NewServer(dnsgateway.Config{
 		Address:            config.DNSAddress,
 		Zone:               config.DNSZone,
+		Zones:              transport.DNSZones(config),
 		Nameservers:        config.DNSNameservers,
 		SOAEmail:           config.DNSSOAEmail,
 		TTL:                config.DNSTTL,
@@ -412,11 +489,8 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			Registrar: control,
 			Interval:  config.SchedulePollInterval,
 			LogError:  logger.Error,
-			Enqueue: func(delivery automation.Delivery) bool {
-				return executor.Enqueue(bridge.Delivery{
-					URL: delivery.URL, Method: delivery.Method,
-					Headers: delivery.Headers, Body: []byte(delivery.Body),
-				})
+			Enqueue: func(runID string, delivery automation.Delivery) bool {
+				return transport.EnqueueScheduledDelivery(executor, runID, delivery)
 			},
 		}).Start(scheduleCtx)
 		logger.Info("Schedule polling enabled")
@@ -432,6 +506,12 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		return fmt.Errorf("failed to initialize HTTP Laravel runtime: %w", err)
 	}
 	defer runtime.Close()
+	readyURL, err := url.JoinPath(config.LaravelBackendURL, "_internal/gateway/ready")
+	if err != nil {
+		server.workerPool.Shutdown()
+		return fmt.Errorf("invalid Planner readiness URL: %w", err)
+	}
+	server.SetReadinessCheck(newPlannerReadinessCheck(readyURL, config.InternalToken, client))
 
 	edge := server.NewRelayEdge(runtime.Planner(), runtime.PassThrough())
 	server.SetRelayHandler(runtime.Handler(edge))
@@ -454,13 +534,22 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	server.SetWebSocketHandler(gatewayws.NewHandler(
 		protocolPlanner,
 		server.NewGatewayExecutor(),
-		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout},
+		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout, MaxConnections: config.WebSocketMaxConnections, MaxDuration: config.WebSocketMaxDuration},
 	))
 	server.SetWebstreamHandler(gatewaystream.NewHandler(
 		protocolPlanner,
 		server.NewGatewayExecutor(),
-		gatewaystream.Config{PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry},
+		gatewaystream.Config{PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry, MaxConnections: config.WebstreamMaxConnections, MaxDuration: config.WebstreamMaxDuration},
 	))
+	if config.ProvisioningRouteProxy {
+		managedRouter, routeErr := provision.NewRemoteRouter(config.LaravelBackendURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)
+		if routeErr != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("initialize managed route proxy: %w", routeErr)
+		}
+		server.SetExtensionHandler(managedRouter)
+		logger.Info("Managed route proxy enabled through private Planner")
+	}
 
 	var provisioningRuntime *provision.Runtime
 	if config.Provisioning.Enabled {
@@ -493,7 +582,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	}
 
 	executor := server.NewGatewayExecutor()
-	listeners := make([]protocolListener, 0, 2)
+	listeners := make([]protocolListener, 0, 4)
 	if config.SMTPAddress != "" {
 		smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
 		if smtpErr != nil {
@@ -509,8 +598,30 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
 		}
-		logger.Info("Using authoritative DNS listener on %s for %s", config.DNSAddress, config.DNSZone)
+		if len(config.DNSZones) > 0 {
+			logger.Info("Using authoritative DNS listener on %s for %d zones", config.DNSAddress, len(config.DNSZones))
+		} else {
+			logger.Info("Using authoritative DNS listener on %s for %s", config.DNSAddress, config.DNSZone)
+		}
 		listeners = append(listeners, dnsServer)
+	}
+	if config.POP3Address != "" {
+		pop3Server, pop3Err := transport.NewPOP3Server(config, protocolPlanner)
+		if pop3Err != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize POP3 listener: %w", pop3Err)
+		}
+		logger.Info("Using TLS POP3 listener on %s", config.POP3Address)
+		listeners = append(listeners, pop3Server)
+	}
+	if config.IMAPAddress != "" {
+		imapServer, imapErr := transport.NewIMAPServer(config, protocolPlanner)
+		if imapErr != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize IMAP listener: %w", imapErr)
+		}
+		logger.Info("Using TLS IMAP listener on %s", config.IMAPAddress)
+		listeners = append(listeners, imapServer)
 	}
 
 	return runServices(config, server, logger, listeners...)
@@ -533,7 +644,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 	runnerErrors := make(chan error, 1)
 	go func() { runnerErrors <- runner.Serve() }()
 
-	if config.SMTPAddress != "" || config.DNSAddress != "" {
+	if config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "" {
 		startupContext, cancelStartup := context.WithTimeout(context.Background(), config.RequestTimeout)
 		protocolPlanner, plannerErr := runner.WaitProtocolPlanner(startupContext)
 		cancelStartup()
@@ -545,7 +656,7 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 		}
 
 		executor := server.NewGatewayExecutor()
-		listeners := make([]protocolListener, 0, 2)
+		listeners := make([]protocolListener, 0, 4)
 		if config.SMTPAddress != "" {
 			smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
 			if smtpErr != nil {
@@ -565,6 +676,26 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 				return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
 			}
 			listeners = append(listeners, dnsServer)
+		}
+		if config.POP3Address != "" {
+			pop3Server, pop3Err := transport.NewPOP3Server(config, protocolPlanner)
+			if pop3Err != nil {
+				runner.Stop()
+				<-runnerErrors
+				server.workerPool.Shutdown()
+				return fmt.Errorf("failed to initialize POP3 listener: %w", pop3Err)
+			}
+			listeners = append(listeners, pop3Server)
+		}
+		if config.IMAPAddress != "" {
+			imapServer, imapErr := transport.NewIMAPServer(config, protocolPlanner)
+			if imapErr != nil {
+				runner.Stop()
+				<-runnerErrors
+				server.workerPool.Shutdown()
+				return fmt.Errorf("failed to initialize IMAP listener: %w", imapErr)
+			}
+			listeners = append(listeners, imapServer)
 		}
 
 		listenerErrors := make(chan error, len(listeners))

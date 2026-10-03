@@ -30,5 +30,20 @@ fi
 
 IMAGE="${GATEWAY_FRANKENPHP_IMAGE:-gateway-frankenphp:module-test}"
 docker build --file "$ROOT/infra/docker/FrankenPHP.gateway.Dockerfile" --tag "$IMAGE" "$ROOT"
-docker run --rm "$IMAGE" frankenphp list-modules \
-	| grep -E '(^|[[:space:]])(http\.handlers\.gateway|gateway\.smtp)($|[[:space:]])'
+modules="$(docker run --rm "$IMAGE" frankenphp list-modules)"
+for module in http.handlers.gateway gateway.smtp gateway.pop3 gateway.imap; do
+	if ! grep -Fqx "$module" <<< "$modules"; then
+		echo "FrankenPHP image is missing Gateway module $module." >&2
+		exit 1
+	fi
+done
+adapted="$(docker run --rm --entrypoint frankenphp \
+	-v "$ROOT/infra/caddy/Caddyfile.mailbox.integration:/etc/caddy/Caddyfile:ro" \
+	"$IMAGE" adapt --config /etc/caddy/Caddyfile --adapter caddyfile)"
+for module in gateway.pop3 gateway.imap; do
+	if ! grep -Fq "\"$module\"" <<< "$adapted"; then
+		echo "FrankenPHP did not adapt the $module Caddyfile option." >&2
+		exit 1
+	fi
+done
+echo 'FrankenPHP image includes Gateway HTTP, SMTP, POP3, and IMAP modules.'

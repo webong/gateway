@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"time"
@@ -29,7 +30,11 @@ type ControlPlane interface {
 	Complete(context.Context, Run, string, int, string) error
 }
 
-type EnqueueFunc func(automation.Delivery) bool
+type NotificationControlPlane interface {
+	DispatchNotifications(context.Context) error
+}
+
+type EnqueueFunc func(string, automation.Delivery) bool
 
 type Runtime struct {
 	Control   ControlPlane
@@ -57,6 +62,28 @@ func (r Runtime) Start(ctx context.Context) {
 			}
 		}
 	}()
+	if notifier, ok := r.Control.(NotificationControlPlane); ok {
+		go func() {
+			cadence := interval
+			if cadence < 5*time.Second {
+				cadence = 5 * time.Second
+			}
+			ticker := time.NewTicker(cadence)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+					if err := notifier.DispatchNotifications(requestCtx); err != nil {
+						r.log("dispatch schedule notifications: %v", err)
+					}
+					cancel()
+				}
+			}
+		}()
+	}
 }
 
 func (r Runtime) Poll(ctx context.Context) {
@@ -114,7 +141,7 @@ func (r Runtime) execute(ctx context.Context, run Run) {
 			if delivery.Method == "" {
 				delivery.Method = http.MethodPost
 			}
-			if !r.Enqueue(delivery) {
+			if !r.Enqueue(run.ID, delivery) {
 				err = fmt.Errorf("HTTP delivery queue unavailable after %d deliveries", queued)
 				break
 			}
@@ -169,6 +196,27 @@ func NewHTTPControlPlane(baseURL, token string, client *http.Client, languages .
 	}, nil
 }
 
+// NewHandlerControlPlane uses the same private schedule endpoints through an
+// embedded Planner handler. No network listener or public route is involved.
+func NewHandlerControlPlane(handler http.Handler, token string, languages ...automation.Language) (*HTTPControlPlane, error) {
+	if handler == nil {
+		return nil, fmt.Errorf("embedded schedule Planner handler is required")
+	}
+	client := &http.Client{
+		Transport:     handlerTransport{handler: handler},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	return NewHTTPControlPlane("http://gateway.internal", token, client, languages...)
+}
+
+type handlerTransport struct{ handler http.Handler }
+
+func (transport handlerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response := httptest.NewRecorder()
+	transport.handler.ServeHTTP(response, request)
+	return response.Result(), nil
+}
+
 func (c *HTTPControlPlane) Claim(ctx context.Context) ([]Run, error) {
 	payload, err := json.Marshal(map[string]any{"automation_languages": c.languages})
 	if err != nil {
@@ -207,6 +255,11 @@ func (c *HTTPControlPlane) RegisterSchedules(ctx context.Context, origin string,
 		return err
 	}
 	_, err = c.call(ctx, "/_internal/gateway/schedules/register", payload)
+	return err
+}
+
+func (c *HTTPControlPlane) DispatchNotifications(ctx context.Context) error {
+	_, err := c.call(ctx, "/_internal/gateway/schedules/notify", []byte(`{}`))
 	return err
 }
 

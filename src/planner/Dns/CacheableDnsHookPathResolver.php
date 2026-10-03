@@ -13,7 +13,10 @@ final class CacheableDnsHookPathResolver extends DnsHookPathResolver implements 
     public function cacheKey(IngressRequest $request): string
     {
         if ($request->protocol === 'dns') {
-            return 'dns|'.strtolower((string) ($request->attributes['endpoint'] ?? ltrim($request->path, '/')));
+            $zone = strtolower(rtrim((string) ($request->attributes['zone'] ?? ''), '.'));
+            $token = strtolower((string) ($request->attributes['endpoint'] ?? ltrim($request->path, '/')));
+
+            return 'dns|'.$zone.'|'.$token;
         }
 
         if ($this->fallback === null) {

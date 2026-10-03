@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: spinner-delivery-admin
+  labels:
+    app.kubernetes.io/name: spinner-delivery-admin
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: spinner
+  ports:
+    - name: delivery-admin
+      port: 5052
+      targetPort: delivery-admin
+      protocol: TCP

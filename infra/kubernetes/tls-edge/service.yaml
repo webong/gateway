@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-tls-edge
+  labels:
+    app.kubernetes.io/name: gateway-tls-edge
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gateway-tls-edge
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP

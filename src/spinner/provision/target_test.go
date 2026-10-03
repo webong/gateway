@@ -24,7 +24,13 @@ func TestTargetControlPlaneIsScopedAndFailsClosed(t *testing.T) {
 		} else {
 			spec := validServerSpec()
 			spec.TargetID = id
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": []ServerSpec{spec}})
+			var payload struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []ServerSpec{spec}, "meta": map[string]string{"session_id": payload.SessionID}})
 		}
 	}))
 	defer backend.Close()
@@ -85,12 +91,16 @@ func TestTargetChecksAreReadOnlyAndExplicit(t *testing.T) {
 }
 
 func TestRemoteDriversKeepContextForCleanupAndProcessStop(t *testing.T) {
-	runner := &recordingCommandRunner{outputs: []string{"container-1", "", ""}}
+	runner := &recordingCommandRunner{outputs: []string{
+		"container-1",
+		`{"Id":"container-1","Name":"/gateway-old","Config":{"Labels":{"gateway.provisioning.node":"node","gateway.provisioning.instance":"old"}},"State":{"Running":true}}`,
+		"", "",
+	}}
 	docker, err := newDockerDriver(DockerDriverConfig{Context: "ssh-host", Binary: "docker", NodeID: "node", PublishHost: "10.0.0.4", StartTimeout: time.Second, StopTimeout: time.Second}, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := docker.Prepare(t.Context()); err != nil {
+	if err := docker.PrepareDesired(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
 	process := &dockerProcess{runner: docker.runner, binary: "docker", containerID: "container-1", stopTimeout: time.Second, done: make(chan struct{})}
@@ -102,12 +112,12 @@ func TestRemoteDriversKeepContextForCleanupAndProcessStop(t *testing.T) {
 			t.Fatalf("lost Docker context: %s", call)
 		}
 	}
-	runner = &recordingCommandRunner{}
+	runner = &recordingCommandRunner{outputs: []string{`{"items":[]}`}}
 	kube, err := newKubernetesDriver(KubernetesDriverConfig{Context: "cluster-b", Kubeconfig: "/run/kubeconfig", KubectlBinary: "kubectl", NodeID: "node", Namespace: "events", ImagePullPolicy: "IfNotPresent", RouteMode: "pod-ip", StartTimeout: time.Second, StopTimeout: time.Second}, runner)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := kube.Prepare(t.Context()); err != nil {
+	if err := kube.PrepareDesired(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
 	kube.remove("pod-1")

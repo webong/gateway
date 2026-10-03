@@ -19,6 +19,7 @@ require (
 	github.com/dunglas/mercure v0.24.2 // indirect
 	github.com/dunglas/skipfilter v1.0.0 // indirect
 	github.com/e-dant/watcher v0.0.0-20260223030516-06f84a1314be // indirect
+	github.com/emersion/go-msgauth v0.7.0 // indirect
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/emersion/go-smtp v0.24.0 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
@@ -29,6 +30,14 @@ require (
 	github.com/gorilla/handlers v1.5.2 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
+	github.com/jackc/pgconn v1.14.3 // indirect
+	github.com/jackc/pgio v1.0.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/pgtype v1.14.0 // indirect
+	github.com/jackc/pgx/v4 v4.18.3 // indirect
 	github.com/maypok86/otter/v2 v2.3.0 // indirect
 	github.com/miekg/dns v1.1.65 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
@@ -50,6 +59,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/unrolled/secure v1.17.0 // indirect
 	github.com/webong/gateway/driver v0.0.0 // indirect
+	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect

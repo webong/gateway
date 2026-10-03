@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
 
+afterEach(function (): void {
+    DB::table('schedule_runs')->where('kind', 'manual')->delete();
+});
+
 it('creates and updates authenticated schedules with run history', function (): void {
     $this->postJson('/schedules', [])->assertUnauthorized();
 
@@ -117,6 +121,84 @@ it('claims only schedules supported by the active Spinner worker', function (): 
     expect(DB::table('schedule_runs')->count())->toBe(0)
         ->and(DB::table('schedules')->where('id', $id)->value('next_run_at'))
         ->not->toBeNull();
+});
+
+it('queues idempotent manual runs through the capability-aware claim path', function (): void {
+    $schedule = $this->withToken('registry-secret')->postJson('/schedules', [
+        'name' => 'Manual check', 'cron' => '0 0 * * *',
+        'language' => 'test-script', 'source' => 'original()',
+    ])->assertCreated()->json();
+    $id = $schedule['id'];
+    $this->withToken('registry-secret')->patchJson('/schedules/'.$id, ['enabled' => false])->assertOk();
+
+    $first = $this->withToken('registry-secret')->withHeader('Idempotency-Key', 'operator-1')
+        ->postJson('/schedules/'.$id.'/runs', [])->assertAccepted()
+        ->assertJsonPath('kind', 'manual')->assertJsonPath('status', 'pending')->json();
+    expect($first['deliveries_url'])->toBe('/deliveries?event_id='.$first['id']);
+    expect($first['outcome_url'])->toBe('/schedules/'.$id.'/runs/'.$first['id'].'/outcome');
+    $same = $this->withToken('registry-secret')->withHeader('Idempotency-Key', 'operator-1')
+        ->postJson('/schedules/'.$id.'/runs', [])->assertAccepted()->json();
+    $second = $this->withToken('registry-secret')->withHeader('Idempotency-Key', 'operator-2')
+        ->postJson('/schedules/'.$id.'/runs', [])->assertAccepted()->json();
+
+    expect($same['id'])->toBe($first['id'])
+        ->and($second['id'])->not->toBe($first['id'])
+        ->and(DB::table('schedule_runs')->where('schedule_id', $id)->count())->toBe(2)
+        ->and(DB::table('schedules')->where('id', $id)->value('next_run_at'))->toBe($schedule['next_run_at']);
+
+    $this->withToken('registry-secret')->patchJson('/schedules/'.$id, ['source' => 'edited()'])->assertOk();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/claim', ['automation_languages' => ['disabled-script']])
+        ->assertOk()->assertJsonCount(0, 'data');
+    $claimResponse = $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/claim', ['automation_languages' => ['test-script']])
+        ->assertOk()->assertJsonCount(2, 'data');
+    expect(json_decode($claimResponse->getContent(), false, 512, JSON_THROW_ON_ERROR)->data[0]->payload)
+        ->toBeInstanceOf(stdClass::class);
+    $claims = $claimResponse->json('data');
+    expect($claims[0]['source'])->toBe('original()')
+        ->and($claims[1]['source'])->toBe('original()');
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->postJson(
+        '/_internal/gateway/schedule-runs/'.$claims[0]['id'].'/complete',
+        ['claim_token' => $claims[0]['claim_token'], 'status' => 'succeeded', 'deliveries_queued' => 0],
+    )->assertOk();
+    $this->withToken('registry-secret')->getJson('/schedules/'.$id.'/runs')->assertOk()
+        ->assertJsonCount(2, 'data');
+});
+
+it('rejects unauthenticated and malformed manual run requests', function (): void {
+    $id = $this->withToken('registry-secret')->postJson('/schedules', [
+        'name' => 'Manual check', 'cron' => '0 0 * * *',
+        'language' => 'test-script', 'source' => 'run()',
+    ])->assertCreated()->json('id');
+
+    $this->withToken('wrong-token')->postJson('/schedules/'.$id.'/runs', [])->assertUnauthorized();
+    $this->withToken('registry-secret')->postJson('/schedules/missing/runs', [])->assertNotFound();
+    $this->withToken('registry-secret')->postJson('/schedules/'.$id.'/runs', ['source' => 'override()'])
+        ->assertUnprocessable();
+    $this->withToken('registry-secret')->withHeader('Idempotency-Key', 'unsafe key')
+        ->postJson('/schedules/'.$id.'/runs', [])->assertUnprocessable();
+    expect(DB::table('schedule_runs')->count())->toBe(0);
+});
+
+it('backfills cron occurrence identities when upgrading an existing run table', function (): void {
+    $id = $this->withToken('registry-secret')->postJson('/schedules', [
+        'name' => 'Existing cron', 'cron' => '* * * * *',
+        'language' => 'test-script', 'source' => 'run()',
+    ])->assertCreated()->json('id');
+    DB::table('schedules')->where('id', $id)->update(['next_run_at' => now('UTC')->subMinute()]);
+    $claim = $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/claim', ['automation_languages' => ['test-script']])
+        ->assertOk()->json('data.0');
+
+    $migration = require dirname(__DIR__, 2).'/src/planner/database/migrations/2026_09_28_000009_add_manual_schedule_runs.php';
+    $migration->down();
+    $migration->up();
+
+    expect(DB::table('schedule_runs')->where('id', $claim['id'])->value('kind'))->toBe('cron')
+        ->and(DB::table('schedule_runs')->where('id', $claim['id'])->value('occurrence_key'))
+        ->toBe('cron:'.$claim['scheduled_for']);
 });
 
 it('idempotently registers schedules emitted by scripts', function (): void {

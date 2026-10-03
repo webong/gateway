@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provision-worker
+  labels:
+    app.kubernetes.io/name: provision-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: provision-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: provision-worker
+    spec:
+      serviceAccountName: provision-worker
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: provision-worker
+          # Replace with a published image built using --target kubernetes.
+          image: gateway-provision-kubernetes:local
+          imagePullPolicy: IfNotPresent
+          env:
+            # Replace with a private Planner address reachable from this Pod.
+            - name: GATEWAY_LARAVEL_BACKEND_URL
+              value: http://planner:8080
+            # This ID must stay stable across Pod restarts and be unique across workers.
+            - name: GATEWAY_NODE_ID
+              value: provision-worker-1
+            - name: GATEWAY_PROVISIONING_TARGET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: provision-worker-target
+                  key: target-id
+            - name: GATEWAY_PROVISIONING_TARGET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: provision-worker-target
+                  key: worker-token
+            # Configure only the workload technologies this target may run.
+            - name: GATEWAY_CENTRIFUGO_KUBERNETES_IMAGE
+              value: centrifugo/centrifugo:v6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}

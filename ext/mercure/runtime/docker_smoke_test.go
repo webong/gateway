@@ -24,6 +24,7 @@ func TestDockerSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validMercureSpec()
+	spec.AssignmentID = "11111111-1111-4111-8111-111111111111"
 	spec.Driver = provision.DriverDocker
 	process, err := driver.Start(t.Context(), spec, "11111111-1111-4111-8111-111111111111", NewWorkload(Config{
 		DockerImage: image, DockerBinary: "caddy", DockerConfigPath: "/etc/caddy/Caddyfile", DockerContainerPort: 80,

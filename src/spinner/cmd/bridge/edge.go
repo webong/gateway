@@ -4,10 +4,13 @@ package gateway
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -50,6 +53,26 @@ func (e *Edge) SetPassThrough(handler http.Handler) *Edge {
 }
 
 func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/email/submissions" {
+		// Email credentials must reach only the application-owned submission
+		// controller, never the ordinary route planner or a subscription.
+		if e.passThrough == nil {
+			http.Error(w, "email submission is not configured", http.StatusServiceUnavailable)
+			return
+		}
+		limit := e.maxBodySize*2 + 65536
+		if e.maxBodySize <= 0 {
+			limit = 20*1024*1024 + 65536
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+		if err != nil || int64(len(body)) > limit {
+			http.Error(w, "email submission body is too large or invalid", http.StatusRequestEntityTooLarge)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		e.passThrough.ServeHTTP(w, r)
+		return
+	}
 	if e.planner == nil || e.executor == nil {
 		http.Error(w, "relay is not configured", http.StatusServiceUnavailable)
 		return
@@ -66,6 +89,11 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	headers := cloneHeaders(r.Header)
 	headers["X-Webhook-Forwarder-Delivery-Id"] = []string{deliveryID(r, body)}
+	var receiptID [16]byte
+	if _, err := rand.Read(receiptID[:]); err != nil {
+		http.Error(w, "request identity unavailable", http.StatusServiceUnavailable)
+		return
+	}
 	ingress := IngressRequest{
 		DeliveryID: headers["X-Webhook-Forwarder-Delivery-Id"][0],
 		Protocol:   ProtocolHTTP,
@@ -77,6 +105,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RawQuery:   r.URL.RawQuery,
 		Headers:    headers,
 		Body:       body,
+		Attributes: map[string]string{"ingress_id": hex.EncodeToString(receiptID[:]), "remote_addr": r.RemoteAddr},
 		Runtime: RuntimeCapabilities{
 			AutomationLanguages: automation.Languages(e.automation),
 		},
@@ -84,6 +113,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	plan, err := e.planner.Plan(r.Context(), ingress)
 	if err != nil {
+		log.Printf("Gateway route planner failed: %v", err)
 		http.Error(w, "route planning failed", http.StatusBadGateway)
 		return
 	}
@@ -300,6 +330,12 @@ func (e *Edge) enqueueRelays(relays []Delivery, ingress IngressRequest) bool {
 }
 
 func materializeDelivery(delivery Delivery, ingress IngressRequest) Delivery {
+	if delivery.EventID == "" {
+		delivery.EventID = ingress.Attributes["ingress_id"]
+		if delivery.EventID == "" {
+			delivery.EventID = ingress.DeliveryID
+		}
+	}
 	if delivery.Method == "" {
 		delivery.Method = ingress.Method
 	}

@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Servers\Models\Server;
+use Webong\Gateway\Servers\Models\ProvisioningNode;
+use Webong\Gateway\Servers\Models\Instance;
 
 it('exposes workload-neutral specifications to the reconciler', function (): void {
     Server::query()->create([
@@ -83,4 +85,54 @@ it('coordinates deterministic replica placements across live compatible nodes', 
         ->and($secondIds)->toHaveCount(1)
         ->and($firstIds->intersect($secondIds))->toHaveCount(0)
         ->and($second->json('data.0.id'))->toBe($server->getKey());
+});
+
+it('fences concurrent provisioning worker sessions and permits graceful handover', function (): void {
+    $server = Server::query()->create([
+        'type' => 'reverb', 'name' => 'fenced-worker', 'hostname' => 'fenced.example.test',
+        'path' => '', 'driver' => 'docker', 'desired_state' => 'running',
+        'replicas' => 1, 'revision' => 1, 'configuration' => [],
+    ]);
+    $firstSession = str_repeat('a', 32);
+    $secondSession = str_repeat('b', 32);
+    $internal = ['X-Gateway-Internal' => 'internal-secret'];
+    $first = $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
+        'drivers' => ['docker'], 'session_id' => $firstSession,
+    ], $internal)->assertOk()->assertJsonPath('meta.session_id', $firstSession);
+    $instanceId = $first->json('data.0.assignment_id');
+    expect($instanceId)->toBeString();
+    $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
+        'drivers' => ['docker'], 'session_id' => $secondSession,
+    ], $internal)->assertStatus(423);
+
+    $report = [
+        'node_id' => 'node-fenced', 'runtime' => 'docker', 'host' => '10.0.0.4',
+        'port' => 8080, 'state' => 'running', 'revision' => 1,
+    ];
+    $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
+        [...$internal, 'X-Gateway-Worker-Session' => $secondSession])->assertConflict();
+    $this->postJson('/_internal/provisioning/instances/reset', ['node_id' => 'node-fenced'],
+        [...$internal, 'X-Gateway-Worker-Session' => $secondSession])->assertConflict();
+    $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
+        [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertOk();
+    $this->postJson('/_internal/provisioning/instances/reset', ['node_id' => 'node-fenced'],
+        [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertOk();
+    expect(Instance::query()->findOrFail($instanceId)->error)->toBe('Gateway reconciler restarted.');
+    $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
+        [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertOk()->assertJsonPath('error', null);
+
+    $this->deleteJson('/_internal/provisioning/nodes/node-fenced/session', ['session_id' => $secondSession], $internal)->assertConflict();
+    $this->deleteJson('/_internal/provisioning/nodes/node-fenced/session', ['session_id' => $firstSession], $internal)->assertNoContent();
+    $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
+        [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertConflict();
+    $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
+        'drivers' => ['docker'], 'session_id' => $secondSession,
+    ], $internal)->assertOk();
+    $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
+        [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertConflict();
+
+    ProvisioningNode::query()->whereKey('node-fenced')->update(['heartbeat_at' => now()->subSeconds(30)]);
+    $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
+        'drivers' => ['docker'], 'session_id' => $firstSession,
+    ], $internal)->assertOk();
 });

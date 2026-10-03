@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,8 @@ import (
 )
 
 const maxTransportClients = 128
+
+var ErrResponseTooLarge = errors.New("response body exceeds maximum size")
 
 type ForwardResponse struct {
 	StatusCode int
@@ -136,6 +139,23 @@ func (f *Forwarder) ForwardSync(req ForwardRequest) (ForwardResponse, error) {
 	return response, nil
 }
 
+// ForwardStatus observes a delivery response without buffering its body. An
+// asynchronous callback succeeds or fails by status, not by response size.
+func (f *Forwarder) ForwardStatus(req ForwardRequest) (int, error) {
+	f.totalRequests.Add(1)
+	response, err := f.forward(req, false)
+	if err != nil {
+		f.errorCount.Add(1)
+		return 0, err
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		f.successCount.Add(1)
+	} else {
+		f.errorCount.Add(1)
+	}
+	return response.StatusCode, nil
+}
+
 // OpenStream keeps the response body open. Its caller's context owns the
 // stream lifetime, including cancellation when the downstream client leaves.
 func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.Header, settings HTTPTransport) (*http.Response, error) {
@@ -199,7 +219,7 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 			return ForwardResponse{}, err
 		}
 		if int64(len(body)) > f.maxBodySize {
-			return ForwardResponse{}, fmt.Errorf("response body exceeds maximum size of %d bytes", f.maxBodySize)
+			return ForwardResponse{}, fmt.Errorf("%w of %d bytes", ErrResponseTooLarge, f.maxBodySize)
 		}
 	}
 

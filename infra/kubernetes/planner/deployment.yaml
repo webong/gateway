@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planner
+  labels:
+    app.kubernetes.io/name: planner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: planner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: planner
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 33
+        runAsGroup: 33
+        fsGroup: 33
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: planner
+          # Replace with the published Planner image for your cluster.
+          image: gateway-planner:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: planner-credentials
+                  key: app-key
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planner-credentials
+                  key: database-url
+            - name: REGISTRY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: planner-credentials
+                  key: registry-token
+            - name: GATEWAY_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: spinner-planner
+                  key: internal-token
+            - name: GATEWAY_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: planner-settings
+                  key: public-url
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: config
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

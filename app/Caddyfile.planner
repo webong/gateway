@@ -1,0 +1,16 @@
+{
+    frankenphp
+    admin off
+    auto_https off
+}
+
+:8080 {
+    root * /gateway/app
+
+    # The Laravel front controller is the only executable web entrypoint.
+    # The private Planner Service must not be exposed directly to the internet.
+    route {
+        rewrite * /index.php
+        php
+    }
+}

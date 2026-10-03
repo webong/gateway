@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -20,18 +21,50 @@ import (
 const (
 	defaultMaxMessageSize = 10 * 1024 * 1024
 	defaultPlannerTimeout = 30 * time.Second
+	defaultMaxConnections = 1000
+	defaultMaxDuration    = 24 * time.Hour
 )
 
 type Config struct {
 	MaxMessageSize int64
 	PlannerTimeout time.Duration
+	MaxConnections int
+	MaxDuration    time.Duration
+	Admission      *Admission
+}
+
+// Admission is shared by handlers that serve one listener, including while
+// the Planner is deciding whether to accept a connection.
+type Admission struct {
+	active atomic.Int64
+	limit  int64
+}
+
+func NewAdmission(limit int) *Admission {
+	if limit <= 0 {
+		limit = defaultMaxConnections
+	}
+	return &Admission{limit: int64(limit)}
+}
+
+func (a *Admission) acquire() bool {
+	for {
+		active := a.active.Load()
+		if active >= a.limit {
+			return false
+		}
+		if a.active.CompareAndSwap(active, active+1) {
+			return true
+		}
+	}
 }
 
 type Handler struct {
-	planner  bridge.ProtocolPlanner
-	executor bridge.GatewayExecutor
-	config   Config
-	upgrader websocket.Upgrader
+	planner   bridge.ProtocolPlanner
+	executor  bridge.GatewayExecutor
+	config    Config
+	admission *Admission
+	upgrader  websocket.Upgrader
 }
 
 func NewHandler(planner bridge.ProtocolPlanner, executor any, config Config) *Handler {
@@ -41,11 +74,18 @@ func NewHandler(planner bridge.ProtocolPlanner, executor any, config Config) *Ha
 	if config.PlannerTimeout == 0 {
 		config.PlannerTimeout = defaultPlannerTimeout
 	}
+	if config.MaxDuration <= 0 {
+		config.MaxDuration = defaultMaxDuration
+	}
+	if config.Admission == nil {
+		config.Admission = NewAdmission(config.MaxConnections)
+	}
 
 	return &Handler{
-		planner:  planner,
-		executor: normalizeExecutor(executor),
-		config:   config,
+		planner:   planner,
+		executor:  normalizeExecutor(executor),
+		config:    config,
+		admission: config.Admission,
 		upgrader: websocket.Upgrader{
 			// Empty Origin is valid for non-browser clients. Browser clients must
 			// still use the same host unless the host application supplies a
@@ -84,6 +124,7 @@ func (e transportExecutor) EnqueueGateway(delivery bridge.GatewayDelivery) bool 
 
 	return e.executor.Enqueue(bridge.Delivery{
 		URL:          delivery.Target,
+		EventID:      delivery.Attributes["event_id"],
 		Method:       method,
 		RawQuery:     delivery.Attributes["raw_query"],
 		Headers:      delivery.Headers,
@@ -101,6 +142,13 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "WebSocket upgrade required", http.StatusUpgradeRequired)
 		return
 	}
+	if !h.admission.acquire() {
+		writer.Header().Set("Retry-After", "1")
+		http.Error(writer, "WebSocket connection limit reached", http.StatusServiceUnavailable)
+		return
+	}
+	defer h.admission.active.Add(-1)
+	deadline := time.Now().Add(h.config.MaxDuration)
 
 	sessionID := sessionID(request)
 	connectDecision, err := h.plan(request.Context(), bridge.GatewayEvent{
@@ -131,11 +179,14 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	defer connection.Close()
 	connection.SetReadLimit(h.config.MaxMessageSize)
+	_ = connection.SetReadDeadline(deadline)
+	_ = connection.SetWriteDeadline(deadline)
 
 	sequence := 0
 	for {
 		messageType, payload, readErr := connection.ReadMessage()
 		if readErr != nil {
+			_ = connection.Close()
 			h.planClose(request, sessionID, sequence, readErr)
 			return
 		}

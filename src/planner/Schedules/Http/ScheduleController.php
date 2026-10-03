@@ -153,16 +153,54 @@ final readonly class ScheduleController
             return response()->json(['message' => 'Schedule not found.'], 404);
         }
 
-        return response()->json(['data' => DB::table('schedule_runs')->where('schedule_id', $schedule)
-            ->orderBy('scheduled_for', 'desc')->limit(100)->get()
-            ->map(fn ($run): array => [
-                'id' => $run->id,
-                'scheduled_for' => $run->scheduled_for,
-                'status' => $run->status,
-                'deliveries_queued' => $run->deliveries_queued,
-                'error' => $run->error,
-                'completed_at' => $run->completed_at,
-            ])]);
+        return response()->json(['data' => DB::table('schedule_runs')
+            ->leftJoin('schedule_notifications', 'schedule_notifications.run_id', '=', 'schedule_runs.id')
+            ->where('schedule_runs.schedule_id', $schedule)
+            ->orderBy('schedule_runs.scheduled_for', 'desc')->orderBy('schedule_runs.id', 'desc')->limit(100)
+            ->select('schedule_runs.*', 'schedule_notifications.state as notification_status',
+                'schedule_notifications.attempts as notification_attempts',
+                'schedule_notifications.next_attempt_at as notification_next_attempt_at')->get()
+            ->map($this->runResource(...))]);
+    }
+
+    public function run(Request $request, string $schedule): JsonResponse
+    {
+        if ($error = $this->authenticator->authorize($request)) {
+            return $error;
+        }
+        if ($request->all() !== []) {
+            return $this->invalid('Manual runs do not accept a request body.');
+        }
+        $key = $request->header('Idempotency-Key');
+        if ($key !== null && (! is_string($key) || preg_match('/\A[A-Za-z0-9._:-]{1,128}\z/D', $key) !== 1)) {
+            return $this->invalid('Idempotency-Key must be 1–128 safe ASCII characters.');
+        }
+
+        $run = $this->store->enqueueManual($schedule, $key);
+        if ($run === null) {
+            return response()->json(['message' => 'Schedule not found.'], 404);
+        }
+
+        return response()->json($this->runResource($run), Response::HTTP_ACCEPTED);
+    }
+
+    /** @return array<string, mixed> */
+    private function runResource(object $run): array
+    {
+        return [
+            'id' => $run->id,
+            'kind' => $run->kind,
+            'scheduled_for' => $run->scheduled_for,
+            'status' => $run->status,
+            'deliveries_queued' => $run->deliveries_queued,
+            'deliveries_url' => '/deliveries?event_id='.rawurlencode((string) $run->id),
+            'outcome_url' => '/schedules/'.rawurlencode((string) $run->schedule_id).'/runs/'.rawurlencode((string) $run->id).'/outcome',
+            'notification_status' => $run->notification_status ?? null,
+            'notification_attempts' => $run->notification_attempts ?? null,
+            'notification_next_attempt_at' => $run->notification_next_attempt_at ?? null,
+            'error' => $run->error,
+            'completed_at' => $run->completed_at,
+        ];
     }
 
     private function resource(object $row): array

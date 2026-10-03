@@ -62,13 +62,29 @@ local testing.
 make test-container
 
 # Caddy TLS, private planner isolation, auth, subscription planning,
-# and private-target SSRF-denial check.
+# private-target SSRF denial, and HTTP Email relay/receipt/DSN checks.
 make test-container-integration
+
+# Two local authoritative Spinner processes, shared Planner hooks, and
+# UDP/TCP query survival after one process stops.
+make test-dns-integration
 ```
 
 The integration test deliberately confirms that a private Docker callback is
 blocked. For a true end-to-end delivery test, use a controlled public HTTPS
 receiver.
+
+The Email slice of this test crosses public TLS, Spinner, Planner, the private
+delivery-admin listener, and a disposable SMTP relay. It checks the envelope
+and message at that relay, then confirms the delivered receipt survives a
+Spinner restart, a same-key replay does not send a second copy, and a second
+account cannot bypass the sender-domain quota. It also refuses one recipient
+and checks the resulting null-path failure notice. This proves controlled
+local relay and failure paths, not public-domain deliverability or a later
+bounce after a relay accepted mail.
+The Planner must trust only its private reverse proxy so Laravel can recognize
+the original HTTPS scheme; do not trust arbitrary public `X-Forwarded-Proto`
+headers or expose the Planner listener directly.
 
 ## Protocol notes
 
@@ -78,7 +94,19 @@ receiver.
   disabled by default and requires TLS. When `GATEWAY_SMTP_RELAY_ADDR` enables
   outbound delivery, set `GATEWAY_DELIVERY_SPOOL_PATH` to persistent local
   storage and do not share that path between Gateway processes.
-- **DNS:** set the DNS address, zone, nameservers, and SOA options; publish
-  both UDP and TCP. Gateway is authoritative-only, not recursive.
+- **POP3/IMAP retrieval:** set `GATEWAY_POP3_ADDR` and/or `GATEWAY_IMAP_ADDR`,
+  the corresponding TLS certificate/key files and registered upstream maps on
+  Spinner. Configure a Planner
+  `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR`; without one, login is denied.
+  Publish only the implicit-TLS listeners (normally ports 995 and 993) and keep the
+  Spinner-to-Planner connection private. See [mail forwarding](mail-forwarding.md).
+- **DNS:** set the DNS address and either the legacy zone/nameserver pair or
+  `GATEWAY_DNS_ZONES` on both Spinner and Planner; publish both UDP and TCP.
+  Each configured zone requires parent-zone delegation. Gateway is
+  authoritative-only, not recursive. See [DNS high availability](dns-ha.md)
+  for the two-node deployment and validation shape.
 - **Realtime:** planner state can reconcile Reverb, Mercure, and Centrifugo
-  workloads via Local, Docker, or Kubernetes drivers.
+  workloads via Local, Docker, or Kubernetes drivers. A separate HTTP Spinner
+  can opt into private Planner-backed routing with
+  `GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED=true`; see
+  [deployment targets](provisioning-targets.md#route-managed-workloads-from-a-separate-spinner).

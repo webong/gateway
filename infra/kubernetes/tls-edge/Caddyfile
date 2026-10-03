@@ -1,0 +1,4 @@
+{$GATEWAY_PUBLIC_HOST}:8443 {
+    tls /etc/gateway/tls/tls.crt /etc/gateway/tls/tls.key
+    reverse_proxy {$GATEWAY_TLS_UPSTREAM}
+}

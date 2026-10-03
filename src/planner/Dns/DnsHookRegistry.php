@@ -15,6 +15,7 @@ final readonly class DnsHookRegistry
     public function __construct(
         private EndpointRegistry $endpoints,
         private RegistryRouteCache $routeCache,
+        private DnsZoneCatalog $zones,
     ) {}
 
     /** @param array<string, mixed> $metadata */
@@ -23,15 +24,19 @@ final readonly class DnsHookRegistry
         ?string $name = null,
         array $metadata = [],
         ?string $registry = null,
+        ?string $requestedZone = null,
     ): WebProxyEndpoint {
         $client = $this->client();
         if ($client === '') {
             throw new RuntimeException('Gateway DNS hooks require a WebProxy client name.');
         }
 
+        $zone = $this->zones->resolve($requestedZone);
         $existing = WebProxyEndpoint::query()
             ->where('client', $client)
-            ->where('external_id', 'dns-hook:'.$externalId)
+            ->where('metadata->_gateway->kind', 'dns_hook')
+            ->where('metadata->_gateway->zone', $zone)
+            ->where('metadata->_gateway->external_id', $externalId)
             ->first();
         if ($existing !== null) {
             $gateway = $this->gateway($existing);
@@ -46,7 +51,7 @@ final readonly class DnsHookRegistry
                         token: (string) ($gateway['token'] ?? ''),
                         name: is_string($gateway['name'] ?? null) ? $gateway['name'] : null,
                         metadata: is_array($gateway['metadata'] ?? null) ? $gateway['metadata'] : [],
-                        zone: (string) ($gateway['zone'] ?? $this->zone()),
+                        zone: $zone,
                         parentEndpointKey: (string) ($gateway['parent_endpoint_key'] ?? ''),
                     ),
                 ]);
@@ -57,11 +62,10 @@ final readonly class DnsHookRegistry
         }
 
         $token = $this->uniqueToken();
-        $zone = $this->zone();
         $zoneEndpoint = $this->ensureZone($client, $zone, $registry);
         $endpoint = $this->endpoints->ensure(new EndpointDefinition(
             client: $client,
-            externalId: 'dns-hook:'.$externalId,
+            externalId: 'dns-hook:'.$zone.':'.$externalId,
             signingSecret: null,
             verificationToken: null,
             endpointKey: 'dns-'.$token,
@@ -75,21 +79,25 @@ final readonly class DnsHookRegistry
         return WebProxyEndpoint::query()->findOrFail($endpoint->record->id);
     }
 
-    public function find(string $identifier): ?WebProxyEndpoint
+    public function find(string $identifier, ?string $zone = null): ?WebProxyEndpoint
     {
         $token = strtolower($identifier);
+        $zone = $zone !== null ? $this->zones->resolve($zone) : null;
 
-        return WebProxyEndpoint::query()
+        $matches = WebProxyEndpoint::query()
             ->where('client', $this->client())
             ->where('metadata->_gateway->kind', 'dns_hook')
             ->where('metadata->_gateway->deleted', false)
+            ->when($zone !== null, fn ($query) => $query->where('metadata->_gateway->zone', $zone))
             ->where(function ($query) use ($identifier, $token): void {
-            $query->whereKey($identifier)
-                ->orWhere('endpoint_key', $identifier)
-                ->orWhere('metadata->_gateway->token', $token)
-                ->orWhere('metadata->_gateway->external_id', $identifier);
+                $query->whereKey($identifier)
+                    ->orWhere('endpoint_key', $identifier)
+                    ->orWhere('metadata->_gateway->token', $token)
+                    ->orWhere('metadata->_gateway->external_id', $identifier);
             })
-            ->first();
+            ->limit(2)->get();
+
+        return $matches->count() === 1 ? $matches->first() : null;
     }
 
     /** @param array<string, mixed> $attributes */
@@ -105,7 +113,7 @@ final readonly class DnsHookRegistry
                 token: (string) ($gateway['token'] ?? ''),
                 name: is_string($name) ? $name : null,
                 metadata: is_array($metadata) ? $metadata : [],
-                zone: (string) ($gateway['zone'] ?? $this->zone()),
+                zone: (string) ($gateway['zone'] ?? $this->zones->resolve(null)),
                 parentEndpointKey: (string) ($gateway['parent_endpoint_key'] ?? ''),
             ),
         ]);
@@ -124,7 +132,7 @@ final readonly class DnsHookRegistry
                 token: (string) ($gateway['token'] ?? ''),
                 name: is_string($gateway['name'] ?? null) ? $gateway['name'] : null,
                 metadata: is_array($gateway['metadata'] ?? null) ? $gateway['metadata'] : [],
-                zone: (string) ($gateway['zone'] ?? $this->zone()),
+                zone: (string) ($gateway['zone'] ?? $this->zones->resolve(null)),
                 parentEndpointKey: (string) ($gateway['parent_endpoint_key'] ?? ''),
                 deleted: true,
             ),
@@ -144,11 +152,6 @@ final readonly class DnsHookRegistry
     private function client(): string
     {
         return trim((string) config('gateway.dns.client', 'gateway'));
-    }
-
-    private function zone(): string
-    {
-        return strtolower(trim((string) config('gateway.dns.zone', ''), '.'));
     }
 
     private function ensureZone(string $client, string $zone, ?string $registry): WebProxyEndpoint

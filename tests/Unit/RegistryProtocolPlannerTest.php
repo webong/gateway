@@ -12,6 +12,112 @@ use Webong\Gateway\Protocol\HttpTransport;
 use Webong\Gateway\Protocol\Protocol;
 use Webong\Gateway\Protocol\RoutePlan;
 use Webong\Gateway\RegistryProtocolPlanner;
+use Webong\Gateway\Email\EmailSubmissionAuthenticator;
+use Webong\Gateway\Email\EmailSubmissionGrant;
+use Webong\Gateway\Email\MailboxAuthenticator;
+use Webong\Gateway\Email\MailboxAccessGrant;
+
+it('does not route SMTP credentials through registry subscriptions', function (): void {
+    $adapter = new class implements RoutePlanner {
+        public bool $called = false;
+
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            $this->called = true;
+
+            throw new RuntimeException('AUTH was sent to the registry.');
+        }
+    };
+    $decision = (new RegistryProtocolPlanner($adapter))->planEvent(new GatewayEvent(
+        id: 'smtp-auth-1',
+        protocol: Protocol::SMTP,
+        kind: EventKind::AUTHENTICATE,
+        route: 'subscriber',
+        attributes: ['username' => 'subscriber', 'password' => 'secret'],
+    ));
+
+    expect($adapter->called)->toBeFalse()
+        ->and($decision->action)->toBe(GatewayAction::REJECT);
+});
+
+it('uses a deployment-owned authenticator to grant exact SMTP senders', function (): void {
+    $adapter = new class implements RoutePlanner {
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            throw new RuntimeException('AUTH was sent to the registry.');
+        }
+    };
+    $authenticator = new class implements EmailSubmissionAuthenticator {
+        public function authorize(GatewayEvent $event): ?EmailSubmissionGrant
+        {
+            return ($event->attributes['username'] ?? '') === 'subscriber'
+                && ($event->attributes['password'] ?? '') === 'secret'
+                ? new EmailSubmissionGrant('account-123', ['sender@example.test']) : null;
+        }
+    };
+    $planner = new RegistryProtocolPlanner($adapter, submissionAuthenticator: $authenticator);
+    $event = new GatewayEvent(
+        id: 'smtp-auth-2',
+        protocol: Protocol::SMTP,
+        kind: EventKind::AUTHENTICATE,
+        route: 'subscriber',
+        attributes: ['username' => 'subscriber', 'password' => 'secret'],
+    );
+    $accepted = $planner->planEvent($event);
+    $rejected = $planner->planEvent(new GatewayEvent(
+        id: 'smtp-auth-3',
+        protocol: Protocol::SMTP,
+        kind: EventKind::AUTHENTICATE,
+        route: 'subscriber',
+        attributes: ['username' => 'subscriber', 'password' => 'wrong'],
+    ));
+
+    expect($accepted->action)->toBe(GatewayAction::ACCEPT)
+        ->and($accepted->metadata['auth_identity'])->toBe('account-123')
+        ->and($accepted->metadata['authorized_mail_from'])->toBe('["sender@example.test"]')
+        ->and($rejected->action)->toBe(GatewayAction::REJECT);
+});
+
+it('keeps POP3 and IMAP credentials out of registry routes and accepts only configured mailbox grants', function (): void {
+    $routePlanner = new class implements RoutePlanner {
+        public bool $called = false;
+
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            $this->called = true;
+
+            throw new RuntimeException('Mailbox credential reached the registry.');
+        }
+    };
+    $authenticator = new class implements MailboxAuthenticator {
+        public function authorize(GatewayEvent $event): ?MailboxAccessGrant
+        {
+            return ($event->attributes['password'] ?? '') === 'secret'
+                ? new MailboxAccessGrant('account-123', 'primary', 'upstream-alice', 'upstream-secret') : null;
+        }
+    };
+    $planner = new RegistryProtocolPlanner($routePlanner, mailboxAuthenticator: $authenticator);
+    foreach ([Protocol::POP3, Protocol::IMAP] as $protocol) {
+        $event = new GatewayEvent(
+            id: $protocol->value.'-auth-1', protocol: $protocol, kind: EventKind::AUTHENTICATE,
+            route: 'alice@example.test', attributes: ['username' => 'alice@example.test', 'password' => 'secret'],
+        );
+        $denied = (new RegistryProtocolPlanner($routePlanner))->planEvent($event);
+        $accepted = $planner->planEvent($event);
+        $connected = $planner->planEvent(new GatewayEvent(
+            id: $protocol->value.'-connect-1', protocol: $protocol, kind: EventKind::CONNECT, route: 'alice@example.test',
+        ));
+
+        expect($routePlanner->called)->toBeFalse()
+            ->and($denied->action)->toBe(GatewayAction::REJECT)
+            ->and($accepted->protocol)->toBe($protocol)
+            ->and($accepted->action)->toBe(GatewayAction::ACCEPT)
+            ->and($accepted->metadata['upstream_id'])->toBe('primary')
+            ->and($accepted->metadata['upstream_username'])->toBe('upstream-alice')
+            ->and($accepted->metadata['upstream_password'])->toBe('upstream-secret')
+            ->and($connected->action)->toBe(GatewayAction::ACCEPT);
+    }
+});
 
 it('adapts a registry route plan to a protocol-neutral SMTP delivery decision', function (): void {
     $adapter = new class implements RoutePlanner {

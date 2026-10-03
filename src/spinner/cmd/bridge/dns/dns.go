@@ -43,12 +43,21 @@ type Config struct {
 	Nameservers        []string
 	SOAEmail           string
 	TTL                uint32
+	Zones              []Zone
 	PlannerTimeout     time.Duration
 	ReadTimeout        time.Duration
 	WriteTimeout       time.Duration
 	MaxResponseRecords int
 	RateLimit          int
 	RateBurst          int
+}
+
+// Zone is one delegated authoritative namespace served by this listener.
+type Zone struct {
+	Name        string   `json:"name"`
+	Nameservers []string `json:"nameservers"`
+	SOAEmail    string   `json:"soa_email,omitempty"`
+	TTL         uint32   `json:"ttl,omitempty"`
 }
 
 type Executor interface {
@@ -58,6 +67,7 @@ type Executor interface {
 
 type Server struct {
 	config   Config
+	zones    []Zone
 	planner  bridge.ProtocolPlanner
 	executor Executor
 	udp      *mdns.Server
@@ -74,8 +84,10 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 	if strings.TrimSpace(config.Address) == "" {
 		return nil, fmt.Errorf("DNS listen address is required")
 	}
-	if strings.TrimSpace(config.Zone) == "" {
-		return nil, fmt.Errorf("DNS authoritative zone is required")
+	if len(config.Zones) == 0 {
+		config.Zones = []Zone{{Name: config.Zone, Nameservers: config.Nameservers, SOAEmail: config.SOAEmail, TTL: config.TTL}}
+	} else if config.Zone != "" || len(config.Nameservers) > 0 {
+		return nil, fmt.Errorf("DNS zones cannot be combined with the legacy single-zone settings")
 	}
 	if planner == nil {
 		return nil, fmt.Errorf("DNS protocol planner is required")
@@ -93,25 +105,39 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 		return nil, fmt.Errorf("DNS rate limit and burst settings are invalid")
 	}
 
-	config.Zone = canonicalName(config.Zone)
-	if _, ok := mdns.IsDomainName(config.Zone); !ok {
-		return nil, fmt.Errorf("invalid DNS authoritative zone %q", config.Zone)
-	}
-	if len(config.Nameservers) == 0 {
-		return nil, fmt.Errorf("at least one authoritative DNS nameserver is required")
-	}
-	for index := range config.Nameservers {
-		config.Nameservers[index] = canonicalName(config.Nameservers[index])
-		if _, ok := mdns.IsDomainName(config.Nameservers[index]); !ok {
-			return nil, fmt.Errorf("invalid DNS nameserver %q", config.Nameservers[index])
+	seen := make(map[string]bool, len(config.Zones))
+	for index := range config.Zones {
+		zone := &config.Zones[index]
+		if zone.TTL == 0 {
+			zone.TTL = config.TTL
+		}
+		if strings.TrimSpace(zone.Name) == "" {
+			return nil, fmt.Errorf("DNS authoritative zone is required")
+		}
+		zone.Name = canonicalName(zone.Name)
+		if !validAuthorityName(zone.Name) || seen[zone.Name] {
+			return nil, fmt.Errorf("invalid or duplicate DNS authoritative zone %q", zone.Name)
+		}
+		seen[zone.Name] = true
+		if len(zone.Nameservers) == 0 {
+			return nil, fmt.Errorf("at least one authoritative DNS nameserver is required for %s", zone.Name)
+		}
+		for nameserver := range zone.Nameservers {
+			zone.Nameservers[nameserver] = canonicalName(zone.Nameservers[nameserver])
+			if !validAuthorityName(zone.Nameservers[nameserver]) {
+				return nil, fmt.Errorf("invalid DNS nameserver %q", zone.Nameservers[nameserver])
+			}
+		}
+		if zone.SOAEmail == "" {
+			zone.SOAEmail = "hostmaster." + zone.Name
+		}
+		zone.SOAEmail = canonicalName(zone.SOAEmail)
+		if !validAuthorityName(zone.SOAEmail) {
+			return nil, fmt.Errorf("invalid DNS SOA email %q", zone.SOAEmail)
 		}
 	}
-	config.SOAEmail = canonicalName(config.SOAEmail)
-	if _, ok := mdns.IsDomainName(config.SOAEmail); !ok {
-		return nil, fmt.Errorf("invalid DNS SOA email %q", config.SOAEmail)
-	}
 
-	server := &Server{config: config, planner: planner, executor: executor}
+	server := &Server{config: config, zones: config.Zones, planner: planner, executor: executor}
 	if config.RateLimit > 0 {
 		server.limiter = rate.NewLimiter(rate.Limit(config.RateLimit), config.RateBurst)
 	}
@@ -252,13 +278,14 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 		s.writeResponse(writer, request, response)
 		return
 	}
-	if !mdns.IsSubDomain(s.config.Zone, queryName) {
+	zone := s.zoneFor(queryName)
+	if zone == nil {
 		response.Rcode = mdns.RcodeRefused
 		s.writeResponse(writer, request, response)
 		return
 	}
-	if queryName == s.config.Zone {
-		s.answerAuthority(response, question)
+	if queryName == zone.Name {
+		s.answerAuthority(response, question, *zone)
 		s.writeResponse(writer, request, response)
 		return
 	}
@@ -269,11 +296,11 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 	}
 
 	queryLabels := mdns.SplitDomainName(question.Name)
-	zoneLabels := mdns.SplitDomainName(s.config.Zone)
+	zoneLabels := mdns.SplitDomainName(zone.Name)
 	labels := queryLabels[:len(queryLabels)-len(zoneLabels)]
 	if len(labels) == 0 {
 		response.Rcode = mdns.RcodeNameError
-		s.addSOA(response)
+		s.addSOA(response, *zone)
 		s.writeResponse(writer, request, response)
 		return
 	}
@@ -305,7 +332,7 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 			"qtype":       typeName(question.Qtype),
 			"qclass":      className(question.Qclass),
 			"query_id":    fmt.Sprintf("%d", request.Id),
-			"zone":        s.config.Zone,
+			"zone":        zone.Name,
 			"endpoint":    endpoint,
 			"data":        strings.Join(dataLabels, "."),
 			"source_addr": remoteAddress(writer),
@@ -333,18 +360,18 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 	switch decision.Action {
 	case bridge.GatewayReject:
 		response.Rcode = mdns.RcodeNameError
-		s.addSOA(response)
+		s.addSOA(response, *zone)
 	case bridge.GatewayClose:
 		response.Rcode = mdns.RcodeRefused
 	case bridge.GatewayAccept, bridge.GatewayDeliver, bridge.GatewayRespond:
-		answers, parseErr := parseAnswers(question, answerPayload, s.config.TTL, s.config.MaxResponseRecords)
+		answers, parseErr := parseAnswers(question, answerPayload, zone.TTL, s.config.MaxResponseRecords)
 		if parseErr != nil {
 			response.Rcode = mdns.RcodeServerFailure
 			break
 		}
 		response.Answer = answers
 		if len(answers) == 0 {
-			s.addSOA(response)
+			s.addSOA(response, *zone)
 		}
 	default:
 		response.Rcode = mdns.RcodeServerFailure
@@ -421,8 +448,9 @@ func httpDelivery(delivery bridge.GatewayDelivery, fallbackPayload []byte) (brid
 }
 
 type answer struct {
-	Type  string `json:"type"`
-	Value string `json:"value"`
+	Type       string  `json:"type"`
+	Value      string  `json:"value"`
+	Preference *uint16 `json:"preference,omitempty"`
 }
 
 func parseAnswers(question mdns.Question, payload []byte, ttl uint32, limit int) ([]mdns.RR, error) {
@@ -445,9 +473,19 @@ func parseAnswers(question mdns.Question, payload []byte, ttl uint32, limit int)
 
 	direct := make([]mdns.RR, 0, len(items))
 	aliases := make([]mdns.RR, 0, 1)
+	nonAliases := 0
+	nullMX := 0
+	regularMX := 0
 	for _, item := range items {
 		header := mdns.RR_Header{Name: question.Name, Class: mdns.ClassINET, Ttl: ttl}
-		switch strings.ToLower(strings.TrimSpace(item.Type)) {
+		kind := strings.ToLower(strings.TrimSpace(item.Type))
+		if kind != "mx" && item.Preference != nil {
+			return nil, fmt.Errorf("DNS preference is only valid for MX records")
+		}
+		if kind != "cname" {
+			nonAliases++
+		}
+		switch kind {
 		case "a":
 			ip := net.ParseIP(strings.TrimSpace(item.Value))
 			if ip == nil || ip.To4() == nil {
@@ -456,6 +494,15 @@ func parseAnswers(question mdns.Question, payload []byte, ttl uint32, limit int)
 			if question.Qtype == mdns.TypeA {
 				header.Rrtype = mdns.TypeA
 				direct = append(direct, &mdns.A{Hdr: header, A: ip.To4()})
+			}
+		case "aaaa":
+			ip := net.ParseIP(strings.TrimSpace(item.Value))
+			if ip == nil || ip.To16() == nil || ip.To4() != nil {
+				return nil, fmt.Errorf("invalid AAAA record value %q", item.Value)
+			}
+			if question.Qtype == mdns.TypeAAAA {
+				header.Rrtype = mdns.TypeAAAA
+				direct = append(direct, &mdns.AAAA{Hdr: header, AAAA: ip.To16()})
 			}
 		case "cname":
 			target := canonicalName(item.Value)
@@ -472,9 +519,35 @@ func parseAnswers(question mdns.Question, payload []byte, ttl uint32, limit int)
 				header.Rrtype = mdns.TypeTXT
 				direct = append(direct, &mdns.TXT{Hdr: header, Txt: splitTXT(item.Value)})
 			}
+		case "mx":
+			if item.Preference == nil {
+				return nil, fmt.Errorf("MX record preference is required")
+			}
+			target := canonicalName(item.Value)
+			if target == "." {
+				if *item.Preference != 0 {
+					return nil, fmt.Errorf("null MX preference must be zero")
+				}
+				nullMX++
+			} else {
+				if !validAuthorityName(target) {
+					return nil, fmt.Errorf("invalid MX exchange %q", item.Value)
+				}
+				regularMX++
+			}
+			if question.Qtype == mdns.TypeMX {
+				header.Rrtype = mdns.TypeMX
+				direct = append(direct, &mdns.MX{Hdr: header, Preference: *item.Preference, Mx: target})
+			}
 		default:
 			return nil, fmt.Errorf("unsupported DNS response type %q", item.Type)
 		}
+	}
+	if len(aliases) > 0 && nonAliases > 0 {
+		return nil, fmt.Errorf("CNAME cannot coexist with other DNS records")
+	}
+	if nullMX > 0 && (nullMX != 1 || regularMX > 0) {
+		return nil, fmt.Errorf("null MX must be the only MX record")
 	}
 	if len(direct) > 0 {
 		return direct, nil
@@ -499,36 +572,47 @@ func splitTXT(value string) []string {
 	return chunks
 }
 
-func (s *Server) answerAuthority(response *mdns.Msg, question mdns.Question) {
+func (s *Server) zoneFor(name string) *Zone {
+	var selected *Zone
+	for index := range s.zones {
+		zone := &s.zones[index]
+		if mdns.IsSubDomain(zone.Name, name) && (selected == nil || len(zone.Name) > len(selected.Name)) {
+			selected = zone
+		}
+	}
+	return selected
+}
+
+func (s *Server) answerAuthority(response *mdns.Msg, question mdns.Question, zone Zone) {
 	switch question.Qtype {
 	case mdns.TypeNS:
-		for _, nameserver := range s.config.Nameservers {
+		for _, nameserver := range zone.Nameservers {
 			response.Answer = append(response.Answer, &mdns.NS{
-				Hdr: mdns.RR_Header{Name: s.config.Zone, Rrtype: mdns.TypeNS, Class: mdns.ClassINET, Ttl: s.config.TTL},
+				Hdr: mdns.RR_Header{Name: zone.Name, Rrtype: mdns.TypeNS, Class: mdns.ClassINET, Ttl: zone.TTL},
 				Ns:  nameserver,
 			})
 		}
 	case mdns.TypeSOA:
-		response.Answer = append(response.Answer, s.soa())
+		response.Answer = append(response.Answer, s.soa(zone))
 	default:
-		s.addSOA(response)
+		s.addSOA(response, zone)
 	}
 }
 
-func (s *Server) addSOA(response *mdns.Msg) {
-	response.Ns = append(response.Ns, s.soa())
+func (s *Server) addSOA(response *mdns.Msg, zone Zone) {
+	response.Ns = append(response.Ns, s.soa(zone))
 }
 
-func (s *Server) soa() *mdns.SOA {
+func (s *Server) soa(zone Zone) *mdns.SOA {
 	return &mdns.SOA{
-		Hdr:     mdns.RR_Header{Name: s.config.Zone, Rrtype: mdns.TypeSOA, Class: mdns.ClassINET, Ttl: s.config.TTL},
-		Ns:      s.config.Nameservers[0],
-		Mbox:    s.config.SOAEmail,
+		Hdr:     mdns.RR_Header{Name: zone.Name, Rrtype: mdns.TypeSOA, Class: mdns.ClassINET, Ttl: zone.TTL},
+		Ns:      zone.Nameservers[0],
+		Mbox:    zone.SOAEmail,
 		Serial:  uint32(time.Now().UTC().Unix() / 86400),
 		Refresh: 300,
 		Retry:   60,
 		Expire:  86400,
-		Minttl:  s.config.TTL,
+		Minttl:  zone.TTL,
 	}
 }
 
@@ -566,13 +650,29 @@ func applyDefaults(config *Config) {
 		config.RateLimit = defaultRateLimit
 		config.RateBurst = defaultRateBurst
 	}
-	if strings.TrimSpace(config.SOAEmail) == "" && strings.TrimSpace(config.Zone) != "" {
-		config.SOAEmail = "hostmaster." + strings.TrimSuffix(config.Zone, ".")
-	}
 }
 
 func canonicalName(value string) string {
 	return strings.ToLower(mdns.Fqdn(strings.TrimSpace(value)))
+}
+
+func validAuthorityName(name string) bool {
+	name = strings.TrimSuffix(name, ".")
+	if name == "" || len(name) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for index := 0; index < len(label); index++ {
+			character := label[index]
+			if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func typeName(value uint16) string {

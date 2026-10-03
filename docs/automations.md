@@ -193,14 +193,17 @@ A schedule's `gateway.event` contains `type: "schedule"`, `run_id`,
 `schedule_id`, `scheduled_for`, and the configured `payload`.
 `gateway.get('payload.key')` also reads that payload.
 
-Enable polling on the Go router with `GATEWAY_RUNTIME=http`,
+Enable polling on separate Spinner with `GATEWAY_RUNTIME=http`,
 `GATEWAY_SCHEDULES_ENABLED=true`, `GATEWAY_LARAVEL_BACKEND_URL`, and a shared
-`GATEWAY_INTERNAL_TOKEN`. The optional `GATEWAY_SCHEDULE_POLL_INTERVAL` defaults
-to `5s`. Run the package migrations before enabling it. The Laravel planner
-must be reachable privately by every Go router node, and all planner workers
-must share one database. Schedule management uses the existing `REGISTRY_TOKEN`
+`GATEWAY_INTERNAL_TOKEN`. The bundled RoadRunner and FrankenPHP-library Router
+also support `GATEWAY_SCHEDULES_ENABLED=true`; they call their embedded Planner
+through the same private schedule endpoints without another network listener.
+The optional `GATEWAY_SCHEDULE_POLL_INTERVAL` defaults to `5s`. Run the package
+migrations before enabling it. All Planner workers must share one database, and
+each polling Router advertises its installed languages so a worker only claims
+runs it can execute. Schedule management uses the existing `REGISTRY_TOKEN`
 bearer token and should be exposed only through an authenticated control-plane
-route. This version does not run the poller in embedded RoadRunner mode.
+route.
 
 ```http
 POST /schedules
@@ -219,17 +222,88 @@ Content-Type: application/json
 ```
 
 Use `GET /schedules`, `GET /schedules/{id}`, `PATCH /schedules/{id}`,
-`DELETE /schedules/{id}`, and `GET /schedules/{id}/runs` with the same bearer
-token. Cron uses five fields and the named timezone. Missed intervals coalesce
+`DELETE /schedules/{id}`, `GET /schedules/{id}/runs`, and
+`POST /schedules/{id}/runs` with the same bearer token. The POST queues a
+manual run and returns `202` with a `pending` run resource; an installed Spinner
+worker claims it through the ordinary lease protocol. A manual run snapshots
+the schedule's language, source, and payload when queued, can run even while
+the cron schedule is paused, and does not change its next cron time. Supply an
+optional `Idempotency-Key` (1–128 letters, digits, dots, underscores, colons, or
+hyphens) to make repeated POSTs return the same run instead of queueing
+duplicates. Cron uses five fields and the named timezone. Missed intervals coalesce
 into one occurrence after downtime; there is no catch-up storm. Each run has a
 two-minute claim lease, and an expired claim can be taken by another router.
 
-Run history reports script failure or the count **accepted by the in-process
-HTTP queue**, not successful downstream delivery. If a router crashes after
-queueing but before reporting, reclaiming can queue duplicates; consumers
-should use `gateway.event.run_id` as an idempotency key when building deliveries.
-This first version does not implement durable HTTP delivery, retry policies,
-response assertions, notifications, or a manual-run endpoint.
+Run history reports script failure or the count **accepted for HTTP delivery**,
+not successful downstream delivery. With `GATEWAY_DELIVERY_SPOOL_PATH`, accepted
+deliveries are durable and retried by Spinner; without it they use the
+in-process worker queue. If a router crashes after enqueueing but before
+reporting, reclaiming can queue duplicates; consumers should use
+`gateway.event.run_id` as an idempotency key when building deliveries. A scheduled
+`gateway.forward({ url, expected_status: 204 })` asserts an exact HTTP response
+status. `expected_body_sha256` can also assert the lowercase SHA-256 digest of
+the complete response body. Either assertion requires
+`GATEWAY_DELIVERY_SPOOL_PATH`; without a durable spool the run fails at queue
+handoff. A mismatch is a terminal failed delivery. The receipt records expected
+and observed statuses plus `body_assertion: matched|mismatched`, but never the
+response body or headers. Body inspection is bounded by `MAX_BODY_SIZE`;
+an oversized response fails the asserted delivery rather than being accepted
+as a partial match.
+Each run resource now includes `deliveries_url`, which filters the delivery
+management API by that run ID. On a durable spool it shows the queued,
+deferred, failed, or delivered receipts for callbacks emitted by that run.
+This is an inspection link, not a second success flag: `status: succeeded`
+still means script execution and queue handoff succeeded. A volatile worker
+handoff has no receipt, and the management API requires a configured private
+Spinner delivery-admin connection.
+The run also includes `outcome_url` (`GET
+/schedules/{schedule}/runs/{run}/outcome`). This registry-authenticated,
+read-only view keeps `execution_status` separate from `delivery_status` and
+returns receipt counts across configured Spinner nodes. Delivery status is
+`pending` while callbacks are queued or deferred, `failed` when a terminal
+failure is known, `delivered` only when all expected receipts are present and
+delivered, `none` when the completed run queued no callbacks, or `unknown`
+when receipts are missing or a node's 100-item response may be truncated. A
+configured node that cannot be checked returns 503, not a false success.
+Reclaimed runs may queue duplicates; `deliveries_observed` can therefore exceed
+`deliveries_queued`. Such an overcount is `unknown`, not proof that every
+intended callback succeeded. This view reflects status and body assertion failures
+through failed delivery receipts.
+
+### Operator notifications
+
+Set `GATEWAY_SCHEDULE_NOTIFICATION_URL` on every Planner instance to opt in to
+failed-run webhook alerts. Set `GATEWAY_SCHEDULE_NOTIFICATION_TOKEN` for a
+bearer-authenticated receiver; use HTTPS for production. The configured URL is
+operator-owned, not selected by schedule scripts, and cannot contain embedded
+credentials, query parameters, or a fragment. Redirects are not followed.
+
+Completed runs enter the `schedule_notifications` outbox. A script or queue
+handoff failure is alertable immediately. For a successfully executed run,
+Planner waits for durable delivery receipts and alerts only when one reaches a
+terminal `failed` state. `pending` and `unknown` outcomes are checked again;
+fully delivered or no-delivery runs become `resolved` without an alert. A
+delivery failure cannot be detected from a volatile in-process worker queue:
+configure `GATEWAY_DELIVERY_SPOOL_PATH` and the private delivery-admin
+connection on every Spinner node for downstream alerts.
+
+When `GATEWAY_SCHEDULES_ENABLED=true`, Spinner automatically asks Planner to
+dispatch due alerts through the authenticated private schedule connection.
+The polling cadence is at least five seconds. Operators can also run
+`php artisan gateway:send-schedule-notifications` (for example from a Laravel
+scheduler or cron) if Spinner polling is not running. Failed handoffs retry
+with bounded backoff; the run list exposes `notification_status`,
+`notification_attempts`, and `notification_next_attempt_at`. Notifications
+are created only for runs completed after the URL is configured, so enabling
+the feature does not send an unexpected historical backlog.
+
+The webhook has event `schedule.run.failed`, a stable `notification_id` and
+`Idempotency-Key: gateway-schedule-run-{run_id}`, the schedule/run IDs, a
+relative `outcome_url`, and the same metadata-only `outcome` view. It excludes
+script source, run payload, callback URLs, response bodies, and error text.
+Delivery is at least once: a crash after receiver acceptance but before the
+outbox is marked `sent` can replay the same alert. Receivers should deduplicate
+by the idempotency key.
 
 ### Creating schedules from scripts
 
@@ -241,9 +315,13 @@ origin; schedules emitted by a scheduled run use the parent schedule. One run
 may emit at most 8 commands and one origin may own at most 32 schedules.
 
 The target `language` must be registered for Spinner-side scheduled execution.
-For JavaScript and Lua route scripts, the HTTP runtime forwards commands to the
-private Planner endpoint. Embedded RoadRunner does not currently provide that
-control-plane connection and fails the automation if it emits a schedule.
+For JavaScript and Lua route scripts, both the HTTP runtime and bundled Router
+forward commands to the same private Planner endpoint. The bundled Router uses
+its in-process handler rather than an external connection.
+
+From the repository checkout, `make test-schedule-roadrunner` builds the
+bundled Router with Lua, starts a temporary Laravel/SQLite Planner, and
+verifies both a due run and a child schedule registered by that run.
 
 JavaScript:
 

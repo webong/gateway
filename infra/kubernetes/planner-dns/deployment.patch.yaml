@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planner
+spec:
+  template:
+    spec:
+      containers:
+        - name: planner
+          env:
+            - name: GATEWAY_DNS_ZONES
+              valueFrom:
+                configMapKeyRef:
+                  name: gateway-dns
+                  key: zones

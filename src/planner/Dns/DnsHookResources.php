@@ -22,6 +22,7 @@ final class DnsHookResources
             'name' => $gateway['name'] ?? null,
             'token' => $token,
             'hostname' => $hostname,
+            'zone' => $gateway['zone'] ?? null,
             'query_name_template' => '{data}.'.$hostname,
             'endpoint_key' => $hook->endpoint_key,
             'active' => $hook->is_active,

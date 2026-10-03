@@ -14,6 +14,7 @@ use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Protocol\ScheduleCommand;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Schedules\ScheduleStore;
+use Webong\Gateway\Schedules\ScheduleNotificationDispatcher;
 
 final readonly class InternalScheduleController
 {
@@ -22,6 +23,7 @@ final readonly class InternalScheduleController
         private ScheduleStore $store,
         private AutomationLanguageRegistry $languages,
         private ScriptScheduleRegistrar $registrar,
+        private ScheduleNotificationDispatcher $notifications,
     ) {}
 
     public function claim(Request $request): JsonResponse
@@ -76,5 +78,15 @@ final readonly class InternalScheduleController
         }
 
         return response()->json(['registered' => count($commands)]);
+    }
+
+    public function notify(Request $request): JsonResponse
+    {
+        $this->authenticator->authorizeOrHide($request);
+        if ($request->json()->all() !== []) {
+            return response()->json(['message' => 'Notification polling does not accept a payload.'], 422);
+        }
+
+        return response()->json($this->notifications->dispatch());
     }
 }

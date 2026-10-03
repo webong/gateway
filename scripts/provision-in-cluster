@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+
+service_account=/var/run/secrets/kubernetes.io/serviceaccount
+config=/tmp/gateway-in-cluster.kubeconfig
+context=gateway-in-cluster
+
+host=${KUBERNETES_SERVICE_HOST:-}
+port=${KUBERNETES_SERVICE_PORT_HTTPS:-${KUBERNETES_SERVICE_PORT:-}}
+case "$host" in
+    ''|*[!a-zA-Z0-9.:-]*) echo 'Invalid in-cluster Kubernetes API host.' >&2; exit 1 ;;
+    *:*) host="[$host]" ;;
+esac
+case "$port" in
+    ''|*[!0-9]*) echo 'Invalid in-cluster Kubernetes API port.' >&2; exit 1 ;;
+esac
+if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo 'Invalid in-cluster Kubernetes API port.' >&2
+    exit 1
+fi
+if [ ! -r "$service_account/token" ] || [ ! -r "$service_account/ca.crt" ]; then
+    echo 'Kubernetes ServiceAccount token and CA mount are required.' >&2
+    exit 1
+fi
+
+umask 077
+printf '%s\n' \
+    'apiVersion: v1' \
+    'kind: Config' \
+    'clusters:' \
+    '- name: gateway-in-cluster' \
+    '  cluster:' \
+    "    server: https://$host:$port" \
+    "    certificate-authority: $service_account/ca.crt" \
+    'contexts:' \
+    '- name: gateway-in-cluster' \
+    '  context:' \
+    '    cluster: gateway-in-cluster' \
+    '    user: gateway-in-cluster' \
+    "current-context: $context" \
+    'users:' \
+    '- name: gateway-in-cluster' \
+    '  user:' \
+    "    tokenFile: $service_account/token" > "$config"
+
+if [ "${1:-}" = '--check-config' ]; then
+    token_file=$(kubectl --kubeconfig "$config" config view --raw --minify \
+        --output='jsonpath={.users[0].user.tokenFile}')
+    if [ "$token_file" != "$service_account/token" ]; then
+        echo 'Generated kubeconfig does not reference the mounted token file.' >&2
+        exit 1
+    fi
+    echo 'In-cluster kubeconfig generated from mounted ServiceAccount paths.'
+    exit 0
+fi
+
+exec /usr/local/bin/gateway-provision "$@"

@@ -55,6 +55,14 @@ func TestRouterUsesHostnameLongestPathAndRoundRobin(t *testing.T) {
 	}
 }
 
+func TestRouterFormatsIPv6ManagedInstanceAddress(t *testing.T) {
+	router := NewRouter()
+	router.Add(validServerSpec(), "instance-v6", "2001:db8::1", 8080)
+	if got := router.pools["server-1"].instances[0].target.Host; got != "[2001:db8::1]:8080" {
+		t.Fatalf("managed IPv6 route host = %q", got)
+	}
+}
+
 func namedBackend(t *testing.T, name string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -82,7 +90,7 @@ func backendAddress(t *testing.T, server *httptest.Server) (string, int) {
 
 func validServerSpec() ServerSpec {
 	return ServerSpec{
-		AssignmentID: "019d4000-0000-7000-8000-000000000001",
+		AssignmentID:  "019d4000-0000-7000-8000-000000000001",
 		ID:            "server-1",
 		Type:          "test",
 		Name:          "primary",

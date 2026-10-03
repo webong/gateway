@@ -1,6 +1,7 @@
 package forwarding
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,27 @@ func TestForwarderMergesTargetAndWebhookQueryParameters(t *testing.T) {
 	}
 	if query := <-receivedQuery; query != "token=abc&source=meta" {
 		t.Fatalf("expected merged query, got %q", query)
+	}
+}
+
+func TestForwardStatusDoesNotTreatLargeCallbackResponseAsDeliveryFailure(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = writer.Write(make([]byte, 4096))
+	}))
+	defer target.Close()
+	forwarder := NewForwarder(&config.Config{
+		MaxBodySize: 16, RequestTimeout: time.Second, IdleConnTimeout: time.Second,
+		MaxIdleConns: 1, MaxConnsPerHost: 1,
+	}, logging.NewLogger("error"))
+	forwarder.addressAllowed = func(net.IP) bool { return true }
+	t.Cleanup(forwarder.CloseIdleConnections)
+	status, err := forwarder.ForwardStatus(ForwardRequest{TargetURL: target.URL, Method: http.MethodPost})
+	if err != nil || status != http.StatusAccepted {
+		t.Fatalf("expected accepted status without buffering body, got %d: %v", status, err)
+	}
+	if _, err := forwarder.ForwardSync(ForwardRequest{TargetURL: target.URL, Method: http.MethodPost}); !errors.Is(err, ErrResponseTooLarge) {
+		t.Fatalf("bounded body inspection should identify an oversized response, got %v", err)
 	}
 }
 

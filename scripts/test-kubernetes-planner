@@ -1,0 +1,614 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WITH_DNS=false
+WITH_EMAIL=false
+WITH_WEBSTREAM=false
+for option in "$@"; do
+    case "$option" in
+        --with-dns) WITH_DNS=true ;;
+        --with-email) WITH_EMAIL=true ;;
+        --with-webstream) WITH_WEBSTREAM=true ;;
+        *) echo 'Usage: test-kubernetes-planner [--with-dns] [--with-email] [--with-webstream]' >&2; exit 2 ;;
+    esac
+done
+if [[ $(kubectl config current-context) != orbstack ]]; then
+    echo 'The disposable Planner smoke requires the orbstack Kubernetes context.' >&2
+    exit 2
+fi
+if [[ "$WITH_DNS" == true ]] && ! command -v dig >/dev/null 2>&1; then
+    echo 'dig is required for the Planner/DNS smoke.' >&2
+    exit 2
+fi
+
+NAMESPACE="gateway-planner-smoke-$$-$RANDOM"
+CREATED=false
+TLS_DIR=''
+SMTP_DIR=''
+cleanup() {
+    if [[ "$CREATED" == true ]]; then
+        kubectl delete namespace "$NAMESPACE" --wait=true --timeout=120s >/dev/null ||
+            echo "Warning: disposable namespace $NAMESPACE may need manual cleanup." >&2
+    fi
+    if [[ -n "$TLS_DIR" && -d "$TLS_DIR" ]]; then
+        rm -r -- "$TLS_DIR"
+    fi
+    if [[ -n "$SMTP_DIR" && -d "$SMTP_DIR" ]]; then
+        rm -r -- "$SMTP_DIR"
+    fi
+}
+trap cleanup EXIT
+
+if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Disposable namespace $NAMESPACE already exists; refusing to reuse it." >&2
+    exit 1
+fi
+kubectl create namespace "$NAMESPACE" >/dev/null
+CREATED=true
+echo "Using disposable Planner namespace $NAMESPACE."
+
+DB_PASSWORD=$(openssl rand -hex 16)
+DB_URL="postgres://postgres:$DB_PASSWORD@postgres:5432/gateway?sslmode=disable"
+REGISTRY_TOKEN=$(openssl rand -hex 24)
+kubectl -n "$NAMESPACE" create secret generic postgres-credentials \
+    --from-literal=POSTGRES_PASSWORD="$DB_PASSWORD" \
+    --from-literal=POSTGRES_DB=gateway >/dev/null
+kubectl -n "$NAMESPACE" create secret generic planner-credentials \
+    --from-literal=app-key="base64:$(openssl rand -base64 32)" \
+    --from-literal=database-url="$DB_URL" \
+    --from-literal=registry-token="$REGISTRY_TOKEN" >/dev/null
+kubectl -n "$NAMESPACE" create secret generic spinner-planner \
+    --from-literal=internal-token="$(openssl rand -hex 24)" >/dev/null
+kubectl -n "$NAMESPACE" create configmap planner-settings \
+    --from-literal=public-url=https://gateway.example.test >/dev/null
+if [[ "$WITH_DNS" == true ]]; then
+    DNS_ZONES='[{"name":"hooks.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15}]'
+    kubectl -n "$NAMESPACE" create configmap gateway-dns \
+        --from-literal=zones="$DNS_ZONES" >/dev/null
+fi
+if [[ "$WITH_EMAIL" == true ]]; then
+    SMTP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-smtp.XXXXXX")
+    chmod 700 "$SMTP_DIR"
+    openssl req -x509 -newkey rsa:2048 -noenc -days 1 \
+        -subj '/CN=smtp.managed.test' \
+        -addext 'subjectAltName=DNS:smtp.managed.test' \
+        -keyout "$SMTP_DIR/tls.key" -out "$SMTP_DIR/tls.crt" >/dev/null 2>&1
+    kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
+        --cert="$SMTP_DIR/tls.crt" --key="$SMTP_DIR/tls.key" >/dev/null
+    kubectl -n "$NAMESPACE" create configmap gateway-smtp \
+        --from-literal=hostname=smtp.managed.test >/dev/null
+    kubectl -n "$NAMESPACE" create configmap gateway-email-relay \
+        --from-literal=address=smtp-relay:2527 \
+        --from-literal=tls-mode=none >/dev/null
+    kubectl -n "$NAMESPACE" create secret generic gateway-email-relay \
+        --from-literal=database-url="$DB_URL" >/dev/null
+fi
+unset DB_PASSWORD DB_URL
+
+kubectl -n "$NAMESPACE" apply -f tests/Fixtures/kubernetes-planner-postgres.yaml >/dev/null
+kubectl -n "$NAMESPACE" rollout status deployment/postgres --timeout=120s >/dev/null
+if [[ "$WITH_EMAIL" == true ]]; then
+    kubectl -n "$NAMESPACE" apply -f tests/Fixtures/kubernetes-planner-smtp-relay.yaml >/dev/null
+    kubectl -n "$NAMESPACE" rollout status deployment/smtp-relay --timeout=120s >/dev/null
+fi
+if [[ "$WITH_WEBSTREAM" == true ]]; then
+    kubectl -n "$NAMESPACE" apply -f tests/Fixtures/kubernetes-planner-webstream-source.yaml >/dev/null
+    kubectl -n "$NAMESPACE" rollout status deployment/webstream-source --timeout=120s >/dev/null
+    WEBSTREAM_FIXTURE_READY=false
+    for _ in {1..20}; do
+        if kubectl -n "$NAMESPACE" exec deployment/postgres -- \
+            wget -T 3 -q -O - http://webstream-source:8080/ready 2>/dev/null | \
+            grep -Fx 'data: private-source-reached' >/dev/null; then
+            WEBSTREAM_FIXTURE_READY=true
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$WEBSTREAM_FIXTURE_READY" != true ]]; then
+        echo 'Private Webstream fixture was not reachable inside the cluster.' >&2
+        exit 1
+    fi
+fi
+sleep 3 # Let the new PostgreSQL Service endpoint propagate before migration.
+kubectl -n "$NAMESPACE" apply -f infra/kubernetes/planner-migrate/job.yaml >/dev/null
+if ! kubectl -n "$NAMESPACE" wait --for=condition=complete job/planner-migrate --timeout=180s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs job/planner-migrate >&2 || true
+    exit 1
+fi
+PLANNER_OVERLAY=infra/kubernetes/planner
+if [[ "$WITH_DNS" == true ]]; then PLANNER_OVERLAY=infra/kubernetes/planner-dns; fi
+if [[ "$WITH_EMAIL" == true ]]; then PLANNER_OVERLAY=infra/kubernetes/planner-email-relay; fi
+if [[ "$WITH_DNS" == true && "$WITH_EMAIL" == true ]]; then
+    PLANNER_OVERLAY=infra/kubernetes/planner-email-dns-relay
+fi
+kubectl -n "$NAMESPACE" apply -k "$PLANNER_OVERLAY" >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
+    exit 1
+fi
+HEALTHY=false
+for _ in {1..20}; do
+    if kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $status = @file_get_contents("http://planner:8080/health");
+        if ($status === false || ! preg_match("/^HTTP\/\S+ 204\b/", $http_response_header[0] ?? "")) { exit(1); }
+    ' >/dev/null 2>&1; then
+        HEALTHY=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$HEALTHY" != true ]]; then
+    echo 'Planner Service did not return HTTP 204 from inside the cluster.' >&2
+    kubectl -n "$NAMESPACE" get pods,service,endpointslice -o wide >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
+    exit 1
+fi
+
+SPINNER_OVERLAY=infra/kubernetes/spinner
+if [[ "$WITH_DNS" == true ]]; then SPINNER_OVERLAY=infra/kubernetes/spinner-dns; fi
+if [[ "$WITH_EMAIL" == true ]]; then SPINNER_OVERLAY=infra/kubernetes/spinner-email-relay; fi
+if [[ "$WITH_DNS" == true && "$WITH_EMAIL" == true ]]; then
+    SPINNER_OVERLAY=infra/kubernetes/spinner-email-dns-relay
+fi
+kubectl -n "$NAMESPACE" apply -k "$SPINNER_OVERLAY" >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/spinner >&2 || true
+    exit 1
+fi
+CONNECTED=false
+RESULT=''
+for _ in {1..20}; do
+    if RESULT=$(kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        function request(string $method, string $path, bool $authorized): array {
+            $headers = ["Content-Type: application/json"];
+            if ($authorized) { $headers[] = "Authorization: Bearer ".getenv("REGISTRY_TOKEN"); }
+            $context = stream_context_create(["http" => [
+                "method" => $method,
+                "header" => implode("\r\n", $headers)."\r\n",
+                "content" => json_encode(["client" => "gateway", "external_id" => "smoke-1", "endpoint_key" => "planner-smoke", "managed" => true]),
+                "ignore_errors" => true,
+                "timeout" => 5,
+            ]]);
+            $body = @file_get_contents("http://spinner".$path, false, $context);
+            preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+            return [(int) ($matches[1] ?? 0), $body];
+        }
+        [$status, $body] = request("POST", "/registry/endpoints", true);
+        if ($status !== 201 || (json_decode($body, true)["endpoint_key"] ?? null) !== "planner-smoke") {
+            fwrite(STDERR, "Authenticated registration failed: HTTP $status $body\n"); exit(1);
+        }
+        [$status] = request("POST", "/registry/endpoints", false);
+        if ($status !== 401) { fwrite(STDERR, "Unauthenticated registration returned HTTP $status\n"); exit(1); }
+        [$status] = request("GET", "/_internal/gateway/plan", true);
+        if ($status !== 404) { fwrite(STDERR, "Public internal route returned HTTP $status\n"); exit(1); }
+    ' 2>&1); then
+        CONNECTED=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$CONNECTED" != true ]]; then
+    echo "Spinner-to-Planner registration smoke failed: $RESULT" >&2
+    kubectl -n "$NAMESPACE" get pods,service,endpointslice -o wide >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/spinner >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" delete networkpolicy planner-ingress >/dev/null
+BASELINE_REACHABLE=false
+for _ in {1..15}; do
+    if kubectl -n "$NAMESPACE" exec deployment/postgres -- \
+        wget -T 2 -q -O /dev/null http://planner:8080/health >/dev/null 2>&1; then
+        BASELINE_REACHABLE=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$BASELINE_REACHABLE" != true ]]; then
+    echo 'Unrelated Pod could not reach Planner even without the ingress policy.' >&2
+    exit 1
+fi
+kubectl -n "$NAMESPACE" apply -f infra/kubernetes/planner/network-policy.yaml >/dev/null
+POLICY_DENIED=false
+for _ in {1..15}; do
+    if ! kubectl -n "$NAMESPACE" exec deployment/postgres -- \
+        wget -T 2 -q -O /dev/null http://planner:8080/health >/dev/null 2>&1; then
+        POLICY_DENIED=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$POLICY_DENIED" != true ]]; then
+    echo 'Planner ingress policy did not deny the unrelated PostgreSQL Pod.' >&2
+    exit 1
+fi
+TLS_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-tls.XXXXXX")
+chmod 700 "$TLS_DIR"
+openssl req -x509 -newkey rsa:2048 -noenc -days 1 \
+    -subj '/CN=planner.example.test' \
+    -addext 'subjectAltName=DNS:planner.example.test' \
+    -keyout "$TLS_DIR/tls.key" -out "$TLS_DIR/tls.crt" >/dev/null 2>&1
+kubectl -n "$NAMESPACE" create secret tls gateway-tls \
+    --cert="$TLS_DIR/tls.crt" --key="$TLS_DIR/tls.key" >/dev/null
+kubectl -n "$NAMESPACE" apply -k infra/kubernetes/tls-edge >/dev/null
+kubectl -n "$NAMESPACE" set env deployment/gateway-tls-edge \
+    GATEWAY_PUBLIC_HOST=planner.example.test GATEWAY_TLS_UPSTREAM=http://spinner:80 >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/gateway-tls-edge --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/gateway-tls-edge --tail=80 >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" patch service gateway-tls-edge --type=merge \
+    -p '{"spec":{"type":"NodePort"}}' >/dev/null
+TLS_NODE_PORT=$(kubectl -n "$NAMESPACE" get service gateway-tls-edge -o jsonpath='{.spec.ports[0].nodePort}')
+NODE_ADDRESSES=$(kubectl get node orbstack -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+NODE_IP=''
+for address in $NODE_ADDRESSES; do
+    if [[ "$address" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        NODE_IP=$address
+        break
+    fi
+done
+if [[ ! "$TLS_NODE_PORT" =~ ^[0-9]{4,5}$ ||
+      ! "$NODE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "OrbStack did not assign a usable TLS NodePort: $NODE_IP:$TLS_NODE_PORT" >&2
+    exit 1
+fi
+
+tls_status() {
+    curl --silent --show-error --connect-timeout 2 --max-time 5 \
+        --noproxy '*' \
+        --cacert "$TLS_DIR/tls.crt" \
+        --resolve "planner.example.test:$TLS_NODE_PORT:$NODE_IP" \
+        --output "${TLS_OUTPUT_FILE:-/dev/null}" --write-out '%{http_code}' "$@" \
+        2>"$TLS_DIR/curl.err"
+}
+TLS_URL="https://planner.example.test:$TLS_NODE_PORT"
+TLS_CREATED=false
+for _ in {1..15}; do
+    if [[ $(tls_status -X POST "$TLS_URL/registry/endpoints" \
+        -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        -H 'Content-Type: application/json' \
+        --data '{"client":"gateway","external_id":"tls-smoke-1","endpoint_key":"planner-tls-smoke","managed":true}') == 201 ]]; then
+        TLS_CREATED=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$TLS_CREATED" != true ]]; then
+    echo 'Trusted host-to-NodePort TLS registration did not return HTTP 201.' >&2
+    sed -n '1,10p' "$TLS_DIR/curl.err" >&2
+    exit 1
+fi
+if [[ $(tls_status -X POST "$TLS_URL/registry/endpoints" \
+    -H 'Content-Type: application/json' \
+    --data '{"client":"gateway","external_id":"tls-smoke-2","endpoint_key":"planner-tls-unauth","managed":true}') != 401 ]]; then
+    echo 'TLS edge did not preserve the registry authentication gate.' >&2
+    exit 1
+fi
+if [[ $(tls_status "$TLS_URL/_internal/gateway/plan") != 404 ]]; then
+    echo 'TLS edge exposed a private Planner route.' >&2
+    exit 1
+fi
+if [[ $(tls_status "$TLS_URL/_internal/gateway/ready") != 404 ]]; then
+    echo 'TLS edge exposed the private Planner readiness route.' >&2
+    exit 1
+fi
+if [[ $(tls_status "$TLS_URL/ready") != 204 ]]; then
+    echo 'Spinner did not report ready while the private Planner was ready.' >&2
+    exit 1
+fi
+if [[ "$WITH_WEBSTREAM" == true ]]; then
+    if [[ $(tls_status -X POST "$TLS_URL/registry/endpoints/planner-tls-smoke/subscriptions" \
+        -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        -H 'Content-Type: application/json' \
+        --data '{"subscriber_id":"webstream-smoke","type":"reply","webhook_group":"webstream-smoke","routing_scope":"path","routing_key":"/hooks/planner-tls-smoke","url":"http://webstream-source:8080/events"}') != 201 ]]; then
+        echo 'Production Planner could not register the private Webstream fixture as a reply source.' >&2
+        exit 1
+    fi
+    TLS_OUTPUT_FILE="$TLS_DIR/webstream-response"
+    if [[ $(tls_status -H 'Accept: text/event-stream' \
+        "$TLS_URL/hooks/planner-tls-smoke") != 502 ]]; then
+        echo 'Production Spinner did not reject the private Webstream source.' >&2
+        exit 1
+    fi
+    unset TLS_OUTPUT_FILE
+    if ! grep -Fx 'Webstream source unavailable' "$TLS_DIR/webstream-response" >/dev/null; then
+        echo 'Webstream did not reach the source-opening branch before rejection.' >&2
+        exit 1
+    fi
+    if kubectl -n "$NAMESPACE" logs deployment/webstream-source | grep -F 'GET /events' >/dev/null; then
+        echo 'Private Webstream source received a request despite Spinner SSRF protection.' >&2
+        exit 1
+    fi
+fi
+
+OLD_PLANNER=$(kubectl -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=planner -o jsonpath='{.items[0].metadata.name}')
+if [[ -z "$OLD_PLANNER" ]]; then
+    echo 'Could not identify the disposable Planner Pod for replacement.' >&2
+    exit 1
+fi
+kubectl -n "$NAMESPACE" delete pod "$OLD_PLANNER" --wait=true --timeout=120s >/dev/null
+kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/dev/null
+NEW_PLANNER=$(kubectl -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=planner -o jsonpath='{.items[0].metadata.name}')
+if [[ -z "$NEW_PLANNER" || "$NEW_PLANNER" == "$OLD_PLANNER" ]]; then
+    echo 'Planner Pod was not replaced.' >&2
+    exit 1
+fi
+PERSISTED=false
+for _ in {1..15}; do
+    if [[ $(tls_status \
+        -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        "$TLS_URL/registry/endpoints/planner-tls-smoke/subscriptions?routing_scope=path&routing_key=planner-tls-smoke") == 200 ]]; then
+        PERSISTED=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$PERSISTED" != true ]]; then
+    echo 'Registered endpoint was unavailable over TLS after Planner Pod replacement.' >&2
+    sed -n '1,10p' "$TLS_DIR/curl.err" >&2
+    exit 1
+fi
+kubectl -n "$NAMESPACE" scale deployment/planner --replicas=2 >/dev/null
+kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/dev/null
+PLANNER_POD_LIST=$(kubectl -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=planner \
+    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{end}')
+read -r -a PLANNER_PODS <<< "$PLANNER_POD_LIST"
+if [[ ${#PLANNER_PODS[@]} -ne 2 ]]; then
+    echo "Expected two Planner Pods after scaling; found ${#PLANNER_PODS[@]}." >&2
+    exit 1
+fi
+for planner_pod in "${PLANNER_PODS[@]}"; do
+    if ! kubectl -n "$NAMESPACE" exec "$planner_pod" -- php -r '
+        $context = stream_context_create(["http" => [
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\n",
+            "ignore_errors" => true,
+            "timeout" => 5,
+        ]]);
+        $body = @file_get_contents("http://127.0.0.1:8080/registry/endpoints/planner-tls-smoke/subscriptions?routing_scope=path&routing_key=planner-tls-smoke", false, $context);
+        if (! preg_match("/^HTTP\/\S+ 200\b/", $http_response_header[0] ?? "")
+            || ! array_key_exists("data", json_decode($body ?: "", true) ?? [])) { exit(1); }
+    ' >/dev/null; then
+        echo "Planner Pod $planner_pod could not read the shared endpoint." >&2
+        exit 1
+    fi
+done
+REGISTER_AT=$(($(date +%s) + 8))
+CONCURRENT_PIDS=()
+for planner_pod in "${PLANNER_PODS[@]}"; do
+    kubectl -n "$NAMESPACE" exec "$planner_pod" -- php -r '
+        while (microtime(true) < (int) $argv[1]) { usleep(1000); }
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => json_encode(["client" => "gateway", "external_id" => "concurrent-1", "endpoint_key" => "planner-concurrent", "managed" => true]),
+            "ignore_errors" => true,
+            "timeout" => 10,
+        ]]);
+        $body = @file_get_contents("http://127.0.0.1:8080/registry/endpoints", false, $context);
+        preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+        if ((int) ($matches[1] ?? 0) !== 201) {
+            fwrite(STDERR, "Concurrent registration returned HTTP ".($matches[1] ?? "0")." $body\n");
+            exit(1);
+        }
+    ' "$REGISTER_AT" &
+    CONCURRENT_PIDS+=("$!")
+done
+CONCURRENT_OK=true
+for concurrent_pid in "${CONCURRENT_PIDS[@]}"; do
+    if ! wait "$concurrent_pid"; then CONCURRENT_OK=false; fi
+done
+if [[ "$CONCURRENT_OK" != true ]]; then
+    echo 'One of the simultaneous Planner registrations failed.' >&2
+    exit 1
+fi
+ENDPOINT_COUNT=$(kubectl -n "$NAMESPACE" exec deployment/postgres -- \
+    psql -U postgres -d gateway -Atc \
+    "SELECT COUNT(*) FROM endpoints WHERE client='gateway' AND external_id='concurrent-1'")
+if [[ "$ENDPOINT_COUNT" != 1 ]]; then
+    echo "Concurrent Planner registration created $ENDPOINT_COUNT endpoint records, expected one." >&2
+    exit 1
+fi
+if [[ "$WITH_DNS" == true ]]; then
+    DNS_TOKEN=$(kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => json_encode(["external_id" => "production-planner-smoke", "zone" => "hooks.example.test"]),
+            "timeout" => 5,
+        ]]);
+        $body = @file_get_contents("http://spinner/dns/hooks", false, $context);
+        preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+        $hook = json_decode($body ?: "", true);
+        if ((int) ($matches[1] ?? 0) !== 201 || ! is_string($hook["token"] ?? null)) {
+            fwrite(STDERR, "Production Planner DNS hook creation failed: HTTP ".($matches[1] ?? "0")." $body\n");
+            exit(1);
+        }
+        echo $hook["token"];
+    ')
+    if [[ ! "$DNS_TOKEN" =~ ^[a-z0-9-]+$ ]]; then
+        echo 'Production Planner returned an invalid DNS hook token.' >&2
+        exit 1
+    fi
+    kubectl -n "$NAMESPACE" patch service spinner-dns --type=merge \
+        -p '{"spec":{"type":"NodePort"}}' >/dev/null
+    DNS_UDP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns \
+        -o jsonpath='{.spec.ports[?(@.protocol=="UDP")].nodePort}')
+    DNS_TCP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns \
+        -o jsonpath='{.spec.ports[?(@.protocol=="TCP")].nodePort}')
+    if [[ ! "$DNS_UDP_PORT" =~ ^[0-9]{4,5}$ || ! "$DNS_TCP_PORT" =~ ^[0-9]{4,5}$ ]]; then
+        echo 'OrbStack did not assign both DNS NodePorts.' >&2
+        exit 1
+    fi
+    for dns_protocol in udp tcp; do
+        if [[ "$dns_protocol" == udp ]]; then dns_port=$DNS_UDP_PORT; else dns_port=$DNS_TCP_PORT; fi
+        DNS_ANSWERED=false
+        for _ in {1..20}; do
+            if [[ "$dns_protocol" == udp ]]; then
+                DNS_ANSWER=$(dig @"$NODE_IP" -p "$dns_port" +time=1 +tries=1 +noall +comments \
+                    "hello.$DNS_TOKEN.hooks.example.test" TXT 2>/dev/null || true)
+            else
+                DNS_ANSWER=$(dig +tcp @"$NODE_IP" -p "$dns_port" +time=1 +tries=1 +noall +comments \
+                    "hello.$DNS_TOKEN.hooks.example.test" TXT 2>/dev/null || true)
+            fi
+            if [[ "$DNS_ANSWER" == *'status: NOERROR'* && "$DNS_ANSWER" == *'flags: qr aa'* ]]; then
+                DNS_ANSWERED=true
+                break
+            fi
+            sleep 1
+        done
+        if [[ "$DNS_ANSWERED" != true ]]; then
+            echo "Production Planner DNS hook did not answer authoritatively over $dns_protocol: $DNS_ANSWER" >&2
+            exit 1
+        fi
+    done
+fi
+if [[ "$WITH_EMAIL" == true ]]; then
+    EMAIL_DOMAIN_ID=$(kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => json_encode(["domain" => "managed.test"]),
+            "timeout" => 5,
+        ]]);
+        $body = @file_get_contents("http://spinner/email/domains", false, $context);
+        preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+        $domain = json_decode($body ?: "", true);
+        if ((int) ($matches[1] ?? 0) !== 201 || ! is_string($domain["id"] ?? null)) {
+            fwrite(STDERR, "Production Planner Email domain creation failed: HTTP ".($matches[1] ?? "0")." $body\n");
+            exit(1);
+        }
+        echo $domain["id"];
+    ')
+    if [[ ! "$EMAIL_DOMAIN_ID" =~ ^[a-f0-9-]{36}$ ]]; then
+        echo 'Production Planner returned an invalid Email domain ID.' >&2
+        exit 1
+    fi
+    # The disposable .test domain has no public TXT owner. Seed only this
+    # temporary database to test SMTP transport; the fixture smoke separately
+    # covers TXT verification and this is not a public-domain proof.
+    EMAIL_SEED_RESULT=$(kubectl -n "$NAMESPACE" exec deployment/postgres -- \
+        psql -U postgres -d gateway -Atc \
+        "UPDATE email_domains SET verified_at=now(), enabled=true WHERE id='$EMAIL_DOMAIN_ID'")
+    if [[ "$EMAIL_SEED_RESULT" != 'UPDATE 1' ]]; then
+        echo "Could not seed the disposable Email domain: $EMAIL_SEED_RESULT" >&2
+        exit 1
+    fi
+    kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => json_encode(["local_part" => "first", "recipients" => ["one@example.net"]]),
+            "timeout" => 5,
+        ]]);
+        $body = @file_get_contents("http://spinner/email/domains/".$argv[1]."/aliases", false, $context);
+        preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+        if ((int) ($matches[1] ?? 0) !== 201) {
+            fwrite(STDERR, "Production Planner Email alias creation failed: HTTP ".($matches[1] ?? "0")." $body\n");
+            exit(1);
+        }
+    ' "$EMAIL_DOMAIN_ID"
+    kubectl -n "$NAMESPACE" patch service spinner-smtp --type=merge \
+        -p '{"spec":{"type":"NodePort"}}' >/dev/null
+    SMTP_NODE_PORT=$(kubectl -n "$NAMESPACE" get service spinner-smtp \
+        -o jsonpath='{.spec.ports[0].nodePort}')
+    if [[ ! "$SMTP_NODE_PORT" =~ ^[0-9]{4,5}$ ]]; then
+        echo 'OrbStack did not assign an SMTP NodePort.' >&2
+        exit 1
+    fi
+    SMTP_CLIENT_PASSED=false
+    SMTP_CLIENT_OUTPUT=''
+    for _ in {1..15}; do
+        if SMTP_CLIENT_OUTPUT=$(php tests/Fixtures/kubernetes-smtp-client.php \
+            "$NODE_IP" "$SMTP_NODE_PORT" "$SMTP_DIR/tls.crt" --send 2>&1); then
+            SMTP_CLIENT_PASSED=true
+            break
+        fi
+        if [[ "$SMTP_CLIENT_OUTPUT" != *'SMTP connection failed:'* ]]; then
+            echo "Production Planner SMTP transaction failed: $SMTP_CLIENT_OUTPUT" >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    if [[ "$SMTP_CLIENT_PASSED" != true ]]; then
+        echo "Production Planner SMTP client failed: $SMTP_CLIENT_OUTPUT" >&2
+        exit 1
+    fi
+    echo "$SMTP_CLIENT_OUTPUT"
+    RELAY_ACCEPTED=false
+    for _ in {1..20}; do
+        RELAY_ROWS=$(kubectl -n "$NAMESPACE" exec deployment/smtp-relay -- \
+            sh -c 'cat /tmp/accepted.jsonl 2>/dev/null || true' 2>/dev/null || true)
+        if printf '%s\n' "$RELAY_ROWS" | php -r '
+            $rows = array_values(array_filter(explode("\n", trim(stream_get_contents(STDIN)))));
+            $mail = count($rows) === 1 ? json_decode($rows[0], true) : null;
+            exit(is_array($mail) && ($mail["recipients"] ?? null) === ["one@example.net"]
+                && str_contains($mail["data"] ?? "", "Subject: kubernetes relay smoke") ? 0 : 1);
+        '; then
+            RELAY_ACCEPTED=true
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$RELAY_ACCEPTED" != true ]]; then
+        echo 'Production Planner managed SMTP was not accepted by the local relay exactly once.' >&2
+        exit 1
+    fi
+    if [[ $(tls_status -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        "$TLS_URL/deliveries?state=failed&limit=1") != 200 ]]; then
+        echo 'Production Planner could not reach the private Spinner delivery-admin Service.' >&2
+        exit 1
+    fi
+fi
+kubectl -n "$NAMESPACE" scale deployment/postgres --replicas=0 >/dev/null
+kubectl -n "$NAMESPACE" wait --for=delete pod \
+    -l app.kubernetes.io/name=gateway-planner-postgres-smoke --timeout=120s >/dev/null
+SPINNER_POD_IP=$(kubectl -n "$NAMESPACE" get pods \
+    -l app.kubernetes.io/name=spinner -o jsonpath='{.items[0].status.podIP}')
+if [[ ! "$SPINNER_POD_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Spinner Pod has no usable IP: $SPINNER_POD_IP" >&2
+    exit 1
+fi
+READINESS_FAILED=false
+for _ in {1..15}; do
+    if kubectl -n "$NAMESPACE" exec "${PLANNER_PODS[0]}" -- php -r '
+        function status(string $path): int {
+            $context = stream_context_create(["http" => ["ignore_errors" => true, "timeout" => 5]]);
+            @file_get_contents($path, false, $context);
+            preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+            return (int) ($matches[1] ?? 0);
+        }
+        $ready = status("http://127.0.0.1:8080/ready");
+        $health = status("http://127.0.0.1:8080/health");
+        $spinner = $argv[1];
+        $spinnerReady = status("http://".$spinner.":5001/ready");
+        $spinnerHealth = status("http://".$spinner.":5001/health");
+        if ($ready !== 503 || $health !== 204 || $spinnerReady !== 503 || $spinnerHealth !== 200) {
+            fwrite(STDERR, "After database loss: Planner /ready=$ready /health=$health; Spinner /ready=$spinnerReady /health=$spinnerHealth\n");
+            exit(1);
+        }
+    ' "$SPINNER_POD_IP" >/dev/null 2>&1; then
+        READINESS_FAILED=true
+        break
+    fi
+    sleep 1
+done
+if [[ "$READINESS_FAILED" != true ]]; then
+    echo 'Planner and Spinner did not distinguish database readiness from process liveness after PostgreSQL stopped.' >&2
+    exit 1
+fi
+unset REGISTRY_TOKEN
+echo 'Standalone Planner migration, Spinner management flow, ingress-policy isolation, trusted local TLS edge, Pod replacement, two-replica reads, and concurrent registration passed.'
+echo 'Planner and Spinner readiness failed closed after PostgreSQL stopped while process liveness stayed healthy.'
+if [[ "$WITH_DNS" == true ]]; then
+    echo 'Production Planner and Spinner DNS overlay answered an authoritative hook over UDP and TCP.'
+fi
+if [[ "$WITH_EMAIL" == true ]]; then
+    echo 'Production Planner and Spinner Email relay overlay passed STARTTLS, alias routing, relay acceptance, and private delivery-admin access.'
+fi
+if [[ "$WITH_WEBSTREAM" == true ]]; then
+    echo 'Production Planner selected a Webstream source; Spinner blocked its reachable private address before connecting.'
+fi

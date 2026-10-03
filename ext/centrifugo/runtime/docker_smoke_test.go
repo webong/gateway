@@ -24,6 +24,7 @@ func TestDockerSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validCentrifugoSpec()
+	spec.AssignmentID = "22222222-2222-4222-8222-222222222222"
 	spec.Driver = provision.DriverDocker
 	spec.Replicas = 1
 	spec.Configuration = []byte(`{

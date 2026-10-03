@@ -60,6 +60,34 @@ func TestHandlerStreamsPlannerAuthorizedEvents(t *testing.T) {
 	}
 }
 
+func TestHandlerDoesNotForwardConnectionScopedSourceHeaders(t *testing.T) {
+	handler := NewHandler(plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{
+			Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebstream, Action: bridge.GatewayStream,
+			Stream: &bridge.GatewayDelivery{Protocol: bridge.ProtocolHTTP, Target: "https://stream.example.test/events"},
+		}, nil
+	}), sourceFunc(func(context.Context, bridge.GatewayDelivery) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type":      {"text/event-stream"},
+				"Connection":        {"keep-alive, X-Internal", "X-Other"},
+				"X-Internal":        {"upstream-only"},
+				"X-Other":           {"upstream-only"},
+				"X-Allowed-Through": {"yes"},
+			},
+			Body: io.NopCloser(bytes.NewBufferString("data: hello\n\n")),
+		}, nil
+	}), Config{})
+	request := httptest.NewRequest(http.MethodGet, "/hooks/updates", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("X-Internal") != "" || response.Header().Get("X-Other") != "" || response.Header().Get("Connection") != "" || response.Header().Get("X-Allowed-Through") != "yes" {
+		t.Fatalf("unexpected source response headers: status=%d headers=%v", response.Code, response.Header())
+	}
+}
+
 func TestHandlerRequiresExplicitSSEAcceptHeader(t *testing.T) {
 	handler := NewHandler(plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
 		t.Fatal("planner should not run")
@@ -85,6 +113,79 @@ func TestHandlerPassesLastEventIDToPlanner(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), request)
 	if event := <-events; event.Attributes["last_event_id"] != "event-42" {
 		t.Fatalf("last event ID was not planned: %+v", event)
+	}
+}
+
+func TestSharedAdmissionRejectsBeforePlanningAndReleasesOnDisconnect(t *testing.T) {
+	gate := NewAdmission(1)
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	opened := make(chan struct{}, 1)
+	decision := bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebstream, Action: bridge.GatewayStream,
+		Stream: &bridge.GatewayDelivery{Protocol: bridge.ProtocolHTTP, Target: "https://events.example.test/stream"}}
+	first := NewHandler(plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return decision, nil
+	}), sourceFunc(func(context.Context, bridge.GatewayDelivery) (*http.Response, error) {
+		opened <- struct{}{}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: reader}, nil
+	}), Config{Admission: gate, MaxDuration: time.Second})
+	ctx, cancel := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodGet, "/hooks/updates", nil).WithContext(ctx)
+	request.Header.Set("Accept", "text/event-stream")
+	done := make(chan struct{})
+	go func() { first.ServeHTTP(httptest.NewRecorder(), request); close(done) }()
+	select {
+	case <-opened:
+	case <-time.After(time.Second):
+		t.Fatal("first stream did not open")
+	}
+	planned := false
+	second := NewHandler(plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		planned = true
+		return decision, nil
+	}), sourceFunc(func(context.Context, bridge.GatewayDelivery) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(bytes.NewBuffer(nil))}, nil
+	}), Config{Admission: gate})
+	response := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodGet, "/hooks/updates", nil)
+	secondRequest.Header.Set("Accept", "text/event-stream")
+	second.ServeHTTP(response, secondRequest)
+	if response.Code != http.StatusServiceUnavailable || planned || response.Header().Get("Retry-After") != "1" {
+		t.Fatalf("limit did not reject before planning: status=%d planned=%v", response.Code, planned)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("disconnected stream did not release its slot")
+	}
+	response = httptest.NewRecorder()
+	second.ServeHTTP(response, secondRequest)
+	if response.Code != http.StatusOK || !planned || gate.active.Load() != 0 {
+		t.Fatalf("slot was not reusable: status=%d planned=%v active=%d", response.Code, planned, gate.active.Load())
+	}
+}
+
+func TestMaxDurationClosesIdleWebstream(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	handler := NewHandler(plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebstream, Action: bridge.GatewayStream,
+			Stream: &bridge.GatewayDelivery{Protocol: bridge.ProtocolHTTP, Target: "https://events.example.test/stream"}}, nil
+	}), sourceFunc(func(context.Context, bridge.GatewayDelivery) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: reader}, nil
+	}), Config{MaxDuration: 30 * time.Millisecond})
+	request := httptest.NewRequest(http.MethodGet, "/hooks/updates", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	done := make(chan struct{})
+	go func() { handler.ServeHTTP(httptest.NewRecorder(), request); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stream exceeded its maximum duration")
+	}
+	if metrics := handler.Metrics(); metrics.Active != 0 || metrics.Opened != 1 {
+		t.Fatalf("unexpected metrics after duration limit: %+v", metrics)
 	}
 }
 
@@ -119,4 +220,54 @@ func TestHandlerEmitsHeartbeatsAndTracksActiveStreams(t *testing.T) {
 		t.Fatalf("unexpected metrics: %+v", metrics)
 	}
 	_ = writer.Close()
+}
+
+func TestSSEBoundaryHandlesSplitEventsAndCRLF(t *testing.T) {
+	boundary := sseBoundary{complete: true}
+	boundary.feed([]byte("data: first\n"))
+	if boundary.safe() {
+		t.Fatal("a heartbeat would split an unfinished event")
+	}
+	boundary.feed([]byte("data: second\r"))
+	if boundary.safe() {
+		t.Fatal("a heartbeat would split a CRLF line ending")
+	}
+	boundary.feed([]byte("\n\r"))
+	if boundary.safe() {
+		t.Fatal("a heartbeat would split a CRLF event boundary")
+	}
+	boundary.feed([]byte("\n"))
+	if !boundary.safe() {
+		t.Fatal("a complete event should permit heartbeats")
+	}
+	boundary.feed([]byte("data: next"))
+	if boundary.safe() {
+		t.Fatal("a partial next event should block heartbeats")
+	}
+}
+
+func TestFlushCopyDoesNotInsertHeartbeatInsideEvent(t *testing.T) {
+	reader, source := io.Pipe()
+	response := httptest.NewRecorder()
+	done := make(chan error, 1)
+	go func() {
+		done <- flushCopy(context.Background(), response, reader, 5*time.Millisecond)
+	}()
+	if _, err := io.WriteString(source, "data: first\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(25 * time.Millisecond)
+	if _, err := io.WriteString(source, "data: second\n\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(25 * time.Millisecond)
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := response.Body.Bytes(); !bytes.HasPrefix(got, []byte("data: first\ndata: second\n\n: gateway heartbeat\n\n")) {
+		t.Fatalf("heartbeat was missing or split an event: %q", got)
+	}
 }

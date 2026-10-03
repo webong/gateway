@@ -75,19 +75,76 @@ func (c KubernetesDriverConfig) connectionArguments() []string {
 	return args
 }
 
-func (d *KubernetesDriver) Prepare(ctx context.Context) error {
+func (d *KubernetesDriver) selector() string {
 	selector := "gateway.webong.dev/node=" + runtimeLabelValue(d.config.NodeID)
 	if d.config.TargetID != "" {
 		selector += ",gateway.webong.dev/target=" + d.config.TargetID
 	}
-	_, err := d.runner.Output(ctx, nil, d.config.KubectlBinary,
-		"--namespace", d.config.Namespace,
-		"delete", "pods",
-		"--selector", selector,
-		"--ignore-not-found=true", "--wait=true", "--timeout="+d.config.StopTimeout.String(),
-	)
+	return selector
+}
 
-	return err
+type kubernetesPod struct {
+	Metadata struct {
+		Name   string            `json:"name"`
+		UID    string            `json:"uid"`
+		Labels map[string]string `json:"labels"`
+	} `json:"metadata"`
+	Spec struct {
+		Containers []struct {
+			Image string `json:"image"`
+			Ports []struct {
+				ContainerPort int `json:"containerPort"`
+			} `json:"ports"`
+		} `json:"containers"`
+	} `json:"spec"`
+	Status struct {
+		Phase string `json:"phase"`
+	} `json:"status"`
+}
+
+func (d *KubernetesDriver) owns(labels map[string]string) bool {
+	return labels["gateway.webong.dev/node"] == runtimeLabelValue(d.config.NodeID) &&
+		labels["gateway.webong.dev/target"] == d.config.TargetID
+}
+
+func (d *KubernetesDriver) PrepareDesired(ctx context.Context, desired map[string]ServerSpec) error {
+	output, err := d.runner.Output(ctx, nil, d.config.KubectlBinary,
+		"--namespace", d.config.Namespace,
+		"get", "pods", "--selector", d.selector(), "--output=json",
+	)
+	if err != nil {
+		return err
+	}
+	var list struct {
+		Items []kubernetesPod `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(output), &list); err != nil {
+		return fmt.Errorf("decode owned Kubernetes pods: %w", err)
+	}
+	for _, pod := range list.Items {
+		if !d.owns(pod.Metadata.Labels) {
+			continue
+		}
+		instanceID := pod.Metadata.Labels["gateway.webong.dev/instance"]
+		if spec, ok := desired[instanceID]; ok {
+			if pod.Metadata.Name != runtimeResourceName(instanceID) ||
+				pod.Metadata.Labels["gateway.webong.dev/server"] != spec.ID ||
+				pod.Metadata.Labels["gateway.webong.dev/type"] != runtimeLabelValue(spec.Type) {
+				return fmt.Errorf("Kubernetes pod %s conflicts with desired assignment %s", pod.Metadata.Name, instanceID)
+			}
+			if pod.Status.Phase != "Failed" && pod.Status.Phase != "Succeeded" {
+				continue
+			}
+		}
+		if _, err := d.runner.Output(ctx, nil, d.config.KubectlBinary,
+			"--namespace", d.config.Namespace,
+			"delete", "pod", pod.Metadata.Name,
+			"--ignore-not-found=true", "--wait=true", "--timeout="+d.config.StopTimeout.String(),
+		); err != nil {
+			return fmt.Errorf("remove stale Kubernetes pod %s: %w", pod.Metadata.Name, err)
+		}
+	}
+	return nil
 }
 
 func (d *KubernetesDriver) Start(ctx context.Context, spec ServerSpec, instanceID string, workload Workload) (Process, error) {
@@ -106,27 +163,60 @@ func (d *KubernetesDriver) Start(ctx context.Context, spec ServerSpec, instanceI
 	}
 
 	name := runtimeResourceName(instanceID)
-	manifest, err := kubernetesPodManifest(d.config, spec, instanceID, name, launch)
+	existing, err := d.runner.Output(ctx, nil, d.config.KubectlBinary,
+		"--namespace", d.config.Namespace, "get", "pod", name,
+		"--ignore-not-found=true", "--output=json")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("find provisioned Kubernetes pod: %w", err)
 	}
-	if _, err := d.runner.Output(ctx, manifest, d.config.KubectlBinary, "--namespace", d.config.Namespace, "create", "--filename", "-"); err != nil {
-		return nil, fmt.Errorf("create provisioned Kubernetes pod: %w", err)
+	created := false
+	existingUID := ""
+	if strings.TrimSpace(existing) != "" {
+		var pod kubernetesPod
+		if err := json.Unmarshal([]byte(existing), &pod); err != nil {
+			return nil, fmt.Errorf("decode existing Kubernetes pod: %w", err)
+		}
+		if pod.Metadata.Name != name || pod.Metadata.UID == "" || !d.owns(pod.Metadata.Labels) ||
+			pod.Metadata.Labels["gateway.webong.dev/instance"] != instanceID ||
+			pod.Metadata.Labels["gateway.webong.dev/server"] != spec.ID ||
+			pod.Metadata.Labels["gateway.webong.dev/type"] != runtimeLabelValue(spec.Type) ||
+			len(pod.Spec.Containers) != 1 || pod.Spec.Containers[0].Image != launch.Image ||
+			len(pod.Spec.Containers[0].Ports) != 1 || pod.Spec.Containers[0].Ports[0].ContainerPort != launch.Port ||
+			pod.Status.Phase == "Failed" || pod.Status.Phase == "Succeeded" {
+			return nil, fmt.Errorf("existing Kubernetes pod %s does not match running assignment", name)
+		}
+		existingUID = pod.Metadata.UID
+	} else {
+		manifest, err := kubernetesPodManifest(d.config, spec, instanceID, name, launch)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := d.runner.Output(ctx, manifest, d.config.KubectlBinary, "--namespace", d.config.Namespace, "create", "--filename", "-"); err != nil {
+			return nil, fmt.Errorf("create provisioned Kubernetes pod: %w", err)
+		}
+		created = true
 	}
 
 	startupContext, cancel := context.WithTimeout(ctx, d.config.StartTimeout)
 	defer cancel()
-	host, err := d.waitForRunningPod(startupContext, name)
+	host, uid, err := d.waitForRunningPod(startupContext, name)
 	if err != nil {
-		d.remove(name)
+		if created {
+			d.remove(name)
+		}
 		return nil, fmt.Errorf("wait for provisioned Kubernetes pod: %w", err)
+	}
+	if existingUID != "" && uid != existingUID {
+		return nil, fmt.Errorf("Kubernetes pod %s changed identity during adoption", name)
 	}
 	port := launch.Port
 	var forward *localProcess
 	if d.config.RouteMode == "port-forward" {
 		forward, err = d.startPortForward(name, launch.Port)
 		if err != nil {
-			d.remove(name)
+			if created {
+				d.remove(name)
+			}
 			return nil, fmt.Errorf("start provisioned Kubernetes port-forward: %w", err)
 		}
 		host = forward.Host()
@@ -137,6 +227,7 @@ func (d *KubernetesDriver) Start(ctx context.Context, spec ServerSpec, instanceI
 		binary:      d.config.KubectlBinary,
 		namespace:   d.config.Namespace,
 		name:        name,
+		uid:         uid,
 		host:        host,
 		port:        port,
 		forward:     forward,
@@ -145,9 +236,15 @@ func (d *KubernetesDriver) Start(ctx context.Context, spec ServerSpec, instanceI
 	}
 	go process.watch()
 	if err := waitForListener(startupContext, process); err != nil {
-		stopContext, stopCancel := context.WithTimeout(context.Background(), d.config.StopTimeout)
-		_ = process.Stop(stopContext)
-		stopCancel()
+		if created {
+			stopContext, stopCancel := context.WithTimeout(context.Background(), d.config.StopTimeout)
+			_ = process.Stop(stopContext)
+			stopCancel()
+		} else if forward != nil {
+			stopContext, stopCancel := context.WithTimeout(context.Background(), d.config.StopTimeout)
+			_ = forward.Stop(stopContext)
+			stopCancel()
+		}
 		return nil, fmt.Errorf("wait for provisioned Kubernetes listener: %w", err)
 	}
 
@@ -183,28 +280,28 @@ func (d *KubernetesDriver) startPortForward(name string, remotePort int) (*local
 	return process, nil
 }
 
-func (d *KubernetesDriver) waitForRunningPod(ctx context.Context, name string) (string, error) {
+func (d *KubernetesDriver) waitForRunningPod(ctx context.Context, name string) (string, string, error) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		status, err := d.runner.Output(ctx, nil, d.config.KubectlBinary,
 			"--namespace", d.config.Namespace,
 			"get", "pod", name,
-			"--output", `jsonpath={.status.phase}{" "}{.status.podIP}{" "}{.status.containerStatuses[0].ready}`,
+			"--output", `jsonpath={.status.phase}{" "}{.status.podIP}{" "}{.status.containerStatuses[0].ready}{" "}{.metadata.uid}`,
 		)
 		if err == nil {
 			fields := strings.Fields(status)
-			if len(fields) == 3 && fields[0] == "Running" && fields[1] != "" && fields[2] == "true" {
-				return fields[1], nil
+			if len(fields) == 4 && fields[0] == "Running" && fields[1] != "" && fields[2] == "true" && fields[3] != "" {
+				return fields[1], fields[3], nil
 			}
 			if len(fields) > 0 && (fields[0] == "Failed" || fields[0] == "Succeeded") {
-				return "", fmt.Errorf("pod entered terminal phase %s", fields[0])
+				return "", "", fmt.Errorf("pod entered terminal phase %s", fields[0])
 			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", "", ctx.Err()
 		case <-ticker.C:
 		}
 	}
@@ -299,6 +396,7 @@ type kubernetesProcess struct {
 	binary      string
 	namespace   string
 	name        string
+	uid         string
 	host        string
 	port        int
 	forward     *localProcess
@@ -325,15 +423,21 @@ func (p *kubernetesProcess) watch() {
 			return
 		case <-ticker.C:
 		}
-		phase, err := p.runner.Output(context.Background(), nil, p.binary,
+		status, err := p.runner.Output(context.Background(), nil, p.binary,
 			"--namespace", p.namespace,
 			"get", "pod", p.name,
-			"--output", "jsonpath={.status.phase}",
+			"--output", `jsonpath={.metadata.uid}{" "}{.status.phase}`,
 		)
 		if err != nil {
 			p.finish(fmt.Errorf("inspect provisioned Kubernetes pod: %w", err))
 			return
 		}
+		fields := strings.Fields(status)
+		if len(fields) != 2 || fields[0] != p.uid {
+			p.finish(fmt.Errorf("provisioned Kubernetes pod %s changed identity", p.name))
+			return
+		}
+		phase := fields[1]
 		if phase == "Failed" || phase == "Succeeded" {
 			p.finish(fmt.Errorf("provisioned Kubernetes pod entered terminal phase %s", phase))
 			return
@@ -341,7 +445,7 @@ func (p *kubernetesProcess) watch() {
 	}
 }
 
-func processDone(process Process) <-chan struct{} {
+func processDone(process *localProcess) <-chan struct{} {
 	if process == nil {
 		return nil
 	}
@@ -369,10 +473,37 @@ func (p *kubernetesProcess) Err() error {
 }
 
 func (p *kubernetesProcess) Stop(ctx context.Context) error {
+	absent := false
+	if p.uid != "" {
+		current, err := p.runner.Output(ctx, nil, p.binary,
+			"--namespace", p.namespace,
+			"get", "pod", p.name,
+			"--ignore-not-found=true", "--output", "jsonpath={.metadata.uid}",
+		)
+		if err != nil {
+			if p.forward != nil {
+				_ = p.forward.Stop(ctx)
+			}
+			p.finish(err)
+			return fmt.Errorf("verify provisioned Kubernetes pod identity: %w", err)
+		}
+		if current != "" && current != p.uid {
+			err := fmt.Errorf("provisioned Kubernetes pod %s changed identity", p.name)
+			if p.forward != nil {
+				_ = p.forward.Stop(ctx)
+			}
+			p.finish(err)
+			return err
+		}
+		absent = current == ""
+	}
 	p.finish(nil)
 	var forwardErr error
 	if p.forward != nil {
 		forwardErr = p.forward.Stop(ctx)
+	}
+	if absent {
+		return forwardErr
 	}
 	_, err := p.runner.Output(ctx, nil, p.binary,
 		"--namespace", p.namespace,

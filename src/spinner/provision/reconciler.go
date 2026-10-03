@@ -37,6 +37,7 @@ type Reconciler struct {
 	processes      map[string]*managedProcess
 	failures       map[string]string
 	lastAssignment time.Time
+	prepared       bool
 }
 
 func NewReconciler(config ReconcilerConfig, control ControlPlane, driver Starter, router *Router, logger Logger) (*Reconciler, error) {
@@ -84,12 +85,24 @@ func (r *Reconciler) reconcile(ctx context.Context) {
 		if !r.lastAssignment.IsZero() && time.Since(r.lastAssignment) >= r.config.CoordinationLease {
 			r.logger.Warn("Provisioning assignment lease expired; stopping local workloads")
 			r.shutdown()
+			r.prepared = false
 		}
 		return
 	}
 	r.lastAssignment = time.Now()
 	if leaderID == r.config.NodeID {
 		r.logger.Debug("Gateway node %s is the active provisioning placement leader", r.config.NodeID)
+	}
+	if !r.prepared {
+		if preparer, ok := r.driver.(interface {
+			PrepareDesired(context.Context, []ServerSpec) error
+		}); ok {
+			if err := preparer.PrepareDesired(ctx, specifications); err != nil {
+				r.logger.Error("Failed to prepare provisioned assignments: %v", err)
+				return
+			}
+		}
+		r.prepared = true
 	}
 
 	specs := make(map[string]ServerSpec, len(specifications))

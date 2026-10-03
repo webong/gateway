@@ -82,11 +82,31 @@ func TestEdgePlansInPHPAndExecutesInGo(t *testing.T) {
 	if planned.Headers["X-Webhook-Forwarder-Delivery-Id"][0] != planned.DeliveryID {
 		t.Fatal("expected delivery ID to be available to PHP and downstream subscribers")
 	}
+	if len(planned.Attributes["ingress_id"]) != 32 || planned.Attributes["remote_addr"] != request.RemoteAddr {
+		t.Fatalf("expected a unique receipt identity and actual TCP peer: %+v", planned.Attributes)
+	}
 	if len(executor.delivered) != 1 || executor.delivered[0].Body == nil {
 		t.Fatalf("expected original body on synchronous delivery: %+v", executor.delivered)
 	}
 	if len(executor.queued) != 1 || executor.queued[0].RawQuery != "source=test" || executor.queued[0].SubscriberID != "subscriber-1" {
 		t.Fatalf("expected materialized relay delivery: %+v", executor.queued)
+	}
+	if executor.queued[0].EventID != planned.Attributes["ingress_id"] {
+		t.Fatalf("queued relay lost its ingress event ID: %+v", executor.queued[0])
+	}
+}
+
+func TestEdgeKeepsStableDeliveryIDButDistinctIngressReceipts(t *testing.T) {
+	var requests []IngressRequest
+	edge := NewEdge(plannerFunc(func(_ context.Context, request IngressRequest) (RoutePlan, error) {
+		requests = append(requests, request)
+		return RoutePlan{Version: ProtocolVersion, Action: ActionRespond, ImmediateResponse: &Response{StatusCode: http.StatusNoContent}}, nil
+	}), &recordingExecutor{}, 1024)
+	for range 2 {
+		edge.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/same", strings.NewReader("same body")))
+	}
+	if len(requests) != 2 || requests[0].DeliveryID != requests[1].DeliveryID || requests[0].Attributes["ingress_id"] == requests[1].Attributes["ingress_id"] {
+		t.Fatalf("identical deliveries must retain two ingress receipts: %+v", requests)
 	}
 }
 
@@ -106,6 +126,26 @@ func TestEdgeRestoresBodyForPHPPassThrough(t *testing.T) {
 
 	if record.Code != http.StatusOK || record.Body.String() != "payload" {
 		t.Fatalf("expected PHP pass-through body to be preserved, got %d %q", record.Code, record.Body.String())
+	}
+}
+
+func TestEdgePassesEmailCredentialsOnlyToApplicationRoute(t *testing.T) {
+	planned := false
+	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+		planned = true
+		return RoutePlan{}, nil
+	}), &recordingExecutor{}, 4).SetPassThrough(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Basic private" {
+			t.Error("submission credentials were lost")
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/email/submissions", strings.NewReader(strings.Repeat("x", 20)))
+	request.Header.Set("Authorization", "Basic private")
+	response := httptest.NewRecorder()
+	edge.ServeHTTP(response, request)
+	if planned || response.Code != http.StatusAccepted {
+		t.Fatalf("email credentials reached route planner or submission was denied: planned=%v status=%d", planned, response.Code)
 	}
 }
 

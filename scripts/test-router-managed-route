@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE=${1:-gateway-router:roadrunner-local}
+SUFFIX="$$-$RANDOM"
+NETWORK="gateway-managed-smoke-$SUFFIX"
+ROUTER="gateway-managed-router-$SUFFIX"
+BACKEND="gateway-managed-backend-$SUFFIX"
+WEBSOCKET_BACKEND="gateway-managed-websocket-$SUFFIX"
+VOLUME="$ROUTER-data"
+
+cleanup() {
+    docker rm -f "$ROUTER" "$BACKEND" "$WEBSOCKET_BACKEND" >/dev/null 2>&1 || true
+    docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker network create "$NETWORK" >/dev/null
+docker volume create "$VOLUME" >/dev/null
+docker run -d --name "$BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp \
+    --entrypoint php "$IMAGE" -S 0.0.0.0:9090 /gateway/tests/Fixtures/managed-route-container-backend.php >/dev/null
+BACKEND_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$BACKEND")
+if [[ ! "$BACKEND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Could not resolve the managed backend's Docker IPv4 address." >&2
+    exit 1
+fi
+
+docker run -d --name "$WEBSOCKET_BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp:exec \
+    -e GOCACHE=/tmp/gocache \
+    --mount "type=bind,source=$PWD/tests/Fixtures/managed-route-container-websocket.go,target=/fixture.go,readonly" \
+    --entrypoint go golang:1.24-bookworm run /fixture.go server >/dev/null
+WEBSOCKET_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$WEBSOCKET_BACKEND")
+if [[ ! "$WEBSOCKET_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Could not resolve the WebSocket backend's Docker IPv4 address." >&2
+    exit 1
+fi
+
+docker run -d --name "$ROUTER" --network "$NETWORK" --read-only --tmpfs /tmp \
+    -p 127.0.0.1::8080 --mount "type=volume,source=$VOLUME,target=/data" \
+    -e GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED=true \
+    -e "GATEWAY_PROVISIONING_ROUTE_CIDRS=$BACKEND_IP/32,$WEBSOCKET_IP/32" "$IMAGE" >/dev/null
+ADDRESS=$(docker port "$ROUTER" 8080/tcp)
+for ((attempt=0; attempt<60; attempt++)); do
+    if [[ $(docker inspect -f '{{.State.Running}}' "$ROUTER") != true ]]; then
+        docker logs "$ROUTER" >&2
+        exit 1
+    fi
+    if [[ $(curl --max-time 2 -s -o /dev/null -w '%{http_code}' "http://$ADDRESS/health" || true) == 204 ]]; then
+        break
+    fi
+    if ((attempt == 59)); then
+        docker logs "$ROUTER" >&2
+        echo 'Managed-route Router failed to become ready.' >&2
+        exit 1
+    fi
+    sleep 1
+done
+
+for ((attempt=0; attempt<60; attempt++)); do
+    if [[ $(docker inspect -f '{{.State.Running}}' "$WEBSOCKET_BACKEND") != true ]]; then
+        docker logs "$WEBSOCKET_BACKEND" >&2
+        exit 1
+    fi
+    if docker exec "$ROUTER" php -r '
+        $socket = @fsockopen($argv[1], 9091, $error, $message, 1);
+        if ($socket === false) { exit(1); }
+        fclose($socket);
+    ' "$WEBSOCKET_IP"; then
+        break
+    fi
+    if ((attempt == 59)); then
+        docker logs "$WEBSOCKET_BACKEND" >&2
+        echo 'Managed WebSocket backend failed to become ready.' >&2
+        exit 1
+    fi
+    sleep 1
+done
+
+docker exec "$ROUTER" php /gateway/tests/Fixtures/managed-route-container-seed.php "$BACKEND_IP" "$WEBSOCKET_IP"
+RESULT=$(curl --max-time 5 -sS -i -X POST -H 'Host: managed.example.test' \
+    "http://$ADDRESS/managed/event?source=container")
+if [[ "$RESULT" != *'201 Created'* || "$RESULT" != *'X-Gateway-Managed-Smoke: reached'* || "$RESULT" != *'POST /managed/event?source=container'* ]]; then
+    printf 'Managed backend was not reached through the packaged Router:\n%s\n' "$RESULT" >&2
+    exit 1
+fi
+GOTELEMETRY=off go run -mod=mod tests/Fixtures/managed-route-container-websocket.go client "$ADDRESS"
+PRIVATE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
+    "http://$ADDRESS/_internal/provisioning/routes/resolve?hostname=managed.example.test&path=%2Fmanaged")
+if [[ "$PRIVATE_STATUS" != 404 ]]; then
+    echo "Private Planner route should not be public, got HTTP $PRIVATE_STATUS." >&2
+    exit 1
+fi
+
+docker exec "$ROUTER" php -r '
+    $db = new PDO("sqlite:/data/gateway.sqlite");
+    $query = $db->prepare("UPDATE instances SET host = ? WHERE id = ?");
+    $query->execute(["127.0.0.1", "22222222-2222-4222-8222-222222222222"]);
+'
+DENIED_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
+    "http://$ADDRESS/managed/event")
+if [[ "$DENIED_STATUS" != 502 ]]; then
+    echo "Out-of-range managed instance should fail closed with 502, got HTTP $DENIED_STATUS." >&2
+    exit 1
+fi
+
+docker exec "$ROUTER" php -r '
+    $db = new PDO("sqlite:/data/gateway.sqlite");
+    $query = $db->prepare("UPDATE instances SET host = ?, heartbeat_at = ? WHERE id = ?");
+    $query->execute([$argv[1], "2000-01-01 00:00:00", "22222222-2222-4222-8222-222222222222"]);
+' "$BACKEND_IP"
+STALE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
+    "http://$ADDRESS/managed/event")
+if [[ "$STALE_STATUS" != 503 ]]; then
+    echo "Stale managed instance should fail closed with 503, got HTTP $STALE_STATUS." >&2
+    exit 1
+fi
+
+echo 'Gateway Router: packaged Planner lookup, managed HTTP/WebSocket proxy, private-route isolation, destination allowlist, and stale-instance fail-closed passed.'

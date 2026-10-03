@@ -29,6 +29,16 @@ final readonly class GatewayDecision
         if ($this->action === GatewayAction::DELIVER && $this->reply === null && $this->deliveries === []) {
             throw new InvalidArgumentException('Deliver decisions require a reply or destination.');
         }
+        if ($this->action === GatewayAction::SUBMIT
+            && ($this->protocol !== Protocol::SMTP || ! array_is_list($this->deliveries) || count($this->deliveries) !== 1
+                || ! $this->deliveries[0] instanceof GatewayDelivery
+                || $this->deliveries[0]->protocol !== Protocol::SMTP || $this->reply !== null)) {
+            throw new InvalidArgumentException('SMTP submit decisions require one SMTP delivery.');
+        }
+        if ($this->action === GatewayAction::QUARANTINE
+            && ($this->protocol !== Protocol::SMTP || $this->deliveries !== [] || $this->reply !== null || $this->stream !== null)) {
+            throw new InvalidArgumentException('SMTP quarantine decisions cannot include deliveries.');
+        }
         if ($this->action === GatewayAction::STREAM
             && ($this->protocol !== Protocol::WEBSTREAM || $this->stream === null || $this->stream->protocol !== Protocol::HTTP)) {
             throw new InvalidArgumentException('Webstream decisions require one HTTP stream source.');

@@ -8,10 +8,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +26,9 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
+	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryadmin"
+	"github.com/webong/gateway/src/spinner/cmd/bridge/deliverymembership"
+	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryqueue"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
@@ -29,6 +36,8 @@ import (
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
 	"github.com/webong/gateway/src/spinner/internal/logging"
 	"github.com/webong/gateway/src/spinner/internal/workers"
+	"github.com/webong/gateway/src/spinner/provision"
+	"github.com/webong/gateway/src/spinner/transport"
 )
 
 const (
@@ -51,22 +60,45 @@ func init() {
 // as http.handlers.gateway in JSON. It deliberately owns only the Go
 // transport lifecycle; Laravel remains the next handler in the chain.
 type CaddyHandler struct {
-	InternalToken   string         `json:"internal_token,omitempty"`
-	PlanPath        string         `json:"plan_path,omitempty"`
-	RelayPathPrefix string         `json:"relay_path_prefix,omitempty"`
-	MaxBodySize     int64          `json:"max_body_size,omitempty"`
-	MaxWorkers      int            `json:"max_workers,omitempty"`
-	MaxQueueSize    int            `json:"max_queue_size,omitempty"`
-	RequestTimeout  caddy.Duration `json:"request_timeout,omitempty"`
-	MaxIdleConns    int            `json:"max_idle_conns,omitempty"`
-	MaxConnsPerHost int            `json:"max_conns_per_host,omitempty"`
-	IdleConnTimeout caddy.Duration `json:"idle_conn_timeout,omitempty"`
-	LogLevel        string         `json:"log_level,omitempty"`
+	InternalToken           string          `json:"internal_token,omitempty"`
+	PlanPath                string          `json:"plan_path,omitempty"`
+	RelayPathPrefix         string          `json:"relay_path_prefix,omitempty"`
+	ManagedRouteCIDRs       []string        `json:"managed_route_cidrs,omitempty"`
+	MaxBodySize             int64           `json:"max_body_size,omitempty"`
+	MaxWorkers              int             `json:"max_workers,omitempty"`
+	MaxQueueSize            int             `json:"max_queue_size,omitempty"`
+	RequestTimeout          caddy.Duration  `json:"request_timeout,omitempty"`
+	WebSocketMaxConnections int             `json:"websocket_max_connections,omitempty"`
+	WebSocketMaxDuration    caddy.Duration  `json:"websocket_max_duration,omitempty"`
+	WebstreamMaxConnections int             `json:"webstream_max_connections,omitempty"`
+	WebstreamMaxDuration    caddy.Duration  `json:"webstream_max_duration,omitempty"`
+	MaxIdleConns            int             `json:"max_idle_conns,omitempty"`
+	MaxConnsPerHost         int             `json:"max_conns_per_host,omitempty"`
+	IdleConnTimeout         caddy.Duration  `json:"idle_conn_timeout,omitempty"`
+	LogLevel                string          `json:"log_level,omitempty"`
+	SpoolPath               string          `json:"spool_path,omitempty"`
+	DeliveryDatabaseURL     string          `json:"delivery_database_url,omitempty"`
+	AdminAddress            string          `json:"admin_addr,omitempty"`
+	AdminAdvertiseURL       string          `json:"admin_advertise_url,omitempty"`
+	MaxAttempts             int             `json:"max_attempts,omitempty"`
+	InitialBackoff          caddy.Duration  `json:"initial_backoff,omitempty"`
+	MaxBackoff              caddy.Duration  `json:"max_backoff,omitempty"`
+	PollInterval            caddy.Duration  `json:"poll_interval,omitempty"`
+	ReceiptRetention        *caddy.Duration `json:"receipt_retention,omitempty"`
 
-	forwarder  *forwarding.Forwarder
-	workerPool *workers.WorkerPool
-	executor   bridge.Executor
-	closeOnce  sync.Once
+	forwarder          *forwarding.Forwarder
+	workerPool         *workers.WorkerPool
+	deliveryQueue      deliveryqueue.Backend
+	adminServer        *http.Server
+	adminListener      net.Listener
+	adminLease         *deliverymembership.Lease
+	executor           bridge.Executor
+	closeOnce          sync.Once
+	websocketOnce      sync.Once
+	websocketAdmission *gatewayws.Admission
+	webstreamOnce      sync.Once
+	webstreamAdmission *gatewaystream.Admission
+	managedRouter      *provision.RemoteRouter
 }
 
 // CaddyModule returns the Caddy module information.
@@ -80,25 +112,99 @@ func (*CaddyHandler) CaddyModule() caddy.ModuleInfo {
 // Provision starts the Go delivery infrastructure when Caddy loads the
 // handler. A configuration reload creates a fresh pool before the old one is
 // cleaned up, so in-flight deliveries are drained by Cleanup.
-func (g *CaddyHandler) Provision(_ caddy.Context) error {
+func (g *CaddyHandler) Provision(ctx caddy.Context) error {
+	if g.AdminAdvertiseURL == "" {
+		g.AdminAdvertiseURL = os.Getenv("GATEWAY_DELIVERY_ADMIN_ADVERTISE_URL")
+	}
 	g.applyDefaults()
 	if err := g.Validate(); err != nil {
 		return err
 	}
+	if len(g.ManagedRouteCIDRs) > 0 {
+		managedRouter, routeErr := provision.NewRemoteRouter("http://planner.internal", g.InternalToken, nil, g.ManagedRouteCIDRs)
+		if routeErr != nil {
+			return routeErr
+		}
+		g.managedRouter = managedRouter
+	}
 
 	settings := &relayconfig.Config{
-		MaxBodySize:     g.MaxBodySize,
-		MaxWorkers:      g.MaxWorkers,
-		MaxQueueSize:    g.MaxQueueSize,
-		RequestTimeout:  time.Duration(g.RequestTimeout),
-		MaxIdleConns:    g.MaxIdleConns,
-		MaxConnsPerHost: g.MaxConnsPerHost,
-		IdleConnTimeout: time.Duration(g.IdleConnTimeout),
+		MaxBodySize:              g.MaxBodySize,
+		MaxWorkers:               g.MaxWorkers,
+		MaxQueueSize:             g.MaxQueueSize,
+		RequestTimeout:           time.Duration(g.RequestTimeout),
+		MaxIdleConns:             g.MaxIdleConns,
+		MaxConnsPerHost:          g.MaxConnsPerHost,
+		IdleConnTimeout:          time.Duration(g.IdleConnTimeout),
+		DeliveryMaxAttempts:      g.MaxAttempts,
+		DeliveryInitialBackoff:   time.Duration(g.InitialBackoff),
+		DeliveryMaxBackoff:       time.Duration(g.MaxBackoff),
+		DeliveryPollInterval:     time.Duration(g.PollInterval),
+		DeliveryReceiptRetention: time.Duration(*g.ReceiptRetention),
 	}
+	if g.SpoolPath != "" {
+		// The SMTP Caddy app may use the root spool path. Its files and
+		// worker must never overlap with this HTTP handler's queue.
+		settings.DeliverySpoolPath = filepath.Join(g.SpoolPath, "http")
+	}
+	settings.DeliveryDatabaseURL = g.DeliveryDatabaseURL
 	logger := logging.NewLogger(g.LogLevel)
 	g.forwarder = forwarding.NewForwarder(settings, logger)
 	g.workerPool = workers.NewWorkerPool(g.MaxWorkers, g.MaxQueueSize, g.forwarder, logger)
-	g.executor = bridge.NewRelayExecutor(g.forwarder, g.workerPool)
+	queue, err := transport.NewDeliveryQueue(settings, g.forwarder, logger)
+	if err != nil {
+		g.workerPool.Shutdown()
+		g.forwarder.CloseIdleConnections()
+		return err
+	}
+	g.deliveryQueue = queue
+	if queue != nil {
+		g.executor = bridge.NewRelayExecutor(g.forwarder, g.workerPool, bridge.WithGatewayDeliveryQueue(queue))
+	} else {
+		g.executor = bridge.NewRelayExecutor(g.forwarder, g.workerPool)
+	}
+	if g.AdminAddress != "" {
+		if queue == nil {
+			_ = g.Cleanup()
+			return fmt.Errorf("gateway admin_addr requires spool_path or delivery_database_url")
+		}
+		adminQueue := deliveryadmin.NewMultiQueue(queue)
+		var options []deliveryadmin.HandlerOption
+		if configured, appErr := ctx.AppIfConfigured("gateway.smtp"); appErr == nil {
+			if smtpApp, ok := configured.(*SMTPApp); ok && smtpApp.deliveryQueue != nil {
+				adminQueue = deliveryadmin.NewMultiQueue(queue, smtpApp.deliveryQueue)
+				if smtpApp.submissionChecker != nil {
+					options = append(options, deliveryadmin.WithEmailSubmission(smtpApp.deliveryQueue, smtpApp.submissionChecker, smtpApp.submissionScanner, smtpApp.MaxMessageSize, []byte(smtpApp.InternalToken), smtpApp.DSNDomain != ""))
+				}
+			}
+		} else if !errors.Is(appErr, caddy.ErrNotConfigured) {
+			_ = g.Cleanup()
+			return fmt.Errorf("load gateway.smtp delivery spool: %w", appErr)
+		}
+		handler, err := deliveryadmin.NewHandler(adminQueue, g.InternalToken, options...)
+		if err != nil {
+			_ = g.Cleanup()
+			return err
+		}
+		listener, err := net.Listen("tcp", g.AdminAddress)
+		if err != nil {
+			_ = g.Cleanup()
+			return fmt.Errorf("listen for gateway delivery admin: %w", err)
+		}
+		g.adminListener = listener
+		g.adminLease, err = deliverymembership.Start(g.DeliveryDatabaseURL, g.AdminAdvertiseURL, g.InternalToken)
+		if err != nil {
+			_ = listener.Close()
+			_ = g.Cleanup()
+			return fmt.Errorf("register gateway delivery admin endpoint: %w", err)
+		}
+		g.adminServer = &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+		go func() {
+			if err := g.adminServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+				log.Printf("gateway delivery admin listener stopped: %v", err)
+			}
+		}()
+	}
 
 	return nil
 }
@@ -127,8 +233,23 @@ func (g *CaddyHandler) Validate() error {
 	if g.RequestTimeout < 0 {
 		return fmt.Errorf("gateway request_timeout cannot be negative")
 	}
+	if g.WebstreamMaxConnections < 0 || g.WebstreamMaxDuration < 0 {
+		return fmt.Errorf("gateway webstream limits cannot be negative")
+	}
+	if g.WebSocketMaxConnections < 0 || g.WebSocketMaxDuration < 0 {
+		return fmt.Errorf("gateway websocket limits cannot be negative")
+	}
 	if g.IdleConnTimeout < 0 {
 		return fmt.Errorf("gateway idle_conn_timeout cannot be negative")
+	}
+	if g.MaxAttempts < 0 || g.InitialBackoff < 0 || g.MaxBackoff < 0 || g.PollInterval < 0 || (g.ReceiptRetention != nil && *g.ReceiptRetention < 0) {
+		return fmt.Errorf("gateway delivery spool attempts and durations must be non-negative")
+	}
+	if strings.TrimSpace(g.SpoolPath) != "" && strings.TrimSpace(g.DeliveryDatabaseURL) != "" {
+		return fmt.Errorf("gateway spool_path and delivery_database_url are mutually exclusive")
+	}
+	if g.AdminAdvertiseURL != "" && (g.AdminAddress == "" || g.DeliveryDatabaseURL == "") {
+		return fmt.Errorf("gateway admin_advertise_url requires admin_addr and delivery_database_url")
 	}
 
 	return nil
@@ -137,7 +258,27 @@ func (g *CaddyHandler) Validate() error {
 // Cleanup drains asynchronous deliveries and releases the forwarder's idle
 // HTTP connections when Caddy unloads this module.
 func (g *CaddyHandler) Cleanup() error {
+	var queueErr error
 	g.closeOnce.Do(func() {
+		if g.adminServer != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := g.adminServer.Shutdown(ctx); err != nil {
+				_ = g.adminServer.Close()
+			}
+			cancel()
+		}
+		if g.adminLease != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := g.adminLease.Close(ctx); err != nil {
+				log.Printf("gateway delivery admin membership cleanup failed: %v", err)
+			}
+			cancel()
+		}
+		if g.deliveryQueue != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			queueErr = g.deliveryQueue.Close(ctx)
+			cancel()
+		}
 		if g.workerPool != nil {
 			g.workerPool.Shutdown()
 		}
@@ -146,7 +287,7 @@ func (g *CaddyHandler) Cleanup() error {
 		}
 	})
 
-	return nil
+	return queueErr
 }
 
 // ServeHTTP captures requests for the existing Go edge. The PHP planner and
@@ -156,8 +297,11 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 	if next == nil {
 		return caddyhttp.Error(http.StatusInternalServerError, fmt.Errorf("gateway next handler is not configured"))
 	}
-	if isPathUnder(r.URL.Path, g.planPath()) {
+	if isPathUnder(r.URL.Path, "/_internal") {
 		http.NotFound(w, r)
+		return nil
+	}
+	if g.managedRouter != nil && g.managedRouter.ServeWithPlanner(w, r, &caddyManagedPlanner{handler: next}) {
 		return nil
 	}
 	if g.RelayPathPrefix != "" && !isPathUnder(r.URL.Path, g.RelayPathPrefix) {
@@ -166,16 +310,22 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 	if g.executor == nil {
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("gateway transport is not configured"))
 	}
+	if r.URL.Path == "/email/submissions" {
+		passThrough := &caddyPassThrough{handler: next}
+		bridge.NewEdge(nil, nil, g.MaxBodySize).SetPassThrough(passThrough).ServeHTTP(w, r)
+		return passThrough.err
+	}
 	if gatewayws.IsUpgrade(r) {
 		protocolPlanner := bridge.NewPHPProtocolPlanner(
 			&caddyHTTPAdapter{handler: next},
 			g.MaxBodySize,
 		)
 		protocolPlanner.InternalToken = g.InternalToken
+		g.websocketOnce.Do(func() { g.websocketAdmission = gatewayws.NewAdmission(g.WebSocketMaxConnections) })
 		gatewayws.NewHandler(
 			protocolPlanner,
 			g.executor,
-			gatewayws.Config{MaxMessageSize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout)},
+			gatewayws.Config{MaxMessageSize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout), MaxDuration: time.Duration(g.WebSocketMaxDuration), Admission: g.websocketAdmission},
 		).ServeHTTP(w, r)
 		return nil
 	}
@@ -183,7 +333,8 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		protocolPlanner := bridge.NewPHPProtocolPlanner(&caddyHTTPAdapter{handler: next}, g.MaxBodySize)
 		protocolPlanner.InternalToken = g.InternalToken
 		source, _ := g.executor.(gatewaystream.Source)
-		gatewaystream.NewHandler(protocolPlanner, source, gatewaystream.Config{PlannerTimeout: time.Duration(g.RequestTimeout), HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second}).ServeHTTP(w, r)
+		g.webstreamOnce.Do(func() { g.webstreamAdmission = gatewaystream.NewAdmission(g.WebstreamMaxConnections) })
+		gatewaystream.NewHandler(protocolPlanner, source, gatewaystream.Config{PlannerTimeout: time.Duration(g.RequestTimeout), HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second, MaxDuration: time.Duration(g.WebstreamMaxDuration), Admission: g.webstreamAdmission}).ServeHTTP(w, r)
 		return nil
 	}
 
@@ -218,6 +369,18 @@ func (g *CaddyHandler) applyDefaults() {
 	if g.RequestTimeout == 0 {
 		g.RequestTimeout = caddy.Duration(defaultCaddyRequestTimeout)
 	}
+	if g.WebstreamMaxConnections == 0 {
+		g.WebstreamMaxConnections = 1000
+	}
+	if g.WebSocketMaxConnections == 0 {
+		g.WebSocketMaxConnections = 1000
+	}
+	if g.WebSocketMaxDuration == 0 {
+		g.WebSocketMaxDuration = caddy.Duration(24 * time.Hour)
+	}
+	if g.WebstreamMaxDuration == 0 {
+		g.WebstreamMaxDuration = caddy.Duration(24 * time.Hour)
+	}
 	if g.MaxIdleConns == 0 {
 		g.MaxIdleConns = defaultCaddyMaxIdleConns
 	}
@@ -229,6 +392,22 @@ func (g *CaddyHandler) applyDefaults() {
 	}
 	if g.LogLevel == "" {
 		g.LogLevel = defaultCaddyLogLevel
+	}
+	if g.MaxAttempts == 0 {
+		g.MaxAttempts = 8
+	}
+	if g.InitialBackoff == 0 {
+		g.InitialBackoff = caddy.Duration(5 * time.Second)
+	}
+	if g.MaxBackoff == 0 {
+		g.MaxBackoff = caddy.Duration(time.Hour)
+	}
+	if g.PollInterval == 0 {
+		g.PollInterval = caddy.Duration(time.Second)
+	}
+	if g.ReceiptRetention == nil {
+		value := caddy.Duration(90 * 24 * time.Hour)
+		g.ReceiptRetention = &value
 	}
 }
 
@@ -305,6 +484,20 @@ type caddyHTTPAdapter struct {
 	handler caddyhttp.Handler
 }
 
+type caddyManagedPlanner struct{ handler caddyhttp.Handler }
+
+func (p *caddyManagedPlanner) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	root := caddyhttp.GetVar(request.Context(), "root")
+	server, _ := request.Context().Value(caddyhttp.ServerCtxKey).(*caddyhttp.Server)
+	request = caddyhttp.PrepareRequest(request, caddy.NewReplacer(), writer, server)
+	if root != nil {
+		caddyhttp.SetVar(request.Context(), "root", root)
+	}
+	if err := p.handler.ServeHTTP(writer, request); err != nil {
+		http.Error(writer, "Managed route Planner failed", http.StatusBadGateway)
+	}
+}
+
 func (a *caddyHTTPAdapter) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if err := a.handler.ServeHTTP(writer, request); err != nil {
 		http.Error(writer, "PHP protocol planner failed", http.StatusBadGateway)
@@ -353,6 +546,14 @@ func (g *CaddyHandler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.NextArg() {
 				return d.ArgErr()
 			}
+		case "managed_route_cidrs":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			g.ManagedRouteCIDRs = strings.Split(d.Val(), ",")
+			if d.NextArg() {
+				return d.ArgErr()
+			}
 		case "max_body_size":
 			value, err := nextInt64(d)
 			if err != nil {
@@ -377,6 +578,30 @@ func (g *CaddyHandler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return err
 			}
 			g.RequestTimeout = caddy.Duration(value)
+		case "webstream_max_connections":
+			value, err := nextInt(d)
+			if err != nil {
+				return err
+			}
+			g.WebstreamMaxConnections = value
+		case "websocket_max_connections":
+			value, err := nextInt(d)
+			if err != nil {
+				return err
+			}
+			g.WebSocketMaxConnections = value
+		case "websocket_max_duration":
+			value, err := nextDuration(d)
+			if err != nil {
+				return err
+			}
+			g.WebSocketMaxDuration = caddy.Duration(value)
+		case "webstream_max_duration":
+			value, err := nextDuration(d)
+			if err != nil {
+				return err
+			}
+			g.WebstreamMaxDuration = caddy.Duration(value)
 		case "max_idle_conns":
 			value, err := nextInt(d)
 			if err != nil {
@@ -403,6 +628,69 @@ func (g *CaddyHandler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if d.NextArg() {
 				return d.ArgErr()
 			}
+		case "spool_path":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			g.SpoolPath = d.Val()
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+		case "delivery_database_url":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			g.DeliveryDatabaseURL = d.Val()
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+		case "admin_addr":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			g.AdminAddress = d.Val()
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+		case "admin_advertise_url":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			g.AdminAdvertiseURL = d.Val()
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+		case "max_attempts":
+			value, err := nextInt(d)
+			if err != nil {
+				return err
+			}
+			g.MaxAttempts = value
+		case "initial_backoff":
+			value, err := nextDuration(d)
+			if err != nil {
+				return err
+			}
+			g.InitialBackoff = caddy.Duration(value)
+		case "max_backoff":
+			value, err := nextDuration(d)
+			if err != nil {
+				return err
+			}
+			g.MaxBackoff = caddy.Duration(value)
+		case "poll_interval":
+			value, err := nextDuration(d)
+			if err != nil {
+				return err
+			}
+			g.PollInterval = caddy.Duration(value)
+		case "receipt_retention":
+			value, err := nextDuration(d)
+			if err != nil {
+				return err
+			}
+			converted := caddy.Duration(value)
+			g.ReceiptRetention = &converted
 		default:
 			return d.Errf("unrecognized gateway option %q", d.Val())
 		}

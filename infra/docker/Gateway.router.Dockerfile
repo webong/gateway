@@ -7,7 +7,7 @@ FROM debian:bookworm-slim AS php-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config xz-utils libcurl4-openssl-dev libonig-dev \
-    libsqlite3-dev libssl-dev libxml2-dev zlib1g-dev \
+    libpq-dev libsqlite3-dev libssl-dev libxml2-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=php-source /usr/src/php.tar.xz /tmp/php.tar.xz
 RUN mkdir -p /usr/src/php \
@@ -32,6 +32,7 @@ RUN ./configure \
     --with-curl \
     --with-openssl \
     --with-pdo-sqlite \
+    --with-pdo-pgsql \
     --with-sqlite3 \
     --with-zlib \
     && make -j4 \
@@ -58,7 +59,7 @@ RUN CGO_ENABLED=1 \
 FROM debian:bookworm-slim AS php-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl libcurl4 libonig5 libsqlite3-0 libssl3 libxml2 zlib1g \
+    ca-certificates curl libcurl4 libonig5 libpq5 libsqlite3-0 libssl3 libxml2 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=php-builder /usr/local /usr/local
 RUN ldconfig
@@ -71,8 +72,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip \
 COPY . /src/gateway
 WORKDIR /src/gateway/app
 
-RUN GATEWAY_ROUTER_DATA_DIR=/tmp/router-composer-cache \
-    composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+# Install locked dependencies without the merge plugin's post-install update.
+# Enable it for autoload generation so extension namespaces and discovery remain.
+RUN composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \
+    && GATEWAY_ROUTER_DATA_DIR=/tmp/router-composer-cache \
+        composer dump-autoload --no-dev --no-interaction --optimize
 
 FROM php-base
 

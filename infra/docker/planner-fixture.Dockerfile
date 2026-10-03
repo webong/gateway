@@ -4,14 +4,15 @@ WORKDIR /app
 
 COPY composer.json composer.lock ./
 
-RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --ignore-platform-req=ext-sockets \
+RUN composer install --no-dev --no-interaction --no-progress --prefer-dist \
+        --ignore-platform-req=ext-sockets --ignore-platform-req=ext-pcntl \
     && composer dump-autoload --dev --no-interaction
 
 FROM php:8.4-cli-alpine
 
-RUN apk add --no-cache sqlite-libs \
-    && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS sqlite-dev \
-    && docker-php-ext-install pdo_sqlite \
+RUN apk add --no-cache sqlite-libs libpq \
+    && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS sqlite-dev postgresql-dev \
+    && docker-php-ext-install pcntl pdo_sqlite pdo_pgsql \
     && apk del .build-deps
 
 WORKDIR /app

@@ -29,15 +29,15 @@ FROM alpine:3.22
 
 # Install ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates \
-    && addgroup -S gateway \
-    && adduser -S -G gateway -h /app gateway
+    && addgroup -g 10001 -S gateway \
+    && adduser -u 10001 -S -G gateway -h /app gateway
 
 WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder --chown=gateway:gateway /app/gateway /app/gateway
+COPY --from=builder --chown=10001:10001 /app/gateway /app/gateway
 
-USER gateway
+USER 10001:10001
 
 # HTTP ingress plus the unprivileged authoritative DNS ports used by the
 # production compose example. Publish both DNS transports on public port 53.

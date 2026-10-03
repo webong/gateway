@@ -2,6 +2,7 @@ package provision
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -55,7 +56,7 @@ func newDockerDriver(config DockerDriverConfig, runner commandRunner) (*DockerDr
 	return &DockerDriver{config: config, runner: runner}, nil
 }
 
-func (d *DockerDriver) Prepare(ctx context.Context) error {
+func (d *DockerDriver) PrepareDesired(ctx context.Context, desired map[string]ServerSpec) error {
 	args := []string{
 		"ps", "--all", "--quiet",
 		"--filter", "label=gateway.provisioning.node=" + runtimeLabelValue(d.config.NodeID),
@@ -67,14 +68,66 @@ func (d *DockerDriver) Prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ids := strings.Fields(containers)
-	if len(ids) == 0 {
-		return nil
+	for _, id := range strings.Fields(containers) {
+		resource, inspectErr := d.inspect(ctx, id)
+		if inspectErr != nil {
+			return fmt.Errorf("inspect owned Docker container %s: %w", id, inspectErr)
+		}
+		if !d.owns(resource.Config.Labels) {
+			continue
+		}
+		instanceID := resource.Config.Labels["gateway.provisioning.instance"]
+		if spec, ok := desired[instanceID]; ok {
+			if resource.Name != "/"+runtimeResourceName(instanceID) ||
+				resource.Config.Labels["gateway.provisioning.server"] != spec.ID ||
+				resource.Config.Labels["gateway.provisioning.type"] != runtimeLabelValue(spec.Type) {
+				return fmt.Errorf("Docker container %s conflicts with desired assignment %s", id, instanceID)
+			}
+			if resource.State.Running {
+				continue
+			}
+		}
+		if _, err := d.runner.Output(ctx, nil, d.config.Binary, "rm", "--force", id); err != nil {
+			return fmt.Errorf("remove stale Docker container %s: %w", id, err)
+		}
 	}
-	arguments := append([]string{"rm", "--force"}, ids...)
-	_, err = d.runner.Output(ctx, nil, d.config.Binary, arguments...)
+	return nil
+}
 
-	return err
+type dockerInspection struct {
+	ID     string `json:"Id"`
+	Name   string `json:"Name"`
+	Config struct {
+		Image  string            `json:"Image"`
+		Labels map[string]string `json:"Labels"`
+	} `json:"Config"`
+	State struct {
+		Running bool `json:"Running"`
+		Pid     int  `json:"Pid"`
+	} `json:"State"`
+	NetworkSettings struct {
+		Ports map[string][]struct {
+			HostIP   string `json:"HostIp"`
+			HostPort string `json:"HostPort"`
+		} `json:"Ports"`
+	} `json:"NetworkSettings"`
+}
+
+func (d *DockerDriver) inspect(ctx context.Context, id string) (dockerInspection, error) {
+	output, err := d.runner.Output(ctx, nil, d.config.Binary, "inspect", "--format", "{{json .}}", id)
+	if err != nil {
+		return dockerInspection{}, err
+	}
+	var resource dockerInspection
+	if err := json.Unmarshal([]byte(output), &resource); err != nil {
+		return dockerInspection{}, err
+	}
+	return resource, nil
+}
+
+func (d *DockerDriver) owns(labels map[string]string) bool {
+	return labels["gateway.provisioning.node"] == runtimeLabelValue(d.config.NodeID) &&
+		labels["gateway.provisioning.target"] == d.config.TargetID
 }
 
 func (d *DockerDriver) Start(ctx context.Context, spec ServerSpec, instanceID string, workload Workload) (Process, error) {
@@ -93,6 +146,47 @@ func (d *DockerDriver) Start(ctx context.Context, spec ServerSpec, instanceID st
 	}
 
 	name := runtimeResourceName(instanceID)
+	existing, err := d.runner.Output(ctx, nil, d.config.Binary,
+		"ps", "--all", "--quiet", "--filter", "name=^/"+name+"$")
+	if err != nil {
+		return nil, fmt.Errorf("find provisioned Docker container: %w", err)
+	}
+	if id := strings.TrimSpace(existing); id != "" {
+		if len(strings.Fields(id)) != 1 {
+			return nil, fmt.Errorf("multiple Docker containers match %s", name)
+		}
+		resource, inspectErr := d.inspect(ctx, id)
+		if inspectErr != nil {
+			return nil, fmt.Errorf("inspect existing Docker container: %w", inspectErr)
+		}
+		if resource.Name != "/"+name || !d.owns(resource.Config.Labels) ||
+			resource.Config.Labels["gateway.provisioning.instance"] != instanceID ||
+			resource.Config.Labels["gateway.provisioning.server"] != spec.ID ||
+			resource.Config.Labels["gateway.provisioning.type"] != runtimeLabelValue(spec.Type) ||
+			resource.Config.Image != launch.Image || !resource.State.Running || resource.State.Pid < 1 {
+			return nil, fmt.Errorf("existing Docker container %s does not match running assignment", id)
+		}
+		bindings := resource.NetworkSettings.Ports[strconv.Itoa(launch.Port)+"/tcp"]
+		if len(bindings) != 1 {
+			return nil, fmt.Errorf("existing Docker container %s has no unique published endpoint", id)
+		}
+		port, parseErr := strconv.Atoi(bindings[0].HostPort)
+		if parseErr != nil || port < 1 || port > 65535 {
+			return nil, fmt.Errorf("existing Docker container %s has an invalid published port", id)
+		}
+		process := &dockerProcess{
+			runner: d.runner, binary: d.config.Binary, containerID: id,
+			host: dockerRouteHost(d.config.RouteHost, bindings[0].HostIP), port: port,
+			pid: resource.State.Pid, stopTimeout: d.config.StopTimeout, done: make(chan struct{}),
+		}
+		startupContext, cancel := context.WithTimeout(ctx, d.config.StartTimeout)
+		defer cancel()
+		if err := waitForListener(startupContext, process); err != nil {
+			return nil, fmt.Errorf("wait for existing Docker listener: %w", err)
+		}
+		go process.watch()
+		return process, nil
+	}
 	containerID, err := d.runner.Output(ctx, nil, d.config.Binary, dockerRunArguments(d.config, spec, instanceID, name, launch)...)
 	if err != nil {
 		return nil, fmt.Errorf("start provisioned Docker container: %w", err)
@@ -177,9 +271,12 @@ func dockerRunArguments(config DockerDriverConfig, spec ServerSpec, instanceID, 
 	for _, variable := range launch.Environment {
 		arguments = append(arguments, "--env", variable)
 	}
+	// A launch spec names the process to run, not arguments for an image's
+	// entrypoint. Images such as Laravel Sail interpret the first argument as
+	// entrypoint configuration unless Docker explicitly overrides it.
+	arguments = append(arguments, "--entrypoint", launch.Executable)
 	arguments = append(arguments,
 		launch.Image,
-		launch.Executable,
 	)
 	arguments = append(arguments, launch.Arguments...)
 

@@ -34,10 +34,12 @@ type Input struct {
 }
 
 type Delivery struct {
-	URL     string              `json:"url"`
-	Method  string              `json:"method,omitempty"`
-	Headers map[string][]string `json:"headers,omitempty"`
-	Body    string              `json:"body,omitempty"`
+	URL                string              `json:"url"`
+	Method             string              `json:"method,omitempty"`
+	Headers            map[string][]string `json:"headers,omitempty"`
+	Body               string              `json:"body,omitempty"`
+	ExpectedStatus     int                 `json:"expected_status,omitempty"`
+	ExpectedBodySHA256 string              `json:"expected_body_sha256,omitempty"`
 }
 
 type Response struct {
@@ -214,6 +216,12 @@ func validateOutcome(outcome Outcome) error {
 		if strings.TrimSpace(delivery.URL) == "" {
 			return fmt.Errorf("returned a delivery without a URL")
 		}
+		if delivery.ExpectedStatus != 0 && (delivery.ExpectedStatus < 100 || delivery.ExpectedStatus > 599) {
+			return fmt.Errorf("returned a delivery with an invalid expected response status")
+		}
+		if delivery.ExpectedBodySHA256 != "" && !bodySHA256Pattern.MatchString(delivery.ExpectedBodySHA256) {
+			return fmt.Errorf("returned a delivery with an invalid expected response body digest")
+		}
 	}
 	if len(outcome.Schedules) > MaxSchedules {
 		return fmt.Errorf("exceeded the schedule limit")
@@ -232,6 +240,7 @@ func validateOutcome(outcome Outcome) error {
 }
 
 var scheduleKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
+var bodySHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func validateSchedule(schedule Schedule) error {
 	if strings.TrimSpace(schedule.Key) == "" || len(schedule.Key) > 255 || !scheduleKeyPattern.MatchString(schedule.Key) {

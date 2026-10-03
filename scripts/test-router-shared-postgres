@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE=${1:?Usage: scripts/test-router-shared-postgres <built-router-image> [static|discovery]}
+MODE=${2:-static}
+if [ "$MODE" != static ] && [ "$MODE" != discovery ]; then
+    echo 'Mode must be static or discovery.' >&2
+    exit 2
+fi
+if ! docker run --rm --pull never --entrypoint php "$IMAGE" -r \
+    'exit(extension_loaded("pdo_pgsql") ? 0 : 1);'; then
+    echo 'Router image does not load pdo_pgsql.' >&2
+    exit 1
+fi
+SUFFIX="${RANDOM}${RANDOM}"
+NETWORK="gateway-router-pg-test-${SUFFIX}"
+POSTGRES="gateway-router-pg-db-${SUFFIX}"
+FIRST="gateway-router-pg-first-${SUFFIX}"
+SECOND="gateway-router-pg-second-${SUFFIX}"
+CREDENTIALS="gateway-router-pg-credentials-${SUFFIX}"
+
+cleanup() {
+    docker stop "$SECOND" >/dev/null 2>&1 || true
+    docker stop "$FIRST" >/dev/null 2>&1 || true
+    docker stop "$POSTGRES" >/dev/null 2>&1 || true
+    docker volume rm "$CREDENTIALS" >/dev/null 2>&1 || true
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+docker network create "$NETWORK" >/dev/null
+docker run --rm -d --pull never --network "$NETWORK" --network-alias db \
+    --name "$POSTGRES" -e POSTGRES_PASSWORD=gateway-test-only \
+    -e POSTGRES_DB=gateway_test postgres:16-alpine >/dev/null
+ready=0
+for _ in $(seq 1 100); do
+    if docker exec "$POSTGRES" pg_isready -h 127.0.0.1 -U postgres -d gateway_test >/dev/null 2>&1; then
+        ready=1
+        break
+    fi
+    sleep 0.2
+done
+if [ "$ready" != 1 ]; then
+    echo 'PostgreSQL test container did not become ready.' >&2
+    exit 1
+fi
+
+docker volume create "$CREDENTIALS" >/dev/null
+docker run --rm --pull never --user root --entrypoint php \
+    -v "$CREDENTIALS:/credentials" "$IMAGE" -r '
+        $path = "/credentials/gateway.env";
+        $values = "APP_KEY=base64:".base64_encode(random_bytes(32))."\n".
+            "GATEWAY_INTERNAL_TOKEN=".bin2hex(random_bytes(32))."\n".
+            "REGISTRY_TOKEN=".bin2hex(random_bytes(32))."\n";
+        if (file_put_contents($path, $values) === false || !chown($path, 33) || !chmod($path, 0400)) {
+            exit(1);
+        }
+    '
+
+start_router() {
+    local name=$1
+    local -a admin_args=()
+    if [ "$MODE" = discovery ]; then
+        admin_args=(-e GATEWAY_DELIVERY_ADMIN_DISCOVERY_ENABLED=true -e "GATEWAY_DELIVERY_ADMIN_ADVERTISE_URL=http://$name:5052")
+    else
+        admin_args=(-e "GATEWAY_DELIVERY_ADMIN_SHARED_URLS=[\"http://$FIRST:5052\",\"http://$SECOND:5052\"]")
+    fi
+    docker run --rm -d --pull never --network "$NETWORK" --name "$name" \
+        -v "$CREDENTIALS:/credentials:ro" \
+        -e GATEWAY_ROUTER_CREDENTIALS_FILE=/credentials/gateway.env \
+        -e DB_CONNECTION=pgsql \
+        -e GATEWAY_DELIVERY_DATABASE_URL='postgres://postgres:gateway-test-only@db:5432/gateway_test?sslmode=disable' \
+        -e GATEWAY_DELIVERY_ADMIN_ADDR=0.0.0.0:5052 \
+        "${admin_args[@]}" \
+        "$IMAGE" >/dev/null
+    for _ in $(seq 1 60); do
+        if docker exec "$name" curl -fsS http://127.0.0.1:8080/health >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Router $name did not become healthy with shared PostgreSQL." >&2
+    return 1
+}
+
+start_router "$FIRST"
+start_router "$SECOND"
+
+if [ "$MODE" = discovery ]; then
+    endpoints=$(docker exec "$POSTGRES" psql -U postgres -d gateway_test -At \
+        -c 'SELECT count(*) FROM delivery_admin_endpoints WHERE expires_unix > extract(epoch FROM now())::bigint')
+    if [ "$endpoints" != 2 ]; then
+        echo "Expected two live delivery admin registrations, got $endpoints." >&2
+        exit 1
+    fi
+fi
+
+tables=$(docker exec "$POSTGRES" psql -U postgres -d gateway_test -At \
+    -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'deliveries'")
+if [ "$tables" != 1 ]; then
+    echo 'Router did not migrate the shared deliveries table.' >&2
+    exit 1
+fi
+for router in "$FIRST" "$SECOND"; do
+    if ! docker exec "$router" sh -c \
+        '. /credentials/gateway.env; curl -fsS -H "Authorization: Bearer $GATEWAY_INTERNAL_TOKEN" "http://127.0.0.1:5052/deliveries?state=failed" >/dev/null'; then
+        echo "Router private delivery administration is unavailable on $router." >&2
+        exit 1
+    fi
+done
+
+docker exec "$FIRST" /gateway/scripts/gateway-router artisan gateway:endpoint shared-test >/dev/null
+first_status=$(docker exec "$FIRST" curl -s -o /dev/null -w '%{http_code}' \
+    -X POST http://127.0.0.1:8080/hooks/shared-test \
+    -H 'Content-Type: application/json' --data '{"event":"created"}')
+if [[ ! "$first_status" =~ ^2[0-9][0-9]$ ]]; then
+    echo "First Router could not route its own endpoint: HTTP $first_status" >&2
+    exit 1
+fi
+status=$(docker exec "$SECOND" curl -s -o /dev/null -w '%{http_code}' \
+    -X POST http://127.0.0.1:8080/hooks/shared-test \
+    -H 'Content-Type: application/json' --data '{"event":"created"}')
+if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+    echo "Second Router could not route an endpoint created on the first: HTTP $status" >&2
+    exit 1
+fi
+
+docker exec "$FIRST" /gateway/scripts/gateway-router artisan gateway:subscribe \
+    shared-test shared-subscriber https://receiver.invalid/delivery >/dev/null
+status=$(docker exec "$SECOND" curl -s -o /dev/null -w '%{http_code}' \
+    -X POST http://127.0.0.1:8080/hooks/shared-test \
+    -H 'Content-Type: application/json' --data '{"event":"deliver"}')
+if [[ ! "$status" =~ ^2[0-9][0-9]$ ]]; then
+    echo "Second Router could not enqueue a delivery for a shared subscription: HTTP $status" >&2
+    exit 1
+fi
+delivery_id=''
+for _ in $(seq 1 40); do
+    delivery_id=$(docker exec "$POSTGRES" psql -U postgres -d gateway_test -At \
+        -c "SELECT id FROM deliveries LIMIT 1")
+    if [[ "$delivery_id" =~ ^[a-f0-9]{32}$ ]]; then
+        break
+    fi
+    sleep 0.25
+done
+if [[ ! "$delivery_id" =~ ^[a-f0-9]{32}$ ]]; then
+    echo 'Webhook delivery was not persisted in the shared PostgreSQL queue.' >&2
+    docker exec "$POSTGRES" psql -U postgres -d gateway_test -c '\dt' >&2 || true
+    docker exec "$POSTGRES" psql -U postgres -d gateway_test -c 'SELECT key, expiration FROM gateway_cache LIMIT 10' >&2 || true
+    docker logs --tail 60 "$FIRST" >&2 || true
+    docker logs --tail 60 "$SECOND" >&2 || true
+    exit 1
+fi
+for router in "$FIRST" "$SECOND"; do
+    if ! docker exec "$router" sh -c \
+        '. /credentials/gateway.env; curl -fsS -H "Authorization: Bearer $GATEWAY_INTERNAL_TOKEN" "http://127.0.0.1:5052/deliveries/'"$delivery_id"'" | php -r '\''$status = json_decode(stream_get_contents(STDIN), true); exit(($status["id"] ?? null) === $argv[1] ? 0 : 1);'\'' '"$delivery_id"; then
+        echo "Router $router cannot inspect the shared delivery $delivery_id." >&2
+        exit 1
+    fi
+done
+
+if [ "$MODE" = discovery ]; then
+    # A hard kill leaves the signed row behind. Planner must stop considering
+    # it after the short lease expires, without a shutdown hook or an operator
+    # editing the origin list.
+    docker kill "$FIRST" >/dev/null
+    live_endpoints=0
+    for _ in $(seq 1 35); do
+        live_endpoints=$(docker exec "$POSTGRES" psql -U postgres -d gateway_test -At \
+            -c 'SELECT count(*) FROM delivery_admin_endpoints WHERE expires_unix > extract(epoch FROM now())::bigint')
+        if [ "$live_endpoints" = 1 ]; then
+            break
+        fi
+        sleep 1
+    done
+    if [ "$live_endpoints" != 1 ]; then
+        echo "Killed Router's discovery lease did not expire; live endpoints: $live_endpoints." >&2
+        exit 1
+    fi
+else
+    docker stop "$FIRST" >/dev/null
+fi
+public_status=$(docker exec "$SECOND" sh -c \
+    '. /credentials/gateway.env; curl -fsS -H "Authorization: Bearer $REGISTRY_TOKEN" "http://127.0.0.1:8080/deliveries/'"$delivery_id"'"')
+if ! printf '%s' "$public_status" | php -r '
+    $status = json_decode(stream_get_contents(STDIN), true);
+    exit(($status["id"] ?? null) === $argv[1] && ($status["node"] ?? null) === "shared" ? 0 : 1);
+' "$delivery_id"; then
+    echo 'Surviving Router could not inspect a shared delivery after the first admin origin stopped.' >&2
+    docker logs --tail 60 "$SECOND" >&2 || true
+    exit 1
+fi
+
+echo "Two Routers, shared credentials, Planner migration, cross-node registry, webhook delivery, and $MODE private admin failover passed with PostgreSQL."

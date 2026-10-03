@@ -9,9 +9,9 @@ RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /tmp/gateway-router-roadru
 FROM php:8.4-cli-bookworm AS php-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        curl libonig5 libsqlite3-0 libonig-dev libsqlite3-dev \
-    && docker-php-ext-install -j4 bcmath mbstring pcntl pdo_sqlite sockets opcache \
-    && apt-get purge -y --auto-remove libonig-dev libsqlite3-dev \
+        curl libonig5 libpq5 libsqlite3-0 libonig-dev libpq-dev libsqlite3-dev \
+    && docker-php-ext-install -j4 bcmath mbstring pcntl pdo_pgsql pdo_sqlite sockets opcache \
+    && apt-get purge -y --auto-remove libonig-dev libpq-dev libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/* \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf 'opcache.enable_cli=1\n' > "$PHP_INI_DIR/conf.d/router.ini"

@@ -95,6 +95,43 @@ func TestReconcilerReportsProvisioningFailure(t *testing.T) {
 	}
 }
 
+func TestReconcilerPreparesAfterSuccessfulAssignmentsBeforeStarting(t *testing.T) {
+	spec := validServerSpec()
+	control := &fakeControlPlane{servers: []ServerSpec{spec}}
+	driver := &preparingStarter{fakeDriver: &fakeDriver{}}
+	reconciler, err := NewReconciler(
+		ReconcilerConfig{NodeID: "node-a", PollInterval: time.Second, StopTimeout: time.Second, CoordinationLease: 5 * time.Second},
+		control, driver, NewRouter(), &fakeLogger{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler.reconcile(t.Context())
+	reconciler.reconcile(t.Context())
+	if driver.prepares != 1 || driver.starts != 1 || !driver.preparedBeforeStart {
+		t.Fatalf("expected one preparation before adoption/start, prepares=%d starts=%d ordered=%v", driver.prepares, driver.starts, driver.preparedBeforeStart)
+	}
+}
+
+type preparingStarter struct {
+	*fakeDriver
+	prepares            int
+	preparedBeforeStart bool
+}
+
+func (d *preparingStarter) PrepareDesired(_ context.Context, specs []ServerSpec) error {
+	d.prepares++
+	if len(specs) != 1 {
+		return errors.New("missing desired assignment")
+	}
+	return nil
+}
+
+func (d *preparingStarter) Start(ctx context.Context, spec ServerSpec, id string) (Process, error) {
+	d.preparedBeforeStart = d.prepares > 0
+	return d.fakeDriver.Start(ctx, spec, id)
+}
+
 type fakeControlPlane struct {
 	mu         sync.Mutex
 	servers    []ServerSpec

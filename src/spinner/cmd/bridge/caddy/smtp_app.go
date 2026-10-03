@@ -22,27 +22,31 @@ import (
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
 	"github.com/webong/gateway/src/spinner/internal/logging"
 	"github.com/webong/gateway/src/spinner/internal/workers"
+	"github.com/webong/gateway/src/spinner/transport"
 	"go.uber.org/zap"
 )
 
 const (
-	defaultSMTPListen          = ":2525"
-	defaultSMTPPlannerURL      = "http://127.0.0.1:8081"
-	defaultSMTPHostname        = "gateway.local"
-	defaultSMTPMaxMessageSize  = 10 * 1024 * 1024
-	defaultSMTPMaxLineSize     = 16 * 1024
-	defaultSMTPMaxRecipients   = 100
-	defaultSMTPReadTimeout     = 5 * time.Minute
-	defaultSMTPWriteTimeout    = 30 * time.Second
-	defaultSMTPPlannerTimeout  = 30 * time.Second
-	defaultSMTPMaxWorkers      = 100
-	defaultSMTPMaxQueueSize    = 1000
-	defaultSMTPMaxIdleConns    = 100
-	defaultSMTPMaxConnsPerHost = 100
-	defaultSMTPIdleConnTimeout = 90 * time.Second
-	defaultSMTPRequestTimeout  = 30 * time.Second
-	defaultSMTPRelayTimeout    = 30 * time.Second
-	defaultSMTPLogLevel        = "info"
+	defaultSMTPListen            = ":2525"
+	defaultSMTPPlannerURL        = "http://127.0.0.1:8081"
+	defaultSMTPHostname          = "gateway.local"
+	defaultSMTPMaxMessageSize    = 10 * 1024 * 1024
+	defaultSMTPMaxLineSize       = 16 * 1024
+	defaultSMTPMaxRecipients     = 100
+	defaultSMTPMaxConnections    = 1000
+	defaultSMTPMessagesPerMinute = 120
+	defaultSMTPMessageBurst      = 20
+	defaultSMTPReadTimeout       = 5 * time.Minute
+	defaultSMTPWriteTimeout      = 30 * time.Second
+	defaultSMTPPlannerTimeout    = 30 * time.Second
+	defaultSMTPMaxWorkers        = 100
+	defaultSMTPMaxQueueSize      = 1000
+	defaultSMTPMaxIdleConns      = 100
+	defaultSMTPMaxConnsPerHost   = 100
+	defaultSMTPIdleConnTimeout   = 90 * time.Second
+	defaultSMTPRequestTimeout    = 30 * time.Second
+	defaultSMTPRelayTimeout      = 30 * time.Second
+	defaultSMTPLogLevel          = "info"
 )
 
 func init() {
@@ -53,45 +57,62 @@ func init() {
 // SMTPApp is a Caddy app module which starts the same Go SMTP adapter as
 // src/spinner/cmd/proxy. It is a sibling TCP service, not an HTTP handler in php_server.
 type SMTPApp struct {
-	Listen          string         `json:"listen,omitempty"`
-	PlannerURL      string         `json:"planner_url,omitempty"`
-	InternalToken   string         `json:"internal_token,omitempty"`
-	Hostname        string         `json:"hostname,omitempty"`
-	MaxMessageSize  int64          `json:"max_message_size,omitempty"`
-	MaxLineSize     int            `json:"max_line_size,omitempty"`
-	MaxRecipients   int            `json:"max_recipients,omitempty"`
-	ReadTimeout     caddy.Duration `json:"read_timeout,omitempty"`
-	WriteTimeout    caddy.Duration `json:"write_timeout,omitempty"`
-	PlannerTimeout  caddy.Duration `json:"planner_timeout,omitempty"`
-	TLSCertFile     string         `json:"tls_cert_file,omitempty"`
-	TLSKeyFile      string         `json:"tls_key_file,omitempty"`
-	ImplicitTLS     bool           `json:"implicit_tls,omitempty"`
-	AuthEnabled     bool           `json:"auth_enabled,omitempty"`
-	RelayAddress    string         `json:"relay_address,omitempty"`
-	RelayLocalName  string         `json:"relay_local_name,omitempty"`
-	RelayServerName string         `json:"relay_server_name,omitempty"`
-	RelayUsername   string         `json:"relay_username,omitempty"`
-	RelayPassword   string         `json:"relay_password,omitempty"`
-	RelayTLSMode    string         `json:"relay_tls_mode,omitempty"`
-	RelayTimeout    caddy.Duration `json:"relay_timeout,omitempty"`
-	SpoolPath       string         `json:"spool_path,omitempty"`
-	MaxAttempts     int            `json:"max_attempts,omitempty"`
-	InitialBackoff  caddy.Duration `json:"initial_backoff,omitempty"`
-	MaxBackoff      caddy.Duration `json:"max_backoff,omitempty"`
-	PollInterval    caddy.Duration `json:"poll_interval,omitempty"`
-	MaxWorkers      int            `json:"max_workers,omitempty"`
-	MaxQueueSize    int            `json:"max_queue_size,omitempty"`
-	RequestTimeout  caddy.Duration `json:"request_timeout,omitempty"`
-	MaxBodySize     int64          `json:"max_body_size,omitempty"`
-	MaxIdleConns    int            `json:"max_idle_conns,omitempty"`
-	MaxConnsPerHost int            `json:"max_conns_per_host,omitempty"`
-	IdleConnTimeout caddy.Duration `json:"idle_conn_timeout,omitempty"`
-	LogLevel        string         `json:"log_level,omitempty"`
+	Listen                string          `json:"listen,omitempty"`
+	PlannerURL            string          `json:"planner_url,omitempty"`
+	InternalToken         string          `json:"internal_token,omitempty"`
+	Hostname              string          `json:"hostname,omitempty"`
+	MaxMessageSize        int64           `json:"max_message_size,omitempty"`
+	MaxLineSize           int             `json:"max_line_size,omitempty"`
+	MaxRecipients         int             `json:"max_recipients,omitempty"`
+	MaxConnections        int             `json:"max_connections,omitempty"`
+	MessagesPerMinute     int             `json:"messages_per_minute,omitempty"`
+	MessageBurst          int             `json:"message_burst,omitempty"`
+	ReadTimeout           caddy.Duration  `json:"read_timeout,omitempty"`
+	WriteTimeout          caddy.Duration  `json:"write_timeout,omitempty"`
+	PlannerTimeout        caddy.Duration  `json:"planner_timeout,omitempty"`
+	TLSCertFile           string          `json:"tls_cert_file,omitempty"`
+	TLSKeyFile            string          `json:"tls_key_file,omitempty"`
+	ImplicitTLS           bool            `json:"implicit_tls,omitempty"`
+	AuthEnabled           bool            `json:"auth_enabled,omitempty"`
+	RecipientPreflight    *bool           `json:"recipient_preflight,omitempty"`
+	RelayAddress          string          `json:"relay_address,omitempty"`
+	RelayLocalName        string          `json:"relay_local_name,omitempty"`
+	RelayServerName       string          `json:"relay_server_name,omitempty"`
+	RelayUsername         string          `json:"relay_username,omitempty"`
+	RelayPassword         string          `json:"relay_password,omitempty"`
+	RelayTLSMode          string          `json:"relay_tls_mode,omitempty"`
+	RelayTimeout          caddy.Duration  `json:"relay_timeout,omitempty"`
+	DKIMSigningConfig     string          `json:"dkim_signing_config,omitempty"`
+	ClamdNetwork          string          `json:"clamd_network,omitempty"`
+	ClamdAddress          string          `json:"clamd_address,omitempty"`
+	ClamdTimeout          caddy.Duration  `json:"clamd_timeout,omitempty"`
+	DomainResolverAddress string          `json:"domain_resolver_address,omitempty"`
+	DomainLookupTimeout   caddy.Duration  `json:"domain_lookup_timeout,omitempty"`
+	QuarantinePath        string          `json:"quarantine_path,omitempty"`
+	QuarantineRetention   caddy.Duration  `json:"quarantine_retention,omitempty"`
+	DSNDomain             string          `json:"dsn_domain,omitempty"`
+	SpoolPath             string          `json:"spool_path,omitempty"`
+	DeliveryDatabaseURL   string          `json:"delivery_database_url,omitempty"`
+	MaxAttempts           int             `json:"max_attempts,omitempty"`
+	InitialBackoff        caddy.Duration  `json:"initial_backoff,omitempty"`
+	MaxBackoff            caddy.Duration  `json:"max_backoff,omitempty"`
+	PollInterval          caddy.Duration  `json:"poll_interval,omitempty"`
+	ReceiptRetention      *caddy.Duration `json:"receipt_retention,omitempty"`
+	MaxWorkers            int             `json:"max_workers,omitempty"`
+	MaxQueueSize          int             `json:"max_queue_size,omitempty"`
+	RequestTimeout        caddy.Duration  `json:"request_timeout,omitempty"`
+	MaxBodySize           int64           `json:"max_body_size,omitempty"`
+	MaxIdleConns          int             `json:"max_idle_conns,omitempty"`
+	MaxConnsPerHost       int             `json:"max_conns_per_host,omitempty"`
+	IdleConnTimeout       caddy.Duration  `json:"idle_conn_timeout,omitempty"`
+	LogLevel              string          `json:"log_level,omitempty"`
 
-	server        *smtpgateway.Server
-	forwarder     *forwarding.Forwarder
-	workerPool    *workers.WorkerPool
-	deliveryQueue *deliveryqueue.Queue
+	server            *smtpgateway.Server
+	forwarder         *forwarding.Forwarder
+	workerPool        *workers.WorkerPool
+	deliveryQueue     deliveryqueue.Backend
+	submissionChecker smtpgateway.SigningDomainChecker
+	submissionScanner smtpgateway.MalwareScanner
 }
 
 func (*SMTPApp) CaddyModule() caddy.ModuleInfo {
@@ -118,13 +139,28 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 	}
 
 	settings := &relayconfig.Config{
-		MaxBodySize:     a.MaxBodySize,
-		MaxWorkers:      a.MaxWorkers,
-		MaxQueueSize:    a.MaxQueueSize,
-		RequestTimeout:  time.Duration(a.RequestTimeout),
-		MaxIdleConns:    a.MaxIdleConns,
-		MaxConnsPerHost: a.MaxConnsPerHost,
-		IdleConnTimeout: time.Duration(a.IdleConnTimeout),
+		MaxBodySize: a.MaxBodySize, MaxWorkers: a.MaxWorkers, MaxQueueSize: a.MaxQueueSize,
+		RequestTimeout: time.Duration(a.RequestTimeout), MaxIdleConns: a.MaxIdleConns,
+		MaxConnsPerHost: a.MaxConnsPerHost, IdleConnTimeout: time.Duration(a.IdleConnTimeout),
+		DeliverySpoolPath: a.SpoolPath, DeliveryDatabaseURL: a.DeliveryDatabaseURL,
+		DeliveryMaxAttempts:    a.MaxAttempts,
+		DeliveryInitialBackoff: time.Duration(a.InitialBackoff), DeliveryMaxBackoff: time.Duration(a.MaxBackoff),
+		DeliveryPollInterval: time.Duration(a.PollInterval), DeliveryReceiptRetention: time.Duration(*a.ReceiptRetention),
+		SMTPRelayAddress: a.RelayAddress, SMTPRelayLocalName: a.RelayLocalName,
+		SMTPRelayServerName: a.RelayServerName, SMTPRelayUsername: a.RelayUsername,
+		SMTPRelayPassword: a.RelayPassword, SMTPRelayTLSMode: a.RelayTLSMode,
+		SMTPRelayTimeout:       time.Duration(a.RelayTimeout),
+		EmailDKIMSigningConfig: a.DKIMSigningConfig,
+		EmailClamdNetwork:      a.ClamdNetwork, EmailClamdAddress: a.ClamdAddress,
+		EmailClamdTimeout: time.Duration(a.ClamdTimeout), EmailQuarantinePath: a.QuarantinePath,
+		EmailDomainResolverAddress: a.DomainResolverAddress,
+		EmailDomainLookupTimeout:   time.Duration(a.DomainLookupTimeout),
+		EmailQuarantineRetention:   time.Duration(a.QuarantineRetention),
+		EmailDSNDomain:             a.DSNDomain,
+	}
+	domainResolver, err := transport.NewEmailDomainResolver(settings)
+	if err != nil {
+		return err
 	}
 	logger := logging.NewLogger(a.LogLevel)
 	a.forwarder = forwarding.NewForwarder(settings, logger)
@@ -136,64 +172,71 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		return err
 	}
 	executorOptions := make([]bridge.RelayExecutorOption, 0, 1)
-	if a.RelayAddress != "" {
-		sender, senderErr := smtpout.NewSender(smtpout.Config{
-			Address:    a.RelayAddress,
-			LocalName:  a.RelayLocalName,
-			ServerName: a.RelayServerName,
-			Username:   a.RelayUsername,
-			Password:   a.RelayPassword,
-			TLSMode:    smtpout.TLSMode(a.RelayTLSMode),
-			Timeout:    time.Duration(a.RelayTimeout),
-		})
-		if senderErr != nil {
-			a.workerPool.Shutdown()
-			a.forwarder.CloseIdleConnections()
-			return senderErr
-		}
-		adapter, adapterErr := smtpout.NewGatewayAdapter(sender)
-		if adapterErr != nil {
-			a.workerPool.Shutdown()
-			a.forwarder.CloseIdleConnections()
-			return adapterErr
-		}
-		a.deliveryQueue, err = deliveryqueue.New(deliveryqueue.Config{
-			Path: a.SpoolPath,
-			Adapters: map[string]bridge.GatewayDeliveryAdapter{
-				string(bridge.ProtocolSMTP): adapter,
-			},
-			Observer: deliveryqueue.ObserverFunc(func(event deliveryqueue.Event) {
-				fields := []zap.Field{zap.String("id", event.ID), zap.String("state", string(event.State)), zap.Int("attempts", event.Attempts)}
-				if event.Error != "" {
-					fields = append(fields, zap.String("error", event.Error))
-				}
-				caddy.Log().Debug("gateway.smtp delivery state changed", fields...)
-			}),
-			MaxAttempts:     a.MaxAttempts,
-			InitialBackoff:  time.Duration(a.InitialBackoff),
-			MaxBackoff:      time.Duration(a.MaxBackoff),
-			DeliveryTimeout: time.Duration(a.RelayTimeout),
-			PollInterval:    time.Duration(a.PollInterval),
-		})
-		if err != nil {
-			a.workerPool.Shutdown()
-			a.forwarder.CloseIdleConnections()
-			return err
-		}
+	a.deliveryQueue, err = transport.NewDeliveryQueue(settings, a.forwarder, logger)
+	if err != nil {
+		a.workerPool.Shutdown()
+		a.forwarder.CloseIdleConnections()
+		return err
+	}
+	if a.deliveryQueue != nil {
 		executorOptions = append(executorOptions, bridge.WithGatewayDeliveryQueue(a.deliveryQueue))
 	}
+	submitter, err := transport.NewSMTPAdapter(settings)
+	if err != nil {
+		if a.deliveryQueue != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = a.deliveryQueue.Close(ctx)
+			cancel()
+		}
+		a.workerPool.Shutdown()
+		a.forwarder.CloseIdleConnections()
+		return err
+	}
+	var submitAdapter bridge.GatewayDeliveryAdapter
+	var signingChecker smtpgateway.SigningDomainChecker
+	if submitter != nil {
+		submitAdapter = submitter
+		signingChecker = submitter
+	}
+	a.submissionChecker = signingChecker
+	scanner, quarantine, err := transport.NewEmailProtection(settings)
+	if err != nil {
+		if a.deliveryQueue != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = a.deliveryQueue.Close(ctx)
+			cancel()
+		}
+		a.workerPool.Shutdown()
+		a.forwarder.CloseIdleConnections()
+		return err
+	}
+	a.submissionScanner = scanner
 	a.server, err = smtpgateway.NewServer(smtpgateway.Config{
-		Address:        a.Listen,
-		Hostname:       a.Hostname,
-		MaxMessageSize: a.MaxMessageSize,
-		MaxLineSize:    a.MaxLineSize,
-		MaxRecipients:  a.MaxRecipients,
-		ReadTimeout:    time.Duration(a.ReadTimeout),
-		WriteTimeout:   time.Duration(a.WriteTimeout),
-		PlannerTimeout: time.Duration(a.PlannerTimeout),
-		TLSConfig:      tlsConfig,
-		ImplicitTLS:    a.ImplicitTLS,
-		AuthEnabled:    a.AuthEnabled,
+		Address:                 a.Listen,
+		Hostname:                a.Hostname,
+		MaxMessageSize:          a.MaxMessageSize,
+		MaxLineSize:             a.MaxLineSize,
+		MaxRecipients:           a.MaxRecipients,
+		MaxConnections:          a.MaxConnections,
+		MessagesPerMinute:       a.MessagesPerMinute,
+		MessageBurst:            a.MessageBurst,
+		ReadTimeout:             time.Duration(a.ReadTimeout),
+		WriteTimeout:            time.Duration(a.WriteTimeout),
+		PlannerTimeout:          time.Duration(a.PlannerTimeout),
+		SubmitTimeout:           time.Duration(a.RelayTimeout),
+		Submitter:               submitAdapter,
+		SigningDomainChecker:    signingChecker,
+		Scanner:                 scanner,
+		ScanTimeout:             time.Duration(a.ClamdTimeout),
+		Quarantine:              quarantine,
+		QuarantineRetention:     time.Duration(a.QuarantineRetention),
+		DomainExistenceResolver: domainResolver,
+		DomainExistenceTimeout:  time.Duration(a.DomainLookupTimeout),
+		LoopKey:                 []byte(a.InternalToken),
+		TLSConfig:               tlsConfig,
+		ImplicitTLS:             a.ImplicitTLS,
+		AuthEnabled:             a.AuthEnabled,
+		RecipientPreflight:      a.RecipientPreflight != nil && *a.RecipientPreflight,
 	}, planner, bridge.NewRelayExecutor(a.forwarder, a.workerPool, executorOptions...))
 	if err != nil {
 		if a.deliveryQueue != nil {
@@ -219,8 +262,8 @@ func (a *SMTPApp) Validate() error {
 	if strings.TrimSpace(a.InternalToken) == "" {
 		return fmt.Errorf("gateway.smtp internal_token is required")
 	}
-	if a.MaxMessageSize < 1 || a.MaxLineSize < 1 || a.MaxRecipients < 1 {
-		return fmt.Errorf("gateway.smtp message and recipient limits must be positive")
+	if a.MaxMessageSize < 1 || a.MaxLineSize < 1 || a.MaxRecipients < 1 || a.MaxConnections < 1 || a.MessagesPerMinute < 1 || a.MessageBurst < 1 {
+		return fmt.Errorf("gateway.smtp message, recipient, and connection limits must be positive")
 	}
 	if a.MaxWorkers < 1 || a.MaxQueueSize < 1 || a.MaxIdleConns < 1 || a.MaxConnsPerHost < 1 {
 		return fmt.Errorf("gateway.smtp worker and connection limits must be positive")
@@ -240,10 +283,33 @@ func (a *SMTPApp) Validate() error {
 	if a.RelayTimeout < 1 {
 		return fmt.Errorf("gateway.smtp relay_timeout must be positive")
 	}
-	if a.RelayAddress != "" && strings.TrimSpace(a.SpoolPath) == "" {
-		return fmt.Errorf("gateway.smtp spool_path is required when relay_address is configured")
+	if a.ClamdTimeout < 1 {
+		return fmt.Errorf("gateway.smtp clamd_timeout must be positive")
 	}
-	if a.MaxAttempts < 1 || a.InitialBackoff < 1 || a.MaxBackoff < a.InitialBackoff || a.PollInterval < 1 {
+	if a.DomainResolverAddress != "" && a.DomainLookupTimeout < 1 {
+		return fmt.Errorf("gateway.smtp domain_lookup_timeout must be positive")
+	}
+	if a.DomainResolverAddress != "" {
+		if _, err := smtpgateway.NewDomainExistenceResolver(a.DomainResolverAddress); err != nil {
+			return err
+		}
+	}
+	if a.QuarantineRetention < 0 || (a.QuarantineRetention > 0 && a.QuarantinePath == "") {
+		return fmt.Errorf("gateway.smtp quarantine_retention requires quarantine_path and cannot be negative")
+	}
+	if a.DSNDomain != "" && a.RelayAddress == "" {
+		return fmt.Errorf("gateway.smtp dsn_domain requires relay_address")
+	}
+	if a.DKIMSigningConfig != "" && a.RelayAddress == "" {
+		return fmt.Errorf("gateway.smtp dkim_signing_config requires relay_address")
+	}
+	if strings.TrimSpace(a.SpoolPath) != "" && strings.TrimSpace(a.DeliveryDatabaseURL) != "" {
+		return fmt.Errorf("gateway.smtp spool_path and delivery_database_url are mutually exclusive")
+	}
+	if a.RelayAddress != "" && strings.TrimSpace(a.SpoolPath) == "" && strings.TrimSpace(a.DeliveryDatabaseURL) == "" {
+		return fmt.Errorf("gateway.smtp spool_path or delivery_database_url is required when relay_address is configured")
+	}
+	if a.MaxAttempts < 1 || a.InitialBackoff < 1 || a.MaxBackoff < a.InitialBackoff || a.PollInterval < 1 || (a.ReceiptRetention != nil && *a.ReceiptRetention < 0) {
 		return fmt.Errorf("gateway.smtp spool attempts and durations are invalid")
 	}
 
@@ -301,6 +367,10 @@ func (a *SMTPApp) Stop() error {
 }
 
 func (a *SMTPApp) applyDefaults() {
+	if a.RecipientPreflight == nil {
+		enabled := a.RelayAddress != ""
+		a.RecipientPreflight = &enabled
+	}
 	if a.Listen == "" {
 		a.Listen = defaultSMTPListen
 	}
@@ -318,6 +388,15 @@ func (a *SMTPApp) applyDefaults() {
 	}
 	if a.MaxRecipients == 0 {
 		a.MaxRecipients = defaultSMTPMaxRecipients
+	}
+	if a.MaxConnections == 0 {
+		a.MaxConnections = defaultSMTPMaxConnections
+	}
+	if a.MessagesPerMinute == 0 {
+		a.MessagesPerMinute = defaultSMTPMessagesPerMinute
+	}
+	if a.MessageBurst == 0 {
+		a.MessageBurst = defaultSMTPMessageBurst
 	}
 	if a.ReadTimeout == 0 {
 		a.ReadTimeout = caddy.Duration(defaultSMTPReadTimeout)
@@ -361,6 +440,15 @@ func (a *SMTPApp) applyDefaults() {
 	if a.RelayTimeout == 0 {
 		a.RelayTimeout = caddy.Duration(defaultSMTPRelayTimeout)
 	}
+	if a.ClamdNetwork == "" {
+		a.ClamdNetwork = "tcp"
+	}
+	if a.ClamdTimeout == 0 {
+		a.ClamdTimeout = caddy.Duration(10 * time.Second)
+	}
+	if a.DomainLookupTimeout == 0 {
+		a.DomainLookupTimeout = caddy.Duration(3 * time.Second)
+	}
 	if a.MaxAttempts == 0 {
 		a.MaxAttempts = 8
 	}
@@ -372,6 +460,10 @@ func (a *SMTPApp) applyDefaults() {
 	}
 	if a.PollInterval == 0 {
 		a.PollInterval = caddy.Duration(time.Second)
+	}
+	if a.ReceiptRetention == nil {
+		value := caddy.Duration(90 * 24 * time.Hour)
+		a.ReceiptRetention = &value
 	}
 }
 
@@ -416,7 +508,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.TLSKeyFile = value
-		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "spool_path":
+		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "dkim_signing_config", "spool_path", "delivery_database_url", "clamd_network", "clamd_address", "domain_resolver_address", "quarantine_path", "dsn_domain":
 			option := d.Val()
 			value, err := stringArg(d)
 			if err != nil {
@@ -435,19 +527,36 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.RelayPassword = value
 			case "relay_tls_mode":
 				app.RelayTLSMode = strings.ToLower(value)
+			case "dkim_signing_config":
+				app.DKIMSigningConfig = value
 			case "spool_path":
 				app.SpoolPath = value
+			case "delivery_database_url":
+				app.DeliveryDatabaseURL = value
+			case "clamd_network":
+				app.ClamdNetwork = value
+			case "clamd_address":
+				app.ClamdAddress = value
+			case "domain_resolver_address":
+				app.DomainResolverAddress = value
+			case "quarantine_path":
+				app.QuarantinePath = value
+			case "dsn_domain":
+				app.DSNDomain = value
 			}
-		case "implicit_tls", "auth_enabled":
+		case "implicit_tls", "auth_enabled", "recipient_preflight":
 			option := d.Val()
 			value, err := boolArg(d)
 			if err != nil {
 				return nil, err
 			}
-			if option == "implicit_tls" {
+			switch option {
+			case "implicit_tls":
 				app.ImplicitTLS = value
-			} else {
+			case "auth_enabled":
 				app.AuthEnabled = value
+			case "recipient_preflight":
+				app.RecipientPreflight = &value
 			}
 		case "max_message_size":
 			value, err := nextInt64(d)
@@ -455,7 +564,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.MaxMessageSize = value
-		case "max_line_size", "max_recipients", "max_workers", "max_queue_size", "max_idle_conns", "max_conns_per_host", "max_attempts":
+		case "max_line_size", "max_recipients", "max_connections", "messages_per_minute", "message_burst", "max_workers", "max_queue_size", "max_idle_conns", "max_conns_per_host", "max_attempts":
 			option := d.Val()
 			value, err := nextInt(d)
 			if err != nil {
@@ -466,6 +575,12 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.MaxLineSize = value
 			case "max_recipients":
 				app.MaxRecipients = value
+			case "max_connections":
+				app.MaxConnections = value
+			case "messages_per_minute":
+				app.MessagesPerMinute = value
+			case "message_burst":
+				app.MessageBurst = value
 			case "max_workers":
 				app.MaxWorkers = value
 			case "max_queue_size":
@@ -477,7 +592,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 			case "max_attempts":
 				app.MaxAttempts = value
 			}
-		case "read_timeout", "write_timeout", "planner_timeout", "request_timeout", "idle_conn_timeout", "relay_timeout", "initial_backoff", "max_backoff", "poll_interval":
+		case "read_timeout", "write_timeout", "planner_timeout", "request_timeout", "idle_conn_timeout", "relay_timeout", "clamd_timeout", "domain_lookup_timeout", "quarantine_retention", "initial_backoff", "max_backoff", "poll_interval", "receipt_retention":
 			option := d.Val()
 			value, err := nextDuration(d)
 			if err != nil {
@@ -496,12 +611,21 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.IdleConnTimeout = caddy.Duration(value)
 			case "relay_timeout":
 				app.RelayTimeout = caddy.Duration(value)
+			case "clamd_timeout":
+				app.ClamdTimeout = caddy.Duration(value)
+			case "domain_lookup_timeout":
+				app.DomainLookupTimeout = caddy.Duration(value)
+			case "quarantine_retention":
+				app.QuarantineRetention = caddy.Duration(value)
 			case "initial_backoff":
 				app.InitialBackoff = caddy.Duration(value)
 			case "max_backoff":
 				app.MaxBackoff = caddy.Duration(value)
 			case "poll_interval":
 				app.PollInterval = caddy.Duration(value)
+			case "receipt_retention":
+				converted := caddy.Duration(value)
+				app.ReceiptRetention = &converted
 			}
 		case "max_body_size":
 			value, err := nextInt64(d)

@@ -6,6 +6,12 @@ example, `github/deploy` resolves to an executable inside the configured hook
 directory. Spinner executes the file directly through its shebang; it never
 passes the source to `sh -c`.
 
+The optional `powershell` interpreter mode instead invokes a configured
+PowerShell executable with fixed `-NoLogo -NoProfile -NonInteractive -File`
+arguments. This supports `.ps1` hooks on Unix and Windows without treating a
+route source as a command line. Interpreter mode is selected for the whole
+Spinner instance; the default remains `direct`.
+
 Build Spinner with the extension and enable it at runtime:
 
 ```bash
@@ -18,8 +24,13 @@ export GATEWAY_SHELL_MAX_OUTPUT_BYTES=65536
 export GATEWAY_SHELL_MAX_CONCURRENT=2
 export GATEWAY_SHELL_MAX_QUEUED=0
 export GATEWAY_SHELL_OUTPUT_MODE=outcome
+# Optional: use .ps1 hooks instead of directly executable hooks.
+# export GATEWAY_SHELL_INTERPRETER=powershell
+# export GATEWAY_SHELL_POWERSHELL_PATH=/usr/bin/pwsh
 # Optional private run history; create the directory with mode 0700 first.
 export GATEWAY_SHELL_RUN_LOG_DIR=/var/lib/gateway/shell-runs
+# Optional: retain run records for 30 days. Unset to never prune automatically.
+# export GATEWAY_SHELL_RUN_RETENTION=720h
 ```
 
 Install the Planner companion so a `shell` route plan is authorized only when
@@ -38,7 +49,15 @@ use Webong\Gateway\Protocol\RoutePlan;
 return RoutePlan::automate(new Automation(language: 'shell', source: 'github/deploy'));
 ```
 
-Each hook must be an executable regular file under `GATEWAY_SHELL_HOOKS_DIR`.
+For PowerShell mode, select a `.ps1` hook instead, such as
+`source: 'github/deploy.ps1'`.
+
+In the default `direct` mode, each hook must be an executable regular file
+under `GATEWAY_SHELL_HOOKS_DIR`. In `powershell` mode, the hook must be a
+regular `.ps1` file (it need not have an executable bit), and
+`GATEWAY_SHELL_POWERSHELL_PATH` must name an absolute, installed PowerShell 7
+executable path. On Windows, use an absolute path to `pwsh.exe`. Gateway does
+not install PowerShell or inherit the Spinner process's full environment.
 Path traversal, hidden paths, and symlinks that resolve outside the directory
 are rejected. Keep the hook tree owned by the operator and mounted read-only;
 hooks are trusted host programs with the operating-system privileges of the
@@ -76,7 +95,13 @@ each run and terminates its process group on Unix. Both stdout and stderr have
 the configured output cap. A configured run directory stores one mode-0600 JSON
 file per invocation, named by `X-Gateway-Shell-Run-Id`; records include the
 Gateway delivery ID, exit code, bounded output, and failure reason. The run
-directory must have owner-only access and needs an operator retention policy.
+directory must have owner-only access. With `GATEWAY_SHELL_RUN_RETENTION` set
+to a positive Go duration, Spinner removes expired regular run-record files
+at startup and, while hooks continue to run, at most once per hour. It never
+prunes unrelated files or symlinks, and leaving the setting unset preserves
+existing records indefinitely. Idle Spinners do not run a background pruning
+task; operators who need a strict expiry deadline should also schedule
+private directory maintenance.
 It is not published through the public Gateway listener.
 
 This extension supports route hooks only. It does not expose arbitrary request

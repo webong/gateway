@@ -7,6 +7,8 @@ namespace Webong\Gateway\Tests\Fixtures;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\ServiceProvider;
 use ReflectionClass;
+use Webong\Gateway\Email\TxtResolver;
+use Webong\Gateway\GatewayServiceProvider;
 use Webong\WebProxy\WebProxyServiceProvider;
 use Webong\Gateway\Tests\Support\TestRouter;
 
@@ -14,24 +16,31 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        if (getenv('GATEWAY_EMAIL_SMOKE') === '1') {
+            $this->app->bind(TxtResolver::class, EmailSmokeTxtResolver::class);
+        }
         $database = getenv('DB_DATABASE');
         if (! is_string($database) || $database === '') {
             return;
         }
 
-        config()->set([
-            'database.default' => 'sqlite',
-            'database.connections.sqlite' => [
-                'driver' => 'sqlite',
-                'database' => $database,
-                'prefix' => '',
-                'foreign_key_constraints' => true,
-            ],
+        $settings = [
             'proxy.base_url' => getenv('PROXY_URL') ?: 'http://127.0.0.1',
             'proxy.routers.http-smoke' => TestRouter::class,
             'gateway.cache.enabled' => false,
             'gateway.mutations.lock_store' => 'array',
-        ]);
+        ];
+        if (getenv('DB_CONNECTION') !== 'pgsql') {
+            $settings['database.default'] = 'sqlite';
+            $settings['database.connections.sqlite'] = [
+                'driver' => 'sqlite',
+                'database' => $database,
+                'prefix' => '',
+                'foreign_key_constraints' => true,
+            ];
+        }
+
+        config()->set($settings);
     }
 
     public function boot(): void
@@ -48,6 +57,11 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
 
         $provider = new ReflectionClass(WebProxyServiceProvider::class);
         $migrator->run(dirname((string) $provider->getFileName(), 2).'/database/migrations');
+
+        if (getenv('GATEWAY_EMAIL_SMOKE') === '1' || getenv('GATEWAY_DNS_SMOKE') === '1' || getenv('GATEWAY_EVENTS_ENABLED') === 'true') {
+            $gatewayProvider = new ReflectionClass(GatewayServiceProvider::class);
+            $migrator->run(dirname((string) $gatewayProvider->getFileName()).'/database/migrations');
+        }
 
     }
 }

@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CADDY_IMAGE=${1:-gateway-frankenphp:module-test}
+PLANNER_IMAGE=${2:-gateway-planner-fixture:local}
+SUFFIX="$$-$RANDOM"
+NETWORK="gateway-caddy-route-$SUFFIX"
+CADDY="gateway-caddy-route-$SUFFIX"
+PLANNER="gateway-caddy-planner-$SUFFIX"
+BACKEND="gateway-caddy-backend-$SUFFIX"
+WEBSOCKET_BACKEND="gateway-caddy-websocket-$SUFFIX"
+
+cleanup() {
+    docker rm -f "$CADDY" "$PLANNER" "$BACKEND" "$WEBSOCKET_BACKEND" >/dev/null 2>&1 || true
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker network create "$NETWORK" >/dev/null
+docker run -d --name "$PLANNER" --network "$NETWORK" --network-alias planner --tmpfs /tmp \
+    -e APP_ENV=testing -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+    -e COMPOSER_VENDOR_DIR=/app/vendor -e GATEWAY_INTERNAL_TOKEN=caddy-route-private-token \
+    -e REGISTRY_TOKEN=caddy-route-registry-token -e DB_CONNECTION=sqlite \
+    -e DB_DATABASE=/tmp/registry.sqlite "$PLANNER_IMAGE" >/dev/null
+docker exec "$PLANNER" php artisan migrate --force >/dev/null
+docker run -d --name "$BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp \
+    --entrypoint php "$PLANNER_IMAGE" -S 0.0.0.0:9090 \
+    /app/tests/Fixtures/managed-route-container-backend.php >/dev/null
+BACKEND_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$BACKEND")
+docker run -d --name "$WEBSOCKET_BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp:exec \
+    -e GOCACHE=/tmp/gocache \
+    --mount "type=bind,source=$PWD/tests/Fixtures/managed-route-container-websocket.go,target=/fixture.go,readonly" \
+    --entrypoint go golang:1.24-bookworm run /fixture.go server >/dev/null
+WEBSOCKET_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$WEBSOCKET_BACKEND")
+if [[ ! "$BACKEND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ||
+      ! "$WEBSOCKET_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo 'Could not resolve managed backend Docker IPv4 addresses.' >&2
+    exit 1
+fi
+
+docker run -d --name "$CADDY" --network "$NETWORK" --read-only \
+    --tmpfs /tmp --tmpfs /data --tmpfs /config -p 127.0.0.1::8080 \
+    --mount "type=bind,source=$PWD/tests/Fixtures/managed-route-caddy.Caddyfile,target=/etc/caddy/Caddyfile,readonly" \
+    -e GATEWAY_INTERNAL_TOKEN=caddy-route-private-token \
+    -e "GATEWAY_PROVISIONING_ROUTE_CIDRS=$BACKEND_IP/32,$WEBSOCKET_IP/32" \
+    --entrypoint frankenphp "$CADDY_IMAGE" run --config /etc/caddy/Caddyfile >/dev/null
+ADDRESS=$(docker port "$CADDY" 8080/tcp)
+for ((attempt=0; attempt<20; attempt++)); do
+    if [[ $(docker inspect -f '{{.State.Running}}' "$CADDY") != true ||
+          $(docker inspect -f '{{.State.Running}}' "$PLANNER") != true ]]; then
+        docker logs "$CADDY" >&2
+        docker logs "$PLANNER" >&2
+        exit 1
+    fi
+    if [[ $(curl --max-time 2 -s -o /dev/null -w '%{http_code}' "http://$ADDRESS/http-smoke/worker" || true) == 200 ]]; then
+        break
+    fi
+    if ((attempt == 19)); then
+        curl --max-time 5 -sS -i "http://$ADDRESS/http-smoke/worker" >&2 || true
+        docker exec "$CADDY" curl --max-time 5 -sS -i \
+            -H 'X-Gateway-Internal: caddy-route-private-token' \
+            'http://planner:8080/_internal/provisioning/routes/resolve?hostname=unmanaged.example.test&path=%2Fhttp-smoke%2Fworker' >&2 || true
+        docker logs "$CADDY" >&2
+        docker logs "$PLANNER" >&2
+        echo 'Caddy and Planner failed to become ready.' >&2
+        exit 1
+    fi
+    sleep 1
+done
+
+for ((attempt=0; attempt<60; attempt++)); do
+    if [[ $(docker inspect -f '{{.State.Running}}' "$WEBSOCKET_BACKEND") != true ]]; then
+        docker logs "$WEBSOCKET_BACKEND" >&2
+        exit 1
+    fi
+    if docker exec "$PLANNER" php -r '
+        $socket = @fsockopen($argv[1], 9091, $error, $message, 1);
+        if ($socket === false) { exit(1); }
+        fclose($socket);
+    ' "$WEBSOCKET_IP"; then
+        break
+    fi
+    if ((attempt == 59)); then
+        docker logs "$WEBSOCKET_BACKEND" >&2
+        echo 'Managed WebSocket backend failed to become ready.' >&2
+        exit 1
+    fi
+    sleep 1
+done
+
+docker exec "$PLANNER" php /app/tests/Fixtures/managed-route-container-seed.php \
+    "$BACKEND_IP" "$WEBSOCKET_IP" /tmp/registry.sqlite
+RESULT=$(curl --max-time 5 -sS -i -X POST -H 'Host: managed.example.test' \
+    "http://$ADDRESS/managed/event?source=caddy")
+if [[ "$RESULT" != *'201 Created'* || "$RESULT" != *'X-Gateway-Managed-Smoke: reached'* || "$RESULT" != *'POST /managed/event?source=caddy'* ]]; then
+    printf 'Managed backend was not reached through Caddy:\n%s\n' "$RESULT" >&2
+    exit 1
+fi
+GOTELEMETRY=off go run -mod=mod tests/Fixtures/managed-route-container-websocket.go client "$ADDRESS"
+
+PRIVATE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
+    "http://$ADDRESS/_internal/provisioning/routes/resolve?hostname=managed.example.test&path=%2Fmanaged")
+if [[ "$PRIVATE_STATUS" != 404 ]]; then
+    echo "Private Planner route should not be public, got HTTP $PRIVATE_STATUS." >&2
+    exit 1
+fi
+
+docker exec "$PLANNER" php -r '
+    $db = new PDO("sqlite:/tmp/registry.sqlite");
+    $query = $db->prepare("UPDATE instances SET host = ? WHERE id = ?");
+    $query->execute(["127.0.0.1", "22222222-2222-4222-8222-222222222222"]);
+'
+DENIED_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
+    "http://$ADDRESS/managed/event")
+if [[ "$DENIED_STATUS" != 502 ]]; then
+    echo "Out-of-range managed instance should fail closed with 502, got HTTP $DENIED_STATUS." >&2
+    exit 1
+fi
+
+docker exec "$PLANNER" php -r '
+    $db = new PDO("sqlite:/tmp/registry.sqlite");
+    $query = $db->prepare("UPDATE instances SET host = ?, heartbeat_at = ? WHERE id = ?");
+    $query->execute([$argv[1], "2000-01-01 00:00:00", "22222222-2222-4222-8222-222222222222"]);
+' "$BACKEND_IP"
+STALE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
+    "http://$ADDRESS/managed/event")
+if [[ "$STALE_STATUS" != 503 ]]; then
+    echo "Stale managed instance should fail closed with 503, got HTTP $STALE_STATUS." >&2
+    exit 1
+fi
+
+echo 'FrankenPHP/Caddy: Planner lookup, managed HTTP/WebSocket proxy, private-route isolation, destination allowlist, and stale-instance fail-closed passed.'

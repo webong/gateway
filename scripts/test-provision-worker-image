@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE=${1:?usage: scripts/test-provision-worker-image IMAGE [docker|kubernetes]}
+MODE=${2:-docker}
+if [[ "$MODE" != docker && "$MODE" != kubernetes ]]; then
+    echo 'Image mode must be docker or kubernetes.' >&2
+    exit 1
+fi
+
+uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
+if [[ "$uid" == 0 ]]; then
+    echo 'Provisioning image unexpectedly runs as root by default.' >&2
+    exit 1
+fi
+if [[ "$MODE" == kubernetes ]]; then
+    declared_user=$(docker image inspect "$IMAGE" --format '{{.Config.User}}')
+    if [[ ! "$declared_user" =~ ^[1-9][0-9]*(:[1-9][0-9]*)?$ ]]; then
+        echo "Kubernetes cannot verify runAsNonRoot for image user $declared_user; declare a numeric UID/GID." >&2
+        exit 1
+    fi
+fi
+
+if [[ "$MODE" == docker ]]; then
+    docker run --rm --entrypoint docker "$IMAGE" --version >/dev/null
+else
+    docker run --rm --entrypoint kubectl "$IMAGE" version --client --output=json >/dev/null
+    fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/gateway-in-cluster-smoke.XXXXXX")
+    trap 'rm -r -- "$fixture_dir"' EXIT
+    chmod 755 "$fixture_dir"
+    printf '%s\n' 'disposable-test-token' > "$fixture_dir/token"
+    printf '%s\n' 'disposable-test-ca' > "$fixture_dir/ca.crt"
+    chmod 644 "$fixture_dir/token" "$fixture_dir/ca.crt"
+    docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=1m \
+        --env KUBERNETES_SERVICE_HOST=127.0.0.1 \
+        --env KUBERNETES_SERVICE_PORT=443 \
+        --mount "type=bind,source=$fixture_dir,target=/var/run/secrets/kubernetes.io/serviceaccount,readonly" \
+        "$IMAGE" --check-config >/dev/null
+    if docker run --rm --env KUBERNETES_SERVICE_HOST=127.0.0.1 \
+        --env KUBERNETES_SERVICE_PORT=443 "$IMAGE" --check-config >/dev/null 2>&1; then
+        echo 'Kubernetes image accepted a missing ServiceAccount mount.' >&2
+        exit 1
+    fi
+fi
+
+for extension in centrifugo mercure reverb; do
+    case "$extension" in
+        centrifugo) prefix=GATEWAY_CENTRIFUGO ;;
+        mercure) prefix=GATEWAY_MERCURE ;;
+        reverb) prefix=GATEWAY_REVERB ;;
+    esac
+    if [[ "$MODE" == docker ]]; then
+        image_variable=${prefix}_DOCKER_IMAGE
+    else
+        image_variable=${prefix}_KUBERNETES_IMAGE
+    fi
+    response=$(
+        printf '{"version":1,"id":1,"method":"describe"}\n' |
+            docker run --rm -i --env "$image_variable=smoke:local" \
+                --entrypoint "/usr/local/libexec/gateway/gateway-$extension" "$IMAGE"
+    )
+    if [[ "$response" != *'"type":"'"$extension"'"'* || "$response" != *'"'"$MODE"'"'* ]]; then
+        echo "$extension extension did not advertise $MODE support: $response" >&2
+        exit 1
+    fi
+done
+
+if [[ "$MODE" == kubernetes ]]; then
+    if output=$(docker run --rm --entrypoint /usr/local/bin/gateway-provision "$IMAGE" --check 2>&1); then
+        echo 'Worker check unexpectedly accepted missing target credentials.' >&2
+        exit 1
+    fi
+else
+    if output=$(docker run --rm "$IMAGE" --check 2>&1); then
+        echo 'Worker check unexpectedly accepted missing target credentials.' >&2
+        exit 1
+    fi
+fi
+if [[ "$output" != *'GATEWAY_PROVISIONING_TARGET_ID and GATEWAY_PROVISIONING_TARGET_TOKEN are required'* ]]; then
+    echo "Worker entrypoint did not report missing credentials: $output" >&2
+    exit 1
+fi
+
+echo "Provisioning $MODE image, CLI, and executable extension checks passed."

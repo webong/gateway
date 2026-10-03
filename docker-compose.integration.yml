@@ -11,6 +11,11 @@ services:
       GATEWAY_HTTP_RECEIVER_URL: http://planner:8080/http-smoke/receiver
       GATEWAY_HTTP_RECEIVER_FILE: /tmp/receiver.txt
       GATEWAY_HTTP_REGISTRY_SMOKE: "1"
+      GATEWAY_EMAIL_SMOKE: "1"
+      GATEWAY_EMAIL_HTTP_SUBMISSION_ENABLED: "true"
+      GATEWAY_EMAIL_SUBMISSION_DOMAIN_DAILY_LIMIT: "1"
+      GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR: "Webong\\Gateway\\Tests\\Fixtures\\EmailHttpSmokeAuthenticator"
+      GATEWAY_DELIVERY_ADMIN_URL: http://gateway:5052
       GATEWAY_PLANNER: "Webong\\Gateway\\Tests\\Fixtures\\HttpSmokePlanner"
       GATEWAY_PATH_RESOLVER: "Webong\\Gateway\\Tests\\Fixtures\\HttpSmokePathResolver"
       REGISTRY_TOKEN: "${REGISTRY_TOKEN:-registry-container-integration-token}"
@@ -22,12 +27,24 @@ services:
     build: .
     depends_on:
       - planner
+      - relay
     environment:
       GATEWAY_RUNTIME: http
       GATEWAY_LARAVEL_BACKEND_URL: http://planner:8080
       GATEWAY_INTERNAL_TOKEN: "${GATEWAY_INTERNAL_TOKEN:-gateway-container-integration-token}"
+      GATEWAY_DELIVERY_ADMIN_ADDR: ":5052"
+      GATEWAY_DELIVERY_SPOOL_PATH: /tmp/gateway-spool
+      GATEWAY_DELIVERY_MAX_ATTEMPTS: "1"
+      GATEWAY_EMAIL_DSN_DOMAIN: gateway.example.test
+      GATEWAY_SMTP_RELAY_ADDR: relay:2527
+      GATEWAY_SMTP_RELAY_TLS_MODE: none
       PORT: "5001"
       LOG_LEVEL: error
+
+  relay:
+    build:
+      context: .
+      dockerfile: infra/docker/email-relay-fixture.Dockerfile
 
   tls:
     image: caddy:2-alpine

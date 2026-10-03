@@ -2,8 +2,10 @@ package websocket
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -99,5 +101,71 @@ func TestHandlerRejectsNonWebSocketRequests(t *testing.T) {
 	handler.ServeHTTP(record, httptest.NewRequest(http.MethodGet, "/channels/updates", nil))
 	if record.Code != http.StatusUpgradeRequired {
 		t.Fatalf("expected upgrade required response, got %d", record.Code)
+	}
+}
+
+func TestHandlerLimitsSessionsBeforePlanningAndReleasesSlots(t *testing.T) {
+	var plans atomic.Int64
+	handler := NewHandler(plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		if event.Kind == bridge.EventConnect {
+			plans.Add(1)
+		}
+		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebSocket, Action: bridge.GatewayAccept}, nil
+	}), &recordingExecutor{deliveries: make(chan bridge.GatewayDelivery, 1)}, Config{MaxConnections: 1, MaxDuration: time.Second})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	url := "ws" + server.URL[len("http"):]
+	first, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	second, response, err := websocket.DefaultDialer.Dial(url, nil)
+	if second != nil {
+		second.Close()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusServiceUnavailable || response.Header.Get("Retry-After") != "1" || plans.Load() != 1 {
+		t.Fatalf("expected admission rejection before planning: response=%v plans=%d err=%v", response, plans.Load(), err)
+	}
+	first.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		third, response, err := websocket.DefaultDialer.Dial(url, nil)
+		if err == nil {
+			third.Close()
+			if plans.Load() != 2 {
+				t.Fatalf("expected reopened slot to be planned, got %d plans", plans.Load())
+			}
+			return
+		}
+		if response == nil || response.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("unexpected reconnect failure: response=%v err=%v", response, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("WebSocket admission slot was not released")
+}
+
+func TestHandlerClosesIdleSessionAtMaximumDuration(t *testing.T) {
+	handler := NewHandler(plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebSocket, Action: bridge.GatewayAccept}, nil
+	}), &recordingExecutor{deliveries: make(chan bridge.GatewayDelivery, 1)}, Config{MaxDuration: 30 * time.Millisecond})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	url := "ws" + server.URL[len("http"):]
+	client, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	start := time.Now()
+	_ = client.SetReadDeadline(time.Now().Add(time.Second))
+	if _, _, err := client.ReadMessage(); err == nil {
+		t.Fatal("idle WebSocket survived its maximum duration")
+	} else if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+		t.Fatalf("the client timed out before Gateway closed the idle session: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("Gateway took %s to close a 30ms WebSocket session", elapsed)
 	}
 }

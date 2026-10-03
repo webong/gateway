@@ -76,6 +76,13 @@ func TestDNSGatewayEventRequiresQueryKind(t *testing.T) {
 	}
 }
 
+func TestSMTPGatewayEventAllowsRecipientKind(t *testing.T) {
+	event := GatewayEvent{ID: "recipient-1", Protocol: ProtocolSMTP, Kind: EventRecipient, Route: "user@example.test"}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGatewayDecisionAllowsSynchronousReply(t *testing.T) {
 	decision := GatewayDecision{
 		Version:  ProtocolVersion,
@@ -85,6 +92,41 @@ func TestGatewayDecisionAllowsSynchronousReply(t *testing.T) {
 	}
 	if err := decision.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGatewayDecisionRequiresOneSMTPSubmitEnvelope(t *testing.T) {
+	decision := GatewayDecision{
+		Version: ProtocolVersion, Protocol: ProtocolSMTP, Action: GatewaySubmit,
+		Deliveries: []GatewayDelivery{{Protocol: ProtocolSMTP, Target: "first@example.net"}},
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	decision.Deliveries = append(decision.Deliveries, GatewayDelivery{Protocol: ProtocolSMTP, Target: "second@example.net"})
+	if err := decision.Validate(); err == nil {
+		t.Fatal("submit accepted multiple separate relay transactions")
+	}
+	decision.Deliveries = decision.Deliveries[:1]
+	decision.Deliveries[0].Protocol = ProtocolHTTP
+	if err := decision.Validate(); err == nil {
+		t.Fatal("submit accepted a non-SMTP delivery")
+	}
+}
+
+func TestGatewayDecisionQuarantineIsSMTPOnlyAndHasNoDelivery(t *testing.T) {
+	decision := GatewayDecision{Version: ProtocolVersion, Protocol: ProtocolSMTP, Action: GatewayQuarantine}
+	if err := decision.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	decision.Protocol = ProtocolHTTP
+	if err := decision.Validate(); err == nil {
+		t.Fatal("quarantine accepted a non-SMTP protocol")
+	}
+	decision.Protocol = ProtocolSMTP
+	decision.Deliveries = []GatewayDelivery{{Protocol: ProtocolSMTP, Target: "recipient@example.test"}}
+	if err := decision.Validate(); err == nil {
+		t.Fatal("quarantine accepted an outbound delivery")
 	}
 }
 

@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${GATEWAY_HTTP_APP_PATH:-$ROOT/tests/Fixtures/octane-app}"
 PHP_PORT="${GATEWAY_HTTP_PHP_PORT:-18081}"
 RELAY_PORT="${GATEWAY_HTTP_RELAY_PORT:-18082}"
+ADMIN_PORT="${GATEWAY_HTTP_ADMIN_PORT:-18083}"
 TOKEN="${GATEWAY_INTERNAL_TOKEN:-http-smoke-token}"
 REGISTRY_TOKEN="${REGISTRY_TOKEN:-registry-smoke-token}"
 LOG_LEVEL="${GATEWAY_HTTP_LOG_LEVEL:-error}"
@@ -35,6 +36,9 @@ cleanup() {
     fi
 
     rm -f "$PHP_LOG" "$RELAY_LOG" "$HEADERS" "$BODY" "$RECEIVER_FILE" "$DATABASE_FILE" "$RELAY_BIN"
+    if [[ -d "$TEMP_DIR/deliveries" ]]; then
+        rm -r "$TEMP_DIR/deliveries"
+    fi
     rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -62,6 +66,8 @@ touch "$DATABASE_FILE"
     GATEWAY_HTTP_RECEIVER_URL="http://127.0.0.1:$PHP_PORT/http-smoke/receiver" \
     GATEWAY_HTTP_RECEIVER_FILE="$RECEIVER_FILE" \
     GATEWAY_HTTP_REGISTRY_SMOKE=1 \
+    GATEWAY_EVENTS_ENABLED=true \
+    GATEWAY_DELIVERY_ADMIN_URL="http://127.0.0.1:$ADMIN_PORT" \
     GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
     REGISTRY_TOKEN="$REGISTRY_TOKEN" \
@@ -107,6 +113,8 @@ GATEWAY_RUNTIME=http \
 GATEWAY_LARAVEL_BACKEND_URL="$PHP_URL" \
 PORT="$RELAY_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
+GATEWAY_DELIVERY_SPOOL_PATH="$TEMP_DIR/deliveries" \
+GATEWAY_DELIVERY_ADMIN_ADDR="127.0.0.1:$ADMIN_PORT" \
 LOG_LEVEL="$LOG_LEVEL" \
 "$RELAY_BIN" >"$RELAY_LOG" 2>&1 &
 RELAY_PID=$!
@@ -255,6 +263,56 @@ for _ in $(seq 1 60); do
 done
 if [[ "$registry_received" != "true" ]]; then
     echo "Matching registry subscription did not receive ingress." >&2
+    exit 1
+fi
+
+# Stable callback delivery IDs must not collapse repeated webhook receipts in
+# Planner history. Body and credential values stay redacted by default.
+curl -fsS --max-time 5 -o /dev/null \
+    -X POST -H 'Content-Type: application/json' --data '{"event":"registry"}' \
+    "$RELAY_URL/http-smoke/registry-ingress"
+curl -fsS --max-time 5 \
+    -H "Authorization: Bearer $REGISTRY_TOKEN" \
+    "$RELAY_URL/registry/endpoints/$endpoint_key/events?protocol=http&kind=request" \
+    | php -r '
+        $events = json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR)["data"] ?? [];
+        if (count($events) !== 2 || $events[0]["event_id"] === $events[1]["event_id"] ||
+            $events[0]["attributes"]["delivery_id"] !== $events[1]["attributes"]["delivery_id"] ||
+            isset($events[0]["payload"]["body_base64"])) {
+            fwrite(STDERR, "Webhook history did not preserve distinct redacted receipts.\n"); exit(1);
+        }
+    '
+
+event_id="$(curl -fsS --max-time 5 \
+    -H "Authorization: Bearer $REGISTRY_TOKEN" \
+    "$RELAY_URL/registry/endpoints/$endpoint_key/events?protocol=http&kind=request" \
+    | php -r '$events=json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR)["data"] ?? []; echo $events[0]["event_id"] ?? "";')"
+if [[ -z "$event_id" ]]; then
+    echo "Webhook event ID was not returned." >&2
+    exit 1
+fi
+delivery_found="false"
+for _ in $(seq 1 60); do
+    curl -fsS --max-time 5 -o "$BODY" \
+        -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        "$RELAY_URL/deliveries?event_id=$event_id" || true
+    if php -r '
+        $data=json_decode(file_get_contents($argv[1]), true)["data"] ?? [];
+        if (count($data) !== 1 || $data[0]["event_id"] !== $argv[2] || $data[0]["state"] !== "delivered" ||
+            isset($data[0]["payload"]) || isset($data[0]["target"])) exit(1);
+    ' "$BODY" "$event_id"; then
+        delivery_found="true"
+        break
+    fi
+    sleep 0.25
+done
+if [[ "$delivery_found" != "true" ]]; then
+    echo "Webhook event did not resolve to a delivered, redacted receipt: $(<"$BODY")" >&2
+    for state in queued deferred failed delivered; do
+        curl -sS --max-time 5 -H "Authorization: Bearer $REGISTRY_TOKEN" \
+            "$RELAY_URL/deliveries?state=$state" >&2 || true
+    done
+    tail -30 "$RELAY_LOG" >&2
     exit 1
 fi
 

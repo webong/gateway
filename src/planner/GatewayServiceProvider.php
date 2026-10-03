@@ -18,20 +18,41 @@ use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
+use Webong\Gateway\Deliveries\Http\DeliveryController;
 use Webong\Gateway\Dns\CacheableDnsHookPathResolver;
 use Webong\Gateway\Dns\DnsHookEventRecorder;
 use Webong\Gateway\Dns\DnsHookPathResolver;
 use Webong\Gateway\Dns\Http\DnsHookController;
 use Webong\Gateway\Dns\Http\DnsHookEventController;
 use Webong\Gateway\Dns\Http\DnsHookUsageController;
+use Webong\Gateway\Dns\Http\DnsZoneController;
+use Webong\Gateway\Email\Http\EmailController;
+use Webong\Gateway\Email\Http\EmailSubmissionController;
+use Webong\Gateway\Email\EmailRegistry;
+use Webong\Gateway\Email\EmailMessagePolicy;
+use Webong\Gateway\Email\EmailSubmissionAuthenticator;
+use Webong\Gateway\Email\EmailSubmissionQuota;
+use Webong\Gateway\Email\PruneEmailSubmissionUsageCommand;
+use Webong\Gateway\Email\MailboxAuthenticator;
+use Webong\Gateway\Email\NativeTxtResolver;
+use Webong\Gateway\Email\DmarcEvaluator;
+use Webong\Gateway\Email\SrsCodec;
+use Webong\Gateway\Email\SrsReturnStore;
+use Webong\Gateway\Email\TxtResolver;
+use Webong\Gateway\Events\WebEventRecorder;
+use Webong\Gateway\Events\Http\EndpointEventController;
+use Webong\Gateway\Events\PruneEventsCommand;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
+use Webong\Gateway\Reconciliation\Http\Controllers\InternalRouteController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalAssignmentController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalTargetController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Schedules\Http\InternalScheduleController;
 use Webong\Gateway\Schedules\Http\ScheduleController;
+use Webong\Gateway\Schedules\Http\ScheduleDeliveryOutcomeController;
 use Webong\Gateway\Schedules\PersistScriptSchedules;
+use Webong\Gateway\Schedules\SendScheduleNotificationsCommand;
 use Webong\Gateway\Servers\Http\Controllers\ApplicationController as ManagedApplicationController;
 use Webong\Gateway\Servers\Http\Controllers\InstanceController as ManagedInstanceController;
 use Webong\Gateway\Servers\Http\Controllers\ServerController as ManagedServerController;
@@ -46,6 +67,31 @@ final class GatewayServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/config/gateway.php', 'gateway');
+
+        $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
+        $this->app->bind(SrsReturnStore::class, function (): SrsReturnStore {
+            $encoded = config('gateway.email.srs_keys');
+            if (! is_array($encoded) || ! array_is_list($encoded) || $encoded === []) {
+                throw new RuntimeException('Gateway SRS requires a JSON array of persistent base64 keys.');
+            }
+            $keys = [];
+            foreach ($encoded as $item) {
+                $key = is_string($item) ? base64_decode($item, true) : false;
+                if ($key === false || strlen($key) < 32) {
+                    throw new RuntimeException('Gateway SRS keys must decode to at least 32 bytes.');
+                }
+                $keys[] = $key;
+            }
+
+            return new SrsReturnStore(
+                new SrsCodec(
+                    strtolower(trim((string) config('gateway.email.srs_domain', ''))),
+                    $keys,
+                    (int) config('gateway.email.srs_max_age_seconds', 21 * 86400),
+                ),
+                $this->app->make(EmailRegistry::class),
+            );
+        });
 
         foreach (ExtensionProviderRegistry::providers() as $provider) {
             $this->app->register($provider);
@@ -143,11 +189,19 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->bind(CapabilityAwareRoutePlanner::class, fn (): CapabilityAwareRoutePlanner => new CapabilityAwareRoutePlanner(
             planner: $this->app->make(RoutePlanner::class),
             languages: $this->app->make(AutomationLanguageRegistry::class),
+            events: $this->app->make(WebEventRecorder::class),
         ));
 
         $this->app->bind(RegistryProtocolPlanner::class, fn (): RegistryProtocolPlanner => new RegistryProtocolPlanner(
             routePlanner: $this->app->make(CapabilityAwareRoutePlanner::class),
             dnsEvents: $this->app->make(DnsHookEventRecorder::class),
+            email: $this->app->make(EmailRegistry::class),
+            dmarc: $this->app->make(DmarcEvaluator::class),
+            srs: config('gateway.email.srs_enabled', false) ? $this->app->make(SrsReturnStore::class) : null,
+            emailPolicy: $this->emailMessagePolicy(),
+            submissionAuthenticator: $this->emailSubmissionAuthenticator(),
+            submissionQuota: $this->app->make(EmailSubmissionQuota::class),
+            mailboxAuthenticator: $this->mailboxAuthenticator(),
         ));
 
         $this->app->bind(ProtocolPlanner::class, function (): ProtocolPlanner {
@@ -171,9 +225,63 @@ final class GatewayServiceProvider extends ServiceProvider
         });
     }
 
+    private function emailMessagePolicy(): ?EmailMessagePolicy
+    {
+        $configured = config('gateway.email.policy');
+        if ($configured === null || $configured === '') {
+            return null;
+        }
+        if (! is_string($configured)) {
+            throw new RuntimeException('Gateway Email policy must be a configured class name.');
+        }
+        $policy = $this->app->make($configured);
+        if (! $policy instanceof EmailMessagePolicy) {
+            throw new RuntimeException("Gateway Email policy [{$configured}] must implement EmailMessagePolicy.");
+        }
+
+        return $policy;
+    }
+
+    private function emailSubmissionAuthenticator(): ?EmailSubmissionAuthenticator
+    {
+        $configured = config('gateway.email.submission_authenticator');
+        if ($configured === null || $configured === '') {
+            return null;
+        }
+        if (! is_string($configured)) {
+            throw new RuntimeException('Gateway Email submission authenticator must be a configured class name.');
+        }
+        $authenticator = $this->app->make($configured);
+        if (! $authenticator instanceof EmailSubmissionAuthenticator) {
+            throw new RuntimeException("Gateway Email submission authenticator [{$configured}] must implement EmailSubmissionAuthenticator.");
+        }
+
+        return $authenticator;
+    }
+
+    private function mailboxAuthenticator(): ?MailboxAuthenticator
+    {
+        $configured = config('gateway.email.mailbox_authenticator');
+        if ($configured === null || $configured === '') {
+            return null;
+        }
+        if (! is_string($configured)) {
+            throw new RuntimeException('Gateway mailbox authenticator must be a configured class name.');
+        }
+        $authenticator = $this->app->make($configured);
+        if (! $authenticator instanceof MailboxAuthenticator) {
+            throw new RuntimeException("Gateway mailbox authenticator [{$configured}] must implement MailboxAuthenticator.");
+        }
+
+        return $authenticator;
+    }
+
     public function boot(): void
     {
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
+        if ($this->app->runningInConsole()) {
+            $this->commands([PruneEventsCommand::class, PruneEmailSubmissionUsageCommand::class, SendScheduleNotificationsCommand::class]);
+        }
 
         if ((bool) config('gateway.dns.enabled', false)) {
             $client = trim((string) config('gateway.dns.client', 'gateway'));
@@ -191,13 +299,17 @@ final class GatewayServiceProvider extends ServiceProvider
         ], 'gateway-config');
 
         $this->app->booted(function (): void {
+            $this->app['router']->get('/_internal/gateway/ready', InternalReadinessController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
             $this->app['router']->post('/_internal/gateway/schedules/register', [InternalScheduleController::class, 'register']);
+            $this->app['router']->post('/_internal/gateway/schedules/notify', [InternalScheduleController::class, 'notify']);
             $this->app['router']->get('/_internal/provisioning/servers', InternalServerController::class);
+            $this->app['router']->get('/_internal/provisioning/routes/resolve', InternalRouteController::class);
             $this->app['router']->put('/_internal/provisioning/nodes/{node}/assignments', InternalAssignmentController::class);
+            $this->app['router']->delete('/_internal/provisioning/nodes/{node}/session', [InternalAssignmentController::class, 'release']);
             $this->app['router']->post('/_internal/provisioning/instances/reset', [InternalInstanceController::class, 'resetNode']);
             $this->app['router']->put('/_internal/provisioning/servers/{server}/instances/{instance}', [InternalInstanceController::class, 'update']);
 
@@ -226,13 +338,31 @@ final class GatewayServiceProvider extends ServiceProvider
 
             $this->app['router']->get('/instances', [ManagedInstanceController::class, 'index']);
             $this->app['router']->get('/instances/{instance}', [ManagedInstanceController::class, 'show']);
+            $this->app['router']->get('/deliveries', [DeliveryController::class, 'index']);
+            $this->app['router']->get('/deliveries/{delivery}', [DeliveryController::class, 'show']);
+            $this->app['router']->post('/deliveries/{delivery}/retry', [DeliveryController::class, 'retry']);
+            $this->app['router']->get('/email/domains', [EmailController::class, 'domains']);
+            $this->app['router']->post('/email/submissions', EmailSubmissionController::class);
+            $this->app['router']->post('/email/domains', [EmailController::class, 'createDomain']);
+            $this->app['router']->get('/email/domains/{domain}', [EmailController::class, 'showDomain']);
+            $this->app['router']->post('/email/domains/{domain}/verify', [EmailController::class, 'verifyDomain']);
+            $this->app['router']->patch('/email/domains/{domain}', [EmailController::class, 'updateDomain']);
+            $this->app['router']->delete('/email/domains/{domain}', [EmailController::class, 'deleteDomain']);
+            $this->app['router']->get('/email/domains/{domain}/aliases', [EmailController::class, 'aliases']);
+            $this->app['router']->post('/email/domains/{domain}/aliases', [EmailController::class, 'createAlias']);
+            $this->app['router']->get('/email/domains/{domain}/aliases/{alias}', [EmailController::class, 'showAlias']);
+            $this->app['router']->patch('/email/domains/{domain}/aliases/{alias}', [EmailController::class, 'updateAlias']);
+            $this->app['router']->delete('/email/domains/{domain}/aliases/{alias}', [EmailController::class, 'deleteAlias']);
             $this->app['router']->get('/schedules', [ScheduleController::class, 'index']);
             $this->app['router']->post('/schedules', [ScheduleController::class, 'store']);
             $this->app['router']->get('/schedules/{schedule}', [ScheduleController::class, 'show']);
             $this->app['router']->patch('/schedules/{schedule}', [ScheduleController::class, 'update']);
             $this->app['router']->delete('/schedules/{schedule}', [ScheduleController::class, 'destroy']);
             $this->app['router']->get('/schedules/{schedule}/runs', [ScheduleController::class, 'runs']);
+            $this->app['router']->get('/schedules/{schedule}/runs/{run}/outcome', ScheduleDeliveryOutcomeController::class);
+            $this->app['router']->post('/schedules/{schedule}/runs', [ScheduleController::class, 'run']);
             if ((bool) config('gateway.dns.enabled', false)) {
+                $this->app['router']->get('/dns/zones', DnsZoneController::class)->name('dns.zones.index');
                 $this->app['router']->get('/dns/hooks', [DnsHookController::class, 'index'])->name('dns.hooks.index');
                 $this->app['router']->post('/dns/hooks', [DnsHookController::class, 'store'])->name('dns.hooks.store');
                 $this->app['router']->get('/dns/hooks/{hook}', [DnsHookController::class, 'show'])->name('dns.hooks.show');
@@ -244,6 +374,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']
                 ->post('/registry/endpoints', EndpointController::class)
                 ->name('registry.endpoints.store');
+            $this->app['router']
+                ->get('/registry/endpoints/{endpointKey}/events', EndpointEventController::class)
+                ->name('registry.endpoints.events');
             $this->app['router']
                 ->post('/registry/endpoints/{endpointKey}/subscriptions', SubscriptionController::class)
                 ->name('registry.subscriptions.store');

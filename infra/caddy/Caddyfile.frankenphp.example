@@ -15,39 +15,85 @@
 		max_message_size 10485760
 		max_recipients 100
 		# Enable STARTTLS by supplying both files. AUTH requires TLS and is
-		# delegated to the PHP protocol planner as an authenticate event.
+		# delegated to a deployment-owned PHP credential authority. An accepted
+		# login must grant exact envelope/From sender addresses.
 		# tls_cert_file /etc/ssl/gateway/smtp.crt
 		# tls_key_file /etc/ssl/gateway/smtp.key
 		# implicit_tls false
 		# auth_enabled false
+		# recipient_preflight false  # only for custom planners without recipient events
+		# Optional clamd check and durable local quarantine. Prefer a private Unix socket.
+		# clamd_network unix
+		# clamd_address /run/clamav/clamd.sock
+		# clamd_timeout 10s
+		# quarantine_path /var/lib/gateway/email-quarantine
+		# quarantine_retention 720h
+		# dsn_domain gateway.example.com  # authenticated, Planner-approved async SMTP only
 		# Optional outbound transport for typed SMTP deliveries returned by
-		# the planner. Credentials require starttls or implicit TLS.
+		# the planner. Credentials require starttls or implicit TLS. Setting
+		# spool_path also persists SMTP-origin HTTP subscriber deliveries.
 		# relay_address smtp.example.com:587
 		# relay_local_name {$GATEWAY_SMTP_HOSTNAME:gateway.local}
 		# relay_username {$GATEWAY_SMTP_RELAY_USERNAME}
 		# relay_password {$GATEWAY_SMTP_RELAY_PASSWORD}
 		# relay_tls_mode starttls
 		# relay_timeout 30s
+		# dkim_signing_config /etc/gateway/dkim.json
 		# spool_path /var/lib/gateway/deliveries
+		# Or use the same private PostgreSQL database in both gateway blocks:
+		# delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
 		# max_attempts 8
 		# initial_backoff 5s
 		# max_backoff 1h
 		# poll_interval 1s
+		# receipt_retention 2160h
 	}
+
+	# Optional implicit-TLS mailbox retrieval gateways. Both use the private
+	# PHP-only Planner site below and an operator-registered TLS upstream.
+	# gateway_pop3 {
+	#     listen :995
+	#     planner_url http://127.0.0.1:8081
+	#     internal_token {$GATEWAY_INTERNAL_TOKEN}
+	#     tls_cert_file /etc/ssl/gateway/mail.crt
+	#     tls_key_file /etc/ssl/gateway/mail.key
+	#     upstream_ca_file /etc/ssl/gateway/upstream-ca.crt
+	#     upstream primary pop.internal:995 pop.internal
+	# }
+	# gateway_imap {
+	#     listen :993
+	#     planner_url http://127.0.0.1:8081
+	#     internal_token {$GATEWAY_INTERNAL_TOKEN}
+	#     tls_cert_file /etc/ssl/gateway/mail.crt
+	#     tls_key_file /etc/ssl/gateway/mail.key
+	#     upstream_ca_file /etc/ssl/gateway/upstream-ca.crt
+	#     upstream primary imap.internal:993 imap.internal
+	# }
 }
 
 {$SERVER_NAME:localhost} {
 	root * {$APP_PUBLIC_PATH}
-	encode zstd br gzip
+	encode zstd gzip
 
 	route {
 		# The Go gateway is the first application handler. It calls the next
 		# handler for PHP planning and ordinary Laravel pass-through requests.
 		gateway {
 			internal_token {$GATEWAY_INTERNAL_TOKEN}
+			# For a separate provisioning worker, set only reachable workload networks:
+			# managed_route_cidrs 10.244.0.0/16
 			max_body_size 10485760
 			max_workers 100
 			max_queue_size 1000
+			webstream_max_connections 1000
+			webstream_max_duration 24h
+			# The HTTP handler uses the http/ child directory, separate from SMTP.
+			# Caddy reloads that overlap spool workers are rejected; restart to
+			# apply configuration changes while durable delivery is enabled.
+			# spool_path /var/lib/gateway/deliveries
+			# delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
+			# admin_addr 127.0.0.1:5052
+			# receipt_retention 2160h
 		}
 
 		php_server {

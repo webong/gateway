@@ -15,13 +15,17 @@ replace github.com/webong/gateway/driver => ./lib/driver
 require (
 	github.com/buke/quickjs-go v0.7.7
 	github.com/caddyserver/caddy/v2 v2.10.0
+	github.com/emersion/go-msgauth v0.7.0
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.24.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/jackc/pgx/v4 v4.18.3
 	github.com/miekg/dns v1.1.65
+	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a
 	github.com/yuin/gopher-lua v1.1.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.40.0
+	golang.org/x/sys v0.33.0
 	golang.org/x/time v0.11.0
 )
 
@@ -117,7 +121,6 @@ require (
 	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgtype v1.14.0 // indirect
-	github.com/jackc/pgx/v4 v4.18.3 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
@@ -276,7 +279,6 @@ require (
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/term v0.32.0 // indirect
 	golang.org/x/text v0.25.0 // indirect
 	golang.org/x/tools v0.33.0 // indirect

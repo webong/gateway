@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,6 +21,12 @@ type WorkerServer interface {
 	Stop()
 }
 
+type plannerReady struct {
+	planner bridge.ProtocolPlanner
+	control *transport.ScheduleControl
+	err     error
+}
+
 // RunRoadRunner composes Spinner's middleware with a managed PHP worker server.
 func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler) http.Handler) (WorkerServer, error)) error {
 	if newServer == nil {
@@ -34,23 +41,37 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		return err
 	}
 	defer spinner.Close()
-	ready := make(chan bridge.ProtocolPlanner, 1)
+	websocketAdmission := gatewayws.NewAdmission(spinner.WebSocketMaxConnections)
+	webstreamAdmission := gatewaystream.NewAdmission(spinner.WebstreamMaxConnections)
+	engine := automationextensions.Runtime()
+	managed, err := managedRouteProxy(spinner)
+	if err != nil {
+		return err
+	}
+	ready := make(chan plannerReady, 1)
 	server, err := newServer(configPath, func(next http.Handler) http.Handler {
 		planner := bridge.NewPHPPlanner(next, spinner.MaxBodySize)
 		planner.InternalToken = spinner.InternalToken
 		protocolPlanner := bridge.NewPHPProtocolPlanner(next, spinner.MaxBodySize)
 		protocolPlanner.InternalToken = spinner.InternalToken
+		control, controlErr := transport.EmbeddedScheduleControl(next, spinner, engine)
 		select {
-		case ready <- protocolPlanner:
+		case ready <- plannerReady{planner: protocolPlanner, control: control, err: controlErr}:
 		default:
 		}
+		if controlErr != nil {
+			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				http.Error(writer, "Planner schedule control is unavailable", http.StatusServiceUnavailable)
+			})
+		}
 		edge := bridge.NewEdge(planner, spinner.Executor, spinner.MaxBodySize).
-			SetAutomationExecutor(automationextensions.Runtime()).SetPassThrough(next)
+			SetAutomationExecutor(engine).SetScheduleRegistrar(control).SetPassThrough(next)
 		websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
 			MaxMessageSize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
+			MaxDuration: spinner.WebSocketMaxDuration, Admission: websocketAdmission,
 		})
-		webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry})
-		return routerHandler(next, edge, websocket, webstream)
+		webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxDuration: spinner.WebstreamMaxDuration, Admission: webstreamAdmission})
+		return routerHandler(next, edge, websocket, webstream, managed)
 	})
 	if err != nil {
 		return err
@@ -59,13 +80,21 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 	done := make(chan error, 1)
 	go func() { done <- server.Serve() }()
 	var listeners []transport.ProtocolListener
-	listenerErrors := make(chan error, 2)
-	if spinner.HasProtocolListeners() {
+	listenerErrors := make(chan error, 3)
+	if spinner.DeliveryAdminServer != nil {
+		go func() {
+			if err := spinner.ServeDeliveryAdmin(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				listenerErrors <- err
+			}
+		}()
+	}
+	if spinner.HasProtocolListeners() || spinner.SchedulesEnabled {
 		startup, cancel := context.WithTimeout(ctx, spinner.RequestTimeout)
-		var planner bridge.ProtocolPlanner
+		var prepared plannerReady
 		var err error
 		select {
-		case planner = <-ready:
+		case prepared = <-ready:
+			err = prepared.err
 		case err = <-done:
 			cancel()
 			server.Stop()
@@ -77,9 +106,18 @@ func RunRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			err = startup.Err()
 		}
 		cancel()
-		if err == nil {
-			listeners, err = spinner.ProtocolListeners(planner)
+		if err != nil {
+			server.Stop()
+			<-done
+			return err
 		}
+		if spinner.SchedulesEnabled {
+			scheduleCtx, cancelSchedules := context.WithCancel(ctx)
+			defer cancelSchedules()
+			transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine)
+			log.Print("Schedule polling enabled")
+		}
+		listeners, err = spinner.ProtocolListeners(prepared.planner)
 		if err != nil {
 			server.Stop()
 			<-done

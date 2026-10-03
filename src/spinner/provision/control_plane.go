@@ -3,7 +3,10 @@ package provision
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +17,8 @@ import (
 
 const maxControlResponseSize = 4 * 1024 * 1024
 
+var ErrNodeSessionActive = errors.New("another worker session owns this provisioning node")
+
 type ControlPlane interface {
 	Assignments(context.Context, string, []string) ([]ServerSpec, string, error)
 	Report(context.Context, string, string, InstanceReport) error
@@ -21,10 +26,11 @@ type ControlPlane interface {
 }
 
 type HTTPControlPlane struct {
-	client   *http.Client
-	base     *url.URL
-	token    string
-	targetID string
+	client    *http.Client
+	base      *url.URL
+	token     string
+	targetID  string
+	sessionID string
 }
 
 func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPControlPlane, error) {
@@ -42,11 +48,15 @@ func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPCo
 		client = http.DefaultClient
 	}
 
-	return &HTTPControlPlane{client: client, base: backend, token: token}, nil
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return nil, fmt.Errorf("generate provisioning worker session: %w", err)
+	}
+	return &HTTPControlPlane{client: client, base: backend, token: token, sessionID: hex.EncodeToString(random[:])}, nil
 }
 
 func (c *HTTPControlPlane) Assignments(ctx context.Context, nodeID string, drivers []string) ([]ServerSpec, string, error) {
-	payload, err := json.Marshal(map[string][]string{"drivers": drivers})
+	payload, err := json.Marshal(map[string]any{"drivers": drivers, "session_id": c.sessionID})
 	if err != nil {
 		return nil, "", fmt.Errorf("encode provisioning node heartbeat: %w", err)
 	}
@@ -62,17 +72,24 @@ func (c *HTTPControlPlane) Assignments(ctx context.Context, nodeID string, drive
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusLocked {
+			return nil, "", ErrNodeSessionActive
+		}
 		return nil, "", fmt.Errorf("load provisioned assignments: status %d", response.StatusCode)
 	}
 
 	var document struct {
 		Data []ServerSpec `json:"data"`
 		Meta struct {
-			LeaderID string `json:"leader_id"`
+			LeaderID  string `json:"leader_id"`
+			SessionID string `json:"session_id"`
 		} `json:"meta"`
 	}
 	if err := decodeResponse(response.Body, &document); err != nil {
 		return nil, "", fmt.Errorf("decode provisioned assignments: %w", err)
+	}
+	if document.Meta.SessionID != c.sessionID {
+		return nil, "", fmt.Errorf("Planner did not confirm provisioning worker session; upgrade Planner before using this Spinner")
 	}
 	for _, spec := range document.Data {
 		if spec.TargetID != c.targetID {
@@ -133,6 +150,30 @@ func (c *HTTPControlPlane) ResetNode(ctx context.Context, nodeID string) error {
 	return nil
 }
 
+// ReleaseNode permits an immediate graceful handover. A crashed worker cannot
+// release; its session remains fenced until the Planner coordination lease
+// expires.
+func (c *HTTPControlPlane) ReleaseNode(ctx context.Context, nodeID string) error {
+	payload, err := json.Marshal(map[string]string{"session_id": c.sessionID})
+	if err != nil {
+		return err
+	}
+	request, err := c.request(ctx, http.MethodDelete, "/_internal/provisioning/nodes/"+url.PathEscape(nodeID)+"/session", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.client.Do(request)
+	if err != nil {
+		return fmt.Errorf("release provisioning node session: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("release provisioning node session: status %d", response.StatusCode)
+	}
+	return nil
+}
+
 func (c *HTTPControlPlane) request(ctx context.Context, method, endpoint string, body io.Reader) (*http.Request, error) {
 	target := *c.base
 	target.Path = strings.TrimSuffix(c.base.Path, "/") + path.Clean("/"+endpoint)
@@ -145,6 +186,7 @@ func (c *HTTPControlPlane) request(ctx context.Context, method, endpoint string,
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-Gateway-Internal", c.token)
+	request.Header.Set("X-Gateway-Worker-Session", c.sessionID)
 	if c.targetID != "" {
 		request.Header.Set("X-Gateway-Target", c.targetID)
 	}

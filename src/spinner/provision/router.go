@@ -1,6 +1,7 @@
 package provision
 
 import (
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -32,7 +33,7 @@ func NewRouter() *Router {
 }
 
 func (r *Router) Add(spec ServerSpec, instanceID, host string, port int) {
-	target := &url.URL{Scheme: "http", Host: host + ":" + strconv.Itoa(port)}
+	target := &url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(port))}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

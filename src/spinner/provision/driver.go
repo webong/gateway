@@ -16,7 +16,7 @@ type DriverRegistry struct {
 }
 
 type driverPreparer interface {
-	Prepare(context.Context) error
+	PrepareDesired(context.Context, map[string]ServerSpec) error
 }
 
 func NewDriverRegistry(drivers map[string]Driver, workloads []Workload) (*DriverRegistry, error) {
@@ -66,7 +66,23 @@ func (r *DriverRegistry) Start(ctx context.Context, spec ServerSpec, instanceID 
 	return driver.Start(ctx, spec, instanceID, workload)
 }
 
-func (r *DriverRegistry) Prepare(ctx context.Context) error {
+// PrepareDesired removes stale owned resources only after the control plane has
+// supplied a successful assignment snapshot. Desired resources remain in place
+// for the driver's Start method to adopt.
+func (r *DriverRegistry) PrepareDesired(ctx context.Context, specifications []ServerSpec) error {
+	desired := make(map[string]map[string]ServerSpec, len(r.drivers))
+	for _, spec := range specifications {
+		if err := spec.Validate(); err != nil {
+			return err
+		}
+		if _, exists := r.drivers[spec.Driver]; !exists {
+			return fmt.Errorf("provisioning %s driver is not configured on this Gateway node", spec.Driver)
+		}
+		if desired[spec.Driver] == nil {
+			desired[spec.Driver] = make(map[string]ServerSpec)
+		}
+		desired[spec.Driver][spec.AssignmentID] = spec
+	}
 	names := make([]string, 0, len(r.drivers))
 	for name := range r.drivers {
 		names = append(names, name)
@@ -77,7 +93,7 @@ func (r *DriverRegistry) Prepare(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		if err := preparer.Prepare(ctx); err != nil {
+		if err := preparer.PrepareDesired(ctx, desired[name]); err != nil {
 			return fmt.Errorf("prepare provisioning %s driver: %w", name, err)
 		}
 	}

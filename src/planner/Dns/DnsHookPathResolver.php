@@ -29,6 +29,8 @@ class DnsHookPathResolver implements PathResolver
             ->where('endpoint_key', 'dns-'.$token)
             ->where('is_active', true)
             ->where('metadata->_gateway->kind', 'dns_hook')
+            ->when(($zone = strtolower(rtrim((string) ($request->attributes['zone'] ?? ''), '.'))) !== '',
+                fn ($query) => $query->where('metadata->_gateway->zone', $zone))
             ->first();
         if ($hook === null) {
             return null;

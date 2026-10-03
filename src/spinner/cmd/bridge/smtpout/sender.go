@@ -91,9 +91,8 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 		return errors.New("outbound SMTP sender is not initialized")
 	}
 	message.EnvelopeFrom = strings.TrimSpace(message.EnvelopeFrom)
-	if message.EnvelopeFrom == "" {
-		return errors.New("outbound SMTP envelope sender is required")
-	}
+	// An empty reverse-path is valid for delivery status notifications. The
+	// SMTP client encodes it as MAIL FROM:<> rather than inventing a sender.
 	if len(message.Recipients) == 0 {
 		return errors.New("outbound SMTP recipient is required")
 	}
@@ -152,9 +151,11 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 	if err := client.SendMail(message.EnvelopeFrom, message.Recipients, bytes.NewReader(message.Data)); err != nil {
 		return fmt.Errorf("submit outbound SMTP message: %w", err)
 	}
-	if err := client.Quit(); err != nil {
-		return fmt.Errorf("close outbound SMTP transaction: %w", err)
-	}
+	// A successful DATA completion transfers responsibility to the relay.
+	// QUIT is a session courtesy; an interrupted QUIT must not make the
+	// caller retry a message that the relay already accepted.
+	_ = connection.SetDeadline(time.Now().Add(time.Second))
+	_ = client.Quit()
 
 	return nil
 }

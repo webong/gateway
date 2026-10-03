@@ -7,12 +7,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"net/mail"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/emersion/go-sasl"
 	smtpserver "github.com/emersion/go-smtp"
@@ -22,30 +28,59 @@ import (
 
 var ErrServerClosed = errors.New("SMTP server closed")
 
+type SigningDomainChecker interface {
+	CheckSigningDomain(domain string) error
+}
+
 const (
-	defaultHostname       = "gateway.local"
-	defaultMaxMessageSize = 10 * 1024 * 1024
-	defaultMaxLineSize    = 16 * 1024
-	defaultMaxRecipients  = 100
-	defaultReadTimeout    = 5 * time.Minute
-	defaultWriteTimeout   = 30 * time.Second
-	defaultPlannerTimeout = 30 * time.Second
+	defaultHostname               = "gateway.local"
+	defaultMaxMessageSize         = 10 * 1024 * 1024
+	defaultMaxLineSize            = 16 * 1024
+	defaultMaxRecipients          = 100
+	defaultMaxConnections         = 1000
+	defaultMessagesPerMinute      = 120
+	defaultMessageBurst           = 20
+	defaultReadTimeout            = 5 * time.Minute
+	defaultWriteTimeout           = 30 * time.Second
+	defaultPlannerTimeout         = 30 * time.Second
+	defaultSPFTimeout             = 3 * time.Second
+	defaultDKIMTimeout            = 3 * time.Second
+	defaultDomainExistenceTimeout = 3 * time.Second
+	defaultScanTimeout            = 10 * time.Second
 )
 
 // Config controls the SMTP listener and transaction limits.
 type Config struct {
-	Network        string
-	Address        string
-	Hostname       string
-	MaxMessageSize int64
-	MaxLineSize    int
-	MaxRecipients  int
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
-	PlannerTimeout time.Duration
-	TLSConfig      *tls.Config
-	ImplicitTLS    bool
-	AuthEnabled    bool
+	Network                 string
+	Address                 string
+	Hostname                string
+	MaxMessageSize          int64
+	MaxLineSize             int
+	MaxRecipients           int
+	MaxConnections          int
+	MessagesPerMinute       int
+	MessageBurst            int
+	ReadTimeout             time.Duration
+	WriteTimeout            time.Duration
+	PlannerTimeout          time.Duration
+	SPFTimeout              time.Duration
+	SPFEvaluator            SPFEvaluator
+	DKIMTimeout             time.Duration
+	DKIMVerifier            DKIMVerifier
+	DomainExistenceTimeout  time.Duration
+	DomainExistenceResolver DomainExistenceResolver
+	SubmitTimeout           time.Duration
+	Submitter               bridge.GatewayDeliveryAdapter
+	SigningDomainChecker    SigningDomainChecker
+	Scanner                 MalwareScanner
+	ScanTimeout             time.Duration
+	Quarantine              QuarantineStore
+	QuarantineRetention     time.Duration
+	LoopKey                 []byte
+	TLSConfig               *tls.Config
+	ImplicitTLS             bool
+	AuthEnabled             bool
+	RecipientPreflight      bool
 }
 
 // Server is the gateway-owned lifecycle wrapper around emersion/go-smtp.
@@ -67,8 +102,34 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor bridge.Ga
 	if executor == nil {
 		return nil, fmt.Errorf("SMTP gateway executor is required")
 	}
-	if config.MaxMessageSize < 1 || config.MaxLineSize < 1 || config.MaxRecipients < 1 {
-		return nil, fmt.Errorf("SMTP size and recipient limits must be positive")
+	if config.MaxMessageSize < 1 || config.MaxLineSize < 1 || config.MaxRecipients < 1 || config.MaxConnections < 1 || config.MessagesPerMinute < 1 || config.MessageBurst < 1 {
+		return nil, fmt.Errorf("SMTP size, recipient, connection, and rate limits must be positive")
+	}
+	if config.SubmitTimeout < 1 {
+		return nil, fmt.Errorf("SMTP submit timeout must be positive")
+	}
+	if config.SPFTimeout < 1 {
+		return nil, fmt.Errorf("SMTP SPF timeout must be positive")
+	}
+	if config.DKIMTimeout < 1 {
+		return nil, fmt.Errorf("SMTP DKIM timeout must be positive")
+	}
+	if config.DomainExistenceResolver != nil && config.DomainExistenceTimeout < 1 {
+		return nil, fmt.Errorf("SMTP author-domain lookup timeout must be positive")
+	}
+	if config.ScanTimeout < 1 {
+		return nil, fmt.Errorf("SMTP malware scan timeout must be positive")
+	}
+	if config.QuarantineRetention < 0 {
+		return nil, fmt.Errorf("SMTP quarantine retention cannot be negative")
+	}
+	if config.QuarantineRetention > 0 {
+		if _, ok := config.Quarantine.(QuarantinePruner); !ok {
+			return nil, fmt.Errorf("SMTP quarantine retention requires a prunable quarantine store")
+		}
+	}
+	if config.Submitter != nil && len(config.LoopKey) == 0 {
+		return nil, fmt.Errorf("outbound SMTP submission requires a forwarding-loop key")
 	}
 	if config.ImplicitTLS && config.TLSConfig == nil {
 		return nil, fmt.Errorf("implicit SMTP TLS requires a certificate and key")
@@ -76,11 +137,17 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor bridge.Ga
 	if config.AuthEnabled && config.TLSConfig == nil {
 		return nil, fmt.Errorf("SMTP AUTH requires TLS configuration")
 	}
+	if config.QuarantineRetention > 0 {
+		if _, err := config.Quarantine.(QuarantinePruner).PruneBefore(time.Now().UTC().Add(-config.QuarantineRetention)); err != nil {
+			return nil, fmt.Errorf("prune SMTP quarantine before serving: %w", err)
+		}
+	}
 
 	server := smtpserver.NewServer(&backend{
 		planner:  planner,
 		executor: executor,
 		config:   config,
+		limiter:  newSourceLimiter(config.MessagesPerMinute, config.MessageBurst),
 	})
 	server.Network = config.Network
 	server.Addr = config.Address
@@ -99,10 +166,11 @@ func (s *Server) ListenAndServe() error {
 	if s == nil || s.server == nil {
 		return fmt.Errorf("SMTP server is not initialized")
 	}
-	if s.config.ImplicitTLS {
-		return normalizeServerError(s.server.ListenAndServeTLS())
+	listener, err := net.Listen(s.config.Network, s.config.Address)
+	if err != nil {
+		return err
 	}
-	return normalizeServerError(s.server.ListenAndServe())
+	return s.Serve(listener)
 }
 
 // ListenAndServeTLS exposes go-smtp's implicit TLS mode for deployments that
@@ -112,7 +180,14 @@ func (s *Server) ListenAndServeTLS() error {
 	if s == nil || s.server == nil {
 		return fmt.Errorf("SMTP server is not initialized")
 	}
-	return normalizeServerError(s.server.ListenAndServeTLS())
+	if s.config.TLSConfig == nil {
+		return fmt.Errorf("implicit SMTP TLS requires a certificate and key")
+	}
+	listener, err := net.Listen(s.config.Network, s.config.Address)
+	if err != nil {
+		return err
+	}
+	return s.serveListener(listener, true)
 }
 
 // Serve accepts a caller-provided listener. Caddy uses this to provide a
@@ -124,7 +199,34 @@ func (s *Server) Serve(listener net.Listener) error {
 	if listener == nil {
 		return fmt.Errorf("SMTP listener is required")
 	}
-	if s.config.ImplicitTLS {
+	return s.serveListener(listener, s.config.ImplicitTLS)
+}
+
+func (s *Server) serveListener(listener net.Listener, implicitTLS bool) error {
+	if implicitTLS && s.config.TLSConfig == nil {
+		return fmt.Errorf("implicit SMTP TLS requires a certificate and key")
+	}
+	if s.config.QuarantineRetention > 0 {
+		pruner := s.config.Quarantine.(QuarantinePruner)
+		stop := make(chan struct{})
+		defer close(stop)
+		go func() {
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ticker.C:
+					if _, err := pruner.PruneBefore(time.Now().UTC().Add(-s.config.QuarantineRetention)); err != nil {
+						log.Printf("Gateway SMTP quarantine retention failed: %v", err)
+					}
+				}
+			}
+		}()
+	}
+	listener = newLimitedListener(listener, s.config.MaxConnections)
+	if implicitTLS {
 		listener = tls.NewListener(listener, s.config.TLSConfig)
 	}
 	return normalizeServerError(s.server.Serve(listener))
@@ -152,6 +254,7 @@ type backend struct {
 	planner  bridge.ProtocolPlanner
 	executor bridge.GatewayExecutor
 	config   Config
+	limiter  *sourceLimiter
 }
 
 func (b *backend) NewSession(connection *smtpserver.Conn) (smtpserver.Session, error) {
@@ -167,19 +270,26 @@ func (b *backend) NewSession(connection *smtpserver.Conn) (smtpserver.Session, e
 		sessionID:  newSessionID(remoteAddress),
 		helo:       connection.Hostname(),
 		remoteAddr: remoteAddress,
+		limiter:    b.limiter,
 	}, nil
 }
 
 type session struct {
-	planner       bridge.ProtocolPlanner
-	executor      bridge.GatewayExecutor
-	config        Config
-	sessionID     string
-	helo          string
-	remoteAddr    string
-	from          string
-	recipients    []string
-	authenticated bool
+	planner                  bridge.ProtocolPlanner
+	executor                 bridge.GatewayExecutor
+	config                   Config
+	sessionID                string
+	helo                     string
+	remoteAddr               string
+	limiter                  *sourceLimiter
+	from                     string
+	recipients               []string
+	authenticated            bool
+	authUsername             string
+	authIdentity             string
+	submissionDailyLimit     string
+	submissionDailyByteLimit string
+	authorizedSenders        map[string]struct{}
 }
 
 func (s *session) AuthMechanisms() []string {
@@ -209,6 +319,13 @@ func (s *session) Auth(mech string) (sasl.Server, error) {
 }
 
 func (s *session) authenticate(identity, username, password string) error {
+	s.Reset()
+	s.authenticated = false
+	s.authUsername = ""
+	s.authIdentity = ""
+	s.submissionDailyLimit = ""
+	s.submissionDailyByteLimit = ""
+	s.authorizedSenders = nil
 	event := bridge.GatewayEvent{
 		ID:        transactionID(s.sessionID, username, []string{identity}, []byte(password)),
 		Protocol:  bridge.ProtocolSMTP,
@@ -225,6 +342,9 @@ func (s *session) authenticate(identity, username, password string) error {
 			"password":    password,
 		},
 	}
+	if peerIP, ok := smtpPeerIP(s.remoteAddr); ok {
+		event.Attributes["remote_ip"] = peerIP
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.PlannerTimeout)
 	defer cancel()
@@ -239,14 +359,84 @@ func (s *session) authenticate(identity, username, password string) error {
 	if decision.Action != bridge.GatewayAccept {
 		return errors.New("SMTP authentication rejected")
 	}
+	canonicalIdentity := decision.Metadata["auth_identity"]
+	if !validAuthenticationIdentity(canonicalIdentity) {
+		return errors.New("SMTP authentication decision has no valid canonical identity")
+	}
+	senders, err := authorizedMailFrom(decision.Metadata["authorized_mail_from"])
+	if err != nil {
+		return err
+	}
+	dailyLimit := decision.Metadata["submission_daily_limit"]
+	if dailyLimit != "" {
+		parsed, err := strconv.Atoi(dailyLimit)
+		if err != nil || parsed < 1 || parsed > 1_000_000 {
+			return errors.New("SMTP authentication decision has an invalid submission quota")
+		}
+	}
+	dailyByteLimit := decision.Metadata["submission_daily_byte_limit"]
+	if dailyByteLimit != "" {
+		parsed, err := strconv.ParseInt(dailyByteLimit, 10, 64)
+		if err != nil || parsed < 1 || parsed > 1_000_000_000_000 {
+			return errors.New("SMTP authentication decision has an invalid submission byte quota")
+		}
+	}
 
 	s.authenticated = true
+	s.authUsername = username
+	s.authIdentity = canonicalIdentity
+	s.submissionDailyLimit = dailyLimit
+	s.submissionDailyByteLimit = dailyByteLimit
+	s.authorizedSenders = senders
 	return nil
 }
 
+func validAuthenticationIdentity(identity string) bool {
+	if identity == "" || len(identity) > 255 || strings.TrimSpace(identity) != identity || !utf8.ValidString(identity) {
+		return false
+	}
+	for _, character := range identity {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
+}
+
+// An AUTH decision must explicitly grant envelope senders. A successful
+// credential check alone cannot grant permission to impersonate a domain.
+func authorizedMailFrom(raw string) (map[string]struct{}, error) {
+	var addresses []string
+	if err := json.Unmarshal([]byte(raw), &addresses); err != nil || len(addresses) == 0 || len(addresses) > 100 {
+		return nil, errors.New("SMTP authentication decision has no valid authorized senders")
+	}
+	senders := make(map[string]struct{}, len(addresses))
+	for _, address := range addresses {
+		parsed, err := mail.ParseAddress(address)
+		if err != nil || parsed.Address != address || len(address) > 254 || strings.Contains(address, "*") {
+			return nil, errors.New("SMTP authentication decision has an invalid sender")
+		}
+		senders[address] = struct{}{}
+	}
+	return senders, nil
+}
+
 func (s *session) Mail(from string, _ *smtpserver.MailOptions) error {
+	s.Reset()
 	if s.config.AuthEnabled && !s.authenticated {
 		return smtpserver.ErrAuthRequired
+	}
+	if s.config.AuthEnabled {
+		if _, allowed := s.authorizedSenders[from]; !allowed {
+			return smtpError(553, "envelope sender is not authorized")
+		}
+	}
+	if s.limiter != nil && !s.limiter.allow(s.remoteAddr) {
+		return &smtpserver.SMTPError{
+			Code:         451,
+			EnhancedCode: smtpserver.EnhancedCode{4, 7, 1},
+			Message:      "SMTP source rate limit exceeded",
+		}
 	}
 	s.from = from
 	s.recipients = nil
@@ -262,6 +452,34 @@ func (s *session) Rcpt(to string, _ *smtpserver.RcptOptions) error {
 			Code:         452,
 			EnhancedCode: smtpserver.EnhancedCode{4, 5, 3},
 			Message:      "Maximum recipient limit reached",
+		}
+	}
+	if s.config.RecipientPreflight {
+		ctx, cancel := context.WithTimeout(context.Background(), s.config.PlannerTimeout)
+		defer cancel()
+		attributes := s.transactionAttributes()
+		if len(s.recipients) > 0 {
+			accepted, _ := json.Marshal(s.recipients)
+			attributes["accepted_recipients"] = string(accepted)
+		}
+		decision, err := s.planner.PlanEvent(ctx, bridge.GatewayEvent{
+			ID:         newSessionID(s.sessionID + ":recipient:" + to),
+			Protocol:   bridge.ProtocolSMTP,
+			Kind:       bridge.EventRecipient,
+			SessionID:  s.sessionID,
+			Host:       s.config.Hostname,
+			Route:      to,
+			Attributes: attributes,
+		})
+		if err != nil || decision.Validate() != nil || decision.Protocol != bridge.ProtocolSMTP {
+			return smtpError(451, "gateway recipient planning failed")
+		}
+		switch decision.Action {
+		case bridge.GatewayAccept:
+		case bridge.GatewayReject, bridge.GatewayClose:
+			return smtpError(smtpStatusCode(decision.StatusCode, 550), decision.Message)
+		default:
+			return smtpError(451, "gateway returned an invalid recipient decision")
 		}
 	}
 	s.recipients = append(s.recipients, to)
@@ -286,21 +504,48 @@ func (s *session) Data(reader io.Reader) error {
 		return smtpError(554, "message has no recipients")
 	}
 
+	attributes := s.transactionAttributes()
+	attributes["recipients"] = strings.Join(s.recipients, ",")
+	for key, value := range authorAttributes(message) {
+		attributes[key] = value
+	}
+	signingDomain := ""
+	if s.config.AuthEnabled {
+		author := authorAddress(message)
+		if _, allowed := s.authorizedSenders[author]; !allowed || author == "" || attributes["rfc5322_from_domain"] == "" {
+			return smtpError(553, "message author is not authorized")
+		}
+		signingDomain = attributes["rfc5322_from_domain"]
+	}
+	if domain := attributes["rfc5322_from_domain"]; domain != "" && s.config.DomainExistenceResolver != nil {
+		lookupCtx, lookupCancel := context.WithTimeout(context.Background(), s.config.DomainExistenceTimeout)
+		existence, lookupErr := s.config.DomainExistenceResolver.Lookup(lookupCtx, domain)
+		lookupCancel()
+		if lookupErr != nil || (existence != "exists" && existence != "nxdomain") {
+			existence = "temperror"
+		}
+		attributes["rfc5322_from_existence"] = existence
+	}
+	spfCtx, spfCancel := context.WithTimeout(context.Background(), s.config.SPFTimeout)
+	for key, value := range s.spfAttributes(spfCtx) {
+		attributes[key] = value
+	}
+	spfCancel()
+	dkimCtx, dkimCancel := context.WithTimeout(context.Background(), s.config.DKIMTimeout)
+	for key, value := range s.dkimAttributes(dkimCtx, message) {
+		attributes[key] = value
+	}
+	dkimCancel()
 	event := bridge.GatewayEvent{
-		ID:        transactionID(s.sessionID, s.from, s.recipients, message),
-		Protocol:  bridge.ProtocolSMTP,
-		Kind:      bridge.EventTransaction,
-		SessionID: s.sessionID,
-		Host:      s.config.Hostname,
-		Route:     s.recipients[0],
-		Headers:   messageHeaders(message),
-		Attributes: map[string]string{
-			"mail_from":   s.from,
-			"recipients":  strings.Join(s.recipients, ","),
-			"remote_addr": s.remoteAddr,
-			"helo":        s.helo,
-		},
-		Payload: message,
+		ID:         transactionID(s.sessionID, s.from, s.recipients, message),
+		Protocol:   bridge.ProtocolSMTP,
+		Kind:       bridge.EventTransaction,
+		SessionID:  s.sessionID,
+		Host:       s.config.Hostname,
+		Route:      s.recipients[0],
+		Headers:    messageHeaders(message),
+		Attributes: attributes,
+		Payload:    message,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.PlannerTimeout)
@@ -316,19 +561,160 @@ func (s *session) Data(reader io.Reader) error {
 	if decision.Protocol != bridge.ProtocolSMTP {
 		return smtpError(451, "gateway returned a decision for the wrong protocol")
 	}
+	if s.config.Scanner != nil && (decision.Action == bridge.GatewaySubmit || decision.Action == bridge.GatewayDeliver) {
+		scanCtx, scanCancel := context.WithTimeout(context.Background(), s.config.ScanTimeout)
+		verdict, scanErr := s.config.Scanner.Scan(scanCtx, message)
+		scanCancel()
+		if scanErr != nil {
+			return smtpError(451, "malware scanner is temporarily unavailable")
+		}
+		if verdict.Infected {
+			if s.config.Quarantine == nil {
+				return smtpError(554, "message blocked by malware scanner")
+			}
+			storeCtx, storeCancel := context.WithTimeout(context.Background(), s.config.ScanTimeout)
+			_, storeErr := s.config.Quarantine.Store(storeCtx, QuarantinedMessage{
+				TransactionID: event.ID,
+				EnvelopeFrom:  s.from,
+				Recipients:    s.recipients,
+				Reason:        verdict.Signature,
+				Payload:       message,
+			})
+			storeCancel()
+			if storeErr != nil {
+				return smtpError(451, "malware quarantine is temporarily unavailable")
+			}
+			return nil
+		}
+	}
 
 	switch decision.Action {
 	case bridge.GatewayAccept:
 		return nil
+	case bridge.GatewayQuarantine:
+		if s.config.Quarantine == nil {
+			return smtpError(451, "SMTP quarantine storage is unavailable")
+		}
+		storeCtx, storeCancel := context.WithTimeout(context.Background(), s.config.ScanTimeout)
+		defer storeCancel()
+		if _, err := s.config.Quarantine.Store(storeCtx, QuarantinedMessage{
+			TransactionID: event.ID,
+			EnvelopeFrom:  s.from,
+			Recipients:    s.recipients,
+			Reason:        "DMARC policy",
+			Payload:       message,
+		}); err != nil {
+			return smtpError(451, "SMTP quarantine storage is temporarily unavailable")
+		}
+		return nil
 	case bridge.GatewayDeliver:
-		for index := range decision.Deliveries {
-			delivery := decision.Deliveries[index]
+		// Once DATA is acknowledged, a sender may discard its only copy.
+		// Volatile worker submission cannot satisfy that handoff.
+		durable, ok := s.executor.(bridge.DurableGatewayExecutor)
+		if !ok || !durable.DurableGatewayDeliveries() {
+			return smtpError(451, "durable gateway delivery is unavailable")
+		}
+		deliveries := decision.Deliveries
+		if decision.Reply != nil {
+			deliveries = append(append([]bridge.GatewayDelivery(nil), deliveries...), *decision.Reply)
+		}
+		if signingDomain != "" && s.config.SigningDomainChecker != nil {
+			for _, delivery := range deliveries {
+				if delivery.Protocol == bridge.ProtocolSMTP {
+					if err := s.config.SigningDomainChecker.CheckSigningDomain(signingDomain); err != nil {
+						return smtpError(451, "DKIM signing key is unavailable for the message author")
+					}
+					break
+				}
+			}
+		}
+		failureNoticeTo := decision.Metadata["failure_notice_to"]
+		if failureNoticeTo != "" && (!s.config.AuthEnabled || !s.authenticated || s.from == "" || failureNoticeTo != s.from) {
+			return smtpError(451, "failure notice is not authorized for this SMTP transaction")
+		}
+		eligibleNotices := 0
+		for _, delivery := range deliveries {
+			if delivery.Protocol != bridge.ProtocolSMTP || failureNoticeTo == "" {
+				continue
+			}
+			if delivery.Attributes["mail_from"] != s.from {
+				return smtpError(451, "failure notice requires the original SMTP reverse path")
+			}
+			eligibleNotices++
+		}
+		if failureNoticeTo != "" && eligibleNotices == 0 {
+			return smtpError(451, "failure notice requires an SMTP delivery")
+		}
+		for index := range deliveries {
+			delivery := deliveries[index]
+			if delivery.Attributes != nil {
+				attributes := make(map[string]string, len(delivery.Attributes))
+				for key, value := range delivery.Attributes {
+					if key != bridge.FailureNoticeToAttribute && key != bridge.DKIMSigningDomainAttribute {
+						attributes[key] = value
+					}
+				}
+				delivery.Attributes = attributes
+			}
+			if failureNoticeTo != "" && delivery.Protocol == bridge.ProtocolSMTP {
+				if delivery.Attributes == nil {
+					delivery.Attributes = make(map[string]string)
+				}
+				delivery.Attributes[bridge.FailureNoticeToAttribute] = failureNoticeTo
+			}
+			if signingDomain != "" && delivery.Protocol == bridge.ProtocolSMTP {
+				if delivery.Attributes == nil {
+					delivery.Attributes = make(map[string]string)
+				}
+				delivery.Attributes[bridge.DKIMSigningDomainAttribute] = signingDomain
+			}
 			if len(delivery.Payload) == 0 {
 				delivery.Payload = append([]byte(nil), message...)
 			}
 			if !s.executor.EnqueueGateway(delivery) {
 				return smtpError(452, "gateway delivery queue unavailable")
 			}
+		}
+		return nil
+	case bridge.GatewaySubmit:
+		if s.config.Submitter == nil {
+			return smtpError(451, "outbound SMTP relay is unavailable")
+		}
+		if signingDomain != "" && s.config.SigningDomainChecker != nil {
+			if err := s.config.SigningDomainChecker.CheckSigningDomain(signingDomain); err != nil {
+				return smtpError(451, "DKIM signing key is unavailable for the message author")
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), s.config.SubmitTimeout)
+		defer cancel()
+		delivery := decision.Deliveries[0]
+		if delivery.Attributes != nil {
+			attributes := make(map[string]string, len(delivery.Attributes))
+			for key, value := range delivery.Attributes {
+				if key != bridge.DKIMSigningDomainAttribute {
+					attributes[key] = value
+				}
+			}
+			delivery.Attributes = attributes
+		}
+		if signingDomain != "" {
+			if delivery.Attributes == nil {
+				delivery.Attributes = make(map[string]string)
+			}
+			delivery.Attributes[bridge.DKIMSigningDomainAttribute] = signingDomain
+		}
+		if len(delivery.Payload) == 0 {
+			delivery.Payload = append([]byte(nil), message...)
+		}
+		if forwardingHops(delivery.Payload, s.config.LoopKey) >= maxForwardingHops || receivedHops(delivery.Payload) >= maxReceivedHops {
+			return smtpError(554, "gateway forwarding loop detected")
+		}
+		delivery.Payload, err = markForwarding(delivery.Payload, s.config.LoopKey)
+		if err != nil {
+			return smtpError(451, "gateway forwarding trace is unavailable")
+		}
+		if err := s.config.Submitter.DeliverGateway(ctx, delivery); err != nil {
+			return smtpError(451, "outbound SMTP relay did not accept the message")
 		}
 		return nil
 	case bridge.GatewayRespond:
@@ -350,9 +736,41 @@ func (s *session) Reset() {
 	s.recipients = nil
 }
 
+func (s *session) transactionAttributes() map[string]string {
+	attributes := make(map[string]string, 4)
+	if s.from != "" {
+		attributes["mail_from"] = s.from
+	}
+	if s.remoteAddr != "" {
+		attributes["remote_addr"] = s.remoteAddr
+		if peerIP, ok := smtpPeerIP(s.remoteAddr); ok {
+			attributes["remote_ip"] = peerIP
+		}
+	}
+	if s.helo != "" {
+		attributes["helo"] = s.helo
+	}
+	if s.authenticated && s.authUsername != "" {
+		attributes["auth_username"] = s.authUsername
+		attributes["auth_identity"] = s.authIdentity
+		if s.submissionDailyLimit != "" {
+			attributes["submission_daily_limit"] = s.submissionDailyLimit
+		}
+		if s.submissionDailyByteLimit != "" {
+			attributes["submission_daily_byte_limit"] = s.submissionDailyByteLimit
+		}
+	}
+	return attributes
+}
+
 func (s *session) Logout() error {
 	s.Reset()
 	s.authenticated = false
+	s.authUsername = ""
+	s.authIdentity = ""
+	s.submissionDailyLimit = ""
+	s.submissionDailyByteLimit = ""
+	s.authorizedSenders = nil
 	return nil
 }
 
@@ -394,6 +812,15 @@ func applyDefaults(config *Config) {
 	if config.MaxRecipients == 0 {
 		config.MaxRecipients = defaultMaxRecipients
 	}
+	if config.MaxConnections == 0 {
+		config.MaxConnections = defaultMaxConnections
+	}
+	if config.MessagesPerMinute == 0 {
+		config.MessagesPerMinute = defaultMessagesPerMinute
+	}
+	if config.MessageBurst == 0 {
+		config.MessageBurst = defaultMessageBurst
+	}
 	if config.ReadTimeout == 0 {
 		config.ReadTimeout = defaultReadTimeout
 	}
@@ -402,6 +829,21 @@ func applyDefaults(config *Config) {
 	}
 	if config.PlannerTimeout == 0 {
 		config.PlannerTimeout = defaultPlannerTimeout
+	}
+	if config.SPFTimeout == 0 {
+		config.SPFTimeout = defaultSPFTimeout
+	}
+	if config.DKIMTimeout == 0 {
+		config.DKIMTimeout = defaultDKIMTimeout
+	}
+	if config.DomainExistenceTimeout == 0 {
+		config.DomainExistenceTimeout = defaultDomainExistenceTimeout
+	}
+	if config.ScanTimeout == 0 {
+		config.ScanTimeout = defaultScanTimeout
+	}
+	if config.SubmitTimeout == 0 {
+		config.SubmitTimeout = 30 * time.Second
 	}
 }
 

@@ -319,8 +319,11 @@ Each accepted SMTP transaction is sent to
 `POST /_internal/gateway/event` as a protocol-neutral event. PHP validates the
 message, matches the agnostic endpoint/subscriber registry using the first
 recipient as the route key, and returns `accept`, `reject`, or `deliver`. A
-`deliver` decision is executed by Go through the normal outbound HTTP worker
-pool. In `roadrunner` mode the event call stays in-process; in `http` mode it
+`deliver` decision is persisted by Go before the SMTP DATA command is
+acknowledged. Set `GATEWAY_DELIVERY_SPOOL_PATH` when SMTP decisions may return
+deliveries; without a durable queue Spinner returns a temporary SMTP error
+instead of accepting a volatile handoff. In `roadrunner` mode the event call
+stays in-process; in `http` mode it
 uses the Laravel backend URL. Embedded Caddy/FrankenPHP deployments use the
 `gateway_smtp` app below.
 
@@ -331,6 +334,14 @@ for validating the username and password. AUTH requires TLS and advertises
 PLAIN only after a certificate/key pair is configured. STARTTLS is enabled by
 providing the same certificate/key pair; set
 `GATEWAY_SMTP_IMPLICIT_TLS=true` for SMTPS-style TLS from the first byte.
+
+The optional Email control plane manages TXT-verified domains, exact aliases,
+`prefix*` patterns, and an optional catch-all alias at `/email/domains`. After a domain is enabled, Planner can return one
+SMTP `submit` decision for all of its matched recipients. Spinner submits that
+envelope to the configured outbound relay in one transaction and acknowledges
+inbound DATA only after the relay accepts it. This is an early forwarding path;
+see [mail forwarding limits](docs/mail-forwarding.md) before exposing it to
+untrusted internet traffic.
 
 If an application supplies a custom `GATEWAY_PLANNER` without a
 `GATEWAY_PATH_RESOLVER`, it should also configure a
@@ -383,13 +394,19 @@ body can contain:
 ```json
 [
   {"type": "a", "value": "192.0.2.10"},
+  {"type": "aaaa", "value": "2001:db8::10"},
+  {"type": "mx", "value": "mail.example.test", "preference": 10},
   {"type": "txt", "value": "hello world"}
 ]
 ```
 
-Supported response types are `a`, `cname`, and `txt`. Only records relevant to
-the requested type are returned; CNAME is the fallback when there is no direct
-record. Newlines in TXT values become separate strings. Invalid response JSON,
+Supported response types are `a`, `aaaa`, `mx`, `cname`, and `txt`. MX requires
+an integer `preference` from 0 to 65535 and a valid exchange hostname. A
+single null MX uses `{"type":"mx","value":".","preference":0}` to indicate
+that a name accepts no email; it cannot be combined with another MX. Only
+records relevant to the requested type are returned. A CNAME may be returned
+alone, but cannot coexist with other record types for the same name. Newlines
+in TXT values become separate strings. Invalid response JSON,
 record values, non-2xx reply responses, and planner timeouts produce `SERVFAIL`.
 Missing routes produce authoritative `NXDOMAIN`; queries without an answer
 produce authoritative `NOERROR`/NODATA.
@@ -407,8 +424,19 @@ DNS names are case-insensitive and each label is limited to 63 bytes.
 
 ### DNS hook product API
 
-Setting `GATEWAY_DNS_ZONE` enables the PHP-owned DNS hook control plane as well
-as configuring Go's authoritative zone. The package registers a built-in
+Setting `GATEWAY_DNS_ZONE` or `GATEWAY_DNS_ZONES` enables the PHP-owned DNS hook
+control plane as well as configuring Go's authoritative zones. For multiple
+zones, set the same JSON array on Spinner and Planner, and do not set the legacy
+`GATEWAY_DNS_ZONE` or `GATEWAY_DNS_NAMESERVERS` variables:
+
+```bash
+export GATEWAY_DNS_ZONES='[{"name":"dns.example.com","nameservers":["ns1.example.com","ns2.example.com"]},{"name":"hooks.example.net","nameservers":["ns1.example.net","ns2.example.net"],"ttl":30}]'
+```
+
+Each entry needs `name` and `nameservers`; `soa_email` and `ttl` are optional.
+The listener chooses the longest matching zone for nested delegations. A hook
+creation request must include `zone` when more than one zone is configured;
+with one zone it remains optional. The package registers a built-in
 `gateway` WebProxy client, provisions ordinary managed WebProxy endpoints for
 the DNS zone and each hook, and wraps the application's existing path resolver
 with token lookup. Gateway-specific attributes live in the endpoint's reserved
@@ -417,9 +445,10 @@ parent zone endpoint key. No DNS-specific endpoint or destination storage is
 added to `webong/proxy`.
 
 DNS history uses the generic `events` table, linked to the
-underlying WebProxy endpoint. This is intentionally the only protocol-neutral
-history table: an HTTP proxy, WebSocket, or future ingress can use the same
-event model without creating its own registry tables.
+underlying WebProxy endpoint. Opt-in Webhook, WebSocket, and Webstream planning
+history uses that same table, with bounded body capture and a shared retention
+policy; see [endpoint event history](docs/events.md). No protocol-specific
+history tables are needed.
 
 Create a hook through the bearer-token-protected management API:
 
@@ -429,6 +458,7 @@ curl -X POST https://relay.example.test/dns/hooks \
   -H 'Content-Type: application/json' \
   -d '{
     "external_id": "workspace-42-login-check",
+    "zone": "dns.example.com",
     "name": "Login verification",
     "metadata": {"workspace": "workspace-42"}
   }'
@@ -437,7 +467,9 @@ curl -X POST https://relay.example.test/dns/hooks \
 The response includes an opaque `token`, its `hostname`, the
 `{data}.<token>.<zone>` query template, the underlying `endpoint_key`, and URLs
 for subscriptions, event history, and usage. Repeating the same `external_id`
-is idempotent and returns the same token.
+within a zone is idempotent and returns the same token. Hook IDs and tokens are
+unambiguous across zones; `GET /dns/zones` lists the configured zone names and
+nameservers, and `GET /dns/hooks?zone=...` filters hooks by zone.
 
 Attach subscribers through the existing WebProxy registry API using the
 returned endpoint key and the canonical DNS route:
@@ -462,6 +494,7 @@ The UI-ready management surface is:
 
 ```text
 POST   /dns/hooks
+GET    /dns/zones
 GET    /dns/hooks
 GET    /dns/hooks/{id-or-token}
 PATCH  /dns/hooks/{id-or-token}
@@ -477,9 +510,10 @@ type and transport. Pausing or deleting a hook invalidates its cached binding
 immediately; the underlying WebProxy endpoint is retained so subscription and
 audit records are not orphaned.
 
-`GATEWAY_DNS_PROXY_CLIENT`, `GATEWAY_DNS_HOOKS_TABLE`, and
-`GATEWAY_DNS_EVENTS_TABLE` customize the built-in client and Laravel-owned
-tables. `GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
+`GATEWAY_DNS_PROXY_CLIENT` customizes the built-in client. Hook identity uses
+WebProxy endpoints, and history uses the generic `events` table; the historical
+`GATEWAY_DNS_HOOKS_TABLE` and `GATEWAY_DNS_EVENTS_TABLE` settings are not used.
+`GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
 while leaving explicit custom protocol planners available.
 
 ### Spinner container
@@ -527,7 +561,8 @@ docker compose -f docker-compose.dns.example.yml up -d
 ```
 
 Configure `GATEWAY_DNS_ZONE` and `REGISTRY_TOKEN` on the Laravel application as
-well, then run its Gateway and WebProxy migrations. At the parent DNS provider,
+well, or configure identical `GATEWAY_DNS_ZONES` on both services, then run its
+Gateway and WebProxy migrations. At each parent DNS provider,
 delegate the zone to at least two public nameserver hostnames whose A/AAAA
 records reach Gateway instances. Each load balancer or firewall must pass both
 UDP and TCP port 53. The example is a single-node wiring reference; production
@@ -543,6 +578,15 @@ and sends `connect`, `message`, and `close` events to PHP. PHP can accept,
 reject, respond on the socket, or resolve HTTP subscriber deliveries. The
 same handler is mounted by the FrankenPHP/Caddy `gateway` module; no separate
 WebSocket port or Laravel listener is required.
+
+Each Spinner/Router process admits at most 1000 WebSocket sessions by default,
+including sessions awaiting a Planner connection decision. Excess upgrades
+receive HTTP 503 with `Retry-After: 1`. A session closes after 24 hours by
+default, and individual messages remain limited by `MAX_BODY_SIZE`. Configure
+`GATEWAY_WEBSOCKET_MAX_CONNECTIONS` and `GATEWAY_WEBSOCKET_MAX_DURATION` for
+standalone Spinner and bundled Router deployments, or
+`websocket_max_connections` and `websocket_max_duration` in the Caddy `gateway`
+block. Limits apply per process, not across a cluster.
 
 ### Webstream transport
 
@@ -572,11 +616,22 @@ resume marker always remains client-controlled.
 Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
 reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
 built-in registry planner forwards it only to the selected source. It emits a
-comment heartbeat every 15 seconds by default; configure
+comment heartbeat every 15 seconds by default when the source is between SSE
+events, never inside an incomplete event; configure
 `GATEWAY_WEBSTREAM_RETRY` and `GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL` (set the
 heartbeat interval to `0` to disable it). `/metrics` exposes
 `webstreams_active`, `webstreams_opened_total`, and `webstreams_failed_total`
 in the standalone Spinner runtime.
+
+Each Spinner/Router process accepts at most 1000 concurrent Webstreams by
+default, counting streams being planned or opened. Further attempts receive
+HTTP 503 with `Retry-After: 1` before Planner or the upstream is called.
+Streams close after 24 hours by default so clients reconnect with their
+`Last-Event-ID` if the source supports replay. Set
+`GATEWAY_WEBSTREAM_MAX_CONNECTIONS` and `GATEWAY_WEBSTREAM_MAX_DURATION` to
+positive values to adjust the bounds. The Caddy module uses
+`webstream_max_connections` and `webstream_max_duration` in its `gateway`
+block and shares the admission limit across requests.
 
 Webstream is deliberately not webhook forwarding: it does not queue, retry, or
 fan out messages. It is also not a WebSocket session: clients cannot send
@@ -602,12 +657,37 @@ bidirectional sessions.
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - Spinner shutdown timeout (default `30s`)
 - `GATEWAY_DNS_ADDR` - enables authoritative DNS over UDP and TCP
-- `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS` - required delegated zone data
+- `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS` - legacy single delegated zone
+- `GATEWAY_DNS_ZONES` - JSON array of delegated zone definitions for one or
+  more authoritative zones; mutually exclusive with the legacy pair
 - `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
   `roadrunner` mode
+- `GATEWAY_POP3_ADDR` - enables the implicit-TLS POP3 upstream proxy in standalone
+  Spinner or the bundled Router; see [mail forwarding](docs/mail-forwarding.md)
+- `GATEWAY_POP3_TLS_CERT_FILE`, `GATEWAY_POP3_TLS_KEY_FILE` - required PEM
+  certificate and key for POP3 client connections
+- `GATEWAY_POP3_UPSTREAMS` - required JSON map of operator-registered upstream
+  IDs to `address` and TLS `server_name`
+- `GATEWAY_POP3_AUTH_PER_MINUTE`, `GATEWAY_POP3_AUTH_BURST` - per-socket-peer
+  password-attempt limit local to each Spinner process (defaults `30` and `5`)
+- `GATEWAY_IMAP_ADDR` - enables the implicit-TLS IMAP upstream proxy; see
+  [mail forwarding](docs/mail-forwarding.md)
+- `GATEWAY_IMAP_TLS_CERT_FILE`, `GATEWAY_IMAP_TLS_KEY_FILE` - required IMAP
+  listener certificate and key
+- `GATEWAY_IMAP_UPSTREAMS` - required JSON map of registered IMAP upstream IDs
+  to `address` and TLS `server_name`
+- `GATEWAY_IMAP_AUTH_PER_MINUTE`, `GATEWAY_IMAP_AUTH_BURST` - per-socket-peer
+  password-attempt limit local to each Spinner process (defaults `30` and `5`)
+- `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` - Planner-owned mailbox credential
+  verifier; unset means POP3 login is denied
 - `GATEWAY_SMTP_HOSTNAME` - SMTP greeting/domain (default `gateway.local`)
 - `GATEWAY_SMTP_MAX_MESSAGE_SIZE` - accepted message limit (default `10MB`)
 - `GATEWAY_SMTP_MAX_RECIPIENTS` - recipients per transaction (default `100`)
+- `GATEWAY_SMTP_MAX_CONNECTIONS` - simultaneous SMTP connections per Spinner
+  process (default `1000`); additional connections wait in the TCP backlog
+- `GATEWAY_SMTP_MESSAGES_PER_MINUTE`, `GATEWAY_SMTP_MESSAGE_BURST` - per-source
+  IP rate limit on SMTP `MAIL` commands (defaults `120` per minute with a
+  burst of `20`). The limit is local to each Spinner process.
 - `GATEWAY_SMTP_READ_TIMEOUT`, `GATEWAY_SMTP_WRITE_TIMEOUT` - SMTP socket
   timeouts
 - `GATEWAY_SMTP_PLANNER_TIMEOUT` - PHP planning timeout (default `30s`)
@@ -616,7 +696,30 @@ bidirectional sessions.
 - `GATEWAY_SMTP_IMPLICIT_TLS` - use implicit TLS instead of plain SMTP with
   STARTTLS (default `false`)
 - `GATEWAY_SMTP_AUTH_ENABLED` - require PHP-planned SMTP AUTH (default
-  `false`; TLS is required)
+  `false`; TLS is required). The AUTH decision must grant exact envelope
+  senders, and the message's visible From address must also be granted.
+- `GATEWAY_EMAIL_DKIM_SIGNING_CONFIG` - optional JSON key manifest for
+  per-domain signing of authenticated outbound mail; see
+  [mail forwarding](docs/mail-forwarding.md)
+- `GATEWAY_EMAIL_SUBMISSION_DAILY_LIMIT` - optional shared per-account UTC-day
+  limit on authenticated SMTP DATA attempts (default `0`, disabled); an
+  authenticator can set a per-account override
+- `GATEWAY_EMAIL_SUBMISSION_DAILY_BYTE_LIMIT` - optional shared per-account
+  UTC-day cap on raw authenticated SMTP DATA bytes (default `0`, disabled);
+  an authenticator can set a per-account override
+- `GATEWAY_SMTP_RECIPIENT_PREFLIGHT` - `smtp`/`recipient` planning at
+  each `RCPT TO`; defaults on when an outbound relay is configured and off
+  otherwise. Custom planners must support this event or explicitly set `false`.
+- `GATEWAY_EMAIL_CLAMD_NETWORK`, `GATEWAY_EMAIL_CLAMD_ADDR`,
+  `GATEWAY_EMAIL_CLAMD_TIMEOUT` - optional private `clamd` scanner connection
+  (`tcp` or `unix`, default timeout `10s`); scanner failures defer SMTP DATA
+- `GATEWAY_EMAIL_QUARANTINE_PATH` - optional private, persistent directory for
+  malware-positive mail; requires clamd. See [mail forwarding](docs/mail-forwarding.md).
+- `GATEWAY_EMAIL_QUARANTINE_RETENTION` - optional Go duration for automatic
+  quarantine deletion (default `0`, disabled); requires a quarantine path
+- `GATEWAY_EMAIL_DSN_DOMAIN` - optional reporting hostname for durable SMTP
+  failure notices from authenticated, Planner-approved asynchronous deliveries;
+  requires an outbound relay and spool (see [mail forwarding](docs/mail-forwarding.md))
 - `GATEWAY_SMTP_RELAY_ADDR` - enables SMTP delivery through a configured relay
   (for example `smtp.example.com:587`)
 - `GATEWAY_SMTP_RELAY_LOCAL_NAME` - EHLO name sent by Gateway (default
@@ -630,14 +733,42 @@ bidirectional sessions.
   use `none` only for a trusted local/private test relay
 - `GATEWAY_SMTP_RELAY_TIMEOUT` - outbound SMTP connection and submission
   deadline (default `30s`)
-- `GATEWAY_DELIVERY_SPOOL_PATH` - durable local delivery spool; required when
-  outbound SMTP is enabled
+- `GATEWAY_DELIVERY_SPOOL_PATH` - durable local spool for asynchronous HTTP
+  and SMTP deliveries. Bundled Router launchers
+  default it to `GATEWAY_ROUTER_DATA_DIR/deliveries`; standalone Spinner must
+  set a persistent path explicitly to make HTTP delivery crash-recoverable.
+  It is required when outbound SMTP is enabled. Without it, standalone HTTP
+  relays still use the in-process queue.
+- `GATEWAY_DELIVERY_RECEIPT_RETENTION` - lifetime of payload-free success
+  receipts (default `2160h`, 90 days; `0` disables automatic pruning).
+  Pending and failed deliveries are never pruned by this setting.
+- `GATEWAY_DELIVERY_ADMIN_ADDR` - optional separate private, token-authenticated
+  listener for delivery status and failed-item retry. It requires the spool
+  and `GATEWAY_INTERNAL_TOKEN`; see [delivery operations](docs/deliveries.md).
+- `GATEWAY_DELIVERY_ADMIN_URL` - Planner's trusted private URL for that listener;
+  enables bearer-authenticated public `/deliveries` management routes.
+- `GATEWAY_DELIVERY_ADMIN_SHARED_URLS` - ordered JSON list of private admin
+  origins using one shared PostgreSQL queue; Planner fails over safe reads and
+  idempotent Email submissions. See [delivery operations](docs/deliveries.md).
 - `GATEWAY_DELIVERY_MAX_ATTEMPTS` - attempts before moving a delivery to the
   failed spool (default `8`)
 - `GATEWAY_DELIVERY_INITIAL_BACKOFF`, `GATEWAY_DELIVERY_MAX_BACKOFF` - retry
   delay range (defaults `5s` and `1h`)
 - `GATEWAY_DELIVERY_POLL_INTERVAL` - recovery and due-delivery scan interval
   (default `1s`)
+
+For spooled HTTP deliveries, 2xx completes the attempt. Connection failures,
+408, 425, 429, and 5xx retry with bounded backoff; other non-2xx statuses move
+to the failed spool after one attempt. The callback response body is not part
+of the delivery result. This local spool belongs to one Spinner process; do
+not share its path among replicas.
+
+The spool retains payload-free delivered receipts and exposes bounded
+`Status`/`List` inspection plus explicit `Retry` for failed items. Planner
+proxies its authenticated `/deliveries` management routes to the private
+Spinner listener when configured. A retry is at-least-once: a crash after a
+destination accepts a request but before Gateway persists the receipt can
+still result in a duplicate callback.
 
 PHP-side cache settings:
 
@@ -970,6 +1101,9 @@ Workload extensions are separate executables selected with
 `GATEWAY_EXTENSION_PATHS`; Spinner loads them through the versioned
 `github.com/webong/gateway/driver/workloadplugin` protocol. Build the bundled
 Reverb, Mercure and Centrifugo executables with `scripts/build-gateway-extensions`.
+Build `bin/gateway-extension` with `make build-extension-manager` to list,
+install, and verify exact versions from the generated local or trusted HTTPS
+catalog; activation remains an explicit `GATEWAY_EXTENSION_PATHS` setting.
 See [executable extensions](docs/executable-extensions.md) for the published
 driver SDK, protocol, and third-party authoring example.
 See [remote provisioning](docs/provisioning-targets.md) for setup, permission
@@ -1087,15 +1221,19 @@ The Caddy handler is compiled into the binary; it is not loaded dynamically at
 runtime. The handler owns its Go delivery worker pool and drains it during a
 Caddy configuration reload.
 
-The same custom binary also contains the `gateway.smtp` Caddy app module. It
-starts a sibling TCP listener from the FrankenPHP/Caddy process, but SMTP does
-not pass through `php_server`; it calls the configured private `planner_url`
-and then uses the same Go delivery pool. The example file binds that PHP bridge
+The same custom binary also contains the `gateway.smtp`, `gateway.pop3`, and
+`gateway.imap` Caddy app modules. They start sibling TCP listeners from the
+FrankenPHP/Caddy process; these protocols do not pass through `php_server`.
+Each app calls the configured private `planner_url` for decisions. The SMTP
+app owns its Go delivery pool, while POP3 and IMAP tunnel authenticated
+sessions to operator-registered TLS mailbox upstreams. The example file binds
+that PHP bridge
 to `127.0.0.1:8081` and configures it with `gateway_smtp` in the global block.
-This provides the second deployment shape without duplicating the SMTP server
-or protocol implementation. The app accepts `tls_cert_file`, `tls_key_file`,
+This provides the second deployment shape without duplicating protocol
+implementations. The SMTP app accepts `tls_cert_file`, `tls_key_file`,
 `implicit_tls`, and `auth_enabled` options with the same semantics as the
-`GATEWAY_SMTP_*` settings.
+`GATEWAY_SMTP_*` settings. See [Email forwarding](docs/mail-forwarding.md)
+for the POP3/IMAP Caddy options and private-upstream CA trust.
 
 ## Tests
 
@@ -1141,6 +1279,15 @@ bash scripts/smtp-smoke.sh
 # or: make test-smtp
 ```
 
+Run the managed Email smoke test across the public domain/alias API, private
+Planner, Go SMTP listener, and a loopback outbound relay. It verifies a
+two-alias transaction becomes one three-recipient relay handoff, and checks
+temporary relay refusal and permanent recipient rejections:
+
+```bash
+make test-email
+```
+
 Run the WebSocket smoke test for both HTTP and RoadRunner. It upgrades a real
 connection, sends a message through the PHP protocol planner, and verifies
 the subscriber delivery:
@@ -1156,8 +1303,14 @@ Run the authoritative DNS adapter tests, including real UDP and TCP queries:
 make test-dns
 ```
 
+`make test-dns-integration` starts a local Planner and Spinner, creates hooks
+in two zones through the management API, queries one over UDP and the other
+over TCP, and checks cross-zone rejection and recorded query history. It uses
+`dig` and a temporary SQLite database; it does not prove public delegation or
+redundant nameserver operation.
+
 Verify the Caddy module and, when Docker is available, build a FrankenPHP
-image containing both Gateway modules:
+image containing Gateway's HTTP, SMTP, POP3, and IMAP modules:
 
 ```bash
 make test-frankenphp

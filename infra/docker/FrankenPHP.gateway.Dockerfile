@@ -25,6 +25,8 @@ FROM dunglas/frankenphp AS runtime
 
 COPY --from=builder /tmp/frankenphp /usr/local/bin/frankenphp
 
-# Fail the image build if either Gateway module was omitted from the binary.
+# Fail the image build if any Gateway HTTP or Email module was omitted.
 RUN frankenphp list-modules | grep -F 'http.handlers.gateway' \
-    && frankenphp list-modules | grep -F 'gateway.smtp'
+    && frankenphp list-modules | grep -F 'gateway.smtp' \
+    && frankenphp list-modules | grep -F 'gateway.pop3' \
+    && frankenphp list-modules | grep -F 'gateway.imap'

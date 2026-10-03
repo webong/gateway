@@ -1,0 +1,10 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: provision-worker
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+  # If the target uses route_mode=port-forward, also grant create on
+  # pods/portforward. The example target uses pod-ip and does not need it.

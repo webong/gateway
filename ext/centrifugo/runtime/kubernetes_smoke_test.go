@@ -25,6 +25,7 @@ func TestKubernetesSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := validCentrifugoSpec()
+	spec.AssignmentID = "44444444-4444-4444-8444-444444444444"
 	spec.Driver = provision.DriverKubernetes
 	spec.Replicas = 1
 	spec.Configuration = []byte(`{
@@ -37,7 +38,7 @@ func TestKubernetesSmoke(t *testing.T) {
 		"prometheus_enabled":false,
 		"log_level":"info"
 	}`)
-	process, err := driver.Start(t.Context(), spec, "44444444-4444-4444-8444-444444444444", NewWorkload(Config{
+	process, err := driver.Start(t.Context(), spec, spec.AssignmentID, NewWorkload(Config{
 		KubernetesImage: image, KubernetesBinary: "centrifugo", KubernetesContainerPort: 8000,
 	}))
 	if err != nil {

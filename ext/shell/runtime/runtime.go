@@ -14,8 +14,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
@@ -31,11 +33,14 @@ const (
 	maximumOutputBytes    = int64(16 * 1024 * 1024)
 	maximumConcurrent     = 128
 	maximumQueued         = 1024
+	runPruneInterval      = time.Hour
 )
 
 const (
-	ModeOutcome  = "outcome"
-	ModeBuffered = "buffered"
+	ModeOutcome           = "outcome"
+	ModeBuffered          = "buffered"
+	InterpreterDirect     = "direct"
+	InterpreterPowerShell = "powershell"
 )
 
 var ErrBusy = automation.ErrBusy
@@ -43,17 +48,22 @@ var ErrBusy = automation.ErrBusy
 type Config struct {
 	HooksDir       string
 	RunLogDir      string
+	RunRetention   time.Duration
 	Timeout        time.Duration
 	MaxOutputBytes int64
 	MaxConcurrent  int
 	MaxQueued      int
 	OutputMode     string
+	Interpreter    string
+	PowerShellPath string
 }
 
 type Engine struct {
-	config Config
-	slots  chan struct{}
-	queue  chan struct{}
+	config    Config
+	slots     chan struct{}
+	queue     chan struct{}
+	pruneMu   sync.Mutex
+	lastPrune time.Time
 }
 
 func New(config Config) (*Engine, error) {
@@ -102,6 +112,34 @@ func New(config Config) (*Engine, error) {
 	if config.OutputMode != ModeOutcome && config.OutputMode != ModeBuffered {
 		return nil, errors.New("shell output mode must be outcome or buffered")
 	}
+	if config.Interpreter == "" {
+		config.Interpreter = InterpreterDirect
+	}
+	if config.Interpreter != InterpreterDirect && config.Interpreter != InterpreterPowerShell {
+		return nil, errors.New("shell interpreter must be direct or powershell")
+	}
+	if config.Interpreter == InterpreterPowerShell {
+		if !filepath.IsAbs(config.PowerShellPath) {
+			return nil, errors.New("shell PowerShell path must be absolute")
+		}
+		if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(config.PowerShellPath), ".exe") {
+			return nil, errors.New("shell PowerShell path must name an .exe file on Windows")
+		}
+		path, err := filepath.EvalSymlinks(config.PowerShellPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve shell PowerShell executable: %w", err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("stat shell PowerShell executable: %w", err)
+		}
+		if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode()&0o111 == 0) {
+			return nil, errors.New("shell PowerShell path must be an executable regular file")
+		}
+		config.PowerShellPath = path
+	} else if config.PowerShellPath != "" {
+		return nil, errors.New("shell PowerShell path requires powershell interpreter mode")
+	}
 	if config.RunLogDir != "" {
 		logDir, err := filepath.Abs(config.RunLogDir)
 		if err != nil {
@@ -122,8 +160,15 @@ func New(config Config) (*Engine, error) {
 			return nil, fmt.Errorf("resolve shell run log directory symlinks: %w", err)
 		}
 	}
+	if config.RunRetention < 0 || (config.RunRetention > 0 && config.RunLogDir == "") {
+		return nil, errors.New("shell run retention requires a run log directory and nonnegative duration")
+	}
 	config.HooksDir = root
-	return &Engine{config: config, slots: make(chan struct{}, config.MaxConcurrent), queue: make(chan struct{}, config.MaxQueued)}, nil
+	engine := &Engine{config: config, slots: make(chan struct{}, config.MaxConcurrent), queue: make(chan struct{}, config.MaxQueued)}
+	if err := engine.pruneRuns(time.Now()); err != nil {
+		return nil, fmt.Errorf("prune shell run records: %w", err)
+	}
+	return engine, nil
 }
 
 // NewFromEnvironment creates the engine from the process-hook deployment
@@ -145,22 +190,29 @@ func NewFromEnvironment() (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	runRetention, err := durationEnv("GATEWAY_SHELL_RUN_RETENTION", 0)
+	if err != nil {
+		return nil, err
+	}
 	return New(Config{
 		HooksDir:       os.Getenv("GATEWAY_SHELL_HOOKS_DIR"),
 		RunLogDir:      os.Getenv("GATEWAY_SHELL_RUN_LOG_DIR"),
+		RunRetention:   runRetention,
 		Timeout:        timeout,
 		MaxOutputBytes: maxOutput,
 		MaxConcurrent:  maxConcurrent,
 		MaxQueued:      maxQueued,
 		OutputMode:     strings.TrimSpace(os.Getenv("GATEWAY_SHELL_OUTPUT_MODE")),
+		Interpreter:    strings.TrimSpace(os.Getenv("GATEWAY_SHELL_INTERPRETER")),
+		PowerShellPath: strings.TrimSpace(os.Getenv("GATEWAY_SHELL_POWERSHELL_PATH")),
 	})
 }
 
 func (e *Engine) Language() automation.Language { return Language }
 
-// Execute runs one executable hook selected by its relative source path. It
-// sends the Gateway input as JSON on stdin and accepts a JSON Outcome on
-// stdout. The hook is never passed to a shell parser.
+// Execute runs one hook selected by its relative source path. It sends the
+// Gateway input as JSON on stdin and accepts a JSON Outcome on stdout. The
+// hook is never passed to a shell parser.
 func (e *Engine) Execute(ctx context.Context, source string, input automation.Input) (outcome automation.Outcome, execErr error) {
 	if e == nil {
 		return automation.Outcome{}, errors.New("shell hook engine is not configured")
@@ -197,10 +249,10 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 
 	ctx, cancel := context.WithTimeout(ctx, e.config.Timeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, path)
+	command := e.hookCommand(ctx, path)
 	configureProcess(command)
 	command.Stdin = bytes.NewReader(payload)
-	command.Env = []string{"PATH=/usr/bin:/bin", "GATEWAY_AUTOMATION_LANGUAGE=shell"}
+	command.Env = e.hookEnvironment()
 	command.WaitDelay = 250 * time.Millisecond
 	stdout := &limitedBuffer{limit: e.config.MaxOutputBytes}
 	stderr := &limitedBuffer{limit: e.config.MaxOutputBytes}
@@ -304,7 +356,55 @@ func (e *Engine) writeRecord(record runRecord) error {
 	if writeErr != nil {
 		return writeErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+	return e.pruneRuns(time.Now())
+}
+
+func (e *Engine) pruneRuns(now time.Time) error {
+	if e.config.RunRetention == 0 {
+		return nil
+	}
+	e.pruneMu.Lock()
+	defer e.pruneMu.Unlock()
+	if !e.lastPrune.IsZero() && now.Sub(e.lastPrune) < runPruneInterval {
+		return nil
+	}
+	entries, err := os.ReadDir(e.config.RunLogDir)
+	if err != nil {
+		return err
+	}
+	cutoff := now.Add(-e.config.RunRetention)
+	for _, entry := range entries {
+		if !runRecordFilename(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(e.config.RunLogDir, entry.Name())); err != nil {
+			return err
+		}
+	}
+	e.lastPrune = now
+	return nil
+}
+
+func runRecordFilename(name string) bool {
+	if len(name) != 37 || !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	for _, digit := range name[:32] {
+		if (digit < '0' || digit > '9') && (digit < 'a' || digit > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // OpenStream starts a hook whose stdout is raw response data. The caller owns
@@ -339,10 +439,10 @@ func (e *Engine) OpenStream(ctx context.Context, source string, input automation
 		return nil, err
 	}
 	runCtx, cancel := context.WithTimeout(ctx, e.config.Timeout)
-	command := exec.CommandContext(runCtx, path)
+	command := e.hookCommand(runCtx, path)
 	configureProcess(command)
 	command.Stdin = bytes.NewReader(payload)
-	command.Env = []string{"PATH=/usr/bin:/bin", "GATEWAY_AUTOMATION_LANGUAGE=shell"}
+	command.Env = e.hookEnvironment()
 	command.WaitDelay = 250 * time.Millisecond
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -454,6 +554,9 @@ func (e *Engine) hookPath(source string) (string, error) {
 			return "", errors.New("shell hook source must be a non-hidden relative path")
 		}
 	}
+	if e.config.Interpreter == InterpreterPowerShell && !strings.EqualFold(filepath.Ext(key), ".ps1") {
+		return "", errors.New("PowerShell hook source must be a .ps1 file")
+	}
 	path, err := filepath.EvalSymlinks(filepath.Join(e.config.HooksDir, filepath.FromSlash(key)))
 	if err != nil {
 		return "", fmt.Errorf("resolve shell hook %q: %w", key, err)
@@ -466,10 +569,34 @@ func (e *Engine) hookPath(source string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("stat shell hook %q: %w", key, err)
 	}
-	if !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+	if !info.Mode().IsRegular() || (e.config.Interpreter == InterpreterDirect && info.Mode()&0o111 == 0) {
 		return "", errors.New("shell hook must be an executable regular file")
 	}
 	return path, nil
+}
+
+func (e *Engine) hookCommand(ctx context.Context, path string) *exec.Cmd {
+	if e.config.Interpreter == InterpreterPowerShell {
+		return exec.CommandContext(ctx, e.config.PowerShellPath, "-NoLogo", "-NoProfile", "-NonInteractive", "-File", path)
+	}
+	return exec.CommandContext(ctx, path)
+}
+
+func (e *Engine) hookEnvironment() []string {
+	path := "/usr/bin:/bin"
+	env := []string{"GATEWAY_AUTOMATION_LANGUAGE=shell"}
+	if runtime.GOOS == "windows" && e.config.Interpreter == InterpreterPowerShell {
+		path = filepath.Dir(e.config.PowerShellPath)
+		for _, name := range []string{"SystemRoot", "WINDIR", "TEMP", "TMP"} {
+			if value := os.Getenv(name); value != "" {
+				env = append(env, name+"="+value)
+			}
+		}
+		if root := os.Getenv("SystemRoot"); root != "" {
+			path += string(os.PathListSeparator) + filepath.Join(root, "System32")
+		}
+	}
+	return append(env, "PATH="+path)
 }
 
 func durationEnv(name string, fallback time.Duration) (time.Duration, error) {

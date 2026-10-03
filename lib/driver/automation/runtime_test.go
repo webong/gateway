@@ -47,6 +47,24 @@ func TestRuntimeValidatesExtensionOutput(t *testing.T) {
 	}
 }
 
+func TestRuntimeValidatesExpectedDeliveryStatus(t *testing.T) {
+	for _, status := range []int{-1, 99, 600} {
+		runtime := NewRuntime(fakeEngine{language: "example", outcome: Outcome{Deliveries: []Delivery{{URL: "https://example.test", ExpectedStatus: status}}}})
+		if _, err := runtime.Execute(context.Background(), Script{Language: "example"}, Input{}); err == nil {
+			t.Fatalf("expected status %d to be rejected", status)
+		}
+	}
+}
+
+func TestRuntimeValidatesExpectedBodyDigest(t *testing.T) {
+	for _, digest := range []string{"short", "ABCDEF022B3EC77CE6A89FCA29EE0C1AB83BA51931EE63E3CA5B773EC68B55CBB2"} {
+		runtime := NewRuntime(fakeEngine{language: "example", outcome: Outcome{Deliveries: []Delivery{{URL: "https://example.test", ExpectedBodySHA256: digest}}}})
+		if _, err := runtime.Execute(context.Background(), Script{Language: "example"}, Input{}); err == nil {
+			t.Fatalf("expected digest %q to be rejected", digest)
+		}
+	}
+}
+
 func TestRuntimeValidatesDeclarativeSchedules(t *testing.T) {
 	runtime := NewRuntime(fakeEngine{language: "example", outcome: Outcome{
 		Schedules: []Schedule{{

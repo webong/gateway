@@ -1,0 +1,34 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Webong\Gateway\Email;
+
+use InvalidArgumentException;
+
+/** A verified mailbox login mapped to a deployment-registered upstream. */
+final readonly class MailboxAccessGrant
+{
+    public function __construct(
+        public string $identity,
+        public string $upstreamId,
+        public string $upstreamUsername,
+        public string $upstreamPassword,
+    ) {
+        if ($identity === '' || strlen($identity) > 255 || trim($identity) !== $identity
+            || preg_match('/[\x00-\x1F\x7F]/', $identity) === 1) {
+            throw new InvalidArgumentException('Mailbox identity must be a stable non-empty identifier.');
+        }
+        if (preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $upstreamId) !== 1) {
+            throw new InvalidArgumentException('Mailbox upstream ID is invalid.');
+        }
+        foreach ([$upstreamUsername, $upstreamPassword] as $credential) {
+            if ($credential === '' || strlen($credential) > 248 || preg_match('/[^\x20-\x7E]/', $credential) === 1) {
+                throw new InvalidArgumentException('Mailbox upstream credentials are invalid.');
+            }
+        }
+        if (str_contains($upstreamUsername, ' ')) {
+            throw new InvalidArgumentException('Mailbox upstream username cannot contain spaces.');
+        }
+    }
+}

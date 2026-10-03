@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+WITH_DNS=false
+WITH_RELAY=false
+for option in "$@"; do
+    case "$option" in
+        --with-dns) WITH_DNS=true ;;
+        --with-relay) WITH_RELAY=true ;;
+        *) echo 'Usage: test-kubernetes-email [--with-dns] [--with-relay]' >&2; exit 2 ;;
+    esac
+done
+if [[ $(kubectl config current-context) != orbstack ]]; then
+    echo 'The disposable Email smoke requires the orbstack Kubernetes context.' >&2
+    exit 2
+fi
+if [[ "$WITH_DNS" == true ]] && ! command -v dig >/dev/null 2>&1; then
+    echo 'dig is required for the combined Email/DNS smoke.' >&2
+    exit 2
+fi
+
+NAMESPACE="gateway-email-smoke-$$-$RANDOM"
+CERT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-email-cert.XXXXXX")
+CREATED=false
+cleanup() {
+    if [[ "$CREATED" == true ]]; then
+        if ! kubectl delete namespace "$NAMESPACE" --wait=true --timeout=120s >/dev/null; then
+            echo "Warning: disposable namespace $NAMESPACE may need manual cleanup." >&2
+        fi
+    fi
+    rm -r -- "$CERT_DIR"
+}
+trap cleanup EXIT
+
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -subj '/CN=smtp.managed.test' \
+    -addext 'subjectAltName=DNS:smtp.managed.test' \
+    -keyout "$CERT_DIR/tls.key" -out "$CERT_DIR/tls.crt" >/dev/null 2>&1
+
+if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Disposable namespace $NAMESPACE already exists; refusing to reuse it." >&2
+    exit 1
+fi
+kubectl create namespace "$NAMESPACE" >/dev/null
+CREATED=true
+echo "Using disposable Email namespace $NAMESPACE."
+
+APP_KEY="base64:$(openssl rand -base64 32)"
+INTERNAL_TOKEN=$(openssl rand -hex 24)
+PLANNER_DB_ARGS=(--from-literal=DB_CONNECTION=sqlite --from-literal=DB_DATABASE=/tmp/registry.sqlite)
+PLANNER_SECRET_ARGS=(
+    --from-literal=APP_KEY="$APP_KEY"
+    --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)"
+    --from-literal=GATEWAY_INTERNAL_TOKEN="$INTERNAL_TOKEN"
+    --from-literal=GATEWAY_EMAIL_SMOKE=1
+    --from-literal=GATEWAY_EMAIL_VERIFICATION_TTL_SECONDS=0
+    --from-literal=GATEWAY_HTTP_REGISTRY_SMOKE=1
+    '--from-literal=GATEWAY_PATH_RESOLVER=Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver'
+    --from-literal=APP_ENV=testing
+    --from-literal=COMPOSER_VENDOR_DIR=/app/vendor
+)
+if [[ "$WITH_RELAY" == true ]]; then
+    DB_PASSWORD=$(openssl rand -hex 16)
+    DB_URL="postgres://postgres:$DB_PASSWORD@postgres:5432/gateway?sslmode=disable"
+    kubectl -n "$NAMESPACE" create secret generic postgres-credentials \
+        --from-literal=POSTGRES_PASSWORD="$DB_PASSWORD" \
+        --from-literal=POSTGRES_DB=gateway >/dev/null
+    kubectl -n "$NAMESPACE" create configmap gateway-email-relay \
+        --from-literal=address=smtp-relay:2527 \
+        --from-literal=tls-mode=none >/dev/null
+    kubectl -n "$NAMESPACE" create secret generic gateway-email-relay \
+        --from-literal=database-url="$DB_URL" >/dev/null
+    PLANNER_DB_ARGS=(--from-literal=DB_CONNECTION=pgsql \
+        --from-literal=DB_HOST=postgres --from-literal=DB_DATABASE=gateway \
+        --from-literal=DB_USERNAME=postgres --from-literal=DB_PASSWORD="$DB_PASSWORD")
+    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DELIVERY_ADMIN_URL=http://spinner-delivery-admin:5052)
+    PLANNER_SECRET_ARGS+=(
+        --from-literal=GATEWAY_EMAIL_HTTP_SUBMISSION_ENABLED=true
+        '--from-literal=GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR=Webong\Gateway\Tests\Fixtures\EmailHttpSmokeAuthenticator'
+    )
+    unset DB_PASSWORD DB_URL
+fi
+PLANNER_SECRET_ARGS+=("${PLANNER_DB_ARGS[@]}")
+kubectl -n "$NAMESPACE" create configmap gateway-smtp \
+    --from-literal=hostname=smtp.managed.test >/dev/null
+kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
+    --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" >/dev/null
+if [[ "$WITH_DNS" == true ]]; then
+    ZONES='[{"name":"mailhooks.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15}]'
+    kubectl -n "$NAMESPACE" create configmap gateway-dns --from-literal=zones="$ZONES" >/dev/null
+    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DNS_ZONES="$ZONES" --from-literal=GATEWAY_DNS_SMOKE=1)
+fi
+kubectl -n "$NAMESPACE" create secret generic planner-credentials \
+    "${PLANNER_SECRET_ARGS[@]}" >/dev/null
+unset APP_KEY
+kubectl -n "$NAMESPACE" create secret generic spinner-planner \
+    --from-literal=internal-token="$INTERNAL_TOKEN" >/dev/null
+unset INTERNAL_TOKEN
+
+if [[ "$WITH_RELAY" == true ]]; then
+    kubectl -n "$NAMESPACE" apply -f tests/Fixtures/kubernetes-email-postgres.yaml >/dev/null
+    if ! kubectl -n "$NAMESPACE" rollout status deployment/postgres --timeout=120s >/dev/null; then
+        kubectl -n "$NAMESPACE" describe pods -l app.kubernetes.io/name=gateway-email-postgres-smoke >&2 || true
+        exit 1
+    fi
+else
+    kubectl -n "$NAMESPACE" apply -f tests/Fixtures/provision-k8s-planner.yaml >/dev/null
+fi
+if ! kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
+    exit 1
+fi
+if [[ "$WITH_RELAY" == true ]]; then
+    kubectl -n "$NAMESPACE" rollout status deployment/smtp-relay --timeout=120s >/dev/null
+fi
+kubectl -n "$NAMESPACE" exec deployment/planner -- \
+    php /app/tests/Fixtures/kubernetes-smtp-register.php
+
+OVERLAY=infra/kubernetes/spinner-email
+if [[ "$WITH_DNS" == true ]]; then OVERLAY=infra/kubernetes/spinner-email-dns; fi
+if [[ "$WITH_RELAY" == true ]]; then OVERLAY=infra/kubernetes/spinner-email-relay; fi
+if [[ "$WITH_DNS" == true && "$WITH_RELAY" == true ]]; then
+    OVERLAY=infra/kubernetes/spinner-email-dns-relay
+fi
+kubectl -n "$NAMESPACE" apply -k "$OVERLAY" >/dev/null
+kubectl -n "$NAMESPACE" set image deployment/spinner spinner=gateway-email-spinner-smoke:local >/dev/null
+if ! kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null; then
+    kubectl -n "$NAMESPACE" describe pods -l app.kubernetes.io/name=spinner >&2 || true
+    kubectl -n "$NAMESPACE" logs deployment/spinner >&2 || true
+    exit 1
+fi
+kubectl -n "$NAMESPACE" patch service spinner-smtp --type=merge \
+    -p '{"spec":{"type":"NodePort"}}' >/dev/null
+SMTP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-smtp -o jsonpath='{.spec.ports[0].nodePort}')
+NODE_IP=$(kubectl get node orbstack -o json | php -r '
+    $node = json_decode(stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
+    foreach ($node["status"]["addresses"] ?? [] as $address) {
+        if ($address["type"] === "InternalIP" && filter_var($address["address"], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            echo $address["address"];
+            exit(0);
+        }
+    }
+')
+if [[ ! "$NODE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ||
+      ! "$SMTP_PORT" =~ ^[0-9]{4,5}$ ]]; then
+    echo "OrbStack did not assign a usable SMTP NodePort: $NODE_IP:$SMTP_PORT" >&2
+    exit 1
+fi
+
+if [[ "$WITH_DNS" == true ]]; then
+    kubectl -n "$NAMESPACE" patch service spinner-dns --type=merge \
+        -p '{"spec":{"type":"NodePort"}}' >/dev/null
+    DNS_UDP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns \
+        -o jsonpath='{.spec.ports[?(@.protocol=="UDP")].nodePort}')
+    DNS_TCP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns \
+        -o jsonpath='{.spec.ports[?(@.protocol=="TCP")].nodePort}')
+    DNS_TOKEN=$(kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => json_encode(["external_id" => "email-dns-smoke", "zone" => "mailhooks.example.test"], JSON_THROW_ON_ERROR),
+            "timeout" => 5,
+        ]]);
+        $response = file_get_contents("http://127.0.0.1:8080/dns/hooks", false, $context);
+        if ($response === false) { exit(1); }
+        $hook = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_string($hook["token"] ?? null)) { exit(1); }
+        echo $hook["token"];
+    ')
+    if [[ -z "$DNS_TOKEN" || ! "$DNS_UDP_PORT" =~ ^[0-9]{4,5}$ ||
+          ! "$DNS_TCP_PORT" =~ ^[0-9]{4,5}$ ]]; then
+        echo 'Combined overlay did not provide a DNS hook and both NodePorts.' >&2
+        exit 1
+    fi
+fi
+
+smtp_check() {
+    local send=${1:-false} output
+    local client_args=("$NODE_IP" "$SMTP_PORT" "$CERT_DIR/tls.crt")
+    if [[ "$send" == true ]]; then client_args+=(--send); fi
+    for ((attempt=0; attempt<20; attempt++)); do
+        if output=$(php tests/Fixtures/kubernetes-smtp-client.php \
+            "${client_args[@]}" 2>&1); then
+            echo "$output"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "$output" >&2
+    kubectl -n "$NAMESPACE" logs deployment/spinner --tail=80 >&2 || true
+    return 1
+}
+
+direct_relay_check() {
+    local accepted
+    for ((attempt=0; attempt<30; attempt++)); do
+        accepted=$(kubectl -n "$NAMESPACE" exec deployment/smtp-relay -- \
+            sh -c 'cat /tmp/accepted.jsonl 2>/dev/null || true' 2>/dev/null || true)
+        if printf '%s\n' "$accepted" | php -r '
+            $rows = array_values(array_filter(explode("\n", trim(stream_get_contents(STDIN)))));
+            $mail = count($rows) === 1 ? json_decode($rows[0], true) : null;
+            exit(is_array($mail) && ($mail["recipients"] ?? null) === ["one@example.net"] &&
+                str_contains($mail["data"] ?? "", "Subject: kubernetes relay smoke") ? 0 : 1);
+        '; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo 'Managed SMTP was not accepted by the test relay exactly once.' >&2
+    return 1
+}
+
+submit_email() {
+    local receipt
+    for ((attempt=0; attempt<12; attempt++)); do
+        if receipt=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+            php /app/tests/Fixtures/kubernetes-email-submit.php 2>/dev/null) &&
+            [[ "$receipt" =~ ^[a-f0-9]{32}$ ]]; then
+            echo "$receipt"
+            return 0
+        fi
+        sleep 1
+    done
+    kubectl -n "$NAMESPACE" exec deployment/planner -- \
+        php /app/tests/Fixtures/kubernetes-email-submit.php >&2 || true
+    return 1
+}
+
+queued_relay_check() {
+    local receipt=$1 accepted delivered
+    for ((attempt=0; attempt<40; attempt++)); do
+        accepted=$(kubectl -n "$NAMESPACE" exec deployment/smtp-relay -- \
+            sh -c 'cat /tmp/accepted.jsonl 2>/dev/null || true' 2>/dev/null || true)
+        delivered=$(kubectl -n "$NAMESPACE" exec deployment/postgres -- \
+            psql -U postgres -d gateway -At -c \
+            "SELECT count(*) FROM deliveries WHERE id = '$receipt' AND state = 'delivered'" 2>/dev/null || true)
+        if [[ "$delivered" == 1 ]] && printf '%s\n' "$accepted" | php -r '
+            $rows = array_values(array_filter(explode("\n", trim(stream_get_contents(STDIN)))));
+            $mail = count($rows) === 2 ? json_decode($rows[1], true) : null;
+            exit(is_array($mail) && ($mail["recipients"] ?? null) === ["recipient@example.test"] &&
+                str_contains($mail["data"] ?? "", "Subject: kubernetes HTTP submission") ? 0 : 1);
+        '; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "Email HTTP submission did not produce one delivered PostgreSQL receipt and exactly two relay messages (state count=$delivered)." >&2
+    kubectl -n "$NAMESPACE" logs deployment/spinner --tail=80 >&2 || true
+    return 1
+}
+
+dns_check() {
+    local protocol=$1 port=$DNS_UDP_PORT answer
+    if [[ "$protocol" == tcp ]]; then port=$DNS_TCP_PORT; fi
+    for ((attempt=0; attempt<20; attempt++)); do
+        if [[ "$protocol" == tcp ]]; then
+            answer=$(dig +tcp @"$NODE_IP" -p "$port" +time=1 +tries=1 +noall +comments \
+                "hello.$DNS_TOKEN.mailhooks.example.test" TXT 2>/dev/null || true)
+        else
+            answer=$(dig @"$NODE_IP" -p "$port" +time=1 +tries=1 +noall +comments \
+                "hello.$DNS_TOKEN.mailhooks.example.test" TXT 2>/dev/null || true)
+        fi
+        if [[ "$answer" == *'status: NOERROR'* && "$answer" == *'flags: qr aa'* ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "$protocol DNS did not return authoritative NOERROR through $NODE_IP:$port:" >&2
+    echo "$answer" >&2
+    return 1
+}
+
+smtp_check "$WITH_RELAY"
+if [[ "$WITH_RELAY" == true ]]; then
+    direct_relay_check
+    EMAIL_RECEIPT_ID=$(submit_email)
+    queued_relay_check "$EMAIL_RECEIPT_ID"
+fi
+if [[ "$WITH_DNS" == true ]]; then dns_check udp; dns_check tcp; fi
+kubectl -n "$NAMESPACE" scale deployment/spinner --replicas=2 >/dev/null
+kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null
+POD_TO_STOP=$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/name=spinner \
+    -o jsonpath='{.items[0].metadata.name}')
+kubectl -n "$NAMESPACE" delete pod "$POD_TO_STOP" --wait=false >/dev/null
+smtp_check
+if [[ "$WITH_RELAY" == true ]]; then
+    REPLAY_RECEIPT_ID=$(submit_email)
+    if [[ "$REPLAY_RECEIPT_ID" != "$EMAIL_RECEIPT_ID" ]]; then
+        echo 'Email HTTP replay changed the receipt ID after Spinner Pod replacement.' >&2
+        exit 1
+    fi
+    queued_relay_check "$EMAIL_RECEIPT_ID"
+fi
+if [[ "$WITH_DNS" == true ]]; then dns_check udp; dns_check tcp; fi
+
+if [[ "$WITH_DNS" == true && "$WITH_RELAY" == true ]]; then
+    echo 'OrbStack Email+DNS+relay: STARTTLS, synchronous SMTP handoff, queued Email HTTP delivery, authoritative DNS, and receipt replay survived Spinner Pod replacement.'
+elif [[ "$WITH_RELAY" == true ]]; then
+    echo 'OrbStack Email relay: STARTTLS, synchronous SMTP handoff, and PostgreSQL-backed Email HTTP delivery/receipt replay survived Spinner Pod replacement.'
+elif [[ "$WITH_DNS" == true ]]; then
+    echo 'OrbStack Email+DNS: one production Spinner served SMTP STARTTLS/Planner decisions and authoritative UDP/TCP DNS after one Pod replacement.'
+else
+    echo 'OrbStack Email: production Spinner overlay served STARTTLS and Planner recipient decisions through a NodePort after one Pod replacement.'
+fi

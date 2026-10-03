@@ -10,15 +10,17 @@ application skeleton or a separate service you must deploy. Choose a runtime:
 | FrankenPHP library | Optional Go extension command | In-process FrankenPHP, no Caddy module |
 | FrankenPHP/Caddy (legacy integration) | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
 
-All runtimes use the same Planner package, SQLite registry, `/hooks/{key}`
+All runtimes use the same Planner package, database-backed registry, `/hooks/{key}`
 route convention, and management CLI. A container is optional.
 
 The launcher chooses the Planner connection from the selected Router runtime.
 `library` injects FrankenPHP's in-process handler; `roadrunner` uses its managed
 PHP workers. Do not set `GATEWAY_RUNTIME` for `library`: that variable selects
-the adapter only when running Spinner alone. The library Router also rejects
-external Planner URL/socket settings, schedule polling, and provisioning,
-which currently require the separate HTTP Planner topology.
+the adapter only when running Spinner alone. Both bundled runtimes can poll
+scheduled automations through their in-process Planner; set
+`GATEWAY_SCHEDULES_ENABLED=true` and install the desired Go language extension.
+External Planner URL/socket settings and provisioning still require the
+separate HTTP Planner topology.
 
 The host uses `app/index.php`, `app/bootstrap.php`, and one `app/config.php`
 array instead of Laravel's public/config/bootstrap directory skeleton.
@@ -79,7 +81,7 @@ composer install --working-dir=app
 ./scripts/gateway-router roadrunner
 ```
 
-By default it listens on `127.0.0.1:8080` and keeps its generated credentials
+By default it listens on `127.0.0.1:8080` and keeps its generated credentials,
 SQLite database, PHP storage, and framework caches in `.gateway-router-data/`.
 The `app/` tree stays free of runtime state. Set
 `GATEWAY_ROUTER_LISTEN` and `GATEWAY_ROUTER_DATA_DIR` to change those paths;
@@ -167,12 +169,63 @@ in the persistent volume on first start. `app/bootstrap.php` remains packaged
 code, while the RoadRunner compatibility bootstrap is generated under the
 data directory when that runtime is selected.
 
+All Router launchers keep queued HTTP deliveries in `/data/deliveries` by
+default. The legacy Caddy handler uses its `http/` child directory so it
+cannot compete with the sibling SMTP app's spool worker. Preserve the spool
+with the database when replacing a container. Caddy rejects an overlapping
+hot reload of the same spool; restart that runtime to apply configuration
+changes while durable delivery is enabled.
+For multi-process delivery, set `GATEWAY_DELIVERY_DATABASE_URL` to a private
+PostgreSQL URL instead of `GATEWAY_DELIVERY_SPOOL_PATH`. The bundled launcher
+uses that same URL as Planner's `DB_URL`, migrates PostgreSQL, and selects the
+shared-queue Caddyfile for FrankenPHP. Set `DB_CONNECTION=pgsql` explicitly if
+your deployment supplies it; any non-PostgreSQL value is rejected. PHP must
+have `pdo_pgsql` installed (both Router Docker images include it). The Go
+workers claim only deliveries for adapters they support, allowing the HTTP
+handler and SMTP app to share one database without misrouting work. See
+[delivery operations](deliveries.md) for the at-least-once and remaining
+cross-host limitations.
+In this mode the bundled Planner also defaults Gateway's route cache and
+subscription locks to PostgreSQL (`gateway_cache` and `gateway_cache_locks`).
+The migration creates those tables. This makes subscription changes visible
+to other Router replicas immediately, rather than waiting for each replica's
+file-cache TTL. Set `GATEWAY_CACHE_STORE` and
+`GATEWAY_MUTATION_LOCK_STORE` to another genuinely shared Laravel cache store
+if desired; do not use separate file or array stores across replicas.
+For multiple Router replicas, give each replica its own data directory and
+mount the same trusted credentials file read-only. Set
+`GATEWAY_ROUTER_CREDENTIALS_FILE` to that file's path. It must define the
+same `APP_KEY`, `GATEWAY_INTERNAL_TOKEN`, and `REGISTRY_TOKEN` for every
+replica and its management CLI. The launcher refuses a mounted file that
+differs from an existing `gateway.env` in its data directory. This file is
+sourced as shell input, so restrict who can edit or read it and keep it out
+of the image and repository. Do not share a SQLite volume between replicas.
+The legacy Caddy launcher binds the token-protected delivery admin listener
+to `127.0.0.1:5052` by default and points its bundled Planner there. It
+combines the handler and optional SMTP app spools without publishing the admin
+port. See [delivery operations](deliveries.md) before overriding that address.
+
 Keep the `/data` volume when replacing the container. The Go-only Spinner
 remains available from the root `Dockerfile` for separate deployment with a
 Laravel Planner over private HTTP. The existing FrankenPHP SMTP module has
 its own configuration example in `infra/caddy/Caddyfile.frankenphp.example`.
 
 For Kubernetes, use the separate [Router and Spinner manifests](kubernetes.md).
+
+To route Reverb, Mercure, or Centrifugo instances created by a separate
+provisioning worker, the FrankenPHP-library and RoadRunner Router images can
+set `GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED=true` and a comma-separated
+`GATEWAY_PROVISIONING_ROUTE_CIDRS` of reachable workload networks. The legacy
+Caddy Gateway handler instead uses `managed_route_cidrs` in its `gateway`
+block, as shown commented in `app/Caddyfile`. All three ask their bundled
+Planner in-process for a current route and proxy matched HTTP/WebSocket
+traffic to the reported instance. Keep the worker and Router on networks where
+those instance IPs are reachable, and give workloads dedicated hostnames.
+See [deployment targets](provisioning-targets.md#route-managed-workloads-from-a-separate-spinner)
+for the routing and security constraints. The packaged RoadRunner and
+FrankenPHP-library Routers have a multi-container managed HTTP/WebSocket smoke.
+The custom FrankenPHP/Caddy module has a separate-Caddy-and-Planner fixture
+smoke, but not a single-image managed-route deployment check.
 
 ### RoadRunner Docker image
 
@@ -196,3 +249,20 @@ Docker image definition remains the FrankenPHP variant.
 Run `bash scripts/test-roadrunner-container gateway-router:roadrunner-local`
 to check health, non-root execution, private-route isolation, management CLI,
 and restart persistence. The test deletes its own temporary container and volume.
+Run `bash scripts/test-router-managed-route gateway-router:roadrunner-local`
+to check bundled Planner lookup, managed HTTP forwarding, a WebSocket upgrade
+and echoed message, private-route isolation, destination allowlisting, and
+stale-instance fail-closed behavior. This requires Docker and a local Go
+toolchain. The same script accepts the FrankenPHP-library Router image. It
+deletes its temporary containers, network, and volume.
+For the custom Caddy module, build `infra/docker/FrankenPHP.gateway.Dockerfile`
+and `infra/docker/planner-fixture.Dockerfile`, then run
+`bash scripts/test-caddy-managed-route CADDY_IMAGE PLANNER_FIXTURE_IMAGE`.
+That fixture verifies the Caddy handler against a separate Laravel Planner
+container, not the combined Router image.
+For the shared-delivery variant, build this image and run
+`scripts/test-router-shared-postgres gateway-router:roadrunner-local`. That
+disposable test runs two Router containers plus PostgreSQL and verifies
+`pdo_pgsql`, Planner migrations, health, the private delivery-admin listener,
+and a webhook created on one replica and routed through the other.
+It does not prove failover across separate hosts.

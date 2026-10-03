@@ -48,6 +48,7 @@ func (p *PHPPlanner) Plan(ctx context.Context, ingress IngressRequest) (RoutePla
 	}
 	request.Host = ingress.Host
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
 	setInternalToken(request.Header, p.InternalToken)
 
 	response := httptest.NewRecorder()

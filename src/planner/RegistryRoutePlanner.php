@@ -171,7 +171,10 @@ final class RegistryRoutePlanner implements RoutePlanner
         }
 
         if ($reply === null && $relays === []) {
-            return RoutePlan::respond(new Response(statusCode: 204));
+            return RoutePlan::respond(new Response(statusCode: 204), metadata: [
+                'endpoint_id' => $cachedRoute->endpointId,
+                'endpoint_key' => $cachedRoute->endpointKey,
+            ]);
         }
 
         return RoutePlan::relay(

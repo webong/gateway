@@ -46,6 +46,29 @@ func TestDriverRegistryDispatchesByServerDriverAndWorkload(t *testing.T) {
 	}
 }
 
+func TestDriverRegistryPreparesOnlyDesiredAssignmentsPerRuntime(t *testing.T) {
+	docker := &recordingRuntimeDriver{}
+	kubernetes := &recordingRuntimeDriver{}
+	registry, err := NewDriverRegistry(map[string]Driver{
+		DriverDocker: docker, DriverKubernetes: kubernetes,
+	}, []Workload{&fakeWorkload{workloadType: "test"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dockerSpec := validServerSpec()
+	dockerSpec.Driver = DriverDocker
+	kubeSpec := validServerSpec()
+	kubeSpec.Driver = DriverKubernetes
+	kubeSpec.AssignmentID = "second-instance"
+	if err := registry.PrepareDesired(t.Context(), []ServerSpec{dockerSpec, kubeSpec}); err != nil {
+		t.Fatal(err)
+	}
+	if len(docker.prepared) != 1 || docker.prepared[dockerSpec.AssignmentID].Driver != DriverDocker ||
+		len(kubernetes.prepared) != 1 || kubernetes.prepared[kubeSpec.AssignmentID].Driver != DriverKubernetes {
+		t.Fatalf("desired assignments crossed drivers: docker=%v kubernetes=%v", docker.prepared, kubernetes.prepared)
+	}
+}
+
 func TestDockerRunArgumentsDescribeManagedWorkloadContainer(t *testing.T) {
 	spec := validServerSpec()
 	spec.Driver = DriverDocker
@@ -67,7 +90,7 @@ func TestDockerRunArgumentsDescribeManagedWorkloadContainer(t *testing.T) {
 		"--label gateway.provisioning.type=test",
 		"--label gateway.provisioning.node=node-a",
 		"--label gateway.provisioning.target=target-a",
-		"registry.example.test/server:v1 server serve --port=8080",
+		"--entrypoint server registry.example.test/server:v1 serve --port=8080",
 	} {
 		if !strings.Contains(arguments, expected) {
 			t.Fatalf("expected Docker arguments to contain %q: %s", expected, arguments)
@@ -135,8 +158,13 @@ func TestSupportedDriverValidation(t *testing.T) {
 	}
 }
 
-func TestPersistentDriversRemoveResourcesPreviouslyOwnedByNode(t *testing.T) {
-	dockerRunner := &recordingCommandRunner{outputs: []string{"container-a\ncontainer-b", ""}}
+func TestPersistentDriversRemoveOnlyStaleResourcesOwnedByNode(t *testing.T) {
+	dockerRunner := &recordingCommandRunner{outputs: []string{
+		"container-a\ncontainer-b",
+		`{"Id":"container-a","Name":"/gateway-server-instance-1","Config":{"Image":"server:v1","Labels":{"gateway.provisioning.node":"node-a","gateway.provisioning.instance":"instance-1","gateway.provisioning.server":"server-1","gateway.provisioning.type":"test"}},"State":{"Running":true,"Pid":42}}`,
+		`{"Id":"container-b","Name":"/gateway-old","Config":{"Labels":{"gateway.provisioning.node":"node-a","gateway.provisioning.instance":"old"}},"State":{"Running":true}}`,
+		"",
+	}}
 	docker, err := newDockerDriver(DockerDriverConfig{
 		Binary: "docker", NodeID: "Node A", PublishHost: "127.0.0.1",
 		StartTimeout: time.Second, StopTimeout: time.Second,
@@ -144,15 +172,20 @@ func TestPersistentDriversRemoveResourcesPreviouslyOwnedByNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := docker.Prepare(t.Context()); err != nil {
+	spec := validServerSpec()
+	spec.Driver = DriverDocker
+	if err := docker.PrepareDesired(t.Context(), map[string]ServerSpec{"instance-1": spec}); err != nil {
 		t.Fatal(err)
 	}
 	dockerCalls := strings.Join(dockerRunner.calls, "\n")
-	if !strings.Contains(dockerCalls, "label=gateway.provisioning.node=node-a") || !strings.Contains(dockerCalls, "rm --force container-a container-b") {
+	if !strings.Contains(dockerCalls, "label=gateway.provisioning.node=node-a") || !strings.Contains(dockerCalls, "rm --force container-b") || strings.Contains(dockerCalls, "rm --force container-a") {
 		t.Fatalf("unexpected Docker cleanup commands: %s", dockerCalls)
 	}
 
-	kubernetesRunner := &recordingCommandRunner{outputs: []string{""}}
+	kubernetesRunner := &recordingCommandRunner{outputs: []string{
+		`{"items":[{"metadata":{"name":"gateway-server-instance-1","labels":{"gateway.webong.dev/node":"node-a","gateway.webong.dev/instance":"instance-1","gateway.webong.dev/server":"server-1","gateway.webong.dev/type":"test"}},"status":{"phase":"Running"}},{"metadata":{"name":"gateway-old","labels":{"gateway.webong.dev/node":"node-a","gateway.webong.dev/instance":"old"}},"status":{"phase":"Running"}}]}`,
+		"",
+	}}
 	kubernetes, err := newKubernetesDriver(KubernetesDriverConfig{
 		KubectlBinary: "kubectl", NodeID: "Node A", Namespace: "servers",
 		ImagePullPolicy: "IfNotPresent", RouteMode: "pod-ip",
@@ -161,11 +194,12 @@ func TestPersistentDriversRemoveResourcesPreviouslyOwnedByNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := kubernetes.Prepare(t.Context()); err != nil {
+	spec.Driver = DriverKubernetes
+	if err := kubernetes.PrepareDesired(t.Context(), map[string]ServerSpec{"instance-1": spec}); err != nil {
 		t.Fatal(err)
 	}
 	kubernetesCalls := strings.Join(kubernetesRunner.calls, "\n")
-	if !strings.Contains(kubernetesCalls, "delete pods") || !strings.Contains(kubernetesCalls, "gateway.webong.dev/node=node-a") {
+	if !strings.Contains(kubernetesCalls, "delete pod gateway-old") || !strings.Contains(kubernetesCalls, "gateway.webong.dev/node=node-a") || strings.Contains(kubernetesCalls, "delete pod gateway-instance-1") {
 		t.Fatalf("unexpected Kubernetes cleanup command: %s", kubernetesCalls)
 	}
 }
@@ -173,6 +207,12 @@ func TestPersistentDriversRemoveResourcesPreviouslyOwnedByNode(t *testing.T) {
 type recordingRuntimeDriver struct {
 	starts   int
 	workload Workload
+	prepared map[string]ServerSpec
+}
+
+func (d *recordingRuntimeDriver) PrepareDesired(_ context.Context, desired map[string]ServerSpec) error {
+	d.prepared = desired
+	return nil
 }
 
 func (d *recordingRuntimeDriver) Start(_ context.Context, _ ServerSpec, _ string, workload Workload) (Process, error) {

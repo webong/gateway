@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 OUTPUT=${1:-"$ROOT/dist/gateway-extensions"}
+VERSION=${2:-v0.0.0-local}
 case "$OUTPUT" in
     /*) ;;
     *) OUTPUT="$(pwd)/$OUTPUT" ;;
@@ -18,6 +19,8 @@ for extension in centrifugo mercure reverb; do
     GOTELEMETRY=off go -C "$ROOT" build -mod=readonly -trimpath \
         -o "$STAGE/gateway-$extension" "./ext/$extension/cmd/plugin"
 done
+GOTELEMETRY=off go -C "$ROOT" run -mod=readonly ./src/spinner/cmd/gateway-extension \
+    catalog --dir "$STAGE" --version "$VERSION" >/dev/null
 mv "$STAGE" "$OUTPUT"
 trap - EXIT
 echo "Gateway executable extensions: $OUTPUT"

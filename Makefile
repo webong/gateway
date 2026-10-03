@@ -1,4 +1,4 @@
-.PHONY: build build-with-script-extensions test test-go test-go-extensions test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-websocket test-webstream test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 GATEWAY_BUILD_TAGS ?=
@@ -7,6 +7,10 @@ GATEWAY_TAG_FLAGS = $(if $(strip $(GATEWAY_BUILD_TAGS)),-tags $(GATEWAY_BUILD_TA
 build:
 	mkdir -p bin
 	CGO_ENABLED=1 go build $(GOFLAGS) $(GATEWAY_TAG_FLAGS) -o bin/gateway ./src/spinner/cmd/proxy
+
+build-extension-manager:
+	mkdir -p bin
+	CGO_ENABLED=0 go build $(GOFLAGS) -o bin/gateway-extension ./src/spinner/cmd/gateway-extension
 
 build-with-script-extensions:
 	$(MAKE) build GATEWAY_BUILD_TAGS=gateway_javascript,gateway_lua
@@ -49,14 +53,23 @@ test-http:
 test-smtp:
 	bash scripts/smtp-smoke.sh
 
+test-email:
+	bash scripts/email-smoke.sh
+
 test-dns:
 	go test $(GOFLAGS) ./src/spinner/cmd/bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
+
+test-dns-integration:
+	bash scripts/dns-smoke.sh
 
 test-websocket:
 	bash scripts/websocket-smoke.sh
 
 test-webstream:
 	bash scripts/webstream-smoke.sh
+
+test-schedule-roadrunner:
+	bash scripts/schedule-roadrunner-smoke.sh
 
 test-frankenphp:
 	bash scripts/frankenphp-build.sh

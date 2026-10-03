@@ -5,19 +5,43 @@ APP_DIR=${GATEWAY_ROUTER_APP_DIR:-$(CDPATH= cd -- "$(dirname -- "$0")/../app" &&
 DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-/data}
 APP_DIR=$(CDPATH= cd -- "$APP_DIR" && pwd)
 
-if [ ! -f "$DATA_DIR/gateway.env" ]; then
+if [ -n "${GATEWAY_ROUTER_CREDENTIALS_FILE:-}" ]; then
+    CREDENTIALS_FILE=$GATEWAY_ROUTER_CREDENTIALS_FILE
+else
+    CREDENTIALS_FILE="$DATA_DIR/gateway.env"
+fi
+if [ ! -r "$CREDENTIALS_FILE" ]; then
     echo 'Start Gateway before running management commands.' >&2
     exit 1
 fi
 DATA_DIR=$(CDPATH= cd -- "$DATA_DIR" && pwd)
+if [ "$CREDENTIALS_FILE" != "$DATA_DIR/gateway.env" ] && [ -f "$DATA_DIR/gateway.env" ] && ! cmp -s "$DATA_DIR/gateway.env" "$CREDENTIALS_FILE"; then
+    echo 'The mounted Router credentials differ from the persisted gateway.env.' >&2
+    exit 1
+fi
 
 set -a
-. "$DATA_DIR/gateway.env"
+. "$CREDENTIALS_FILE"
 set +a
+if [ -z "${APP_KEY:-}" ] || [ -z "${GATEWAY_INTERNAL_TOKEN:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
+    echo 'Router credentials must define APP_KEY, GATEWAY_INTERNAL_TOKEN, and REGISTRY_TOKEN.' >&2
+    exit 1
+fi
 
 export APP_ENV=production
-export DB_CONNECTION=sqlite
-export DB_DATABASE="$DATA_DIR/gateway.sqlite"
+if [ -n "${GATEWAY_DELIVERY_DATABASE_URL:-}" ]; then
+    if [ -n "${DB_URL:-}" ] && [ "$DB_URL" != "$GATEWAY_DELIVERY_DATABASE_URL" ]; then
+        echo 'DB_URL and GATEWAY_DELIVERY_DATABASE_URL must name the same PostgreSQL database.' >&2
+        exit 1
+    fi
+    export DB_CONNECTION=pgsql
+    export DB_URL=$GATEWAY_DELIVERY_DATABASE_URL
+    export GATEWAY_CACHE_STORE=${GATEWAY_CACHE_STORE:-database}
+    export GATEWAY_MUTATION_LOCK_STORE=${GATEWAY_MUTATION_LOCK_STORE:-$GATEWAY_CACHE_STORE}
+else
+    export DB_CONNECTION=sqlite
+    export DB_DATABASE="$DATA_DIR/gateway.sqlite"
+fi
 export SESSION_DRIVER=file
 export GATEWAY_ROUTER_DATA_DIR="$DATA_DIR"
 export LARAVEL_STORAGE_PATH="$DATA_DIR/storage"

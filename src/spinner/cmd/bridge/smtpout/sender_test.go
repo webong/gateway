@@ -98,11 +98,18 @@ func TestSenderSubmitsUnchangedMessageToConfiguredRelay(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := sender.Send(context.Background(), Message{
+		EnvelopeFrom: "",
+		Recipients:   []string{"inbox@example.net"},
+		Data:         message,
+	}); err != nil {
+		t.Fatalf("null reverse-path was rejected: %v", err)
+	}
 
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
-	if len(backend.messages) != 1 {
-		t.Fatalf("expected one message, got %d", len(backend.messages))
+	if len(backend.messages) != 2 {
+		t.Fatalf("expected two messages, got %d", len(backend.messages))
 	}
 	received := backend.messages[0]
 	if received.from != "sender@example.test" || len(received.recipients) != 1 || received.recipients[0] != "inbox@example.net" {
@@ -110,6 +117,9 @@ func TestSenderSubmitsUnchangedMessageToConfiguredRelay(t *testing.T) {
 	}
 	if string(received.data) != string(message) {
 		t.Fatalf("message changed in transit: %q", received.data)
+	}
+	if backend.messages[1].from != "" {
+		t.Fatalf("null reverse-path changed: %+v", backend.messages[1])
 	}
 }
 

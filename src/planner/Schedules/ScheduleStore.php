@@ -10,6 +10,7 @@ use DateTimeZone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use RuntimeException;
 use stdClass;
 use Webong\Gateway\Protocol\ScheduleCommand;
 
@@ -42,7 +43,9 @@ final class ScheduleStore
             $claims = [];
             $expired = DB::table('schedule_runs')
                 ->join('schedules', 'schedules.id', '=', 'schedule_runs.schedule_id')
-                ->where('schedules.enabled', true)
+                ->where(static function ($query): void {
+                    $query->where('schedules.enabled', true)->orWhere('schedule_runs.kind', 'manual');
+                })
                 ->whereIn('schedule_runs.language', $languages)
                 ->where('schedule_runs.status', 'claimed')
                 ->where('schedule_runs.lease_until', '<=', $now)
@@ -52,6 +55,26 @@ final class ScheduleStore
             foreach ($expired as $run) {
                 $token = (string) Str::uuid();
                 DB::table('schedule_runs')->where('id', $run->id)->update([
+                    'claim_token' => $token,
+                    'lease_until' => $now->copy()->addMinutes(2),
+                    'updated_at' => $now,
+                ]);
+                $claims[] = $this->claimResource($run, $token);
+            }
+
+            $remaining = $limit - count($claims);
+            if ($remaining === 0) {
+                return $claims;
+            }
+            $pending = DB::table('schedule_runs')
+                ->where('kind', 'manual')->where('status', 'pending')
+                ->whereIn('language', $languages)
+                ->orderBy('created_at')->orderBy('id')->limit($remaining)
+                ->lockForUpdate()->get();
+            foreach ($pending as $run) {
+                $token = (string) Str::uuid();
+                DB::table('schedule_runs')->where('id', $run->id)->where('status', 'pending')->update([
+                    'status' => 'claimed',
                     'claim_token' => $token,
                     'lease_until' => $now->copy()->addMinutes(2),
                     'updated_at' => $now,
@@ -78,6 +101,8 @@ final class ScheduleStore
                     'id' => $id,
                     'schedule_id' => $schedule->id,
                     'scheduled_for' => $scheduledFor,
+                    'kind' => 'cron',
+                    'occurrence_key' => 'cron:'.$scheduledFor,
                     'status' => 'claimed',
                     'claim_token' => $token,
                     'lease_until' => $now->copy()->addMinutes(2),
@@ -106,18 +131,68 @@ final class ScheduleStore
         });
     }
 
+    public function enqueueManual(string $scheduleId, ?string $idempotencyKey = null): ?stdClass
+    {
+        return DB::transaction(function () use ($scheduleId, $idempotencyKey): ?stdClass {
+            $schedule = DB::table('schedules')->where('id', $scheduleId)->lockForUpdate()->first();
+            if (! $schedule) {
+                return null;
+            }
+
+            $now = now('UTC');
+            $key = 'manual:'.($idempotencyKey === null ? (string) Str::uuid() : hash('sha256', $idempotencyKey));
+            DB::table('schedule_runs')->insertOrIgnore([
+                'id' => (string) Str::uuid(),
+                'schedule_id' => $scheduleId,
+                'scheduled_for' => $now,
+                'kind' => 'manual',
+                'occurrence_key' => $key,
+                'status' => 'pending',
+                'claim_token' => (string) Str::uuid(),
+                'lease_until' => $now,
+                'language' => $schedule->language,
+                'source' => $schedule->source,
+                'payload' => $schedule->payload,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            $run = DB::table('schedule_runs')->where('schedule_id', $scheduleId)
+                ->where('occurrence_key', $key)->first();
+            if (! $run) {
+                throw new RuntimeException('The manual schedule run could not be queued.');
+            }
+
+            return $run;
+        });
+    }
+
     public function complete(string $id, string $token, string $status, int $deliveries, ?string $error): bool
     {
-        return DB::table('schedule_runs')->where('id', $id)
-            ->where('claim_token', $token)->where('status', 'claimed')
-            ->where('lease_until', '>', now('UTC'))
-            ->update([
+        return DB::transaction(function () use ($id, $token, $status, $deliveries, $error): bool {
+            $now = now('UTC');
+            $updated = DB::table('schedule_runs')->where('id', $id)
+                ->where('claim_token', $token)->where('status', 'claimed')
+                ->where('lease_until', '>', $now)
+                ->update([
                 'status' => $status,
                 'deliveries_queued' => $deliveries,
                 'error' => $error,
-                'completed_at' => now('UTC'),
-                'updated_at' => now('UTC'),
-            ]) === 1;
+                'completed_at' => $now,
+                'updated_at' => $now,
+                ]) === 1;
+            if ($updated && trim((string) config('gateway.schedule_notifications.url', '')) !== '') {
+                DB::table('schedule_notifications')->insertOrIgnore([
+                    'run_id' => $id,
+                    'state' => 'pending',
+                    'next_attempt_at' => $now,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+
+            return $updated;
+        });
     }
 
     /** @param list<ScheduleCommand> $schedules */
@@ -182,7 +257,7 @@ final class ScheduleStore
             'claim_token' => $token,
             'language' => $run->language,
             'source' => $run->source,
-            'payload' => json_decode($run->payload, true),
+            'payload' => (object) (json_decode($run->payload, true, 512, JSON_THROW_ON_ERROR) ?? []),
         ];
     }
 }

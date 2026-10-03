@@ -7,6 +7,7 @@ namespace Webong\Gateway\Reconciliation\Http\Controllers;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Servers\Models\Instance;
@@ -48,26 +49,30 @@ final readonly class InternalInstanceController
         }
 
         $attributes = $validator->validated();
-        if ($target !== null && ! ProvisioningNode::query()->whereKey($attributes['node_id'])->where('target_id', $target->getKey())->exists()) {
-            abort(Response::HTTP_NOT_FOUND);
-        }
-        $existing = Instance::query()->find($instance);
-        abort_if($existing !== null && $existing->server_id !== $server, Response::HTTP_CONFLICT);
-        $now = now();
-        $attributes['heartbeat_at'] = $now;
-        if (in_array($attributes['state'], ['starting', 'running'], true)) {
-            $attributes['started_at'] = Instance::query()->find($instance)?->started_at ?? $now;
-            $attributes['stopped_at'] = null;
-        } elseif (in_array($attributes['state'], ['stopped', 'failed'], true)) {
-            $attributes['stopped_at'] = $now;
-        }
+        // A clean report supersedes any error left by a prior reset or failure.
+        $attributes['error'] = $attributes['error'] ?? null;
 
-        $model = Instance::query()->updateOrCreate(
-            ['id' => $instance],
-            ['server_id' => $server, ...$attributes],
-        );
+        return DB::transaction(function () use ($request, $target, $server, $instance, $attributes): JsonResponse {
+            $node = ProvisioningNode::query()->lockForUpdate()->find($attributes['node_id']);
+            $this->assertSession($request, $node, $target?->getKey());
+            $existing = Instance::query()->find($instance);
+            abort_if($existing !== null && $existing->server_id !== $server, Response::HTTP_CONFLICT);
+            $now = now();
+            $attributes['heartbeat_at'] = $now;
+            if (in_array($attributes['state'], ['starting', 'running'], true)) {
+                $attributes['started_at'] = $existing?->started_at ?? $now;
+                $attributes['stopped_at'] = null;
+            } elseif (in_array($attributes['state'], ['stopped', 'failed'], true)) {
+                $attributes['stopped_at'] = $now;
+            }
 
-        return response()->json(ServerResources::instance($model));
+            $model = Instance::query()->updateOrCreate(
+                ['id' => $instance],
+                ['server_id' => $server, ...$attributes],
+            );
+
+            return response()->json(ServerResources::instance($model));
+        });
     }
 
     public function resetNode(Request $request): JsonResponse
@@ -84,21 +89,34 @@ final readonly class InternalInstanceController
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $now = now();
-        $node = ProvisioningNode::query()->find($validator->validated()['node_id']);
-        abort_if($node !== null && $node->target_id !== $target?->getKey(), Response::HTTP_NOT_FOUND);
-        $updated = Instance::query()
-            ->where('node_id', $validator->validated()['node_id'])
-            ->whereIn('server_id', Server::query()->where('target_id', $target?->getKey())->select('id'))
-            ->whereIn('state', ['starting', 'running', 'stopping'])
-            ->update([
-                'state' => 'stopped',
-                'error' => 'Gateway reconciler restarted.',
-                'heartbeat_at' => $now,
-                'stopped_at' => $now,
-                'updated_at' => $now,
-            ]);
+        $nodeId = $validator->validated()['node_id'];
 
-        return response()->json(['updated' => $updated]);
+        return DB::transaction(function () use ($request, $target, $nodeId): JsonResponse {
+            $node = ProvisioningNode::query()->lockForUpdate()->find($nodeId);
+            $this->assertSession($request, $node, $target?->getKey());
+            $now = now();
+            $updated = Instance::query()
+                ->where('node_id', $nodeId)
+                ->whereIn('server_id', Server::query()->where('target_id', $target?->getKey())->select('id'))
+                ->whereIn('state', ['starting', 'running', 'stopping'])
+                ->update([
+                    'state' => 'stopped',
+                    'error' => 'Gateway reconciler restarted.',
+                    'heartbeat_at' => $now,
+                    'stopped_at' => $now,
+                    'updated_at' => $now,
+                ]);
+
+            return response()->json(['updated' => $updated]);
+        });
+    }
+
+    private function assertSession(Request $request, ?ProvisioningNode $node, ?string $targetId): void
+    {
+        abort_if($node !== null && $node->target_id !== $targetId, Response::HTTP_NOT_FOUND);
+        abort_if($targetId !== null && $node === null, Response::HTTP_NOT_FOUND);
+        $sessionId = $request->header('X-Gateway-Worker-Session') ?: 'legacy';
+        abort_if($node !== null && ($node->session_id ?? 'legacy') !== $sessionId, Response::HTTP_CONFLICT, 'Another worker session owns this node.');
+        abort_if($node === null && $sessionId !== 'legacy', Response::HTTP_CONFLICT, 'The worker session has no node claim.');
     }
 }

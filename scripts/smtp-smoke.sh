@@ -42,6 +42,11 @@ cleanup() {
 
     rm -f "$PHP_LOG" "$HTTP_LOG" "$RR_LOG" "$RECEIVER_FILE" "$DATABASE_FILE" \
         "$RR_CONFIG" "$RELAY_BIN" "$SMTP_CLIENT_BIN"
+    for spool in "$TEMP_DIR/http-spool" "$TEMP_DIR/rr-spool"; do
+        if [[ -d "$spool" ]]; then
+            rm -r -- "$spool"
+        fi
+    done
     rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -114,6 +119,7 @@ run_http_mode() {
     PORT="$HTTP_PORT" \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" \
     GATEWAY_SMTP_ADDR=":$HTTP_SMTP_PORT" \
+    GATEWAY_DELIVERY_SPOOL_PATH="$TEMP_DIR/http-spool" \
     GATEWAY_SMTP_HOSTNAME='smtp-http-smoke.example.test' \
     LOG_LEVEL="$LOG_LEVEL" \
     "$RELAY_BIN" >"$HTTP_LOG" 2>&1 &
@@ -165,6 +171,7 @@ run_roadrunner_mode() {
     ROADRUNNER_CONFIG="$RR_CONFIG" \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" \
     GATEWAY_SMTP_ADDR=":$RR_SMTP_PORT" \
+    GATEWAY_DELIVERY_SPOOL_PATH="$TEMP_DIR/rr-spool" \
     GATEWAY_SMTP_HOSTNAME='smtp-roadrunner-smoke.example.test' \
     LOG_LEVEL="$LOG_LEVEL" \
     "$RELAY_BIN" >"$RR_LOG" 2>&1 &

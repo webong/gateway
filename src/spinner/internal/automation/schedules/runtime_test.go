@@ -45,11 +45,13 @@ func TestPollExecutesGoScriptAndReportsQueuedDeliveries(t *testing.T) {
 		Payload:  map[string]any{"value": "hello"},
 	}}}
 	var delivered automation.Delivery
-	(Runtime{Control: control, Executor: automation.NewRuntime(lua.New()), Enqueue: func(d automation.Delivery) bool {
+	var originRunID string
+	(Runtime{Control: control, Executor: automation.NewRuntime(lua.New()), Enqueue: func(runID string, d automation.Delivery) bool {
+		originRunID = runID
 		delivered = d
 		return true
 	}}).Poll(context.Background())
-	if control.status != "succeeded" || control.queued != 1 || delivered.Method != "POST" || delivered.Body != "hello" {
+	if control.status != "succeeded" || control.queued != 1 || originRunID != "run-1" || delivered.Method != "POST" || delivered.Body != "hello" {
 		t.Fatalf("unexpected run: status=%s queued=%d delivery=%+v error=%s", control.status, control.queued, delivered, control.message)
 	}
 }
@@ -59,7 +61,7 @@ func TestPollReportsQueueFailure(t *testing.T) {
 		ID: "run-2", Language: javascript.Language,
 		Source: `gateway.forward({url: 'https://example.test/hook'})`,
 	}}}
-	(Runtime{Control: control, Executor: automation.NewRuntime(javascript.New()), Enqueue: func(automation.Delivery) bool { return false }}).Poll(context.Background())
+	(Runtime{Control: control, Executor: automation.NewRuntime(javascript.New()), Enqueue: func(string, automation.Delivery) bool { return false }}).Poll(context.Background())
 	if control.status != "failed" || control.queued != 0 || control.message == "" {
 		t.Fatalf("unexpected run result: %+v", control)
 	}
@@ -67,7 +69,7 @@ func TestPollReportsQueueFailure(t *testing.T) {
 
 func TestPollReportsScriptFailure(t *testing.T) {
 	control := &fakeControl{runs: []Run{{ID: "run-3", Language: lua.Language, Source: `error("boom")`}}}
-	(Runtime{Control: control, Executor: automation.NewRuntime(lua.New()), Enqueue: func(automation.Delivery) bool { return true }}).Poll(context.Background())
+	(Runtime{Control: control, Executor: automation.NewRuntime(lua.New()), Enqueue: func(string, automation.Delivery) bool { return true }}).Poll(context.Background())
 	if control.status != "failed" || control.queued != 0 || control.message == "" {
 		t.Fatalf("unexpected run result: %+v", control)
 	}
@@ -81,7 +83,7 @@ func TestPollRegistersSchedulesOwnedByTheParentSchedule(t *testing.T) {
 	registrar := &fakeRegistrar{}
 	(Runtime{
 		Control: control, Executor: automation.NewRuntime(javascript.New()), Registrar: registrar,
-		Enqueue: func(automation.Delivery) bool { return true },
+		Enqueue: func(string, automation.Delivery) bool { return true },
 	}).Poll(context.Background())
 	if control.status != "succeeded" || registrar.origin != "schedule:schedule-4" || len(registrar.schedules) != 1 {
 		t.Fatalf("unexpected child schedule registration: control=%+v registrar=%+v", control, registrar)
@@ -149,7 +151,39 @@ func TestHTTPControlPlaneUsesPrivateContract(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 3 || paths[0] != "/base/_internal/gateway/schedules/claim" || paths[1] != "/base/_internal/gateway/schedule-runs/run-1/complete" || paths[2] != "/base/_internal/gateway/schedules/register" {
+	if err := control.DispatchNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 4 || paths[0] != "/base/_internal/gateway/schedules/claim" || paths[1] != "/base/_internal/gateway/schedule-runs/run-1/complete" || paths[2] != "/base/_internal/gateway/schedules/register" || paths[3] != "/base/_internal/gateway/schedules/notify" {
 		t.Fatalf("unexpected private routes: %v", paths)
+	}
+}
+
+func TestHandlerControlPlaneUsesEmbeddedPlannerWithoutNetwork(t *testing.T) {
+	paths := []string{}
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Host != "gateway.internal" || request.Header.Get("X-Gateway-Internal") != "secret" {
+			t.Errorf("unexpected embedded Planner request: host=%q token=%q", request.Host, request.Header.Get("X-Gateway-Internal"))
+		}
+		paths = append(paths, request.URL.Path)
+		writer.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(request.URL.Path, "/claim") {
+			_, _ = writer.Write([]byte(`{"data":[]}`))
+			return
+		}
+		_, _ = writer.Write([]byte(`{"status":"ok"}`))
+	})
+	control, err := NewHandlerControlPlane(handler, "secret", lua.Language)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runs, err := control.Claim(context.Background()); err != nil || len(runs) != 0 {
+		t.Fatalf("unexpected embedded claim: runs=%v err=%v", runs, err)
+	}
+	if err := control.RegisterSchedules(context.Background(), "endpoint:one", []automation.Schedule{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 2 || paths[0] != "/_internal/gateway/schedules/claim" || paths[1] != "/_internal/gateway/schedules/register" {
+		t.Fatalf("unexpected embedded paths: %v", paths)
 	}
 }

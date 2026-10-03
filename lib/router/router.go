@@ -16,6 +16,7 @@ import (
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
 	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
+	"github.com/webong/gateway/src/spinner/provision"
 	"github.com/webong/gateway/src/spinner/transport"
 )
 
@@ -51,17 +52,34 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 
 	httpPlanner := bridge.NewPHPPlanner(planner, spinner.MaxBodySize)
 	httpPlanner.InternalToken = spinner.InternalToken
+	engine := automationextensions.Runtime()
 	edge := bridge.NewEdge(httpPlanner, spinner.Executor, spinner.MaxBodySize).
-		SetAutomationExecutor(automationextensions.Runtime()).
+		SetAutomationExecutor(engine).
 		SetPassThrough(planner)
 	protocolPlanner := bridge.NewPHPProtocolPlanner(planner, spinner.MaxBodySize)
 	protocolPlanner.InternalToken = spinner.InternalToken
+	control, err := transport.EmbeddedScheduleControl(planner, spinner, engine)
+	if err != nil {
+		return err
+	}
+	edge.SetScheduleRegistrar(control)
+	if spinner.SchedulesEnabled {
+		scheduleCtx, cancelSchedules := context.WithCancel(ctx)
+		defer cancelSchedules()
+		transport.StartSchedulePolling(scheduleCtx, spinner, control, engine)
+	}
 	websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
 		MaxMessageSize: spinner.MaxBodySize,
 		PlannerTimeout: spinner.RequestTimeout,
+		MaxConnections: spinner.WebSocketMaxConnections,
+		MaxDuration:    spinner.WebSocketMaxDuration,
 	})
-	webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry})
-	handler := routerHandler(planner, edge, websocket, webstream)
+	webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxConnections: spinner.WebstreamMaxConnections, MaxDuration: spinner.WebstreamMaxDuration})
+	managed, err := managedRouteProxy(spinner)
+	if err != nil {
+		return err
+	}
+	handler := routerHandler(planner, edge, websocket, webstream, managed)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -78,22 +96,48 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.Serve(listener) }()
+	adminErrors := make(chan error, 1)
+	if spinner.DeliveryAdminServer != nil {
+		go func() { adminErrors <- spinner.ServeDeliveryAdmin() }()
+	}
+	var runErr error
 	select {
 	case err := <-serverErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
-			return err
+			runErr = err
+		}
+	case err := <-adminErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf("delivery admin listener: %w", err)
 		}
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
 	defer cancel()
-	return server.Shutdown(shutdown)
+	if err := server.Shutdown(shutdown); err != nil {
+		return err
+	}
+	return runErr
 }
 
-func routerHandler(planner, edge, websocket http.Handler, streams ...http.Handler) http.Handler {
+type managedRouteHandler interface {
+	ServeWithPlanner(http.ResponseWriter, *http.Request, http.Handler) bool
+}
+
+func managedRouteProxy(spinner *transport.Router) (managedRouteHandler, error) {
+	if !spinner.ProvisioningRouteProxy {
+		return nil, nil
+	}
+	return provision.NewRemoteRouter("http://planner.internal", spinner.InternalToken, nil, spinner.ProvisioningRouteCIDRs)
+}
+
+func routerHandler(planner, edge, websocket, webstream http.Handler, managed managedRouteHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if under(r.URL.Path, "/_internal") {
 			http.NotFound(w, r)
+			return
+		}
+		if managed != nil && managed.ServeWithPlanner(w, r, planner) {
 			return
 		}
 		if under(r.URL.Path, "/hooks") {
@@ -101,8 +145,8 @@ func routerHandler(planner, edge, websocket http.Handler, streams ...http.Handle
 				websocket.ServeHTTP(w, r)
 				return
 			}
-			if len(streams) > 0 && gatewaystream.IsRequest(r) {
-				streams[0].ServeHTTP(w, r)
+			if webstream != nil && gatewaystream.IsRequest(r) {
+				webstream.ServeHTTP(w, r)
 				return
 			}
 			edge.ServeHTTP(w, r)

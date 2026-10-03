@@ -10,5 +10,7 @@ enum Protocol: string
     case WEBSOCKET = 'websocket';
     case WEBSTREAM = 'webstream';
     case SMTP = 'smtp';
+    case POP3 = 'pop3';
+    case IMAP = 'imap';
     case DNS = 'dns';
 }

@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+if [ -z "${APP_KEY:-}" ] || [ -z "${GATEWAY_INTERNAL_TOKEN:-}" ] || [ -z "${REGISTRY_TOKEN:-}" ]; then
+    echo 'APP_KEY, GATEWAY_INTERNAL_TOKEN, and REGISTRY_TOKEN are required.' >&2
+    exit 1
+fi
+if [ "${DB_CONNECTION:-}" != pgsql ] || [ -z "${DB_URL:-}" ]; then
+    echo 'Standalone Planner requires DB_CONNECTION=pgsql and DB_URL.' >&2
+    exit 1
+fi
+
+DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-/data/planner}
+mkdir -p "$DATA_DIR/cache" "$DATA_DIR/storage/framework/cache/data" \
+    "$DATA_DIR/storage/framework/sessions" "$DATA_DIR/storage/framework/views"
+export GATEWAY_ROUTER_DATA_DIR="$DATA_DIR"
+export LARAVEL_STORAGE_PATH="$DATA_DIR/storage"
+export APP_SERVICES_CACHE="$DATA_DIR/cache/services.php"
+export APP_PACKAGES_CACHE="$DATA_DIR/cache/packages.php"
+export APP_CONFIG_CACHE="$DATA_DIR/cache/config.php"
+export APP_ROUTES_CACHE="$DATA_DIR/cache/routes-v7.php"
+export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
+
+case "${1:-serve}" in
+    migrate)
+        php /gateway/app/artisan migrate --realpath \
+            --path=/gateway/vendor/webong/proxy/database/migrations --force
+        exec php /gateway/app/artisan migrate --force
+        ;;
+    serve)
+        exec frankenphp run --config /etc/caddy/Caddyfile
+        ;;
+    *)
+        echo 'Usage: gateway-planner-start [migrate|serve]' >&2
+        exit 2
+        ;;
+esac

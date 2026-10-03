@@ -1,3 +1,5 @@
+//go:build !windows
+
 package runtime
 
 import (
@@ -62,7 +64,7 @@ func TestShellHookEnforcesTimeoutAndOutputLimit(t *testing.T) {
 	if _, err := engine.Execute(context.Background(), "slow", automation.Input{}); err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout, got %v", err)
 	}
-	outputEngine, err := New(Config{HooksDir: root, Timeout: time.Second, MaxOutputBytes: 5})
+	outputEngine, err := New(Config{HooksDir: root, Timeout: 5 * time.Second, MaxOutputBytes: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,6 +190,96 @@ func TestShellHookBufferedResponseAndPrivateRunRecord(t *testing.T) {
 	}
 }
 
+func TestShellRunRetentionPrunesOnlyExpiredRunRecordsWhenEnabled(t *testing.T) {
+	root := t.TempDir()
+	logs := t.TempDir()
+	if err := os.Chmod(logs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeHook(t, root, "ok", "#!/bin/sh\nprintf '{\"response\":{\"status\":200}}'\n")
+	withoutRetention, err := New(Config{HooksDir: root, RunLogDir: logs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRun, err := withoutRetention.Execute(context.Background(), "ok", automation.Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(logs, oldRun.RunID+".json")
+	oldTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(logs, "operator-notes.json")
+	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(unrelated, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(logs, strings.Repeat("a", 32)+".json")
+	if err := os.Symlink(unrelated, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{HooksDir: root, RunLogDir: logs}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); err != nil {
+		t.Fatal("restart must preserve records when retention is disabled:", err)
+	}
+	if _, err := New(Config{HooksDir: root, RunRetention: time.Hour}); err == nil {
+		t.Fatal("retention without a private run directory must fail")
+	}
+	withRetention, err := New(Config{HooksDir: root, RunLogDir: logs, RunRetention: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired run record should be removed, got %v", err)
+	}
+	for _, path := range []string{unrelated, link} {
+		if _, err := os.Lstat(path); err != nil {
+			t.Fatalf("non-run file should be preserved: %s: %v", path, err)
+		}
+	}
+	newRun, err := withRetention.Execute(context.Background(), "ok", automation.Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(logs, newRun.RunID+".json")); err != nil {
+		t.Fatalf("new run should be retained: %v", err)
+	}
+}
+
+func TestShellRunRetentionEnvironmentRequiresPositiveDuration(t *testing.T) {
+	root := t.TempDir()
+	logs := t.TempDir()
+	if err := os.Chmod(logs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(logs, strings.Repeat("b", 32)+".json")
+	if err := os.WriteFile(oldPath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GATEWAY_SHELL_HOOKS_DIR", root)
+	t.Setenv("GATEWAY_SHELL_RUN_LOG_DIR", logs)
+	t.Setenv("GATEWAY_SHELL_RUN_RETENTION", "1h")
+	if _, err := NewFromEnvironment(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(oldPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("configured retention did not prune expired record: %v", err)
+	}
+	t.Setenv("GATEWAY_SHELL_RUN_RETENTION", "-1h")
+	if _, err := NewFromEnvironment(); err == nil {
+		t.Fatal("negative shell run retention should fail configuration")
+	}
+}
+
 func TestShellHookStreamsBeforeProcessCompletes(t *testing.T) {
 	root := t.TempDir()
 	writeHook(t, root, "progress", "#!/bin/sh\nprintf 'started'\nsleep 1\nprintf 'finished'\n")
@@ -220,16 +312,5 @@ func TestShellHookStreamsBeforeProcessCompletes(t *testing.T) {
 	}
 	if rest != "finished" || <-stream.Done != nil {
 		t.Fatalf("unexpected stream ending: %q", rest)
-	}
-}
-
-func writeHook(t *testing.T, root, name, contents string) {
-	t.Helper()
-	path := filepath.Join(root, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
-		t.Fatal(err)
 	}
 }

@@ -101,6 +101,24 @@ func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Respons
 }
 
 func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
+	if e == nil || delivery.Validate() != nil {
+		return false
+	}
+	if e.queue != nil {
+		method := delivery.Method
+		if method == "" {
+			method = http.MethodGet
+		}
+		return e.queue.EnqueueGateway(GatewayDelivery{
+			Protocol: ProtocolHTTP, Target: delivery.URL, SubscriberID: delivery.SubscriberID,
+			Headers: cloneRelayHeaders(delivery.Headers), Payload: append([]byte(nil), delivery.Body...),
+			Attributes: map[string]string{"method": method, "raw_query": delivery.RawQuery, "destination_id": delivery.ID, "event_id": delivery.EventID},
+			Transport:  delivery.Transport,
+		}) == nil
+	}
+	if e.workerPool == nil {
+		return false
+	}
 	return e.workerPool.Submit(forwarding.ForwardRequest{
 		TargetURL:   delivery.URL,
 		RequestBody: append([]byte(nil), delivery.Body...),
@@ -140,6 +158,10 @@ func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
 	}
 
 	adapterName := delivery.AdapterName()
+	queued := cloneGatewayDelivery(delivery)
+	if e.queue != nil {
+		return e.queue.EnqueueGateway(queued) == nil
+	}
 	if adapterName == string(ProtocolHTTP) {
 		if e.workerPool == nil {
 			return false
@@ -155,11 +177,8 @@ func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
 			Method:      method,
 			RawQuery:    delivery.Attributes["raw_query"],
 			Headers:     cloneRelayHeaders(delivery.Headers),
+			Transport:   forwardTransport(delivery.Transport),
 		})
-	}
-	queued := cloneGatewayDelivery(delivery)
-	if e.queue != nil {
-		return e.queue.EnqueueGateway(queued) == nil
 	}
 
 	adapter := e.adapters[adapterName]
@@ -174,6 +193,10 @@ func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
 			return adapter.DeliverGateway(ctx, queued)
 		},
 	})
+}
+
+func (e *RelayExecutor) DurableGatewayDeliveries() bool {
+	return e != nil && e.queue != nil
 }
 
 func cloneGatewayDelivery(delivery GatewayDelivery) GatewayDelivery {

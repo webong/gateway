@@ -20,18 +20,48 @@ type Source interface {
 }
 
 type Handler struct {
-	planner bridge.ProtocolPlanner
-	source  Source
-	config  Config
-	active  atomic.Int64
-	opened  atomic.Uint64
-	failed  atomic.Uint64
+	planner   bridge.ProtocolPlanner
+	source    Source
+	config    Config
+	admission *Admission
+	active    atomic.Int64
+	opened    atomic.Uint64
+	failed    atomic.Uint64
 }
 
 type Config struct {
 	PlannerTimeout    time.Duration
 	HeartbeatInterval time.Duration
 	ReconnectDelay    time.Duration
+	MaxConnections    int
+	MaxDuration       time.Duration
+	Admission         *Admission
+}
+
+// Admission limits all streams sharing it, including streams still being planned.
+// A Caddy handler shares one admission across its per-request adapters.
+type Admission struct {
+	active atomic.Int64
+	limit  int64
+}
+
+func NewAdmission(limit int) *Admission {
+	if limit <= 0 {
+		limit = 1000
+	}
+	return &Admission{limit: int64(limit)}
+}
+
+func (a *Admission) acquire() bool {
+	for {
+		active := a.active.Load()
+		if active >= a.limit {
+			return false
+		}
+		if a.active.CompareAndSwap(active, active+1) {
+			return true
+		}
+	}
 }
 
 type Metrics struct {
@@ -47,7 +77,13 @@ func NewHandler(planner bridge.ProtocolPlanner, source Source, config Config) *H
 	if config.ReconnectDelay == 0 {
 		config.ReconnectDelay = 3 * time.Second
 	}
-	return &Handler{planner: planner, source: source, config: config}
+	if config.MaxDuration <= 0 {
+		config.MaxDuration = 24 * time.Hour
+	}
+	if config.Admission == nil {
+		config.Admission = NewAdmission(config.MaxConnections)
+	}
+	return &Handler{planner: planner, source: source, config: config, admission: config.Admission}
 }
 
 func (h *Handler) Metrics() Metrics {
@@ -67,8 +103,17 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "Webstream requires GET with Accept: text/event-stream", http.StatusNotAcceptable)
 		return
 	}
+	if !h.admission.acquire() {
+		h.failed.Add(1)
+		writer.Header().Set("Retry-After", "1")
+		http.Error(writer, "Webstream connection limit reached", http.StatusServiceUnavailable)
+		return
+	}
+	defer h.admission.active.Add(-1)
+	streamContext, streamCancel := context.WithTimeout(request.Context(), h.config.MaxDuration)
+	defer streamCancel()
 	sessionID := sessionID(request)
-	ctx, cancel := context.WithTimeout(request.Context(), h.config.PlannerTimeout)
+	ctx, cancel := context.WithTimeout(streamContext, h.config.PlannerTimeout)
 	attributes := map[string]string{"remote_addr": request.RemoteAddr}
 	if lastEventID := request.Header.Get("Last-Event-ID"); lastEventID != "" {
 		attributes["last_event_id"] = lastEventID
@@ -86,7 +131,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	switch decision.Action {
 	case bridge.GatewayStream:
-		response, openErr := h.source.OpenWebstream(request.Context(), *decision.Stream)
+		response, openErr := h.source.OpenWebstream(streamContext, *decision.Stream)
 		if openErr != nil {
 			h.failed.Add(1)
 			http.Error(writer, "Webstream source unavailable", http.StatusBadGateway)
@@ -116,7 +161,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		h.opened.Add(1)
 		h.active.Add(1)
 		defer h.active.Add(-1)
-		if err := flushCopy(request.Context(), writer, response.Body, h.config.HeartbeatInterval); err != nil && request.Context().Err() == nil {
+		if err := flushCopy(streamContext, writer, response.Body, h.config.HeartbeatInterval); err != nil && streamContext.Err() == nil {
 			h.failed.Add(1)
 		}
 	case bridge.GatewayRespond:
@@ -136,6 +181,9 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader, heartbeat time.Duration) error {
 	flusher, _ := writer.(http.Flusher)
+	// The retry prelude ends with an empty line. Heartbeats may only be
+	// inserted at another event boundary; a source read can stop mid-event.
+	boundary := sseBoundary{complete: true}
 	type readResult struct {
 		bytes []byte
 		err   error
@@ -173,6 +221,9 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticks:
+			if !boundary.safe() {
+				continue
+			}
 			if _, err := writer.Write([]byte(": gateway heartbeat\n\n")); err != nil {
 				return err
 			}
@@ -184,6 +235,7 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 				if _, err := writer.Write(result.bytes); err != nil {
 					return err
 				}
+				boundary.feed(result.bytes)
 				if flusher != nil {
 					flusher.Flush()
 				}
@@ -198,9 +250,49 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 	}
 }
 
+// sseBoundary tracks whether the byte stream ends after an empty SSE line.
+// CRLF is one line ending even when its two bytes arrive in separate reads.
+type sseBoundary struct {
+	lineHasData bool
+	complete    bool
+	lastCR      bool
+}
+
+func (b *sseBoundary) feed(chunk []byte) {
+	for _, value := range chunk {
+		if b.lastCR {
+			b.lastCR = false
+			if value == '\n' {
+				continue
+			}
+		}
+		switch value {
+		case '\r', '\n':
+			b.complete = !b.lineHasData
+			b.lineHasData = false
+			b.lastCR = value == '\r'
+		default:
+			b.lineHasData = true
+			b.complete = false
+		}
+	}
+}
+
+func (b sseBoundary) safe() bool {
+	return b.complete && !b.lastCR
+}
+
 func copyHeaders(destination, source http.Header) {
+	blocked := map[string]bool{}
+	for _, connection := range source.Values("Connection") {
+		for _, field := range strings.Split(connection, ",") {
+			if field = strings.ToLower(strings.TrimSpace(field)); field != "" {
+				blocked[field] = true
+			}
+		}
+	}
 	for name, values := range source {
-		if hopByHop(name) {
+		if hopByHop(name) || blocked[strings.ToLower(name)] {
 			continue
 		}
 		for _, value := range values {

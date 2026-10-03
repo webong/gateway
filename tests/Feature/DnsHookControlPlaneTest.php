@@ -196,3 +196,70 @@ it('can pause and delete a DNS hook without exposing its WebProxy endpoint', fun
         ->assertNotFound();
     expect(WebProxyEndpoint::query()->where('endpoint_key', $hook['endpoint_key'])->exists())->toBeTrue();
 });
+
+it('creates independent hooks in configured zones and rejects cross-zone routing', function (): void {
+    config()->set('gateway.dns.zone', '');
+    config()->set('gateway.dns.zones', [
+        ['name' => 'first.example.test', 'nameservers' => ['ns1.example.test']],
+        ['name' => 'second.example.test', 'nameservers' => ['ns2.example.test']],
+    ]);
+
+    $this->getJson('/dns/zones')->assertUnauthorized();
+    $this->withToken('registry-secret')->getJson('/dns/zones')->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.name', 'first.example.test');
+
+    $this->withToken('registry-secret')->postJson('/dns/hooks', [
+        'external_id' => 'shared',
+    ])->assertUnprocessable();
+    $this->withToken('registry-secret')->postJson('/dns/hooks', [
+        'external_id' => 'shared', 'zone' => 'unknown.example.test',
+    ])->assertUnprocessable();
+
+    $first = $this->withToken('registry-secret')->postJson('/dns/hooks', [
+        'external_id' => 'shared', 'zone' => 'first.example.test',
+    ])->assertCreated()->json();
+    $second = $this->withToken('registry-secret')->postJson('/dns/hooks', [
+        'external_id' => 'shared', 'zone' => 'second.example.test',
+    ])->assertCreated()->json();
+    expect($first['zone'])->toBe('first.example.test')
+        ->and($second['zone'])->toBe('second.example.test')
+        ->and($first['id'])->not->toBe($second['id'])
+        ->and($first['hostname'])->toBe($first['token'].'.first.example.test')
+        ->and($second['hostname'])->toBe($second['token'].'.second.example.test')
+        ->and(WebProxyEndpoint::query()->where('metadata->_gateway->kind', 'dns_zone')->count())->toBe(2);
+
+    $this->withToken('registry-secret')->getJson('/dns/hooks?zone=second.example.test')->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $second['id']);
+
+    $binding = app(PathResolver::class)->resolve(new IngressRequest(
+        deliveryId: 'multi-zone-correct', method: 'POST', host: $first['hostname'].'.',
+        path: '/'.$first['token'], rawQuery: '', headers: [], body: '{}',
+        scheme: 'dns', protocol: 'dns', event: 'query',
+        attributes: ['endpoint' => $first['token'], 'zone' => 'first.example.test.'],
+    ));
+    expect($binding?->endpointKey)->toBe($first['endpoint_key']);
+
+    $wrongZone = app(PathResolver::class)->resolve(new IngressRequest(
+        deliveryId: 'multi-zone-wrong', method: 'POST', host: $first['token'].'.second.example.test.',
+        path: '/'.$first['token'], rawQuery: '', headers: [], body: '{}',
+        scheme: 'dns', protocol: 'dns', event: 'query',
+        attributes: ['endpoint' => $first['token'], 'zone' => 'second.example.test.'],
+    ));
+    expect($wrongZone)->toBeNull();
+
+    $planner = app(ProtocolPlanner::class);
+    $validEvent = new GatewayEvent(
+        id: 'multi-zone-cached-valid', protocol: Protocol::DNS, kind: EventKind::QUERY,
+        route: '/'.$first['token'], host: 'hello.'.$first['hostname'].'.',
+        attributes: ['endpoint' => $first['token'], 'zone' => 'first.example.test.'],
+    );
+    $wrongEvent = new GatewayEvent(
+        id: 'multi-zone-cached-wrong', protocol: Protocol::DNS, kind: EventKind::QUERY,
+        route: '/'.$first['token'], host: 'hello.'.$first['token'].'.second.example.test.',
+        attributes: ['endpoint' => $first['token'], 'zone' => 'second.example.test.'],
+    );
+    expect($planner->planEvent($validEvent)->action)->toBe(GatewayAction::RESPOND)
+        ->and($planner->planEvent($wrongEvent)->action)->toBe(GatewayAction::REJECT);
+});

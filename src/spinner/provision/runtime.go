@@ -2,6 +2,7 @@ package provision
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -34,10 +35,11 @@ type Config struct {
 // Runtime owns the shared reconciler lifecycle and exposes its dynamic route
 // table to the Gateway HTTP host.
 type Runtime struct {
-	router *Router
-	cancel context.CancelFunc
-	done   <-chan struct{}
-	once   sync.Once
+	router  *Router
+	cancel  context.CancelFunc
+	done    <-chan struct{}
+	release func()
+	once    sync.Once
 }
 
 func Start(config Config, backendURL, internalToken string, client *http.Client, logger Logger, workloads ...Workload) (*Runtime, error) {
@@ -131,23 +133,18 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 	if err != nil {
 		return nil, fmt.Errorf("initialize provisioning driver registry: %w", err)
 	}
-	prepareContext, cancelPrepare := context.WithTimeout(context.Background(), config.StopTimeout)
-	var prepareErr error
-	if target != nil {
-		// Authorize/register node ownership before resetting state or deleting workloads.
-		_, _, prepareErr = control.Assignments(prepareContext, config.NodeID, supportedDrivers(drivers))
+	// Claim a process-unique node session before loading or changing workloads.
+	// A crashed predecessor keeps its claim only until its placement lease ends.
+	if err := claimWorkerSession(config, control, supportedDrivers(drivers)); err != nil {
+		return nil, fmt.Errorf("claim provisioning worker session: %w", err)
 	}
-	if prepareErr == nil {
-		prepareErr = control.ResetNode(prepareContext, config.NodeID)
+	resetContext, cancelReset := context.WithTimeout(context.Background(), config.StopTimeout)
+	resetErr := control.ResetNode(resetContext, config.NodeID)
+	cancelReset()
+	if resetErr != nil {
+		releaseWorkerSession(config, control, logger)
+		return nil, fmt.Errorf("reset stale provisioning reports: %w", resetErr)
 	}
-	if prepareErr == nil {
-		prepareErr = driver.Prepare(prepareContext)
-	}
-	cancelPrepare()
-	if prepareErr != nil {
-		return nil, fmt.Errorf("prepare provisioning runtime drivers: %w", prepareErr)
-	}
-
 	router := NewRouter()
 	reconciler, err := NewReconciler(ReconcilerConfig{
 		NodeID:            config.NodeID,
@@ -157,6 +154,7 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		StopTimeout:       config.StopTimeout,
 	}, control, driver, router, logger)
 	if err != nil {
+		releaseWorkerSession(config, control, logger)
 		return nil, fmt.Errorf("initialize provisioning reconciler: %w", err)
 	}
 
@@ -167,7 +165,35 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		reconciler.Run(reconcileContext)
 	}()
 
-	return &Runtime{router: router, cancel: cancel, done: done}, nil
+	return &Runtime{router: router, cancel: cancel, done: done, release: func() { releaseWorkerSession(config, control, logger) }}, nil
+}
+
+func claimWorkerSession(config Config, control *HTTPControlPlane, drivers []string) error {
+	deadline := config.CoordinationLease + 2*time.Second
+	if deadline < config.StopTimeout {
+		deadline = config.StopTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	for {
+		_, _, err := control.Assignments(ctx, config.NodeID, drivers)
+		if err == nil || !errors.Is(err, ErrNodeSessionActive) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("node is still owned by another worker after %s: %w", deadline, err)
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func releaseWorkerSession(config Config, control *HTTPControlPlane, logger Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), config.StopTimeout)
+	defer cancel()
+	if err := control.ReleaseNode(ctx, config.NodeID); err != nil {
+		logger.Warn("Failed to release provisioning worker session: %v", err)
+	}
 }
 
 func supportedDrivers(drivers map[string]Driver) []string {
@@ -201,5 +227,8 @@ func (r *Runtime) Stop() {
 	r.once.Do(func() {
 		r.cancel()
 		<-r.done
+		if r.release != nil {
+			r.release()
+		}
 	})
 }

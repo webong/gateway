@@ -11,6 +11,42 @@ import (
 	"github.com/webong/gateway/src/spinner/internal/workers"
 )
 
+type capturingQueue struct{ deliveries []GatewayDelivery }
+
+func (queue *capturingQueue) EnqueueGateway(delivery GatewayDelivery) error {
+	queue.deliveries = append(queue.deliveries, delivery)
+	return nil
+}
+
+func TestRelayExecutorDurablyEnqueuesHTTPDeliveries(t *testing.T) {
+	queue := &capturingQueue{}
+	executor := NewRelayExecutor(nil, nil, WithGatewayDeliveryQueue(queue))
+	if !executor.DurableGatewayDeliveries() || NewRelayExecutor(nil, nil).DurableGatewayDeliveries() {
+		t.Fatal("durable delivery capability did not reflect the configured spool")
+	}
+	regular := Delivery{
+		ID: "destination-1", EventID: "run-1", SubscriberID: "subscriber-1", URL: "https://example.test/callback",
+		Method: "PUT", RawQuery: "source=ingress", Headers: map[string][]string{"X-Test": {"original"}},
+		Body: []byte("payload"), Transport: &HTTPTransport{RequestTimeoutSeconds: 3},
+	}
+	if !executor.Enqueue(regular) {
+		t.Fatal("regular HTTP delivery was not sent to the durable queue")
+	}
+	regular.Headers["X-Test"][0] = "changed"
+	regular.Body[0] = 'X'
+	if len(queue.deliveries) != 1 {
+		t.Fatalf("expected one queued delivery, got %d", len(queue.deliveries))
+	}
+	queued := queue.deliveries[0]
+	if queued.Protocol != ProtocolHTTP || queued.Target != "https://example.test/callback" || queued.SubscriberID != "subscriber-1" || queued.Attributes["destination_id"] != "destination-1" || queued.Attributes["event_id"] != "run-1" || queued.Attributes["method"] != "PUT" || queued.Attributes["raw_query"] != "source=ingress" || queued.Headers["X-Test"][0] != "original" || string(queued.Payload) != "payload" || queued.Transport.RequestTimeoutSeconds != 3 {
+		t.Fatalf("HTTP delivery was not preserved: %+v", queued)
+	}
+	protocol := GatewayDelivery{Protocol: ProtocolHTTP, Target: "https://example.test/protocol", Attributes: map[string]string{"method": "PATCH"}}
+	if !executor.EnqueueGateway(protocol) || len(queue.deliveries) != 2 || queue.deliveries[1].Target != protocol.Target {
+		t.Fatal("protocol HTTP delivery bypassed the durable queue")
+	}
+}
+
 func TestRelayExecutorDispatchesRegisteredProtocolAdapter(t *testing.T) {
 	logger := logging.NewLogger("error")
 	forwarder := forwarding.NewForwarder(&relayconfig.Config{

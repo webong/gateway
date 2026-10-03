@@ -13,12 +13,14 @@ const (
 	ProtocolWebSocket Protocol = "websocket"
 	ProtocolWebstream Protocol = "webstream"
 	ProtocolSMTP      Protocol = "smtp"
+	ProtocolPOP3      Protocol = "pop3"
+	ProtocolIMAP      Protocol = "imap"
 	ProtocolDNS       Protocol = "dns"
 )
 
 func (p Protocol) Validate() error {
 	switch p {
-	case ProtocolHTTP, ProtocolWebSocket, ProtocolWebstream, ProtocolSMTP, ProtocolDNS:
+	case ProtocolHTTP, ProtocolWebSocket, ProtocolWebstream, ProtocolSMTP, ProtocolPOP3, ProtocolIMAP, ProtocolDNS:
 		return nil
 	default:
 		return fmt.Errorf("unsupported gateway protocol %q", p)
@@ -35,13 +37,14 @@ const (
 	EventMessage      EventKind = "message"
 	EventClose        EventKind = "close"
 	EventTransaction  EventKind = "transaction"
+	EventRecipient    EventKind = "recipient"
 	EventAuthenticate EventKind = "authenticate"
 	EventQuery        EventKind = "query"
 )
 
 func (k EventKind) Validate() error {
 	switch k {
-	case EventRequest, EventConnect, EventMessage, EventClose, EventTransaction, EventAuthenticate, EventQuery:
+	case EventRequest, EventConnect, EventMessage, EventClose, EventTransaction, EventRecipient, EventAuthenticate, EventQuery:
 		return nil
 	default:
 		return fmt.Errorf("unsupported gateway event kind %q", k)
@@ -85,6 +88,15 @@ func (e GatewayEvent) Validate() error {
 	if e.Protocol == ProtocolDNS && e.Kind != EventQuery {
 		return fmt.Errorf("DNS gateway events must use the query kind")
 	}
+	if e.Protocol == ProtocolPOP3 && e.Kind != EventAuthenticate && e.Kind != EventConnect && e.Kind != EventClose {
+		return fmt.Errorf("POP3 gateway events must authenticate, connect, or close")
+	}
+	if e.Protocol == ProtocolIMAP && e.Kind != EventAuthenticate && e.Kind != EventConnect && e.Kind != EventClose {
+		return fmt.Errorf("IMAP gateway events must authenticate, connect, or close")
+	}
+	if e.Kind == EventRecipient && e.Protocol != ProtocolSMTP {
+		return fmt.Errorf("recipient gateway events must use SMTP")
+	}
 	return nil
 }
 
@@ -94,12 +106,14 @@ func (e GatewayEvent) Validate() error {
 type GatewayAction string
 
 const (
-	GatewayAccept  GatewayAction = "accept"
-	GatewayReject  GatewayAction = "reject"
-	GatewayRespond GatewayAction = "respond"
-	GatewayDeliver GatewayAction = "deliver"
-	GatewayClose   GatewayAction = "close"
-	GatewayStream  GatewayAction = "stream"
+	GatewayAccept     GatewayAction = "accept"
+	GatewayReject     GatewayAction = "reject"
+	GatewayRespond    GatewayAction = "respond"
+	GatewayDeliver    GatewayAction = "deliver"
+	GatewaySubmit     GatewayAction = "submit"
+	GatewayQuarantine GatewayAction = "quarantine"
+	GatewayClose      GatewayAction = "close"
+	GatewayStream     GatewayAction = "stream"
 )
 
 // GatewayDelivery is the protocol-neutral destination shape. HTTP Delivery
@@ -115,6 +129,14 @@ type GatewayDelivery struct {
 	Payload      []byte              `json:"payload,omitempty"`
 	Transport    *HTTPTransport      `json:"transport,omitempty"`
 }
+
+// FailureNoticeToAttribute is set only by an authenticated SMTP ingress after
+// its trusted Planner explicitly authorizes a notice to the envelope sender.
+const FailureNoticeToAttribute = "gateway_failure_notice_to"
+
+// DKIMSigningDomainAttribute is reserved for a sender domain authorized by
+// Spinner's authenticated SMTP session, never copied from a Planner delivery.
+const DKIMSigningDomainAttribute = "gateway_dkim_signing_domain"
 
 func (d GatewayDelivery) Validate() error {
 	if err := d.Protocol.Validate(); err != nil {
@@ -178,12 +200,18 @@ func (d GatewayDecision) Validate() error {
 		return err
 	}
 	switch d.Action {
-	case GatewayAccept, GatewayReject, GatewayRespond, GatewayDeliver, GatewayClose, GatewayStream:
+	case GatewayAccept, GatewayReject, GatewayRespond, GatewayDeliver, GatewaySubmit, GatewayQuarantine, GatewayClose, GatewayStream:
 	default:
 		return fmt.Errorf("unsupported gateway action %q", d.Action)
 	}
 	if d.Action == GatewayDeliver && d.Reply == nil && len(d.Deliveries) == 0 {
 		return fmt.Errorf("deliver decision requires a reply or destination")
+	}
+	if d.Action == GatewaySubmit && (d.Protocol != ProtocolSMTP || len(d.Deliveries) != 1 || d.Deliveries[0].Protocol != ProtocolSMTP || d.Reply != nil) {
+		return fmt.Errorf("SMTP submit decisions require one SMTP delivery")
+	}
+	if d.Action == GatewayQuarantine && (d.Protocol != ProtocolSMTP || len(d.Deliveries) != 0 || d.Reply != nil || d.Stream != nil) {
+		return fmt.Errorf("SMTP quarantine decisions cannot include deliveries")
 	}
 	if d.Action == GatewayStream {
 		if d.Protocol != ProtocolWebstream || d.Stream == nil || d.Stream.Protocol != ProtocolHTTP {

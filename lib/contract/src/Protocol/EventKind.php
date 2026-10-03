@@ -11,6 +11,7 @@ enum EventKind: string
     case MESSAGE = 'message';
     case CLOSE = 'close';
     case TRANSACTION = 'transaction';
+    case RECIPIENT = 'recipient';
     case AUTHENTICATE = 'authenticate';
     case QUERY = 'query';
 }

@@ -1,0 +1,14 @@
+{
+    admin off
+}
+
+:8080 {
+    route {
+        gateway {
+            internal_token {$GATEWAY_INTERNAL_TOKEN}
+            managed_route_cidrs {$GATEWAY_PROVISIONING_ROUTE_CIDRS}
+            relay_path_prefix /hooks
+        }
+        reverse_proxy planner:8080
+    }
+}

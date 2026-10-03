@@ -29,6 +29,7 @@ const (
 var (
 	ErrInvalidPlan       = errors.New("invalid route plan")
 	ErrInvalidDelivery   = errors.New("invalid delivery")
+	ErrPermanentDelivery = errors.New("permanent delivery failure")
 	ErrMissingPlanResult = errors.New("route planner returned no plan")
 )
 
@@ -46,6 +47,7 @@ type IngressRequest struct {
 	Path       string              `json:"path"`
 	RawQuery   string              `json:"raw_query,omitempty"`
 	Headers    map[string][]string `json:"headers,omitempty"`
+	Attributes map[string]string   `json:"attributes,omitempty"`
 	Body       []byte              `json:"body,omitempty"`
 	Runtime    RuntimeCapabilities `json:"runtime"`
 }
@@ -84,6 +86,7 @@ type Automation struct {
 // outbound HTTP and DNS policy when it performs the delivery.
 type Delivery struct {
 	ID           string              `json:"id,omitempty"`
+	EventID      string              `json:"event_id,omitempty"`
 	SubscriberID string              `json:"subscriber_id,omitempty"`
 	URL          string              `json:"url"`
 	Method       string              `json:"method,omitempty"`
@@ -141,11 +144,30 @@ type GatewayExecutor interface {
 	EnqueueGateway(GatewayDelivery) bool
 }
 
+// DurableGatewayExecutor confirms that EnqueueGateway persists a delivery
+// before reporting success. SMTP must not acknowledge DATA for a volatile
+// worker submission; a custom executor can implement this contract.
+type DurableGatewayExecutor interface {
+	GatewayExecutor
+	DurableGatewayDeliveries() bool
+}
+
 // GatewayDeliveryAdapter performs one resolved delivery. Adapters own their
 // protocol lifecycle but do not own route selection, retry scheduling, or
 // queue persistence.
 type GatewayDeliveryAdapter interface {
 	DeliverGateway(context.Context, GatewayDelivery) error
+}
+
+// GatewayDeliveryResult records non-sensitive outcome metadata from one attempt.
+type GatewayDeliveryResult struct {
+	ResponseStatus int
+	BodyAssertion  string
+}
+
+// GatewayDeliveryResultAdapter optionally reports attempt metadata to the spool.
+type GatewayDeliveryResultAdapter interface {
+	DeliverGatewayResult(context.Context, GatewayDelivery) (GatewayDeliveryResult, error)
 }
 
 type GatewayDeliveryAdapterFunc func(context.Context, GatewayDelivery) error
