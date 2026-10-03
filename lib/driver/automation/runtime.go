@@ -63,6 +63,7 @@ type Schedule struct {
 
 type Outcome struct {
 	RunID      string `json:"-"`
+	RunFailed  bool   `json:"-"`
 	Variables  map[string]any
 	Deliveries []Delivery
 	Schedules  []Schedule

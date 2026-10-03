@@ -23,6 +23,7 @@ final readonly class RoutePlan
         public ?Automation $automation = null,
         public array $metadata = [],
         public string $version = self::VERSION,
+        public ?Delivery $shellNotification = null,
     ) {
         $this->assertValid();
     }
@@ -55,9 +56,9 @@ final readonly class RoutePlan
     }
 
     /** @param list<Delivery> $relays */
-    public static function automate(Automation $automation, array $relays = [], array $metadata = []): self
+    public static function automate(Automation $automation, array $relays = [], array $metadata = [], ?Delivery $shellNotification = null): self
     {
-        return new self(self::AUTOMATION, relays: $relays, automation: $automation, metadata: $metadata);
+        return new self(self::AUTOMATION, relays: $relays, automation: $automation, shellNotification: $shellNotification, metadata: $metadata);
     }
 
     /** @return array<string, mixed> */
@@ -70,6 +71,7 @@ final readonly class RoutePlan
             'reply' => $this->reply?->toArray(),
             'relays' => array_map(static fn (Delivery $delivery): array => $delivery->toArray(), $this->relays),
             'automation' => $this->automation?->toArray(),
+            'shell_notification' => $this->shellNotification?->toArray(),
             'metadata' => $this->metadata,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);
     }
@@ -85,16 +87,16 @@ final readonly class RoutePlan
         }
 
         if ($this->action === self::PASS_THROUGH
-            && ($this->immediateResponse !== null || $this->reply !== null || $this->relays !== [] || $this->automation !== null)) {
+            && ($this->immediateResponse !== null || $this->reply !== null || $this->relays !== [] || $this->automation !== null || $this->shellNotification !== null)) {
             throw new InvalidArgumentException('Pass-through plans cannot contain deliveries.');
         }
 
         if ($this->action === self::RESPOND
-            && ($this->immediateResponse === null || $this->reply !== null || $this->relays !== [] || $this->automation !== null)) {
+            && ($this->immediateResponse === null || $this->reply !== null || $this->relays !== [] || $this->automation !== null || $this->shellNotification !== null)) {
             throw new InvalidArgumentException('Respond plans require only an immediate response.');
         }
 
-        if ($this->action === self::RELAY && $this->automation !== null) {
+        if ($this->action === self::RELAY && ($this->automation !== null || $this->shellNotification !== null)) {
             throw new InvalidArgumentException('Relay plans cannot contain automation source.');
         }
 
@@ -109,6 +111,17 @@ final readonly class RoutePlan
         if ($this->action === self::AUTOMATION
             && ($this->automation === null || $this->immediateResponse !== null || $this->reply !== null)) {
             throw new InvalidArgumentException('Automation plans require automation and can only contain relay destinations.');
+        }
+
+        if ($this->shellNotification !== null) {
+            if ($this->action !== self::AUTOMATION || $this->automation?->language !== 'shell') {
+                throw new InvalidArgumentException('Shell notifications require shell automation.');
+            }
+            $this->shellNotification->assertValid();
+            if (! in_array($this->shellNotification->method, ['', 'POST'], true)
+                || $this->shellNotification->body !== '' || $this->shellNotification->rawQuery !== '') {
+                throw new InvalidArgumentException('Shell notification delivery must use a generated POST payload.');
+            }
         }
 
         if ($this->immediateResponse !== null && ($this->immediateResponse->statusCode < 100 || $this->immediateResponse->statusCode > 599)) {

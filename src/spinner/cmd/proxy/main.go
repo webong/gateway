@@ -152,11 +152,14 @@ func (s *Server) ConfigureDeliveryQueue() error {
 	if err != nil {
 		return err
 	}
-	if queue == nil {
+	if queue == nil && s.config.DeliveryAdminAddress == "" {
 		return nil
 	}
 	if s.config.DeliveryAdminAddress != "" {
 		var options []deliveryadmin.HandlerOption
+		if history := automationextensions.RunHistory(); history != nil {
+			options = append(options, deliveryadmin.WithShellRunHistory(history))
+		}
 		if s.config.SMTPRelayAddress != "" {
 			adapter, adapterErr := transport.NewSMTPAdapter(s.config)
 			if adapterErr != nil {
@@ -176,15 +179,20 @@ func (s *Server) ConfigureDeliveryQueue() error {
 		}
 		handler, err := deliveryadmin.NewHandler(queue, s.config.InternalToken, options...)
 		if err != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = queue.Close(ctx)
-			cancel()
+			if queue != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				_ = queue.Close(ctx)
+				cancel()
+			}
 			return err
 		}
 		s.deliveryAdminServer = &http.Server{
 			Addr: s.config.DeliveryAdminAddress, Handler: handler,
 			ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second,
 		}
+	}
+	if queue == nil {
+		return nil
 	}
 	s.deliveryQueue = queue
 	s.executorOptions = append(s.executorOptions, bridge.WithGatewayDeliveryQueue(queue))

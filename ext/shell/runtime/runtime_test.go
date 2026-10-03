@@ -190,6 +190,47 @@ func TestShellHookBufferedResponseAndPrivateRunRecord(t *testing.T) {
 	}
 }
 
+func TestShellRunHistoryRedactsOutputUnlessEnabled(t *testing.T) {
+	root := t.TempDir()
+	logs := t.TempDir()
+	if err := os.Chmod(logs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeHook(t, root, "secret", "#!/bin/sh\nprintf 'private output'\necho 'private error' >&2\n")
+	engine, err := New(Config{HooksDir: root, RunLogDir: logs, OutputMode: ModeBuffered})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := engine.Execute(context.Background(), "secret", automation.Input{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	redacted, err := engine.ReadRun(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(redacted), "private") || !strings.Contains(string(redacted), `"hook":"secret"`) {
+		t.Fatalf("run history did not redact output: %s", redacted)
+	}
+	visible, err := New(Config{HooksDir: root, RunLogDir: logs, ExposeRunOutput: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := visible.ReadRun(outcome.RunID)
+	if err != nil || !strings.Contains(string(record), "private output") || !strings.Contains(string(record), "private error") {
+		t.Fatalf("opted-in run output unavailable: %s, %v", record, err)
+	}
+	if _, err := visible.ReadRun("../secret"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid run ID was accepted: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(logs, outcome.RunID+".json"), filepath.Join(logs, strings.Repeat("a", 32)+".json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := visible.ReadRun(strings.Repeat("a", 32)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("symlinked run record was accepted: %v", err)
+	}
+}
+
 func TestShellRunRetentionPrunesOnlyExpiredRunRecordsWhenEnabled(t *testing.T) {
 	root := t.TempDir()
 	logs := t.TempDir()

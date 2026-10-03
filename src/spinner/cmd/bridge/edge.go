@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -174,7 +175,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "streaming shell hooks cannot include relay deliveries", http.StatusBadGateway)
 				return
 			}
-			e.streamAutomation(w, r, script, input, mode)
+			e.streamAutomation(w, r, script, input, mode, plan.ShellNotification, ingress)
 			return
 		}
 		outcome, automationErr := e.automation.Execute(r.Context(), script, input)
@@ -182,6 +183,14 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if errors.Is(automationErr, automation.ErrBusy) {
 				http.Error(w, "automation capacity exhausted", http.StatusServiceUnavailable)
 				return
+			}
+			var identified interface{ RunID() string }
+			if errors.As(automationErr, &identified) && identified.RunID() != "" {
+				w.Header().Set("X-Gateway-Shell-Run-Id", identified.RunID())
+				if !e.enqueueShellNotification(plan.ShellNotification, ingress, script.Source, identified.RunID(), "failed") {
+					http.Error(w, "shell notification queue unavailable", http.StatusServiceUnavailable)
+					return
+				}
 			}
 			http.Error(w, "automation execution failed", http.StatusBadGateway)
 			return
@@ -194,6 +203,14 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "automation schedule registration failed", http.StatusBadGateway)
 				return
 			}
+		}
+		completionStatus := "succeeded"
+		if outcome.RunFailed {
+			completionStatus = "failed"
+		}
+		if !e.enqueueShellNotification(plan.ShellNotification, ingress, script.Source, outcome.RunID, completionStatus) {
+			http.Error(w, "shell notification queue unavailable", http.StatusServiceUnavailable)
+			return
 		}
 		relays := append(plan.Relays, automationDeliveries(outcome.Deliveries)...)
 		if !e.enqueueRelays(relays, ingress) {
@@ -249,7 +266,7 @@ func shellStreamMode(r *http.Request, language automation.Language) string {
 	return ""
 }
 
-func (e *Edge) streamAutomation(w http.ResponseWriter, r *http.Request, script automation.Script, input automation.Input, mode string) {
+func (e *Edge) streamAutomation(w http.ResponseWriter, r *http.Request, script automation.Script, input automation.Input, mode string, notification *Delivery, ingress IngressRequest) {
 	flusher, ok := w.(http.Flusher)
 	streamer, supported := e.automation.(automation.StreamingExecutor)
 	if !ok || !supported {
@@ -282,7 +299,15 @@ func (e *Edge) streamAutomation(w http.ResponseWriter, r *http.Request, script a
 		}
 		flusher.Flush()
 	}
-	if err := <-stream.Done; err != nil && r.Context().Err() == nil {
+	streamErr := <-stream.Done
+	status := "succeeded"
+	if streamErr != nil {
+		status = "failed"
+	}
+	if !e.enqueueShellNotification(notification, ingress, script.Source, stream.ID, status) {
+		log.Printf("shell notification queue unavailable for run %s", stream.ID)
+	}
+	if streamErr != nil && r.Context().Err() == nil {
 		if mode == "sse" {
 			_, _ = io.WriteString(w, "event: error\ndata: hook execution failed\n\n")
 		} else {
@@ -290,6 +315,39 @@ func (e *Edge) streamAutomation(w http.ResponseWriter, r *http.Request, script a
 		}
 		flusher.Flush()
 	}
+}
+
+func (e *Edge) enqueueShellNotification(target *Delivery, ingress IngressRequest, hook, runID, status string) bool {
+	if target == nil {
+		return true
+	}
+	if runID == "" || e.executor == nil {
+		return false
+	}
+	body, err := json.Marshal(map[string]string{
+		"event": "shell.run.completed", "run_id": runID,
+		"delivery_id": ingress.DeliveryID, "hook": hook, "status": status,
+	})
+	if err != nil {
+		return false
+	}
+	notice := *target
+	notice.EventID = ingress.DeliveryID
+	notice.Method = http.MethodPost
+	notice.RawQuery = ""
+	notice.Body = body
+	notice.Headers = cloneHeaders(target.Headers)
+	if notice.Headers == nil {
+		notice.Headers = make(map[string][]string)
+	}
+	for name := range notice.Headers {
+		if strings.EqualFold(name, "Content-Length") || strings.EqualFold(name, "Transfer-Encoding") || strings.EqualFold(name, "Content-Type") || strings.EqualFold(name, "Idempotency-Key") {
+			delete(notice.Headers, name)
+		}
+	}
+	notice.Headers["Content-Type"] = []string{"application/json"}
+	notice.Headers["Idempotency-Key"] = []string{"gateway-shell-run-" + runID}
+	return e.executor.Enqueue(notice)
 }
 
 func automationOrigin(plan RoutePlan, ingress IngressRequest) string {

@@ -34,6 +34,8 @@ const (
 	maximumConcurrent     = 128
 	maximumQueued         = 1024
 	runPruneInterval      = time.Hour
+	maxRunRecordOutput    = 64 * 1024
+	maxRunRecordBytes     = 1 << 20
 )
 
 const (
@@ -45,17 +47,29 @@ const (
 
 var ErrBusy = automation.ErrBusy
 
+// RunFailure preserves the private run ID when a hook fails. The wrapped
+// error remains inspectable by the host, but never enters notifications.
+type RunFailure struct {
+	ID    string
+	Cause error
+}
+
+func (failure *RunFailure) Error() string { return failure.Cause.Error() }
+func (failure *RunFailure) Unwrap() error { return failure.Cause }
+func (failure *RunFailure) RunID() string { return failure.ID }
+
 type Config struct {
-	HooksDir       string
-	RunLogDir      string
-	RunRetention   time.Duration
-	Timeout        time.Duration
-	MaxOutputBytes int64
-	MaxConcurrent  int
-	MaxQueued      int
-	OutputMode     string
-	Interpreter    string
-	PowerShellPath string
+	HooksDir        string
+	RunLogDir       string
+	RunRetention    time.Duration
+	ExposeRunOutput bool
+	Timeout         time.Duration
+	MaxOutputBytes  int64
+	MaxConcurrent   int
+	MaxQueued       int
+	OutputMode      string
+	Interpreter     string
+	PowerShellPath  string
 }
 
 type Engine struct {
@@ -163,6 +177,9 @@ func New(config Config) (*Engine, error) {
 	if config.RunRetention < 0 || (config.RunRetention > 0 && config.RunLogDir == "") {
 		return nil, errors.New("shell run retention requires a run log directory and nonnegative duration")
 	}
+	if config.ExposeRunOutput && config.RunLogDir == "" {
+		return nil, errors.New("shell run output exposure requires a run log directory")
+	}
 	config.HooksDir = root
 	engine := &Engine{config: config, slots: make(chan struct{}, config.MaxConcurrent), queue: make(chan struct{}, config.MaxQueued)}
 	if err := engine.pruneRuns(time.Now()); err != nil {
@@ -194,21 +211,28 @@ func NewFromEnvironment() (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	exposeRunOutput, err := boolEnv("GATEWAY_SHELL_RUN_LOG_EXPOSE_OUTPUT")
+	if err != nil {
+		return nil, err
+	}
 	return New(Config{
-		HooksDir:       os.Getenv("GATEWAY_SHELL_HOOKS_DIR"),
-		RunLogDir:      os.Getenv("GATEWAY_SHELL_RUN_LOG_DIR"),
-		RunRetention:   runRetention,
-		Timeout:        timeout,
-		MaxOutputBytes: maxOutput,
-		MaxConcurrent:  maxConcurrent,
-		MaxQueued:      maxQueued,
-		OutputMode:     strings.TrimSpace(os.Getenv("GATEWAY_SHELL_OUTPUT_MODE")),
-		Interpreter:    strings.TrimSpace(os.Getenv("GATEWAY_SHELL_INTERPRETER")),
-		PowerShellPath: strings.TrimSpace(os.Getenv("GATEWAY_SHELL_POWERSHELL_PATH")),
+		HooksDir:        os.Getenv("GATEWAY_SHELL_HOOKS_DIR"),
+		RunLogDir:       os.Getenv("GATEWAY_SHELL_RUN_LOG_DIR"),
+		RunRetention:    runRetention,
+		ExposeRunOutput: exposeRunOutput,
+		Timeout:         timeout,
+		MaxOutputBytes:  maxOutput,
+		MaxConcurrent:   maxConcurrent,
+		MaxQueued:       maxQueued,
+		OutputMode:      strings.TrimSpace(os.Getenv("GATEWAY_SHELL_OUTPUT_MODE")),
+		Interpreter:     strings.TrimSpace(os.Getenv("GATEWAY_SHELL_INTERPRETER")),
+		PowerShellPath:  strings.TrimSpace(os.Getenv("GATEWAY_SHELL_POWERSHELL_PATH")),
 	})
 }
 
 func (e *Engine) Language() automation.Language { return Language }
+
+func (e *Engine) RunHistoryConfigured() bool { return e != nil && e.config.RunLogDir != "" }
 
 // Execute runs one hook selected by its relative source path. It sends the
 // Gateway input as JSON on stdin and accepts a JSON Outcome on stdout. The
@@ -236,6 +260,9 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 		if err := e.writeRecord(record); err != nil {
 			outcome = automation.Outcome{}
 			execErr = fmt.Errorf("record shell hook run: %w", err)
+		}
+		if execErr != nil {
+			execErr = &RunFailure{ID: runID, Cause: execErr}
 		}
 	}()
 	path, err := e.hookPath(source)
@@ -281,7 +308,7 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 				status = exitCode + 300
 			}
 		}
-		return automation.Outcome{RunID: runID, Response: &automation.Response{
+		return automation.Outcome{RunID: runID, RunFailed: err != nil, Response: &automation.Response{
 			Status: status, Body: stdout.String(), Headers: map[string][]string{
 				"Content-Type":           {"text/plain; charset=utf-8"},
 				"X-Gateway-Shell-Run-Id": {runID},
@@ -313,15 +340,17 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 }
 
 type runRecord struct {
-	ID         string    `json:"id"`
-	Hook       string    `json:"hook"`
-	DeliveryID string    `json:"delivery_id,omitempty"`
-	StartedAt  time.Time `json:"started_at"`
-	DurationMS int64     `json:"duration_ms"`
-	ExitCode   int       `json:"exit_code"`
-	Stdout     string    `json:"stdout"`
-	Stderr     string    `json:"stderr"`
-	Error      string    `json:"error,omitempty"`
+	ID              string    `json:"id"`
+	Hook            string    `json:"hook"`
+	DeliveryID      string    `json:"delivery_id,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
+	DurationMS      int64     `json:"duration_ms"`
+	ExitCode        int       `json:"exit_code"`
+	Stdout          string    `json:"stdout"`
+	Stderr          string    `json:"stderr"`
+	StdoutTruncated bool      `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool      `json:"stderr_truncated,omitempty"`
+	Error           string    `json:"error,omitempty"`
 }
 
 func newRunID() (string, error) {
@@ -337,11 +366,22 @@ func eventString(event map[string]any, name string) string {
 	return value
 }
 
-// Run records are private host files. A control-plane API can expose a
-// permission-checked view later without making request output public.
+// Run records are private host files. The private admin API reads only
+// metadata unless an operator explicitly enables output exposure.
 func (e *Engine) writeRecord(record runRecord) error {
 	if e.config.RunLogDir == "" {
 		return nil
+	}
+	if len(record.Stdout) > maxRunRecordOutput {
+		record.Stdout = record.Stdout[:maxRunRecordOutput]
+		record.StdoutTruncated = true
+	}
+	if len(record.Stderr) > maxRunRecordOutput {
+		record.Stderr = record.Stderr[:maxRunRecordOutput]
+		record.StderrTruncated = true
+	}
+	if len(record.Error) > 4096 {
+		record.Error = record.Error[:4096]
 	}
 	data, err := json.Marshal(record)
 	if err != nil {
@@ -360,6 +400,65 @@ func (e *Engine) writeRecord(record runRecord) error {
 		return closeErr
 	}
 	return e.pruneRuns(time.Now())
+}
+
+// ReadRun returns a bounded, private run-history resource. Output and error
+// text are omitted by default because hooks may print secrets or request data.
+func (e *Engine) ReadRun(id string) ([]byte, error) {
+	if e == nil || e.config.RunLogDir == "" || !runRecordFilename(id+".json") {
+		return nil, os.ErrNotExist
+	}
+	path := filepath.Join(e.config.RunLogDir, id+".json")
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	entry, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !entry.Mode().IsRegular() || !os.SameFile(opened, entry) {
+		return nil, os.ErrNotExist
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxRunRecordBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxRunRecordBytes {
+		return nil, errors.New("shell run record exceeds read limit")
+	}
+	var record runRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.ID != id {
+		return nil, errors.New("shell run record is invalid")
+	}
+	resource := struct {
+		ID              string    `json:"id"`
+		Hook            string    `json:"hook"`
+		DeliveryID      string    `json:"delivery_id,omitempty"`
+		StartedAt       time.Time `json:"started_at"`
+		DurationMS      int64     `json:"duration_ms"`
+		ExitCode        int       `json:"exit_code"`
+		Failed          bool      `json:"failed"`
+		Stdout          string    `json:"stdout,omitempty"`
+		Stderr          string    `json:"stderr,omitempty"`
+		Error           string    `json:"error,omitempty"`
+		StdoutTruncated bool      `json:"stdout_truncated,omitempty"`
+		StderrTruncated bool      `json:"stderr_truncated,omitempty"`
+	}{
+		ID: record.ID, Hook: record.Hook, DeliveryID: record.DeliveryID,
+		StartedAt: record.StartedAt, DurationMS: record.DurationMS,
+		ExitCode: record.ExitCode, Failed: record.ExitCode != 0 || record.Error != "",
+	}
+	if e.config.ExposeRunOutput {
+		resource.Stdout, resource.Stderr, resource.Error = record.Stdout, record.Stderr, record.Error
+		resource.StdoutTruncated, resource.StderrTruncated = record.StdoutTruncated, record.StderrTruncated
+	}
+	return json.Marshal(resource)
 }
 
 func (e *Engine) pruneRuns(now time.Time) error {
@@ -609,6 +708,18 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a positive Go duration", name)
 	}
 	return duration, nil
+}
+
+func boolEnv(name string) (bool, error) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return false, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean", name)
+	}
+	return parsed, nil
 }
 
 func int64Env(name string, fallback int64) (int64, error) {

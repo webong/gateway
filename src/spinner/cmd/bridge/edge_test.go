@@ -4,6 +4,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -216,6 +217,24 @@ func TestRoutePlanAllowsExtensionLanguageIdentifiers(t *testing.T) {
 	}
 }
 
+func TestRoutePlanAllowsOnlyGeneratedShellNotifications(t *testing.T) {
+	plan := RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
+		Automation:        &Automation{Language: shell.Language, Source: "deploy"},
+		ShellNotification: &Delivery{URL: "https://operator.example.test/shell-runs"}}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("valid shell notification rejected: %v", err)
+	}
+	plan.Automation.Language = javascript.Language
+	if err := plan.Validate(); err == nil {
+		t.Fatal("non-shell automation accepted a shell notification")
+	}
+	plan.Automation.Language = shell.Language
+	plan.ShellNotification.Body = []byte("arbitrary payload")
+	if err := plan.Validate(); err == nil {
+		t.Fatal("shell notification accepted arbitrary payload")
+	}
+}
+
 func TestEdgeFailsClosedWhenLanguageExtensionIsNotInstalled(t *testing.T) {
 	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
 		return RoutePlan{
@@ -326,5 +345,73 @@ func TestEdgeReturnsShellRunIDForAcceptedHook(t *testing.T) {
 	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/custom/hook", nil))
 	if record.Code != http.StatusAccepted || record.Header().Get("X-Gateway-Shell-Run-Id") == "" {
 		t.Fatalf("expected accepted hook with run ID, got %d %#v", record.Code, record.Header())
+	}
+}
+
+func TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "accept"), []byte("#!/bin/sh\nprintf '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "fail"), []byte("#!/bin/sh\necho 'secret failure output' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := shell.New(shell.Config{HooksDir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		hook, status string
+		response     int
+	}{
+		{hook: "accept", status: "succeeded", response: http.StatusAccepted},
+		{hook: "fail", status: "failed", response: http.StatusBadGateway},
+	} {
+		t.Run(test.hook, func(t *testing.T) {
+			executor := &recordingExecutor{}
+			edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+				return RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
+					Automation:        &Automation{Language: shell.Language, Source: test.hook},
+					ShellNotification: &Delivery{URL: "https://operator.example.test/shell-runs"}}, nil
+			}), executor, 1024).SetAutomationExecutor(automation.NewRuntime(engine))
+			record := httptest.NewRecorder()
+			edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/custom/hook", strings.NewReader("secret request body")))
+			if record.Code != test.response || len(executor.queued) != 1 {
+				t.Fatalf("unexpected hook response or notification: %d %#v", record.Code, executor.queued)
+			}
+			notice := executor.queued[0]
+			if notice.URL != "https://operator.example.test/shell-runs" || notice.Method != http.MethodPost || notice.Headers["Content-Type"][0] != "application/json" || strings.Contains(string(notice.Body), "secret") {
+				t.Fatalf("unsafe shell completion notice: %#v", notice)
+			}
+			var body map[string]string
+			if err := json.Unmarshal(notice.Body, &body); err != nil || body["status"] != test.status || body["run_id"] == "" || body["hook"] != test.hook {
+				t.Fatalf("invalid shell completion notice: %s, %v", notice.Body, err)
+			}
+			if record.Header().Get("X-Gateway-Shell-Run-Id") != body["run_id"] {
+				t.Fatalf("response and notification run IDs differ: %q vs %q", record.Header().Get("X-Gateway-Shell-Run-Id"), body["run_id"])
+			}
+		})
+	}
+}
+
+func TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "reject"), []byte("#!/bin/sh\nprintf 'rejected'\nexit 118\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := shell.New(shell.Config{HooksDir: root, OutputMode: shell.ModeBuffered})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor := &recordingExecutor{}
+	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
+		return RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
+			Automation:        &Automation{Language: shell.Language, Source: "reject"},
+			ShellNotification: &Delivery{URL: "https://operator.example.test/shell-runs"}}, nil
+	}), executor, 1024).SetAutomationExecutor(automation.NewRuntime(engine))
+	record := httptest.NewRecorder()
+	edge.ServeHTTP(record, httptest.NewRequest(http.MethodPost, "/custom/hook", nil))
+	if record.Code != 418 || len(executor.queued) != 1 || !strings.Contains(string(executor.queued[0].Body), `"status":"failed"`) {
+		t.Fatalf("buffered failure notification missing: status=%d queued=%#v", record.Code, executor.queued)
 	}
 }

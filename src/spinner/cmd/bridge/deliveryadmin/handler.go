@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,11 @@ type Handler struct {
 	queue queue
 	token string
 	email *emailSubmission
+	runs  runHistoryReader
+}
+
+type runHistoryReader interface {
+	ReadRun(string) ([]byte, error)
 }
 
 type emailQueue interface {
@@ -52,6 +58,18 @@ type emailSubmission struct {
 
 type HandlerOption func(*Handler) error
 
+// WithShellRunHistory exposes redacted shell-run records on the private admin
+// listener. The reader enforces run ID and file safety checks.
+func WithShellRunHistory(reader runHistoryReader) HandlerOption {
+	return func(handler *Handler) error {
+		if reader == nil {
+			return errors.New("shell run history reader is required")
+		}
+		handler.runs = reader
+		return nil
+	}
+}
+
 // WithEmailSubmission enables the private handoff only when a durable SMTP
 // queue and configured outbound relay are present on this node.
 func WithEmailSubmission(queue emailQueue, checker signingChecker, scanner smtp.MalwareScanner, maxMessageSize int64, loopKey []byte, failureNotices bool) HandlerOption {
@@ -65,14 +83,17 @@ func WithEmailSubmission(queue emailQueue, checker signingChecker, scanner smtp.
 }
 
 func NewHandler(queue queue, token string, options ...HandlerOption) (*Handler, error) {
-	if queue == nil || strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("delivery admin requires a queue and internal token")
+	if strings.TrimSpace(token) == "" {
+		return nil, fmt.Errorf("private admin requires an internal token")
 	}
 	handler := &Handler{queue: queue, token: token}
 	for _, option := range options {
 		if err := option(handler); err != nil {
 			return nil, err
 		}
+	}
+	if queue == nil && handler.runs == nil {
+		return nil, errors.New("private admin requires a delivery queue or shell run history")
 	}
 	return handler, nil
 }
@@ -85,6 +106,32 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	path := request.URL.Path
+	if strings.HasPrefix(path, "/shell/runs/") {
+		if handler.runs == nil {
+			http.NotFound(writer, request)
+			return
+		}
+		if request.Method != http.MethodGet {
+			methodNotAllowed(writer, http.MethodGet)
+			return
+		}
+		record, err := handler.runs.ReadRun(strings.TrimPrefix(path, "/shell/runs/"))
+		if errors.Is(err, os.ErrNotExist) {
+			http.NotFound(writer, request)
+			return
+		}
+		if err != nil {
+			writeError(writer, http.StatusInternalServerError, "Shell run history is unavailable.")
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(record)
+		return
+	}
+	if handler.queue == nil {
+		http.NotFound(writer, request)
+		return
+	}
 	if path == "/email/submissions" {
 		handler.submitEmail(writer, request)
 		return

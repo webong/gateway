@@ -28,7 +28,7 @@ turning every public URL into a filesystem lookup.
 | --- | --- | --- |
 | **An explicit invocation/response mode.** It supports SSE, chunked output, and buffered completion; buffered mode maps process exit status to HTTP status. | [README: response modes and exit mapping](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/README.md#L69-L100) | `shell` supports structured JSON outcomes, opt-in buffered stdout, and request-selected SSE or chunked output after Planner selects a hook. Streaming errors are reported in the stream because HTTP headers have already been sent. |
 | **A bounded execution system, decoupled from HTTP.** Jobs enter a queue of 100 and a configured fixed worker pool. | [Dispatcher source](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/worker/dispatcher.go#L7-L35) | `shell` caps active processes and optionally queues a bounded number of requests per Spinner. Full queues return 503. It does not have per-route limits. |
-| **Correlatable execution output.** Each execution has an ID in `X-Hook-Id`, and historical output is addressable by hook name and ID. | [Job identity](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/hook/job.go#L22-L48) and [HTTP lookup](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/api/index.go#L252-L280) | `shell` emits `X-Gateway-Shell-Run-Id` for completed responses and streams and can store private run files with the Gateway delivery ID. Expired records can be pruned opt-in; a protected lookup API remains separate work. |
+| **Correlatable execution output.** Each execution has an ID in `X-Hook-Id`, and historical output is addressable by hook name and ID. | [Job identity](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/hook/job.go#L22-L48) and [HTTP lookup](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/api/index.go#L252-L280) | `shell` emits `X-Gateway-Shell-Run-Id` for completed responses and streams, stores private run files, supports opt-in retention, and exposes an authenticated Planner lookup. Output remains redacted by default. |
 | **Deliberate upstream-identity handling.** It supports basic auth, a configured allow-list of upstream headers, and signature verification using a truststore. | [Route middleware](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/api/routes.go#L11-L67) and [signature selection](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/middleware/signature.go#L10-L25) | This reinforces Gateway's PHP-owned authentication and validation. Add provider verification as explicit Planner policy where needed, and pass only normalized, trusted identity to automations. Do not copy webhookd's optional wildcard header forwarding into a script context. |
 
 ## Patterns to avoid importing
@@ -42,15 +42,17 @@ turning every public URL into a filesystem lookup.
 - webhookd can send selected script-output lines to an email or HTTP
   notification URI. [The HTTP notifier filters `notify:` output into a
   completion payload](https://github.com/ncarlier/webhookd/blob/5ac66677bf7224191f1dfc51a875b09187d10beb/pkg/notification/http/http_notifier.go#L16-L74)
-  Gateway should not treat automation output as a notification payload: output
-  can contain request data, secrets, or unbounded text. Use structured,
-  Planner-authorized deliveries or audit events instead.
+  Gateway does not treat automation output as a notification payload: output
+  can contain request data, secrets, or unbounded text. A Planner-selected
+  shell completion destination instead receives bounded run metadata.
 
 ## Practical conclusion
 
 Gateway now has the core hook flow in an optional `shell` extension with
 bounded execution and run IDs. It intentionally retains PHP-selected routes
 for this release. It does not have webhookd's direct URL-to-file routing,
-public log lookup, or output-driven notifications.
+public log lookup or output-driven notifications. Its run-history lookup is
+authenticated and redacts output by default; its completion notifications
+are structured and Planner-selected.
 See [the shell extension guide](../ext/shell/README.md) for the current
 contract and deployment settings.

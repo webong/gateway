@@ -392,8 +392,8 @@ func loadConfig(runtime string) (*Config, error) {
 	if config.SMTPRelayAddress != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_SPOOL_PATH or GATEWAY_DELIVERY_DATABASE_URL is required when GATEWAY_SMTP_RELAY_ADDR is set")
 	}
-	if config.DeliveryAdminAddress != "" && (strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" || config.InternalToken == "") {
-		return nil, fmt.Errorf("GATEWAY_DELIVERY_ADMIN_ADDR requires durable delivery storage and GATEWAY_INTERNAL_TOKEN")
+	if config.DeliveryAdminAddress != "" && config.InternalToken == "" {
+		return nil, fmt.Errorf("GATEWAY_DELIVERY_ADMIN_ADDR requires GATEWAY_INTERNAL_TOKEN")
 	}
 	if config.DeliveryAdminAdvertiseURL != "" && (config.DeliveryAdminAddress == "" || config.DeliveryDatabaseURL == "") {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_ADMIN_ADVERTISE_URL requires GATEWAY_DELIVERY_ADMIN_ADDR and shared PostgreSQL")

@@ -20,6 +20,41 @@ final class DeliveryAdminClient
         return $this->request('GET', $path, $query, $node);
     }
 
+    /**
+     * Probe every private admin origin for a node-local resource. A 404 is
+     * conclusive only when all origins answer; unavailable nodes fail closed.
+     *
+     * @return array{node: string, response: Response}|null
+     */
+    public function findLocal(string $path): ?array
+    {
+        $nodes = $this->nodes();
+        $origins = isset($nodes['shared']) && ($shared = $this->sharedOrigins()) !== null
+            ? array_fill_keys($shared, 'shared')
+            : array_flip($nodes);
+        $unavailable = false;
+        foreach ($origins as $origin => $node) {
+            try {
+                $response = $this->send('GET', $origin, $path);
+            } catch (ConnectionException) {
+                $unavailable = true;
+                continue;
+            }
+            if ($response->status() === 404) {
+                continue;
+            }
+            if ($response->status() === 200) {
+                return ['node' => $node, 'response' => $response];
+            }
+            $unavailable = true;
+        }
+        if ($unavailable) {
+            throw new RuntimeException('Shell run history is unavailable on one or more nodes.');
+        }
+
+        return null;
+    }
+
     public function post(string $path, ?string $node = null): Response
     {
         return $this->request('POST', $path, [], $node);

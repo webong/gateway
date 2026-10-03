@@ -35,6 +35,26 @@ it('serializes a Go-executed automation route plan', function (): void {
     ]);
 });
 
+it('allows PHP to choose a structured shell completion notification destination', function (): void {
+    $plan = RoutePlan::automate(
+        new Automation('shell', 'github/deploy'),
+        shellNotification: new Delivery(url: 'https://operator.example.test/shell-runs'),
+    );
+
+    expect($plan->toArray()['shell_notification'])->toBe([
+        'url' => 'https://operator.example.test/shell-runs',
+    ]);
+
+    expect(fn (): RoutePlan => RoutePlan::automate(
+        new Automation('javascript', 'run()'),
+        shellNotification: new Delivery(url: 'https://operator.example.test/shell-runs'),
+    ))->toThrow(InvalidArgumentException::class);
+    expect(fn (): RoutePlan => RoutePlan::automate(
+        new Automation('shell', 'github/deploy'),
+        shellNotification: new Delivery(url: 'https://operator.example.test/shell-runs', body: 'arbitrary'),
+    ))->toThrow(InvalidArgumentException::class);
+});
+
 it('allows an installed extension to define its language identifier', function (): void {
     expect((new Automation('acme_script', 'run()'))->toArray())->toBe([
         'language' => 'acme_script',

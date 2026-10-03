@@ -424,7 +424,7 @@ func TestLoadConfigRequiresSpoolAndTokenForDeliveryAdmin(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_DELIVERY_ADMIN_ADDR", "127.0.0.1:5052")
 	if _, err := LoadConfig(); err == nil {
-		t.Fatal("admin listener should require spool and token")
+		t.Fatal("admin listener should require an internal token")
 	}
 	t.Setenv("GATEWAY_DELIVERY_SPOOL_PATH", "/var/lib/gateway/deliveries")
 	if _, err := LoadConfig(); err == nil {
@@ -437,6 +437,10 @@ func TestLoadConfigRequiresSpoolAndTokenForDeliveryAdmin(t *testing.T) {
 	}
 	if config.DeliveryAdminAddress != "127.0.0.1:5052" {
 		t.Fatalf("unexpected admin listener %q", config.DeliveryAdminAddress)
+	}
+	t.Setenv("GATEWAY_DELIVERY_SPOOL_PATH", "")
+	if _, err := LoadConfig(); err != nil {
+		t.Fatalf("shell-only private admin should not require a delivery spool: %v", err)
 	}
 }
 

@@ -31,6 +31,9 @@ export GATEWAY_SHELL_OUTPUT_MODE=outcome
 export GATEWAY_SHELL_RUN_LOG_DIR=/var/lib/gateway/shell-runs
 # Optional: retain run records for 30 days. Unset to never prune automatically.
 # export GATEWAY_SHELL_RUN_RETENTION=720h
+# Optional: allow the authenticated run-history API to return bounded stdout,
+# stderr, and error text. Off by default because hooks may print secrets.
+# export GATEWAY_SHELL_RUN_LOG_EXPOSE_OUTPUT=true
 ```
 
 Install the Planner companion so a `shell` route plan is authorized only when
@@ -48,6 +51,27 @@ use Webong\Gateway\Protocol\RoutePlan;
 
 return RoutePlan::automate(new Automation(language: 'shell', source: 'github/deploy'));
 ```
+
+Planner can also select a completion-notification destination:
+
+```php
+use Webong\Gateway\Protocol\Delivery;
+
+return RoutePlan::automate(
+    new Automation(language: 'shell', source: 'github/deploy'),
+    shellNotification: new Delivery(url: 'https://operator.example.test/shell-runs'),
+);
+```
+
+Spinner queues a POST to that Planner-chosen destination after an admitted
+hook finishes, with a small JSON body containing `event`, `run_id`,
+`delivery_id`, `hook`, and `status` (`succeeded` or `failed`). It does not
+include request data, stdout, stderr, or script-selected URLs. A generated
+`Idempotency-Key` identifies the run; use a durable delivery queue when
+notifications must survive a restart. A failed queue admission returns 503
+for buffered requests; after streaming headers are sent it is logged on
+Spinner instead. Capacity rejections before a run starts do not generate a
+completion notification.
 
 For PowerShell mode, select a `.ps1` hook instead, such as
 `source: 'github/deploy.ps1'`.
@@ -102,7 +126,19 @@ prunes unrelated files or symlinks, and leaving the setting unset preserves
 existing records indefinitely. Idle Spinners do not run a background pruning
 task; operators who need a strict expiry deadline should also schedule
 private directory maintenance.
-It is not published through the public Gateway listener.
+Run records store at most 64 KiB each of stdout and stderr; larger streams
+are marked as truncated in the record.
+
+To inspect a run, configure Spinner's private admin listener with
+`GATEWAY_DELIVERY_ADMIN_ADDR` and `GATEWAY_INTERNAL_TOKEN`, and configure
+Planner's matching `GATEWAY_DELIVERY_ADMIN_URL` (or its node list) and
+`GATEWAY_INTERNAL_TOKEN`. The Shell companion adds
+`GET /shell/runs/{run_id}` to Planner's registry-token-protected API. The
+response contains run metadata and the owning node. Output and error text
+are omitted unless `GATEWAY_SHELL_RUN_LOG_EXPOSE_OUTPUT=true` is explicitly
+set on Spinner. The private Spinner endpoint is never mounted on the public
+Gateway listener. Missing runs return 404 only after every configured node
+has answered; unreachable nodes return 503 instead.
 
 This extension supports route hooks only. It does not expose arbitrary request
 fields as environment variables, run shell command strings, create schedules,

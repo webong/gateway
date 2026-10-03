@@ -71,6 +71,7 @@ type RoutePlan struct {
 	Reply             *Delivery         `json:"reply,omitempty"`
 	Relays            []Delivery        `json:"relays,omitempty"`
 	Automation        *Automation       `json:"automation,omitempty"`
+	ShellNotification *Delivery         `json:"shell_notification,omitempty"`
 	Metadata          map[string]string `json:"metadata,omitempty"`
 }
 
@@ -189,18 +190,18 @@ func (p RoutePlan) Validate() error {
 
 	switch p.Action {
 	case ActionPassThrough:
-		if p.ImmediateResponse != nil || p.Reply != nil || len(p.Relays) > 0 || p.Automation != nil {
+		if p.ImmediateResponse != nil || p.Reply != nil || len(p.Relays) > 0 || p.Automation != nil || p.ShellNotification != nil {
 			return fmt.Errorf("%w: pass-through plan cannot contain response or deliveries", ErrInvalidPlan)
 		}
 	case ActionRespond:
-		if p.ImmediateResponse == nil || p.Reply != nil || len(p.Relays) > 0 || p.Automation != nil {
+		if p.ImmediateResponse == nil || p.Reply != nil || len(p.Relays) > 0 || p.Automation != nil || p.ShellNotification != nil {
 			return fmt.Errorf("%w: respond plan requires only an immediate response", ErrInvalidPlan)
 		}
 		if err := p.ImmediateResponse.Validate(); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidPlan, err)
 		}
 	case ActionRelay:
-		if p.Automation != nil {
+		if p.Automation != nil || p.ShellNotification != nil {
 			return fmt.Errorf("%w: relay plan cannot contain automation source", ErrInvalidPlan)
 		}
 		if p.Reply != nil && p.ImmediateResponse != nil {
@@ -237,6 +238,17 @@ func (p RoutePlan) Validate() error {
 		for index := range p.Relays {
 			if err := p.Relays[index].Validate(); err != nil {
 				return fmt.Errorf("%w: relay %d: %v", ErrInvalidPlan, index, err)
+			}
+		}
+		if p.ShellNotification != nil {
+			if p.Automation.Language != "shell" {
+				return fmt.Errorf("%w: shell notifications require shell automation", ErrInvalidPlan)
+			}
+			if err := p.ShellNotification.Validate(); err != nil {
+				return fmt.Errorf("%w: shell notification: %v", ErrInvalidPlan, err)
+			}
+			if (p.ShellNotification.Method != "" && !strings.EqualFold(p.ShellNotification.Method, http.MethodPost)) || len(p.ShellNotification.Body) > 0 || p.ShellNotification.RawQuery != "" {
+				return fmt.Errorf("%w: shell notification must use a generated POST payload", ErrInvalidPlan)
 			}
 		}
 	default:
