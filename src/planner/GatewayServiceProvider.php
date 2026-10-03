@@ -28,10 +28,12 @@ use Webong\Gateway\Dns\Http\DnsHookUsageController;
 use Webong\Gateway\Dns\Http\DnsZoneController;
 use Webong\Gateway\Email\Http\EmailController;
 use Webong\Gateway\Email\Http\EmailSubmissionController;
+use Webong\Gateway\Email\Http\EmailSuppressionController;
 use Webong\Gateway\Email\EmailRegistry;
 use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionQuota;
+use Webong\Gateway\Email\EmailSuppressionStore;
 use Webong\Gateway\Email\PruneEmailSubmissionUsageCommand;
 use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\NativeTxtResolver;
@@ -201,6 +203,7 @@ final class GatewayServiceProvider extends ServiceProvider
             emailPolicy: $this->emailMessagePolicy(),
             submissionAuthenticator: $this->emailSubmissionAuthenticator(),
             submissionQuota: $this->app->make(EmailSubmissionQuota::class),
+            suppressions: $this->app->make(EmailSuppressionStore::class),
             mailboxAuthenticator: $this->mailboxAuthenticator(),
         ));
 
@@ -343,6 +346,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/deliveries/{delivery}/retry', [DeliveryController::class, 'retry']);
             $this->app['router']->get('/email/domains', [EmailController::class, 'domains']);
             $this->app['router']->post('/email/submissions', EmailSubmissionController::class);
+            $this->app['router']->get('/email/suppressions', [EmailSuppressionController::class, 'index']);
+            $this->app['router']->post('/email/suppressions', [EmailSuppressionController::class, 'store']);
+            $this->app['router']->delete('/email/suppressions/{suppression}', [EmailSuppressionController::class, 'destroy']);
             $this->app['router']->post('/email/domains', [EmailController::class, 'createDomain']);
             $this->app['router']->get('/email/domains/{domain}', [EmailController::class, 'showDomain']);
             $this->app['router']->post('/email/domains/{domain}/verify', [EmailController::class, 'verifyDomain']);

@@ -240,6 +240,29 @@ it('enforces a granted account quota before routing an SMTP transaction', functi
         ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-123'))->value('attempts'))->toBe(2);
 });
 
+it('rejects an authenticated SMTP DATA recipient on the suppression list before charging quota', function (): void {
+    config()->set('gateway.email.submission_daily_limit', 1);
+    $entry = $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'recipient@EXAMPLE.TEST', 'reason' => 'complaint',
+    ])->assertCreated()->json();
+    $event = new GatewayEvent(
+        id: 'smtp-suppressed', protocol: Protocol::SMTP, kind: EventKind::TRANSACTION,
+        route: 'recipient@example.test',
+        attributes: [
+            'auth_username' => 'subscriber', 'auth_identity' => 'account-123',
+            'mail_from' => 'sender@example.test', 'recipients' => 'recipient@example.test',
+        ],
+        payload: "From: sender@example.test\r\n\r\nbody",
+    );
+    $decision = app(ProtocolPlanner::class)->planEvent($event);
+    expect($decision->action)->toBe(GatewayAction::REJECT)
+        ->and($decision->statusCode)->toBe(550)
+        ->and(DB::table('email_submission_usage')->count())->toBe(0);
+    $this->withToken('registry-secret')->deleteJson('/email/suppressions/'.$entry['id'])->assertNoContent();
+    expect(app(ProtocolPlanner::class)->planEvent($event)->message)->not->toBe('Recipient is suppressed.')
+        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-123'))->value('attempts'))->toBe(1);
+});
+
 it('enforces the shared sender-domain cap before routing authenticated SMTP transactions', function (): void {
     config()->set('gateway.email.submission_daily_limit', 1);
     config()->set('gateway.email.submission_domain_daily_limit', 1);
@@ -500,6 +523,13 @@ it('submits all verified alias recipients as one SMTP relay transaction', functi
         ->and(json_decode($decision->deliveries[0]->attributes['recipients'], true))->toBe([
             'one@example.net', 'shared@example.net', 'two@example.net',
         ]);
+
+    $suppression = $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'shared@example.net', 'reason' => 'hard_bounce',
+    ])->assertCreated()->json();
+    $blocked = $planner->planEvent($event);
+    expect($blocked->action)->toBe(GatewayAction::REJECT)->and($blocked->statusCode)->toBe(550);
+    $this->withToken('registry-secret')->deleteJson('/email/suppressions/'.$suppression['id'])->assertNoContent();
 
     $missing = new GatewayEvent(
         id: 'smtp-managed-2', protocol: Protocol::SMTP, kind: EventKind::TRANSACTION,

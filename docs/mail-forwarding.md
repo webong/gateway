@@ -125,9 +125,8 @@ test-only; production verification performs a real DNS TXT lookup.
 
 ### 3. Forwarding correctness
 
-Add spam and malware decisions, SPF and DMARC evaluation, SRS envelope
-rewriting, DKIM verification, ARC sealing, suppression lists,
-bounces, and abuse controls. Do not advertise reliable internet forwarding
+Add spam decisions, ARC sealing, bounce and reputation monitoring, and broader
+abuse controls. Do not advertise reliable internet forwarding
 before these protections are deployed. In particular, current managed Email
 forwarding is an operator-enabled early capability, not a production-grade
 public mail-forwarding service: preflight can be disabled, and most abuse
@@ -149,6 +148,21 @@ the SMTP client. Only deployment-owned code may implement this interface;
 clients and domains cannot select a policy class. A scanner must bound its
 own network calls within the Planner deadline. Configuring this hook alone
 does not satisfy the public-forwarding gate.
+
+Gateway has an operator-managed Email suppression list shared by Planner
+replicas. Apply the `email_suppressions` migration, then use the registry bearer
+token to add a canonical address and a reason (`manual`, `hard_bounce`, or
+`complaint`) with `POST /email/suppressions`. `GET /email/suppressions` is
+cursor-paginated (`limit` 1–100, `cursor` from `next_cursor`); remove an entry
+with `DELETE /email/suppressions/{id}`. A new authenticated SMTP transaction,
+new HTTP submission, or managed alias forwarding transaction is rejected if
+any outbound recipient is suppressed. HTTP idempotency retries for a previously
+accepted receipt still return that receipt, and a suppressed new submission
+does not consume quota. The API is operator-controlled; Gateway does not yet
+ingest provider hard-bounce or complaint events automatically. Suppression is
+checked at acceptance, not again at queue dispatch, so mail already queued
+before an address is added may still be delivered. Do not treat this as a
+complete reputation or abuse-control system.
 
 For example, a host application can implement the interface in
 `App\Gateway\MailPolicy`, register its dependencies with Laravel, and set

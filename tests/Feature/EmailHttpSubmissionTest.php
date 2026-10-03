@@ -50,6 +50,52 @@ function emailSubmissionBody(string $sender = 'alice@example.test'): array
     ];
 }
 
+it('blocks new HTTP submissions to an operator-suppressed recipient without charging quota', function (): void {
+    Http::fake(fn (ClientRequest $request) => Http::response(['id' => $request['receipt_id']], 202));
+    $this->postJson('/email/suppressions', ['address' => 'bob@example.test', 'reason' => 'hard_bounce'])->assertUnauthorized();
+    $suppression = $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'bob@EXAMPLE.TEST', 'reason' => 'hard_bounce',
+    ])->assertCreated()->json();
+    expect($suppression['address'])->toBe('bob@example.test');
+    $this->withToken('registry-secret')->getJson('/email/suppressions')->assertOk()->assertJsonCount(1, 'data');
+
+    $headers = ['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'suppressed-new'];
+    $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertUnprocessable();
+    expect(DB::table('email_submission_usage')->count())->toBe(0)
+        ->and(DB::table('email_http_submissions')->count())->toBe(0);
+    Http::assertNothingSent();
+
+    $this->withToken('registry-secret')->deleteJson('/email/suppressions/'.$suppression['id'])->assertNoContent();
+    $accepted = $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertAccepted()->json('id');
+    $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'bob@example.test', 'reason' => 'manual',
+    ])->assertCreated();
+    $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertAccepted()->assertJsonPath('id', $accepted);
+    Http::assertSentCount(1);
+});
+
+it('lists suppression entries with a bounded cursor and rejects invalid mutations', function (): void {
+    $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'one@example.test', 'reason' => 'manual',
+    ])->assertCreated();
+    $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'two@example.test', 'reason' => 'complaint',
+    ])->assertCreated();
+    $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'bad-address', 'reason' => 'manual',
+    ])->assertUnprocessable();
+    $this->withToken('registry-secret')->postJson('/email/suppressions', [
+        'address' => 'three@example.test', 'reason' => 'unknown',
+    ])->assertUnprocessable();
+    $first = $this->withToken('registry-secret')->getJson('/email/suppressions?limit=1')
+        ->assertOk()->assertJsonCount(1, 'data')->json();
+    $second = $this->withToken('registry-secret')->getJson('/email/suppressions?limit=1&cursor='.$first['next_cursor'])
+        ->assertOk()->assertJsonCount(1, 'data')->json();
+    expect($second['data'][0]['id'])->not->toBe($first['data'][0]['id']);
+    $this->withToken('registry-secret')->getJson('/email/suppressions?limit=101')->assertUnprocessable();
+    $this->withToken('registry-secret')->deleteJson('/email/suppressions/'.str_repeat('0', 64))->assertNotFound();
+});
+
 it('requires HTTPS and the deployment-owned email credential', function (): void {
     Http::fake();
     $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'email-1'])

@@ -13,6 +13,7 @@ use Webong\Gateway\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Email\EmailHttpSubmissionStore;
 use Webong\Gateway\Email\EmailSubmissionKeyConflict;
 use Webong\Gateway\Email\EmailSubmissionLimitExceeded;
+use Webong\Gateway\Email\EmailRecipientSuppressed;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
 use Webong\Gateway\Protocol\GatewayEvent;
@@ -96,7 +97,7 @@ final readonly class EmailSubmissionController
         try {
             $nodes = $this->admin->nodes();
             $fingerprint = hash('sha256', json_encode([$input['mail_from'], $input['recipients']], JSON_THROW_ON_ERROR)."\0".$message);
-            $reservation = $this->submissions->reserve($identity, $input['mail_from'], $key, $fingerprint, $nodes, $limit, strlen($message), $byteLimit);
+            $reservation = $this->submissions->reserve($identity, $input['mail_from'], $input['recipients'], $key, $fingerprint, $nodes, $limit, strlen($message), $byteLimit);
             $node = $reservation->node;
             $id = $reservation->receipt_id;
             if ($reservation->accepted_at !== null) {
@@ -113,6 +114,8 @@ final readonly class EmailSubmissionController
             return response()->json(['message' => 'Idempotency key already belongs to a different message.'], Response::HTTP_CONFLICT);
         } catch (EmailSubmissionLimitExceeded) {
             return response()->json(['message' => 'Daily submission quota exceeded.'], Response::HTTP_TOO_MANY_REQUESTS);
+        } catch (EmailRecipientSuppressed) {
+            return response()->json(['message' => 'Recipient is suppressed.'], Response::HTTP_UNPROCESSABLE_ENTITY);
         } catch (Throwable) {
             return response()->json(['message' => 'Email submission is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }

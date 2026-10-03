@@ -154,6 +154,12 @@ srs_address="$(php -r '
     echo $row["from"] ?? "";
 ' "$RELAY_FILE")"
 
+suppression_json="$(curl -fsS -X POST "$planner/email/suppressions" -H "$auth" -H 'Content-Type: application/json' -d '{"address":"shared@example.net","reason":"hard_bounce"}')"
+suppression_id="$(printf '%s' "$suppression_json" | php -r '$v=json_decode(stream_get_contents(STDIN),true); echo $v["id"] ?? "";')"
+if [[ ! "$suppression_id" =~ ^[a-f0-9]{64}$ ]]; then echo 'Email suppression creation returned no valid ID.' >&2; exit 1; fi
+"$CLIENT_BIN" -addr "127.0.0.1:$SMTP_PORT" -to 'first@managed.test' -subject 'suppressed destination' -expect-data-error -expect-data-code 550
+curl -fsS -X DELETE "$planner/email/suppressions/$suppression_id" -H "$auth" >/dev/null
+
 "$CLIENT_BIN" -addr "127.0.0.1:$SMTP_PORT" -to 'reject@managed.test' -expect-data-error -expect-data-code 451
 "$CLIENT_BIN" -addr "127.0.0.1:$SMTP_PORT" -to 'first@managed.test' -subject 'policy-block' -expect-data-error -expect-data-code 550
 "$CLIENT_BIN" -addr "127.0.0.1:$SMTP_PORT" -to 'first@managed.test' -subject 'policy-defer' -expect-data-error -expect-data-code 451

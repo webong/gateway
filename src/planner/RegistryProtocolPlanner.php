@@ -14,6 +14,7 @@ use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailPolicyVerdict;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionQuota;
+use Webong\Gateway\Email\EmailSuppressionStore;
 use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\DmarcEvaluator;
 use Webong\Gateway\Email\SrsReturnStore;
@@ -46,6 +47,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         private readonly ?EmailSubmissionAuthenticator $submissionAuthenticator = null,
         private readonly ?EmailSubmissionQuota $submissionQuota = null,
         private readonly ?MailboxAuthenticator $mailboxAuthenticator = null,
+        private readonly ?EmailSuppressionStore $suppressions = null,
     ) {}
 
     public function planEvent(GatewayEvent $event): GatewayDecision
@@ -164,6 +166,9 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
     private function submissionQuotaDecision(GatewayEvent $event): ?GatewayDecision
     {
         $identity = $event->attributes['auth_identity'] ?? '';
+        if ($identity !== '' && $this->suppressions?->containsAny(array_values(array_filter(explode(',', $event->attributes['recipients'] ?? $event->route)))) === true) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Recipient is suppressed.');
+        }
         $username = $event->attributes['auth_username'] ?? '';
         $defaultLimit = (int) config('gateway.email.submission_daily_limit', 0);
         $defaultByteLimit = (int) config('gateway.email.submission_daily_byte_limit', 0);
@@ -251,6 +256,9 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
         if ($recipients === null) {
             return null;
+        }
+        if ($this->suppressions?->containsAny($recipients) === true) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Recipient is suppressed.');
         }
 
         $assessment = $this->dmarc?->evaluate($event);
