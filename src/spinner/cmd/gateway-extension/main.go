@@ -4,13 +4,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"time"
 
+	"github.com/webong/gateway/driver/workloadplugin"
 	"github.com/webong/gateway/src/spinner/extensions/catalog"
+	"github.com/webong/gateway/src/spinner/provision"
 )
 
 func main() {
@@ -22,7 +26,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("use catalog, keygen, sign, list, install, or verify")
+		return fmt.Errorf("use catalog, keygen, sign, list, install, verify, or probe")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -160,7 +164,78 @@ func run(args []string) error {
 		}
 		fmt.Printf("verified %s %s %s/%s %s\n", receipt.Name, receipt.Version, receipt.OS, receipt.Arch, receipt.SHA256)
 		return nil
+	case "probe":
+		flags := flag.NewFlagSet("probe", flag.ContinueOnError)
+		flags.SetOutput(os.Stderr)
+		path := flags.String("path", "", "absolute extension executable path")
+		specPath := flags.String("spec", "", "server specification JSON file")
+		driver := flags.String("driver", "", "local, docker, or kubernetes")
+		host := flags.String("host", "127.0.0.1", "local launch host")
+		port := flags.Int("port", 8080, "local launch port")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *path == "" || *specPath == "" || *driver == "" || flags.NArg() != 0 {
+			return fmt.Errorf("probe requires --path, --spec, --driver and no positional arguments")
+		}
+		return probe(*path, *specPath, *driver, *host, *port)
 	default:
-		return fmt.Errorf("unknown command %q; use catalog, keygen, sign, list, install, or verify", args[0])
+		return fmt.Errorf("unknown command %q; use catalog, keygen, sign, list, install, verify, or probe", args[0])
 	}
+}
+
+func probe(path, specPath, driver, host string, port int) error {
+	if driver != provision.DriverLocal && driver != provision.DriverDocker && driver != provision.DriverKubernetes {
+		return fmt.Errorf("unsupported probe driver %q", driver)
+	}
+	if driver == provision.DriverLocal && (host == "" || port < 1 || port > 65535) {
+		return fmt.Errorf("local probe requires a host and port between 1 and 65535")
+	}
+	file, err := os.Open(specPath)
+	if err != nil {
+		return fmt.Errorf("open server specification: %w", err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > workloadplugin.MaxMessageBytes {
+		return fmt.Errorf("server specification must be a bounded regular file")
+	}
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	var spec provision.ServerSpec
+	if err := decoder.Decode(&spec); err != nil {
+		return fmt.Errorf("decode server specification: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return fmt.Errorf("server specification must contain one JSON object")
+	}
+	if err := spec.Validate(); err != nil {
+		return err
+	}
+	if spec.Driver != driver {
+		return fmt.Errorf("server specification driver %q does not match probe driver %q", spec.Driver, driver)
+	}
+	plugin, err := provision.OpenPlugin(path)
+	if err != nil {
+		return err
+	}
+	defer plugin.Close()
+	if plugin.Type() != spec.Type || !plugin.Supports(driver) {
+		return fmt.Errorf("extension %q does not support %s server %q", plugin.Type(), driver, spec.Type)
+	}
+	if err := plugin.Validate(spec); err != nil {
+		return fmt.Errorf("validate extension configuration: %w", err)
+	}
+	launch, err := plugin.Launch(spec, driver, host, port)
+	if err != nil {
+		return fmt.Errorf("derive extension launch: %w", err)
+	}
+	if launch.Port < 1 || launch.Port > 65535 || launch.Executable == "" ||
+		(driver == provision.DriverLocal && launch.WorkingDirectory == "") ||
+		(driver != provision.DriverLocal && launch.Image == "") {
+		return fmt.Errorf("extension returned an incomplete %s launch specification", driver)
+	}
+	// Launch environment can contain credentials; never print it.
+	fmt.Printf("validated %s extension for %s launch\n", plugin.Type(), driver)
+	return nil
 }

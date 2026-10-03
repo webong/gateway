@@ -26,7 +26,21 @@ bin/gateway-extension install \
   --name centrifugo --version v1.2.3 --dir /opt/gateway/extensions
 bin/gateway-extension verify \
   --path /opt/gateway/extensions/centrifugo/v1.2.3/gateway-centrifugo
+bin/gateway-extension probe \
+  --path /opt/gateway/extensions/centrifugo/v1.2.3/gateway-centrifugo \
+  --spec /secure/gateway/centrifugo-server.json --driver kubernetes
 ```
+
+`probe` starts the selected extension on the current host, sends `describe`,
+validates one complete `driver.ServerSpec` JSON file, and checks the launch
+specification for the selected driver. For `local`, pass the intended `--host`
+and `--port`; Docker and Kubernetes probes derive the container port from the
+extension. The command prints no launch environment because it may contain
+credentials. Keep the specification file private. This checks the extension
+protocol and configuration on this host; it does not create a Pod/container,
+verify target credentials, or prove that the workload image starts. Run the
+target connection check and a disposable real-workload smoke before production
+activation.
 
 The installer refuses an existing version, a mismatched digest, an oversized
 artifact, or a wrong OS/architecture. It writes a local receipt and returns
@@ -151,7 +165,7 @@ have an 8 MiB limit. The extension returns a `driver.LaunchSpec`; Gateway core
 still owns process/container/Pod creation, reconciliation, and routing.
 
 The protocol version is checked at startup. The manager handles catalog-based,
-version-pinned, hash-verified installation, while activation remains an
-explicit `GATEWAY_EXTENSION_PATHS` operator step. A hosted official registry,
-signing-key distribution, full workload validation on each target and publishing,
-and unattended updates remain future work.
+version-pinned, hash-verified installation and a local specification probe,
+while activation remains an explicit `GATEWAY_EXTENSION_PATHS` operator step.
+A hosted official registry, signing-key distribution, real workload validation
+on each target and publishing, and unattended updates remain future work.
