@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -38,6 +39,8 @@ type Config struct {
 	MaxDuration       time.Duration
 	Admission         *Admission
 	WriteTimeout      time.Duration
+	MaxBodySize       int64
+	BodyReadTimeout   time.Duration
 }
 
 // Admission limits all streams sharing it, including streams still being planned.
@@ -73,6 +76,12 @@ type Metrics struct {
 }
 
 func NewHandler(planner bridge.ProtocolPlanner, source Source, config Config) *Handler {
+	if config.MaxBodySize <= 0 {
+		config.MaxBodySize = 10 * 1024 * 1024
+	}
+	if config.BodyReadTimeout <= 0 {
+		config.BodyReadTimeout = 15 * time.Second
+	}
 	if config.PlannerTimeout == 0 {
 		config.PlannerTimeout = 30 * time.Second
 	}
@@ -96,7 +105,7 @@ func (h *Handler) Metrics() Metrics {
 }
 
 func IsRequest(request *http.Request) bool {
-	return request != nil && request.Method == http.MethodGet && strings.Contains(strings.ToLower(request.Header.Get("Accept")), "text/event-stream")
+	return request != nil && (request.Method == http.MethodGet || request.Method == http.MethodPost) && strings.Contains(strings.ToLower(request.Header.Get("Accept")), "text/event-stream")
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -105,7 +114,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if !IsRequest(request) {
-		http.Error(writer, "Webstream requires GET with Accept: text/event-stream", http.StatusNotAcceptable)
+		http.Error(writer, "Webstream requires GET or POST with Accept: text/event-stream", http.StatusNotAcceptable)
 		return
 	}
 	if !h.admission.acquire() {
@@ -115,6 +124,33 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	defer h.admission.active.Add(-1)
+	var payload []byte
+	if request.Method == http.MethodPost {
+		if encoding := request.Header.Get("Content-Encoding"); encoding != "" && !strings.EqualFold(encoding, "identity") {
+			http.Error(writer, "Encoded Webstream request bodies are not supported", http.StatusUnsupportedMediaType)
+			return
+		}
+		controller := http.NewResponseController(writer)
+		_ = controller.SetReadDeadline(time.Now().Add(h.config.BodyReadTimeout))
+		body := http.MaxBytesReader(writer, request.Body, h.config.MaxBodySize)
+		var err error
+		payload, err = io.ReadAll(body)
+		_ = body.Close()
+		_ = controller.SetReadDeadline(time.Time{})
+		if err != nil {
+			h.failed.Add(1)
+			var tooLarge *http.MaxBytesError
+			status := http.StatusBadRequest
+			if errors.As(err, &tooLarge) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			if timeout, ok := err.(interface{ Timeout() bool }); ok && timeout.Timeout() {
+				status = http.StatusRequestTimeout
+			}
+			http.Error(writer, "Webstream request body rejected", status)
+			return
+		}
+	}
 	streamContext, streamCancel := context.WithTimeout(request.Context(), h.config.MaxDuration)
 	defer streamCancel()
 	sessionID := sessionID(request)
@@ -126,7 +162,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	decision, err := h.planner.PlanEvent(ctx, bridge.GatewayEvent{
 		ID: sessionID, Protocol: bridge.ProtocolWebstream, Kind: bridge.EventConnect, SessionID: sessionID,
 		Host: request.Host, Route: request.URL.Path, Method: request.Method, RawQuery: request.URL.RawQuery,
-		Headers: cloneHeaders(request.Header), Attributes: attributes,
+		Headers: cloneHeaders(request.Header), Attributes: attributes, Payload: payload,
 	})
 	cancel()
 	if err != nil || decision.Validate() != nil || decision.Protocol != bridge.ProtocolWebstream {
@@ -136,6 +172,15 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	switch decision.Action {
 	case bridge.GatewayStream:
+		method := decision.Stream.Attributes["method"]
+		if method == "" {
+			method = http.MethodGet
+		}
+		if method != request.Method || int64(len(decision.Stream.Payload)) > h.config.MaxBodySize {
+			h.failed.Add(1)
+			http.Error(writer, "Invalid Webstream source request", http.StatusBadGateway)
+			return
+		}
 		// Replace the server's whole-response deadline with a per-write limit.
 		controller := http.NewResponseController(writer)
 		_ = controller.SetWriteDeadline(time.Time{})
@@ -169,9 +214,11 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-cache")
 		writer.Header().Set("X-Accel-Buffering", "no")
 		writer.WriteHeader(response.StatusCode)
-		if _, err := writer.Write([]byte("retry: " + strconv.FormatInt(h.config.ReconnectDelay.Milliseconds(), 10) + "\n\n")); err != nil {
-			h.failed.Add(1)
-			return
+		if request.Method == http.MethodGet {
+			if _, err := writer.Write([]byte("retry: " + strconv.FormatInt(h.config.ReconnectDelay.Milliseconds(), 10) + "\n\n")); err != nil {
+				h.failed.Add(1)
+				return
+			}
 		}
 		if err := http.NewResponseController(writer).Flush(); err != nil {
 			h.failed.Add(1)
@@ -202,8 +249,8 @@ func flushCopy(ctx context.Context, writer http.ResponseWriter, source io.Reader
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	controller := http.NewResponseController(writer)
-	// The retry prelude ends with an empty line. Heartbeats may only be
-	// inserted at another event boundary; a source read can stop mid-event.
+	// An empty stream (or the GET retry prelude) is an event boundary.
+	// Heartbeats must not be inserted into a source's incomplete event.
 	boundary := sseBoundary{complete: true}
 	type readResult struct {
 		bytes []byte

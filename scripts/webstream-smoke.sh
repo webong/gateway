@@ -64,4 +64,8 @@ grep -Fx 'id: event-43' "$BODY" >/dev/null
 grep -Fx 'data: resumed=event-42' "$BODY" >/dev/null
 metrics="$(curl -fsS "http://127.0.0.1:$HTTP_PORT/metrics")"
 [[ "$metrics" == *'"webstreams_opened_total":1'* ]]
-echo "Webstream HTTP-runtime integration smoke passed."
+curl -fsSN --max-time 5 -H 'Accept: text/event-stream' -H 'Content-Type: application/json' --data-binary '{"input":"hello"}' "http://127.0.0.1:$HTTP_PORT/hooks/updates" >"$BODY"
+grep -Fx 'data: body={"input":"hello"}' "$BODY" >/dev/null
+grep -Fx 'data: done' "$BODY" >/dev/null
+if grep -q '^retry:' "$BODY"; then echo 'POST must not include a retry hint' >&2; exit 1; fi
+echo "Webstream GET and POST HTTP-runtime integration smoke passed."

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -17,7 +18,21 @@ func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDeliv
 	if e == nil || e.forwarder == nil {
 		return nil, fmt.Errorf("webstream transport is not configured")
 	}
-	return e.forwarder.OpenStream(ctx, delivery.Target, streamHeaders(delivery), forwardTransport(delivery.Transport))
+	method := delivery.Attributes["method"]
+	if method == "" {
+		method = http.MethodGet
+	}
+	target, err := url.Parse(delivery.Target)
+	if err != nil {
+		return nil, err
+	}
+	if query := delivery.Attributes["raw_query"]; method == http.MethodPost && query != "" {
+		if target.RawQuery != "" {
+			target.RawQuery += "&"
+		}
+		target.RawQuery += query
+	}
+	return e.forwarder.OpenStreamRequest(ctx, method, target.String(), streamHeaders(delivery), delivery.Payload, forwardTransport(delivery.Transport))
 }
 
 func streamHeaders(delivery GatewayDelivery) http.Header {

@@ -56,7 +56,7 @@ func (p *PHPProtocolPlanner) PlanEvent(ctx context.Context, event GatewayEvent) 
 	if response.Code < http.StatusOK || response.Code >= http.StatusMultipleChoices {
 		return GatewayDecision{}, fmt.Errorf("PHP protocol planner returned status %d", response.Code)
 	}
-	if p.MaxBodySize > 0 && int64(response.Body.Len()) > p.MaxBodySize {
+	if limit := protocolDecisionLimit(event, p.MaxBodySize); limit > 0 && int64(response.Body.Len()) > limit {
 		return GatewayDecision{}, fmt.Errorf("PHP gateway decision exceeds maximum size of %d bytes", p.MaxBodySize)
 	}
 
@@ -72,3 +72,11 @@ func (p *PHPProtocolPlanner) PlanEvent(ctx context.Context, event GatewayEvent) 
 }
 
 var _ ProtocolPlanner = (*PHPProtocolPlanner)(nil)
+
+// POST stream decisions can contain the approved body, base64 encoded in JSON.
+func protocolDecisionLimit(event GatewayEvent, bodyLimit int64) int64 {
+	if bodyLimit > 0 && event.Protocol == ProtocolWebstream && event.Method == http.MethodPost {
+		return ((bodyLimit+2)/3)*4 + 64*1024
+	}
+	return bodyLimit
+}

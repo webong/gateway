@@ -34,9 +34,18 @@ Route::post('/http-smoke/receiver', static function (Request $request) {
     ValidateCsrfToken::class,
 ]);
 
-Route::get('/http-smoke/stream', static function (Request $request) {
+Route::match(['GET', 'POST'], '/http-smoke/stream', static function (Request $request) {
+    if ($request->isMethod('POST')) {
+        return response()->stream(static function () use ($request): void {
+            echo "data: body=".$request->getContent()."\n\n";
+            if (ob_get_level() > 0) { ob_flush(); }
+            flush();
+            usleep(200000);
+            echo "data: done\n\n";
+        }, 200, ['Content-Type' => 'text/event-stream']);
+    }
     return response("id: event-43\nevent: smoke\ndata: resumed=".$request->header('Last-Event-ID', '')."\n\n", 200, [
         'Content-Type' => 'text/event-stream',
         'Cache-Control' => 'no-cache',
     ]);
-});
+})->withoutMiddleware([ValidateCsrfToken::class]);

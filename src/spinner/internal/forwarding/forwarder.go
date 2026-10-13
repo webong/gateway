@@ -166,6 +166,19 @@ func (f *Forwarder) ForwardStatus(req ForwardRequest) (int, error) {
 // OpenStream keeps the response body open. Its caller's context owns the
 // stream lifetime, including cancellation when the downstream client leaves.
 func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.Header, settings HTTPTransport) (*http.Response, error) {
+	return f.OpenStreamRequest(ctx, http.MethodGet, target, headers, nil, settings)
+}
+
+// OpenStreamRequest sends a single bounded request, never a replayable upload.
+func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string, headers http.Header, payload []byte, settings HTTPTransport) (*http.Response, error) {
+	if method != http.MethodGet && method != http.MethodPost {
+		return nil, fmt.Errorf("unsupported Webstream method %q", method)
+	}
+	var body io.Reader
+	if method == http.MethodPost {
+		// Hide GetBody, including for empty POSTs: net/http must not replay it.
+		body = io.NopCloser(bytes.NewReader(payload))
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	// Bound DNS, dialing, TLS and response headers, but not the response body.
 	timeout := settings.RequestTimeout
@@ -177,7 +190,7 @@ func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.
 	}
 	timer := time.AfterFunc(timeout, cancel)
 	defer timer.Stop()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	request, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		cancel()
 		return nil, err
@@ -186,7 +199,18 @@ func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.
 	if request.Header == nil {
 		request.Header = make(http.Header)
 	}
+	for _, name := range request.Header.Values("Connection") {
+		for _, token := range strings.Split(name, ",") {
+			request.Header.Del(strings.TrimSpace(token))
+		}
+	}
+	for _, name := range []string{"Host", "Content-Length", "Connection", "Transfer-Encoding", "Upgrade", "Proxy-Authorization", "Proxy-Connection", "Keep-Alive", "Trailer", "Te", "Expect"} {
+		request.Header.Del(name)
+	}
 	request.Header.Set("Accept", "text/event-stream")
+	if method == http.MethodPost && len(payload) > 0 {
+		request.ContentLength = int64(len(payload))
+	}
 	client, err := f.clientFor(settings)
 	if err != nil {
 		cancel()

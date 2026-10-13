@@ -72,14 +72,15 @@ func (p *HTTPProtocolPlanner) PlanEvent(ctx context.Context, event GatewayEvent)
 	}
 
 	reader := io.Reader(response.Body)
-	if p.MaxBodySize > 0 {
-		reader = io.LimitReader(response.Body, p.MaxBodySize+1)
+	limit := protocolDecisionLimit(event, p.MaxBodySize)
+	if limit > 0 {
+		reader = io.LimitReader(response.Body, limit+1)
 	}
 	body, err := io.ReadAll(reader)
 	if err != nil {
 		return GatewayDecision{}, fmt.Errorf("read gateway decision: %w", err)
 	}
-	if p.MaxBodySize > 0 && int64(len(body)) > p.MaxBodySize {
+	if limit > 0 && int64(len(body)) > limit {
 		return GatewayDecision{}, fmt.Errorf("gateway decision exceeds maximum size of %d bytes", p.MaxBodySize)
 	}
 

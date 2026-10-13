@@ -8,12 +8,63 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/logging"
 )
+
+func TestPostStreamPreservesBodyAndDoesNotRedirect(t *testing.T) {
+	for _, body := range []string{"", "{\"input\":\"hello\"}"} {
+		t.Run(body, func(t *testing.T) {
+			calls := 0
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				data, _ := io.ReadAll(r.Body)
+				if r.Method != "POST" || string(data) != body || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("X-Remove") != "" {
+					t.Errorf("bad source request: %s %q %v", r.Method, data, r.Header)
+				}
+				http.Redirect(w, r, "/redirected", 307)
+			}))
+			defer s.Close()
+			f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
+			f.addressAllowed = func(net.IP) bool { return true }
+			defer f.CloseIdleConnections()
+			response, err := f.OpenStreamRequest(context.Background(), "POST", s.URL, http.Header{"Content-Type": {"application/json"}, "Connection": {"X-Remove"}, "X-Remove": {"secret"}}, []byte(body), HTTPTransport{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			if response.StatusCode != 307 || calls != 1 {
+				t.Fatal("POST was redirected")
+			}
+		})
+	}
+}
+
+func TestPostStreamIsNotReplayable(t *testing.T) {
+	f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
+	defer f.CloseIdleConnections()
+	f.client.Transport = streamRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.GetBody != nil || r.Body == nil || r.Body == http.NoBody {
+			t.Error("POST is replayable")
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+	})
+	for _, body := range []string{"", "hello"} {
+		r, err := f.OpenStreamRequest(context.Background(), "POST", "https://source.test", http.Header{"Idempotency-Key": {"key"}}, []byte(body), HTTPTransport{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+	}
+}
+
+type streamRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f streamRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestOperatorPrivateSourceGrantOnlyAppliesToExactWebstreamOrigin(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

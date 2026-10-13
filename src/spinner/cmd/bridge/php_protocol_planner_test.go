@@ -1,11 +1,44 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestPostStreamDecisionAllowsBase64Envelope(t *testing.T) {
+	for _, size := range []int{1024, 60000} {
+		body := bytes.Repeat([]byte{0xff}, size)
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var event GatewayEvent
+			if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+				t.Error(err)
+			}
+			if !bytes.Equal(event.Payload, body) {
+				t.Error("bridge changed request bytes")
+			}
+			json.NewEncoder(w).Encode(GatewayDecision{Version: ProtocolVersion, Protocol: ProtocolWebstream, Action: GatewayStream, Stream: &GatewayDelivery{Protocol: ProtocolHTTP, Target: "https://source.test", Attributes: map[string]string{"method": "POST"}, Payload: body}})
+		})
+		s := httptest.NewServer(handler)
+		remote, err := NewHTTPProtocolPlanner(s.URL, s.Client(), 1024, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, planner := range []ProtocolPlanner{NewPHPProtocolPlanner(handler, 1024), remote} {
+			decision, err := planner.PlanEvent(context.Background(), GatewayEvent{Protocol: ProtocolWebstream, Method: "POST", Payload: body})
+			if size == 1024 && (err != nil || !bytes.Equal(decision.Stream.Payload, body)) {
+				t.Fatalf("valid body rejected: %v", err)
+			}
+			if size > 1024 && err == nil {
+				t.Fatal("unbounded decision envelope")
+			}
+		}
+		s.Close()
+	}
+}
 
 func TestPHPProtocolPlannerUsesInProcessEventHandler(t *testing.T) {
 	planner := NewPHPProtocolPlanner(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

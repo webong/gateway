@@ -248,3 +248,34 @@ it('uses the Proxy reply destination as the authorized Webstream source', functi
         ->and($decision->stream?->headers['Last-Event-ID'])->toBe(['event-42'])
         ->and($decision->stream?->transport?->httpProxy)->toBe('http://proxy.example.test:8080');
 })->with(['Last-Event-ID', 'Last-Event-Id', 'last-event-id']);
+
+it('authorizes POST stream bodies without forwarding client credentials', function (): void {
+    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            expect($request->method)->toBe('POST')->and($request->body)->toBe('{"input":"hello"}');
+            return RoutePlan::relay(reply: new Delivery(url: 'https://events.example.test/stream'));
+        }
+    });
+    $decision = $planner->planEvent(new GatewayEvent(
+        id: 'post-stream', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT,
+        method: 'POST', route: '/events', rawQuery: 'model=test',
+        headers: ['content-type' => ['application/json'], 'Authorization' => ['client-secret'], 'Cookie' => ['private']],
+        payload: '{"input":"hello"}',
+    ));
+    expect($decision->stream?->attributes['method'])->toBe('POST')
+        ->and($decision->stream?->attributes['raw_query'])->toBe('model=test')
+        ->and($decision->stream?->payload)->toBe('{"input":"hello"}')
+        ->and($decision->stream?->headers)->toBe(['Content-Type' => ['application/json']]);
+});
+
+it('rejects POST streams when the selected source requires GET', function (): void {
+    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            return RoutePlan::relay(reply: new Delivery(url: 'https://events.example.test/stream', method: 'GET'));
+        }
+    });
+    $decision = $planner->planEvent(new GatewayEvent(id: 'post', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT, route: '/events', method: 'POST'));
+    expect($decision->action)->toBe(GatewayAction::REJECT)->and($decision->statusCode)->toBe(405);
+});

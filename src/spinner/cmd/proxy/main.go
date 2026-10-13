@@ -547,7 +547,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	server.SetWebstreamHandler(gatewaystream.NewHandler(
 		protocolPlanner,
 		server.NewGatewayExecutor(),
-		gatewaystream.Config{PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry, MaxConnections: config.WebstreamMaxConnections, MaxDuration: config.WebstreamMaxDuration},
+		gatewaystream.Config{MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry, MaxConnections: config.WebstreamMaxConnections, MaxDuration: config.WebstreamMaxDuration},
 	))
 	if config.ProvisioningRouteProxy {
 		managedRouter, routeErr := provision.NewRemoteRouter(config.LaravelBackendURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)

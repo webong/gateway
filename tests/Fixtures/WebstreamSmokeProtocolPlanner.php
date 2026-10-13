@@ -28,7 +28,9 @@ final class WebstreamSmokeProtocolPlanner implements ProtocolPlanner
             stream: new GatewayDelivery(
                 protocol: Protocol::HTTP,
                 target: $source,
-                headers: isset($event->attributes['last_event_id']) ? ['Last-Event-ID' => [$event->attributes['last_event_id']]] : [],
+                headers: ['Content-Type' => ['application/json'], ...(isset($event->attributes['last_event_id']) ? ['Last-Event-ID' => [$event->attributes['last_event_id']]] : [])],
+                attributes: ['method' => $event->method],
+                payload: $event->payload,
             ),
         );
     }

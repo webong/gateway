@@ -339,7 +339,7 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		protocolPlanner.InternalToken = g.InternalToken
 		source, _ := g.executor.(gatewaystream.Source)
 		g.webstreamOnce.Do(func() { g.webstreamAdmission = gatewaystream.NewAdmission(g.WebstreamMaxConnections) })
-		gatewaystream.NewHandler(protocolPlanner, source, gatewaystream.Config{PlannerTimeout: time.Duration(g.RequestTimeout), HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second, MaxDuration: time.Duration(g.WebstreamMaxDuration), Admission: g.webstreamAdmission}).ServeHTTP(w, r)
+		gatewaystream.NewHandler(protocolPlanner, source, gatewaystream.Config{MaxBodySize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout), HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second, MaxDuration: time.Duration(g.WebstreamMaxDuration), Admission: g.webstreamAdmission}).ServeHTTP(w, r)
 		return nil
 	}
 

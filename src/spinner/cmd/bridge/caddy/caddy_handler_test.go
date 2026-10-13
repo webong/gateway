@@ -3,6 +3,7 @@ package caddy
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,51 @@ import (
 type recordingExecutor struct {
 	delivered []bridge.Delivery
 	queued    []bridge.Delivery
+}
+
+type postStreamExecutor struct {
+	recordingExecutor
+	calls int
+}
+
+func (e *postStreamExecutor) OpenWebstream(_ context.Context, d bridge.GatewayDelivery) (*http.Response, error) {
+	e.calls++
+	return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: " + string(d.Payload) + "\n\n"))}, nil
+}
+
+func TestCaddyPostWebstreamAndBodyLimit(t *testing.T) {
+	e := &postStreamExecutor{}
+	g := &CaddyHandler{MaxBodySize: 4, executor: e}
+	plans := 0
+	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
+		plans++
+		var event bridge.GatewayEvent
+		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+			return err
+		}
+		if event.Method != "POST" || string(event.Payload) != "test" {
+			t.Error("wrong POST event")
+		}
+		return json.NewEncoder(w).Encode(bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebstream, Action: bridge.GatewayStream, Stream: &bridge.GatewayDelivery{Protocol: bridge.ProtocolHTTP, Target: "https://source.test", Attributes: map[string]string{"method": "POST"}, Payload: event.Payload}})
+	})
+	for _, body := range []string{"test", "oversized"} {
+		r := httptest.NewRequest("POST", "/events", strings.NewReader(body))
+		r.Header.Set("Accept", "text/event-stream")
+		w := httptest.NewRecorder()
+		if err := g.ServeHTTP(w, r, next); err != nil {
+			t.Fatal(err)
+		}
+		want := 200
+		if body == "oversized" {
+			want = 413
+		}
+		if w.Code != want {
+			t.Fatalf("status=%d want=%d", w.Code, want)
+		}
+	}
+	if plans != 1 || e.calls != 1 {
+		t.Fatalf("plans=%d sources=%d", plans, e.calls)
+	}
 }
 
 func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {

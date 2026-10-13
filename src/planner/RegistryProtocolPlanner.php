@@ -384,6 +384,22 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
 
         $source = $this->delivery($plan->reply, $event);
+        $method = strtoupper($event->method ?: 'GET');
+        if (! in_array($method, ['GET', 'POST'], true) || ($method === 'POST' && $plan->reply->method !== '' && strtoupper($plan->reply->method) !== 'POST')) {
+            return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 405, message: 'Webstream source method is not permitted.');
+        }
+        $headers = $source->headers;
+        if ($method === 'POST') {
+            $hasContentType = false;
+            foreach ($headers as $name => $values) {
+                $hasContentType = $hasContentType || strcasecmp($name, 'Content-Type') === 0;
+            }
+            foreach ($event->headers as $name => $values) {
+                if (! $hasContentType && strcasecmp($name, 'Content-Type') === 0) {
+                    $headers['Content-Type'] = $values;
+                }
+            }
+        }
         $lastEventId = null;
         foreach ($event->headers as $name => $values) {
             if (strcasecmp($name, 'Last-Event-ID') === 0) {
@@ -393,21 +409,22 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
         if ($lastEventId !== null) {
             $headers = array_filter(
-                $source->headers,
+                $headers,
                 static fn (string $name): bool => strcasecmp($name, 'Last-Event-ID') !== 0,
                 ARRAY_FILTER_USE_KEY,
             );
-            $source = new GatewayDelivery(
-                protocol: $source->protocol,
-                target: $source->target,
-                subscriberId: $source->subscriberId,
-                headers: [...$headers, 'Last-Event-ID' => [$lastEventId]],
-                attributes: $source->attributes,
-                payload: $source->payload,
-                adapter: $source->adapter,
-                transport: $source->transport,
-            );
+            $headers['Last-Event-ID'] = [$lastEventId];
         }
+        $source = new GatewayDelivery(
+            protocol: $source->protocol,
+            target: $source->target,
+            subscriberId: $source->subscriberId,
+            headers: $headers,
+            attributes: [...$source->attributes, 'method' => $method, 'raw_query' => $plan->reply->rawQuery !== '' ? $plan->reply->rawQuery : $event->rawQuery],
+            payload: $method === 'POST' ? $source->payload : '',
+            adapter: $source->adapter,
+            transport: $source->transport,
+        );
 
         return new GatewayDecision(
             protocol: $event->protocol,

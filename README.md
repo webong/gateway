@@ -590,7 +590,7 @@ block. Limits apply per process, not across a cluster.
 
 ### Webstream transport
 
-Webstream is Gateway's one-way Web capability. A client opens a normal `GET`
+Webstream is Gateway's one-way Web capability. A client opens a `GET` or `POST`
 request with `Accept: text/event-stream` under a Gateway route; Spinner sends a
 `webstream`/`connect` event to Planner. Planner applies the same path binding,
 registry matching, and authorization policy used for Gateway routes. A matched
@@ -617,6 +617,38 @@ ordinary relay deliveries. Source profile headers override a same-named client
 header case-insensitively; connection-framing headers and `Last-Event-ID` are reserved, so the
 resume marker always remains client-controlled.
 
+POST Webstreams accept a bounded request body followed by an SSE response, not
+a continuous or duplex upload. Spinner reads the body before planning, under
+the configured maximum body size and a 15-second read deadline. Oversized bodies
+(including chunked requests) receive 413; encoded/compressed request bodies are
+not supported (415). Admission also counts requests still uploading.
+Planner sees the method, headers, query, and body; the selected source must
+permit POST. Registry planning preserves the body and content type unless the
+selected delivery overrides them, without copying client credentials or cookies.
+Custom planners must explicitly return `stream.attributes.method = "POST"` and
+the approved `stream.payload`; a missing method retains the GET default.
+
+POST requests are sent once, without redirects, automatic replay, or an injected
+`retry:` hint. A disconnected POST may already have caused upstream work: only
+the application can decide whether it is safe to resubmit. An event ID is not an
+idempotency guarantee. Use `fetch()` or another streaming HTTP client, not native
+`EventSource`, for POST. For example (the response chunks still need SSE parsing):
+
+```javascript
+const abortController = new AbortController();
+const response = await fetch('/hooks/updates', {
+  method: 'POST',
+  headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' },
+  body: JSON.stringify({ input: 'hello' }),
+  signal: abortController.signal,
+});
+if (!response.ok) throw new Error(`Stream failed: ${response.status}`);
+if (response.status !== 204) {
+  const reader = response.body.getReader();
+  // Consume incrementally with an SSE parser; chunks are not event boundaries.
+}
+```
+
 Production Spinner blocks private SSE source addresses by default, even when
 the source was selected by Planner. An operator who owns the private source may
 grant one exact, lowercase origin and its private address range in Spinner's
@@ -632,7 +664,7 @@ checks the resolved address again when dialing, disallows a source profile
 proxy, and does not follow redirects. Keep the CIDR as narrow as possible;
 the operator is authorizing every SSE route that can select that origin.
 
-Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
+For GET, Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
 reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
 built-in registry planner forwards it only to the selected source. It emits a
 comment heartbeat every 15 seconds by default when the source is between SSE
