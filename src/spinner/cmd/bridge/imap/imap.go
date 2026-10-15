@@ -308,11 +308,12 @@ func (s *Server) handle(connection net.Conn) {
 }
 
 type mailboxGrant struct {
-	identity string
-	id       string
-	upstream Upstream
-	username string
-	password string
+	identity  string
+	id        string
+	upstream  Upstream
+	username  string
+	password  string
+	mechanism string
 }
 
 func (s *Server) authenticate(sessionID, remoteAddr, username, password string) (*mailboxGrant, error) {
@@ -334,10 +335,18 @@ func (s *Server) authenticate(sessionID, remoteAddr, username, password string) 
 	identity := decision.Metadata["identity"]
 	upstreamUsername := decision.Metadata["upstream_username"]
 	upstreamPassword := decision.Metadata["upstream_password"]
-	if !ok || identity == "" || !validMappedCredential(upstreamUsername) || !validMappedCredential(upstreamPassword) {
+	mechanism := decision.Metadata["upstream_auth_mechanism"]
+	if mechanism == "" {
+		mechanism = "LOGIN"
+	}
+	passwordValid := validMappedCredential(upstreamPassword)
+	if mechanism == "XOAUTH2" {
+		passwordValid = validMappedToken(upstreamPassword)
+	}
+	if !ok || identity == "" || !validMappedCredential(upstreamUsername) || !passwordValid || (mechanism != "LOGIN" && mechanism != "XOAUTH2") {
 		return nil, errors.New("IMAP authentication decision has invalid upstream credentials")
 	}
-	return &mailboxGrant{identity: identity, id: id, upstream: upstream, username: upstreamUsername, password: upstreamPassword}, nil
+	return &mailboxGrant{identity: identity, id: id, upstream: upstream, username: upstreamUsername, password: upstreamPassword, mechanism: mechanism}, nil
 }
 
 func (s *Server) connectUpstream(grant *mailboxGrant) (net.Conn, *bufio.Reader, error) {
@@ -356,7 +365,12 @@ func (s *Server) connectUpstream(grant *mailboxGrant) (net.Conn, *bufio.Reader, 
 		_ = connection.Close()
 		return nil, nil, errors.New("IMAP upstream did not greet successfully")
 	}
-	_, err = io.WriteString(connection, "GATEWAY1 LOGIN "+quote(grant.username)+" "+quote(grant.password)+"\r\n")
+	command := "GATEWAY1 LOGIN " + quote(grant.username) + " " + quote(grant.password) + "\r\n"
+	if grant.mechanism == "XOAUTH2" {
+		initial := "user=" + grant.username + "\x01auth=Bearer " + grant.password + "\x01\x01"
+		command = "GATEWAY1 AUTHENTICATE XOAUTH2 " + base64.StdEncoding.EncodeToString([]byte(initial)) + "\r\n"
+	}
+	_, err = io.WriteString(connection, command)
 	if err != nil {
 		_ = connection.Close()
 		return nil, nil, err
@@ -455,6 +469,18 @@ func quote(value string) string {
 
 func validMappedCredential(value string) bool {
 	if value == "" || len(value) > 248 {
+		return false
+	}
+	for _, char := range value {
+		if char < 0x20 || char > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func validMappedToken(value string) bool {
+	if value == "" || len(value) > 4096 {
 		return false
 	}
 	for _, char := range value {

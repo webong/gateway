@@ -90,6 +90,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                     'upstream_id' => $grant->upstreamId,
                     'upstream_username' => $grant->upstreamUsername,
                     'upstream_password' => $grant->upstreamPassword,
+                    'upstream_auth_mechanism' => $grant->upstreamAuthMechanism,
                 ],
             );
         }

@@ -141,3 +141,23 @@ func TestSenderRejectsAuthenticationWithoutTLS(t *testing.T) {
 		t.Fatalf("expected TLS validation error, got %v", err)
 	}
 }
+
+func TestSenderOAuthCredentialRules(t *testing.T) {
+	for _, config := range []Config{
+		{Address: "smtp.example.test:587", OAuthToken: "token"},
+		{Address: "smtp.example.test:587", Username: "alice", Password: "secret", OAuthToken: "token"},
+		{Address: "smtp.example.test:587", Username: "alice", OAuthToken: "bad\r\ntoken"},
+		{Address: "smtp.example.test:587", Username: "alice", OAuthToken: "token", TLSMode: TLSNone},
+	} {
+		if _, err := NewSender(config); err == nil {
+			t.Fatalf("accepted invalid OAuth configuration: %+v", config)
+		}
+	}
+	if _, err := NewSender(Config{Address: "smtp.example.test:587", Username: "alice", OAuthToken: "token"}); err != nil {
+		t.Fatal(err)
+	}
+	mechanism, initial, err := (xoauth2Client{username: "alice", token: "token"}).Start()
+	if err != nil || mechanism != "XOAUTH2" || string(initial) != "user=alice\x01auth=Bearer token\x01\x01" {
+		t.Fatalf("invalid XOAUTH2 initial response: %q %q %v", mechanism, initial, err)
+	}
+}

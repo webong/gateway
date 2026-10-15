@@ -32,6 +32,9 @@ type Config struct {
 	ServerName string
 	Username   string
 	Password   string
+	// OAuthToken is a short-lived access token supplied by the credential authority.
+	// It must never be written into a durable delivery record.
+	OAuthToken string
 	TLSMode    TLSMode
 	TLSConfig  *tls.Config
 	Timeout    time.Duration
@@ -76,8 +79,14 @@ func NewSender(config Config) (*Sender, error) {
 	if config.TLSMode != TLSNone && config.TLSMode != TLSStartTLS && config.TLSMode != TLSImplicit {
 		return nil, fmt.Errorf("unsupported outbound SMTP TLS mode %q", config.TLSMode)
 	}
-	if (config.Username == "") != (config.Password == "") {
+	if config.OAuthToken == "" && (config.Username == "") != (config.Password == "") {
 		return nil, errors.New("outbound SMTP username and password must be configured together")
+	}
+	if config.OAuthToken != "" && (config.Username == "" || config.Password != "") {
+		return nil, errors.New("outbound SMTP OAuth requires a username and excludes a password")
+	}
+	if config.OAuthToken != "" && (len(config.OAuthToken) > 4096 || strings.ContainsAny(config.OAuthToken, "\r\n\x00\x01")) {
+		return nil, errors.New("outbound SMTP OAuth token is invalid")
 	}
 	if config.Username != "" && config.TLSMode == TLSNone {
 		return nil, errors.New("outbound SMTP authentication requires TLS")
@@ -143,7 +152,10 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 		return fmt.Errorf("greet outbound SMTP relay: %w", err)
 	}
 	if s.config.Username != "" {
-		auth := sasl.NewPlainClient("", s.config.Username, s.config.Password)
+		var auth sasl.Client = sasl.NewPlainClient("", s.config.Username, s.config.Password)
+		if s.config.OAuthToken != "" {
+			auth = xoauth2Client{username: s.config.Username, token: s.config.OAuthToken}
+		}
 		if err := client.Auth(auth); err != nil {
 			return fmt.Errorf("authenticate to outbound SMTP relay: %w", err)
 		}
@@ -158,6 +170,16 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 	_ = client.Quit()
 
 	return nil
+}
+
+type xoauth2Client struct{ username, token string }
+
+func (c xoauth2Client) Start() (string, []byte, error) {
+	return "XOAUTH2", []byte("user=" + c.username + "\x01auth=Bearer " + c.token + "\x01\x01"), nil
+}
+
+func (xoauth2Client) Next([]byte) ([]byte, error) {
+	return nil, errors.New("outbound SMTP OAuth authentication was rejected")
 }
 
 func (s *Sender) tlsConfig() *tls.Config {

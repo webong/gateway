@@ -56,7 +56,7 @@ func expectLine(t *testing.T, reader *bufio.Reader, expected string) {
 }
 
 func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
-	for _, method := range []string{"LOGIN", "LOGIN literal username", "LOGIN two literals", "AUTHENTICATE PLAIN", "AUTHENTICATE PLAIN continuation"} {
+	for _, method := range []string{"LOGIN", "LOGIN literal username", "LOGIN two literals", "AUTHENTICATE PLAIN", "AUTHENTICATE PLAIN continuation", "upstream XOAUTH2"} {
 		t.Run(method, func(t *testing.T) {
 			tlsConfig, roots := testTLS(t)
 			upstreamListener, err := tls.Listen("tcp", "127.0.0.1:0", tlsConfig)
@@ -75,7 +75,11 @@ func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
 				_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 				reader := bufio.NewReader(conn)
 				_, _ = conn.Write([]byte("* OK external IMAP mailbox\r\n"))
-				if line, _ := reader.ReadString('\n'); line != "GATEWAY1 LOGIN \"upstream-alice\" \"upstream-secret\"\r\n" {
+				expectedLogin := "GATEWAY1 LOGIN \"upstream-alice\" \"upstream-secret\"\r\n"
+				if method == "upstream XOAUTH2" {
+					expectedLogin = "GATEWAY1 AUTHENTICATE XOAUTH2 " + base64.StdEncoding.EncodeToString([]byte("user=upstream-alice\x01auth=Bearer upstream-secret\x01\x01")) + "\r\n"
+				}
+				if line, _ := reader.ReadString('\n'); line != expectedLogin {
 					t.Errorf("upstream login = %q", line)
 					return
 				}
@@ -103,6 +107,9 @@ func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
 						t.Error("unexpected client credentials")
 					}
 					decision.Metadata = map[string]string{"identity": "account-1", "upstream_id": "primary", "upstream_username": "upstream-alice", "upstream_password": "upstream-secret"}
+					if method == "upstream XOAUTH2" {
+						decision.Metadata["upstream_auth_mechanism"] = "XOAUTH2"
+					}
 				}
 				return decision, nil
 			})
@@ -126,7 +133,7 @@ func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
 			_ = client.SetDeadline(time.Now().Add(5 * time.Second))
 			reader := bufio.NewReader(client)
 			expectLine(t, reader, "* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN SASL-IR] Gateway ready")
-			if method == "LOGIN" {
+			if method == "LOGIN" || method == "upstream XOAUTH2" {
 				_, _ = client.Write([]byte("A1 LOGIN \"alice@example.test\" \"client-secret\"\r\n"))
 			} else if method == "LOGIN literal username" {
 				_, _ = client.Write([]byte("A1 LOGIN {18}\r\n"))
@@ -147,7 +154,7 @@ func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
 				response := base64.StdEncoding.EncodeToString([]byte("\x00alice@example.test\x00client-secret"))
 				_, _ = client.Write([]byte(response + "\r\n"))
 			}
-			if method == "LOGIN" || method == "LOGIN literal username" || method == "LOGIN two literals" {
+			if method == "LOGIN" || method == "upstream XOAUTH2" || method == "LOGIN literal username" || method == "LOGIN two literals" {
 				expectLine(t, reader, "A1 OK LOGIN completed")
 			} else {
 				expectLine(t, reader, "A1 OK AUTHENTICATE completed")

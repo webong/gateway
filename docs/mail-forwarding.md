@@ -472,8 +472,22 @@ list is operator-owned;
 Planner returns only an ID from that list, and the TLS certificate of the
 chosen upstream is verified against its configured server name.
 
-IMAP non-synchronizing login literals and authentication mechanisms beyond PLAIN/LOGIN,
-XOAUTH2/other POP3 authentication methods, protocol-aware mailbox command
+For an OAuth mailbox, `MailboxAccessGrant` may set
+`upstreamAuthMechanism: 'XOAUTH2'` and provide a current access token in
+`upstreamPassword`. Spinner sends the XOAUTH2 initial response to the
+registered TLS upstream. The deployment's credential authority owns token
+refresh and must supply a fresh token at each authentication; Gateway does not
+store refresh tokens. The customer-facing IMAP login remains PLAIN/LOGIN over
+TLS. Outbound `smtpout.Sender` also accepts an in-memory `OAuthToken` with a
+username and uses SMTP XOAUTH2. The existing HTTP submission path still uses
+the configured relay and does not select a customer SMTP connection. Never
+persist an access token or password in delivery attributes: the durable queue
+stores those attributes on disk. A connection-scoped credential authority and
+delivery-time transport lookup are required before enabling customer-specific
+SMTP routing. OAuth provider interoperability and refresh are not verified.
+
+IMAP non-synchronizing login literals, client authentication mechanisms beyond PLAIN/LOGIN,
+OAuth/other POP3 authentication methods, protocol-aware mailbox command
 policy, persistent mailbox-session audit, and certificate reload are not
 implemented. Retrieval content passes through the byte
 tunnel and is not persisted by Gateway. The opt-in external-mailbox smoke
