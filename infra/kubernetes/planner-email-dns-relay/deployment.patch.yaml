@@ -8,10 +8,7 @@ spec:
       containers:
         - name: planner
           env:
-            - name: GATEWAY_DNS_ZONES
-              valueFrom:
-                configMapKeyRef:
-                  name: gateway-dns
-                  key: zones
+            - name: GATEWAY_DNS_HOOKS_ENABLED
+              value: "true"
             - name: GATEWAY_DELIVERY_ADMIN_URL
               value: http://spinner-delivery-admin:5052

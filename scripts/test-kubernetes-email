@@ -86,9 +86,7 @@ kubectl -n "$NAMESPACE" create configmap gateway-smtp \
 kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
     --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" >/dev/null
 if [[ "$WITH_DNS" == true ]]; then
-    ZONES='[{"name":"mailhooks.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15}]'
-    kubectl -n "$NAMESPACE" create configmap gateway-dns --from-literal=zones="$ZONES" >/dev/null
-    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DNS_ZONES="$ZONES" --from-literal=GATEWAY_DNS_SMOKE=1)
+    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DNS_HOOKS_ENABLED=true --from-literal=GATEWAY_DNS_SMOKE=1)
 fi
 kubectl -n "$NAMESPACE" create secret generic planner-credentials \
     "${PLANNER_SECRET_ARGS[@]}" >/dev/null
@@ -154,6 +152,22 @@ if [[ "$WITH_DNS" == true ]]; then
         -o jsonpath='{.spec.ports[?(@.protocol=="UDP")].nodePort}')
     DNS_TCP_PORT=$(kubectl -n "$NAMESPACE" get service spinner-dns \
         -o jsonpath='{.spec.ports[?(@.protocol=="TCP")].nodePort}')
+    kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => json_encode([
+                "name" => "mailhooks.example.test",
+                "nameservers" => ["ns1.example.net", "ns2.example.net"],
+                "ttl" => 60,
+            ], JSON_THROW_ON_ERROR),
+            "timeout" => 5,
+        ]]);
+        $response = file_get_contents("http://127.0.0.1:8080/dns/zones", false, $context);
+        if ($response === false) { exit(1); }
+        $zone = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+        if (($zone["name"] ?? null) !== "mailhooks.example.test" || ($zone["status"] ?? null) !== "active") { exit(1); }
+    '
     DNS_TOKEN=$(kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
         $context = stream_context_create(["http" => [
             "method" => "POST",
@@ -298,7 +312,7 @@ if [[ "$WITH_DNS" == true && "$WITH_RELAY" == true ]]; then
 elif [[ "$WITH_RELAY" == true ]]; then
     echo 'OrbStack Email relay: STARTTLS, synchronous SMTP handoff, and PostgreSQL-backed Email HTTP delivery/receipt replay survived Spinner Pod replacement.'
 elif [[ "$WITH_DNS" == true ]]; then
-    echo 'OrbStack Email+DNS: one production Spinner served SMTP STARTTLS/Planner decisions and authoritative UDP/TCP DNS after one Pod replacement.'
+    echo 'OrbStack Email+DNS: one production Spinner served SMTP STARTTLS/Planner decisions and live-reloaded API-managed authoritative UDP/TCP DNS after one Pod replacement.'
 else
     echo 'OrbStack Email: production Spinner overlay served STARTTLS and Planner recipient decisions through a NodePort after one Pod replacement.'
 fi

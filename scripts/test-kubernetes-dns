@@ -11,7 +11,6 @@ if ! command -v dig >/dev/null 2>&1; then
 fi
 
 NAMESPACE="gateway-dns-smoke-$$-$RANDOM"
-ZONES='[{"name":"first.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15},{"name":"second.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":25}]'
 CREATED=false
 cleanup() {
     if [[ "$CREATED" == true ]]; then
@@ -32,12 +31,11 @@ echo "Using disposable DNS namespace $NAMESPACE."
 
 APP_KEY="base64:$(openssl rand -base64 32)"
 INTERNAL_TOKEN=$(openssl rand -hex 24)
-kubectl -n "$NAMESPACE" create configmap gateway-dns --from-literal=zones="$ZONES" >/dev/null
 kubectl -n "$NAMESPACE" create secret generic planner-credentials \
     --from-literal=APP_KEY="$APP_KEY" \
     --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)" \
     --from-literal=GATEWAY_INTERNAL_TOKEN="$INTERNAL_TOKEN" \
-    --from-literal=GATEWAY_DNS_ZONES="$ZONES" \
+    --from-literal=GATEWAY_DNS_HOOKS_ENABLED=true \
     --from-literal=GATEWAY_DNS_SMOKE=1 \
     --from-literal=GATEWAY_HTTP_REGISTRY_SMOKE=1 \
     --from-literal='GATEWAY_PATH_RESOLVER=Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
@@ -80,6 +78,27 @@ if [[ ! "$NODE_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ||
     exit 1
 fi
 
+create_zone() {
+    local zone=$1
+    kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
+        $body = json_encode([
+            "name" => $argv[1],
+            "nameservers" => ["ns1.example.net", "ns2.example.net"],
+            "ttl" => 60,
+        ], JSON_THROW_ON_ERROR);
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => $body,
+            "timeout" => 5,
+        ]]);
+        $response = file_get_contents("http://127.0.0.1:8080/dns/zones", false, $context);
+        if ($response === false) { exit(1); }
+        $value = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+        if (($value["name"] ?? null) !== $argv[1] || ($value["status"] ?? null) !== "active") { exit(1); }
+    ' "$zone"
+}
+
 create_hook() {
     local zone=$1
     kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
@@ -97,6 +116,8 @@ create_hook() {
         echo $value["token"];
     ' "$zone"
 }
+create_zone first.example.test
+create_zone second.example.test
 FIRST_TOKEN=$(create_hook first.example.test)
 SECOND_TOKEN=$(create_hook second.example.test)
 if [[ -z "$FIRST_TOKEN" || -z "$SECOND_TOKEN" || "$FIRST_TOKEN" == "$SECOND_TOKEN" ]]; then
@@ -137,4 +158,4 @@ kubectl -n "$NAMESPACE" delete pod "$POD_TO_STOP" --wait=false >/dev/null
 expect_dns udp "hello.$FIRST_TOKEN.first.example.test" NOERROR
 expect_dns tcp "hello.$SECOND_TOKEN.second.example.test" NOERROR
 
-echo 'OrbStack DNS: production Spinner overlay answered authoritative two-zone queries over UDP/TCP NodePorts and survived one Pod replacement.'
+echo 'OrbStack DNS: API-created zones live-reloaded through the production Spinner overlay, answered authoritative UDP/TCP NodePort queries, and survived one Pod replacement.'

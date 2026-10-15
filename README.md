@@ -591,20 +591,19 @@ public port 53:
 ```bash
 GATEWAY_LARAVEL_BACKEND_URL=https://app.internal.example \
 GATEWAY_INTERNAL_TOKEN=replace-me \
-GATEWAY_DNS_ZONE=dns.example.com \
-GATEWAY_DNS_NAMESERVERS=ns1.example.com,ns2.example.com \
 docker compose -f docker-compose.dns.example.yml up -d
 ```
 
-Configure `GATEWAY_DNS_ZONE` and `REGISTRY_TOKEN` on the Laravel application as
-well, or configure identical `GATEWAY_DNS_ZONES` on both services, then run its
-Gateway and WebProxy migrations. At each parent DNS provider,
-delegate the zone to at least two public nameserver hostnames whose A/AAAA
-records reach Gateway instances. Each load balancer or firewall must pass both
-UDP and TCP port 53. The example is a single-node wiring reference; production
-high availability requires multiple Gateway nodes, shared registry/cache
-storage, health checks at the infrastructure layer, and nameservers placed in
-independent failure domains.
+Enable `GATEWAY_DNS_HOOKS_ENABLED`, configure `REGISTRY_TOKEN`, and run the
+Gateway and WebProxy migrations on Planner. Create each domain through
+`POST /dns/zones`; every Spinner observes active zones over its authenticated
+Planner connection without restarting. At each parent DNS provider, delegate
+the zone to at least two public nameserver hostnames whose A/AAAA records reach
+Gateway instances. Each load balancer or firewall must pass both UDP and TCP
+port 53. The example is a single-node wiring reference; production high
+availability requires multiple Gateway nodes, shared registry/cache storage,
+health checks at the infrastructure layer, and nameservers placed in independent
+failure domains.
 
 ### WebSocket transport
 

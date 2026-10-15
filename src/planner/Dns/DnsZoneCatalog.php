@@ -86,7 +86,7 @@ final class DnsZoneCatalog
     {
         $zones = $this->all();
         if ($zones === []) {
-            throw new InvalidArgumentException('DNS hooks are not configured. Set GATEWAY_DNS_ZONE or GATEWAY_DNS_ZONES.');
+            throw new InvalidArgumentException('DNS hooks are not configured. Create an active zone through POST /dns/zones.');
         }
         $requested = $this->canonical($requested ?? '');
         if ($requested === '') {

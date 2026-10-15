@@ -259,8 +259,8 @@ kubectl -n gateway rollout status deployment/spinner
 
 For Email and DNS together, apply `infra/kubernetes/planner-email-dns-relay`
 and `infra/kubernetes/spinner-email-dns-relay` in place of the two Email-only
-overlays. Both read the same `gateway-dns` ConfigMap, and the Spinner relay
-still uses the shared PostgreSQL queue.
+overlays. The Planner overlay enables API-managed DNS zones, and the Spinner
+relay still uses the shared PostgreSQL queue.
 
 The SMTP username/password keys and relay server-name key are optional for
 relays that do not use them; the address, TLS mode, and database URL are
@@ -302,20 +302,18 @@ external relay policy, or public deliverability.
 the Go-only Spinner configuration. It opens UDP and TCP port 5353 in Spinner
 and provides a separate `spinner-dns` Service on port 53 for both protocols.
 The Service is ClusterIP by default; applying the overlay does not expose DNS
-outside the cluster. Current fixture manifests still seed `GATEWAY_DNS_ZONES`
-through the `gateway-dns` ConfigMap for deterministic smoke tests. Production
-deployments can omit those seeded zones: enable the Planner DNS control plane,
-create zones through `POST /dns/zones`, and let each Spinner refresh the private
+outside the cluster. The Planner overlay enables the DNS API and the Spinner
+overlay sets only its listener address; neither injects domain configuration.
+Create zones through `POST /dns/zones`, and each Spinner refreshes the private
 authenticated snapshot. Configure the matching internal token and set the
 published Planner and Spinner image tags before applying the overlays.
 
 ```sh
-kubectl -n gateway create configmap gateway-dns \
-  --from-literal=zones='[{"name":"hooks.example.com","nameservers":["ns1.example.net","ns2.example.net"],"ttl":300}]'
 kubectl -n gateway apply -k infra/kubernetes/planner-dns
 kubectl -n gateway apply -k infra/kubernetes/spinner-dns
 kubectl -n gateway rollout status deployment/planner
 kubectl -n gateway rollout status deployment/spinner
+# Call Planner's authenticated POST /dns/zones API for hooks.example.com.
 ```
 
 The standalone production-image smoke above creates a hook through Spinner
@@ -350,8 +348,8 @@ delegation, TLS, or cross-host availability.
 To enable Email and DNS on the same Spinner Deployment, apply
 `infra/kubernetes/spinner-email-dns` instead of applying the two individual
 overlays in sequence. It composes their Services and listener settings with
-the base Web configuration. Create both ConfigMaps and the SMTP TLS Secret
-first. Reapplying an individual overlay afterward would remove the other
+the base Web configuration. Create the SMTP ConfigMap and TLS Secret first;
+DNS zones come from Planner's API. Reapplying an individual overlay afterward would remove the other
 overlay's listener settings from the Deployment. The combined overlay's
 OrbStack smoke checks SMTP STARTTLS and managed-recipient decisions alongside
 authoritative DNS over UDP and TCP, then repeats them after one Pod is deleted:

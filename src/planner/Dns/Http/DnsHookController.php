@@ -61,7 +61,7 @@ final readonly class DnsHookController
         }
         if ($this->zones->all() === []) {
             return response()->json([
-                'message' => 'DNS hooks are not configured. Set GATEWAY_DNS_ZONE or GATEWAY_DNS_ZONES.',
+                'message' => 'DNS hooks are not configured. Create an active zone through POST /dns/zones.',
             ], Response::HTTP_SERVICE_UNAVAILABLE);
         }
 
