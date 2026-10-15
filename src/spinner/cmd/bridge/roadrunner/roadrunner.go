@@ -36,6 +36,7 @@ type RoadRunnerPlugin struct {
 	protocolReadyDo sync.Once
 	protocolMu      sync.RWMutex
 	protocolPlanner bridge.ProtocolPlanner
+	phpHandler      http.Handler
 }
 
 func NewRoadRunnerPlugin(executor bridge.Executor, maxBodySize int64, internalToken string) *RoadRunnerPlugin {
@@ -68,6 +69,7 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 	protocolPlanner.InternalToken = p.InternalToken
 	p.protocolMu.Lock()
 	p.protocolPlanner = protocolPlanner
+	p.phpHandler = next
 	p.protocolMu.Unlock()
 	p.protocolReadyDo.Do(func() { close(p.protocolReady) })
 	edge := bridge.NewEdge(planner, p.Executor, p.MaxBodySize).
@@ -99,6 +101,24 @@ func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
 		}
 		edge.ServeHTTP(writer, request)
 	})
+}
+
+func (p *RoadRunnerPlugin) WaitPHPHandler(ctx context.Context) (http.Handler, error) {
+	if p == nil || p.protocolReady == nil {
+		return nil, fmt.Errorf("RoadRunner PHP handler is not initialized")
+	}
+	select {
+	case <-p.protocolReady:
+		p.protocolMu.RLock()
+		handler := p.phpHandler
+		p.protocolMu.RUnlock()
+		if handler == nil {
+			return nil, fmt.Errorf("RoadRunner PHP handler is not configured")
+		}
+		return handler, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func executorStreamSource(executor bridge.Executor) gatewaystream.Source {
@@ -153,6 +173,13 @@ func (r *EmbeddedRoadRunner) WaitProtocolPlanner(ctx context.Context) (bridge.Pr
 		return nil, fmt.Errorf("embedded RoadRunner protocol planner is not initialized")
 	}
 	return r.plugin.WaitProtocolPlanner(ctx)
+}
+
+func (r *EmbeddedRoadRunner) WaitPHPHandler(ctx context.Context) (http.Handler, error) {
+	if r == nil || r.plugin == nil {
+		return nil, fmt.Errorf("embedded RoadRunner PHP handler is not initialized")
+	}
+	return r.plugin.WaitPHPHandler(ctx)
 }
 
 func (r *EmbeddedRoadRunner) Serve() error {

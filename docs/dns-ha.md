@@ -10,22 +10,30 @@ recursive resolver.
 Run `docker-compose.dns.example.yml` once on **each of two separate hosts or
 failure domains**. Give each host its own public address and persistent
 process supervision. Both must run the same Gateway release and receive the
-same `GATEWAY_DNS_ZONES`, `GATEWAY_INTERNAL_TOKEN`, and private
-`GATEWAY_LARAVEL_BACKEND_URL`. Do not expose Planner publicly. The Compose
+same `GATEWAY_INTERNAL_TOKEN` and private `GATEWAY_LARAVEL_BACKEND_URL`.
+Planner is the shared zone catalog; each Spinner refreshes it without a restart.
+Do not expose Planner publicly. The Compose
 example publishes both `53/udp` and `53/tcp` on its host.
 
-For example, both Planner and Spinner nodes might receive:
+Enable the control plane and set deployment-wide nameserver defaults on Planner:
 
 ```sh
-GATEWAY_DNS_ZONES='[{"name":"hooks.example.com","nameservers":["ns1.example.net","ns2.example.net"],"ttl":300}]'
+GATEWAY_DNS_HOOKS_ENABLED=true
+GATEWAY_DNS_DEFAULT_NAMESERVERS='ns1.example.net,ns2.example.net'
 ```
+
+Create zones through `POST /dns/zones`. The legacy `GATEWAY_DNS_ZONES` snapshot
+remains accepted for migration, but it is no longer the primary multi-domain
+control plane.
 
 Publish the nameserver address records, then delegate `hooks.example.com` to
 both nameserver names at its parent zone. If a nameserver name is inside the
 delegated zone, arrange the required parent-side glue as well. Use distinct
 hosts and network paths for real availability; two containers on one host
 only test process redundancy. Gateway does not create registrar or parent-zone
-records for you.
+records for `provider=manual`. The Cloudflare provider can create child-zone NS
+records in a managed parent; apex registrar nameserver changes require a
+registrar-specific adapter or manual configuration.
 
 ## Verify before routing traffic
 

@@ -597,6 +597,36 @@ func TestLoadConfigRequiresDNSZoneAndNameservers(t *testing.T) {
 	}
 }
 
+func TestLoadConfigAllowsPlannerManagedDNSZonesForHTTPRuntime(t *testing.T) {
+	setConfigEnv(t, "http")
+	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://planner.internal")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
+	t.Setenv("GATEWAY_DNS_ZONE_REFRESH_INTERVAL", "2s")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DNSZone != "" || len(config.DNSZones) != 0 || config.DNSZoneRefreshInterval != 2*time.Second {
+		t.Fatalf("unexpected dynamic DNS config: %+v", config)
+	}
+}
+
+func TestLoadConfigAllowsPlannerManagedDNSZonesForRoadRunnerRuntime(t *testing.T) {
+	setConfigEnv(t, "roadrunner")
+	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
+
+	config, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DNSZone != "" || len(config.DNSZones) != 0 {
+		t.Fatalf("unexpected RoadRunner dynamic DNS config: %+v", config)
+	}
+}
+
 func TestLoadConfigAcceptsMultipleDNSZonesWithoutLegacySettings(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_DNS_ADDR", ":5353")

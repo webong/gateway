@@ -302,13 +302,12 @@ external relay policy, or public deliverability.
 the Go-only Spinner configuration. It opens UDP and TCP port 5353 in Spinner
 and provides a separate `spinner-dns` Service on port 53 for both protocols.
 The Service is ClusterIP by default; applying the overlay does not expose DNS
-outside the cluster. It requires a `gateway-dns` ConfigMap with a `zones` key.
-Planner must use the same `GATEWAY_DNS_ZONES` value so it can register hooks in
-those zones. For the standalone Planner image, `infra/kubernetes/planner-dns`
-reads the same `gateway-dns` ConfigMap. For a different Laravel host, set
-`GATEWAY_DNS_ZONES` there yourself. Configure the private connection and
-matching internal token as described above, and set the published Planner and
-Spinner image tags before applying the overlays.
+outside the cluster. Current fixture manifests still seed `GATEWAY_DNS_ZONES`
+through the `gateway-dns` ConfigMap for deterministic smoke tests. Production
+deployments can omit those seeded zones: enable the Planner DNS control plane,
+create zones through `POST /dns/zones`, and let each Spinner refresh the private
+authenticated snapshot. Configure the matching internal token and set the
+published Planner and Spinner image tags before applying the overlays.
 
 ```sh
 kubectl -n gateway create configmap gateway-dns \

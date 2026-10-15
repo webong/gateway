@@ -50,6 +50,7 @@ type Config struct {
 	MaxResponseRecords int
 	RateLimit          int
 	RateBurst          int
+	AllowEmptyZones    bool
 }
 
 // Zone is one delegated authoritative namespace served by this listener.
@@ -73,6 +74,7 @@ type Server struct {
 	udp      *mdns.Server
 	tcp      *mdns.Server
 	limiter  *rate.Limiter
+	zonesMu  sync.RWMutex
 
 	mu      sync.Mutex
 	started bool
@@ -85,7 +87,11 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 		return nil, fmt.Errorf("DNS listen address is required")
 	}
 	if len(config.Zones) == 0 {
-		config.Zones = []Zone{{Name: config.Zone, Nameservers: config.Nameservers, SOAEmail: config.SOAEmail, TTL: config.TTL}}
+		if config.Zone != "" || len(config.Nameservers) > 0 {
+			config.Zones = []Zone{{Name: config.Zone, Nameservers: config.Nameservers, SOAEmail: config.SOAEmail, TTL: config.TTL}}
+		} else if !config.AllowEmptyZones {
+			return nil, fmt.Errorf("DNS authoritative zone is required")
+		}
 	} else if config.Zone != "" || len(config.Nameservers) > 0 {
 		return nil, fmt.Errorf("DNS zones cannot be combined with the legacy single-zone settings")
 	}
@@ -105,37 +111,11 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 		return nil, fmt.Errorf("DNS rate limit and burst settings are invalid")
 	}
 
-	seen := make(map[string]bool, len(config.Zones))
-	for index := range config.Zones {
-		zone := &config.Zones[index]
-		if zone.TTL == 0 {
-			zone.TTL = config.TTL
-		}
-		if strings.TrimSpace(zone.Name) == "" {
-			return nil, fmt.Errorf("DNS authoritative zone is required")
-		}
-		zone.Name = canonicalName(zone.Name)
-		if !validAuthorityName(zone.Name) || seen[zone.Name] {
-			return nil, fmt.Errorf("invalid or duplicate DNS authoritative zone %q", zone.Name)
-		}
-		seen[zone.Name] = true
-		if len(zone.Nameservers) == 0 {
-			return nil, fmt.Errorf("at least one authoritative DNS nameserver is required for %s", zone.Name)
-		}
-		for nameserver := range zone.Nameservers {
-			zone.Nameservers[nameserver] = canonicalName(zone.Nameservers[nameserver])
-			if !validAuthorityName(zone.Nameservers[nameserver]) {
-				return nil, fmt.Errorf("invalid DNS nameserver %q", zone.Nameservers[nameserver])
-			}
-		}
-		if zone.SOAEmail == "" {
-			zone.SOAEmail = "hostmaster." + zone.Name
-		}
-		zone.SOAEmail = canonicalName(zone.SOAEmail)
-		if !validAuthorityName(zone.SOAEmail) {
-			return nil, fmt.Errorf("invalid DNS SOA email %q", zone.SOAEmail)
-		}
+	zones, err := normalizeZones(config.Zones, config.TTL)
+	if err != nil {
+		return nil, err
 	}
+	config.Zones = zones
 
 	server := &Server{config: config, zones: config.Zones, planner: planner, executor: executor}
 	if config.RateLimit > 0 {
@@ -157,6 +137,19 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 	}
 
 	return server, nil
+}
+
+// ReplaceZones validates a complete control-plane snapshot before swapping it
+// atomically. An empty snapshot intentionally removes every served authority.
+func (s *Server) ReplaceZones(zones []Zone) error {
+	normalized, err := normalizeZones(zones, s.config.TTL)
+	if err != nil {
+		return err
+	}
+	s.zonesMu.Lock()
+	s.zones = normalized
+	s.zonesMu.Unlock()
+	return nil
 }
 
 func (s *Server) ListenAndServe() error {
@@ -573,14 +566,56 @@ func splitTXT(value string) []string {
 }
 
 func (s *Server) zoneFor(name string) *Zone {
+	s.zonesMu.RLock()
+	defer s.zonesMu.RUnlock()
 	var selected *Zone
 	for index := range s.zones {
 		zone := &s.zones[index]
 		if mdns.IsSubDomain(zone.Name, name) && (selected == nil || len(zone.Name) > len(selected.Name)) {
-			selected = zone
+			copy := *zone
+			copy.Nameservers = append([]string(nil), zone.Nameservers...)
+			selected = &copy
 		}
 	}
 	return selected
+}
+
+func normalizeZones(zones []Zone, defaultTTL uint32) ([]Zone, error) {
+	normalized := make([]Zone, len(zones))
+	copy(normalized, zones)
+	seen := make(map[string]bool, len(normalized))
+	for index := range normalized {
+		zone := &normalized[index]
+		zone.Nameservers = append([]string(nil), zone.Nameservers...)
+		if zone.TTL == 0 {
+			zone.TTL = defaultTTL
+		}
+		if strings.TrimSpace(zone.Name) == "" {
+			return nil, fmt.Errorf("DNS authoritative zone is required")
+		}
+		zone.Name = canonicalName(zone.Name)
+		if !validAuthorityName(zone.Name) || seen[zone.Name] {
+			return nil, fmt.Errorf("invalid or duplicate DNS authoritative zone %q", zone.Name)
+		}
+		seen[zone.Name] = true
+		if len(zone.Nameservers) == 0 {
+			return nil, fmt.Errorf("at least one authoritative DNS nameserver is required for %s", zone.Name)
+		}
+		for nameserver := range zone.Nameservers {
+			zone.Nameservers[nameserver] = canonicalName(zone.Nameservers[nameserver])
+			if !validAuthorityName(zone.Nameservers[nameserver]) {
+				return nil, fmt.Errorf("invalid DNS nameserver %q", zone.Nameservers[nameserver])
+			}
+		}
+		if zone.SOAEmail == "" {
+			zone.SOAEmail = "hostmaster." + zone.Name
+		}
+		zone.SOAEmail = canonicalName(zone.SOAEmail)
+		if !validAuthorityName(zone.SOAEmail) {
+			return nil, fmt.Errorf("invalid DNS SOA email %q", zone.SOAEmail)
+		}
+	}
+	return normalized, nil
 }
 
 func (s *Server) answerAuthority(response *mdns.Msg, question mdns.Question, zone Zone) {

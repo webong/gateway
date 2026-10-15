@@ -362,15 +362,16 @@ export GATEWAY_RUNTIME=http
 export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_DNS_ADDR=':53'
-export GATEWAY_DNS_ZONE='dns.example.com'
-export GATEWAY_DNS_NAMESERVERS='ns1.example.com,ns2.example.com'
 go run ./src/spinner/cmd/proxy
 ```
 
-Delegate `dns.example.com` from its parent zone to the nameservers listed in
-`GATEWAY_DNS_NAMESERVERS`. A wildcard A record is not a substitute for an NS
-delegation. The listener needs permission to bind port 53; a container can map
-public UDP/TCP port 53 to an unprivileged internal port such as 5353.
+Planner supplies active zones over the authenticated private connection and
+Spinner refreshes the complete snapshot without restarting (every 5 seconds by
+default). `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS`, and
+`GATEWAY_DNS_ZONES` remain supported only as legacy bootstrap inputs. A wildcard
+A record is not a substitute for an NS delegation. The listener needs permission
+to bind port 53; a container can map public UDP/TCP port 53 to an unprivileged
+internal port such as 5353.
 
 The query name format is `[<data-labels>.]<endpoint-token>.<configured-zone>`.
 For `aGVsbG8.hook-1.dns.example.com`, Go sends `/hook-1` as the
@@ -418,25 +419,56 @@ The default planner deadline is 750ms. Related settings are
 `16`). `GATEWAY_DNS_RATE_LIMIT` and `GATEWAY_DNS_RATE_BURST` cap total DNS
 queries per second (defaults `5000` and `10000`). `ANY` queries are refused and
 UDP responses are capped at 1232 bytes.
+`GATEWAY_DNS_ZONE_REFRESH_INTERVAL` controls how quickly a Spinner observes API
+zone changes (default `5s`). A failed or invalid refresh retains the last valid
+snapshot.
 Use unique data labels when each lookup must create a distinct event. Lowercase
 base32 data is safer than case-sensitive standard base64 because
 DNS names are case-insensitive and each label is limited to 63 bytes.
 
 ### DNS hook product API
 
-Setting `GATEWAY_DNS_ZONE` or `GATEWAY_DNS_ZONES` enables the PHP-owned DNS hook
-control plane as well as configuring Go's authoritative zones. For multiple
-zones, set the same JSON array on Spinner and Planner, and do not set the legacy
-`GATEWAY_DNS_ZONE` or `GATEWAY_DNS_NAMESERVERS` variables:
+Set `GATEWAY_DNS_HOOKS_ENABLED=true` on Planner to enable the DNS control plane.
+Domains are created through the API and stored as ordinary WebProxy endpoints;
+they do not need to be duplicated in Spinner environment configuration. Set
+default authoritative nameservers once if the API should be able to omit them:
 
 ```bash
-export GATEWAY_DNS_ZONES='[{"name":"dns.example.com","nameservers":["ns1.example.com","ns2.example.com"]},{"name":"hooks.example.net","nameservers":["ns1.example.net","ns2.example.net"],"ttl":30}]'
+export GATEWAY_DNS_HOOKS_ENABLED=true
+export GATEWAY_DNS_DEFAULT_NAMESERVERS='ns1.example.net,ns2.example.net'
 ```
 
-Each entry needs `name` and `nameservers`; `soa_email` and `ttl` are optional.
+Create any number of authoritative zones with the bearer-token-protected API:
+
+```bash
+curl -X POST https://relay.example.test/dns/zones \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"hooks.example.com","nameservers":["ns1.example.net","ns2.example.net"]}'
+```
+
+`provider=manual` records the desired delegation but does not modify external
+DNS. The built-in `cloudflare` provider automates an NS delegation for a child
+zone whose parent is managed by the configured Cloudflare account:
+
+```bash
+export GATEWAY_DNS_CLOUDFLARE_TOKEN='scoped-api-token'
+curl -X POST https://relay.example.test/dns/zones \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"hooks.example.com","provider":"cloudflare"}'
+```
+
+The token is a deployment secret and needs permission to read zones and edit DNS
+records. Gateway auto-discovers the managed parent; `provider_options` may
+instead include `parent_zone_id` and `parent_zone`. Apex registrar nameserver
+changes remain registrar-specific and require a registrar adapter or manual
+delegation. Applications can register additional `DnsProvider` implementations
+in `DnsProviderRegistry`.
+
 The listener chooses the longest matching zone for nested delegations. A hook
-creation request must include `zone` when more than one zone is configured;
-with one zone it remains optional. The package registers a built-in
+creation request must include `zone` when more than one zone is active; with one
+zone it remains optional. The package registers a built-in
 `gateway` WebProxy client, provisions ordinary managed WebProxy endpoints for
 the DNS zone and each hook, and wraps the application's existing path resolver
 with token lookup. Gateway-specific attributes live in the endpoint's reserved
@@ -493,8 +525,12 @@ returned endpoint key and the canonical DNS route:
 The UI-ready management surface is:
 
 ```text
-POST   /dns/hooks
 GET    /dns/zones
+POST   /dns/zones
+GET    /dns/zones/{id-or-name}
+POST   /dns/zones/{id-or-name}/provision
+DELETE /dns/zones/{id-or-name}
+POST   /dns/hooks
 GET    /dns/hooks
 GET    /dns/hooks/{id-or-token}
 PATCH  /dns/hooks/{id-or-token}
@@ -759,6 +795,8 @@ bidirectional sessions.
 - `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS` - legacy single delegated zone
 - `GATEWAY_DNS_ZONES` - JSON array of delegated zone definitions for one or
   more authoritative zones; mutually exclusive with the legacy pair
+- `GATEWAY_DNS_ZONE_REFRESH_INTERVAL` - Planner zone snapshot refresh interval
+  for HTTP and bundled RoadRunner runtimes (default `5s`)
 - `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
   `roadrunner` mode
 - `GATEWAY_POP3_ADDR` - enables the implicit-TLS POP3 upstream proxy in standalone

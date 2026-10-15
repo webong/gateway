@@ -11,7 +11,6 @@ DNS2_PORT="${GATEWAY_DNS_SMOKE_PORT_2:-12554}"
 DELEGATION_PORT="${GATEWAY_DNS_DELEGATION_PORT:-12555}"
 TOKEN="${GATEWAY_INTERNAL_TOKEN:-dns-smoke-token}"
 REGISTRY_TOKEN="${REGISTRY_TOKEN:-dns-registry-smoke-token}"
-ZONES='[{"name":"first.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15},{"name":"second.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":25}]'
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-dns.XXXXXX")"
 DB_FILE="$TEMP_DIR/gateway.sqlite"
 PHP_LOG="$TEMP_DIR/php.log"
@@ -65,7 +64,8 @@ go build "$GO_BUILD_FLAGS" -o "$DELEGATION_BIN" "$ROOT/tests/Fixtures/dns-delega
     COMPOSER_VENDOR_DIR="$ROOT/vendor" DB_CONNECTION=sqlite DB_DATABASE="$DB_FILE" \
     GATEWAY_HTTP_REGISTRY_SMOKE=1 GATEWAY_DNS_SMOKE=1 \
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
-    GATEWAY_DNS_ZONES="$ZONES" GATEWAY_INTERNAL_TOKEN="$TOKEN" REGISTRY_TOKEN="$REGISTRY_TOKEN" \
+    GATEWAY_DNS_HOOKS_ENABLED=true GATEWAY_DNS_DEFAULT_NAMESERVERS='ns1.example.net,ns2.example.net' \
+    GATEWAY_INTERNAL_TOKEN="$TOKEN" REGISTRY_TOKEN="$REGISTRY_TOKEN" \
     exec php -S "127.0.0.1:$PHP_PORT" -t public public/index.php
 ) >"$PHP_LOG" 2>&1 &
 PHP_PID=$!
@@ -84,14 +84,14 @@ wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
 
 GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" GATEWAY_DNS_ADDR="127.0.0.1:$DNS_PORT" \
-GATEWAY_DNS_ZONES="$ZONES" PORT="$GO_PORT" LOG_LEVEL=error \
+GATEWAY_DNS_ZONE_REFRESH_INTERVAL=100ms PORT="$GO_PORT" LOG_LEVEL=error \
 "$GO_BIN" >"$GO_LOG" 2>&1 &
 GO_PID=$!
 wait_http "http://127.0.0.1:$GO_PORT/health" "$GO_LOG" "$GO_PID"
 
 GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" GATEWAY_DNS_ADDR="127.0.0.1:$DNS2_PORT" \
-GATEWAY_DNS_ZONES="$ZONES" PORT="$GO2_PORT" LOG_LEVEL=error \
+GATEWAY_DNS_ZONE_REFRESH_INTERVAL=100ms PORT="$GO2_PORT" LOG_LEVEL=error \
 "$GO_BIN" >"$GO2_LOG" 2>&1 &
 GO2_PID=$!
 wait_http "http://127.0.0.1:$GO2_PORT/health" "$GO2_LOG" "$GO2_PID"
@@ -111,8 +111,19 @@ planner="http://127.0.0.1:$PHP_PORT"
 auth="Authorization: Bearer $REGISTRY_TOKEN"
 curl -fsS "$planner/dns/zones" -H "$auth" | php -r '
     $zones = json_decode(stream_get_contents(STDIN), true)["data"] ?? [];
-    if (count($zones) !== 2 || $zones[0]["name"] !== "first.example.test" || $zones[1]["name"] !== "second.example.test") exit(1);
+    if (count($zones) !== 0) exit(1);
 '
+curl -fsS -X POST "$planner/dns/zones" -H "$auth" -H 'Content-Type: application/json' \
+    -d '{"name":"first.example.test","ttl":60}' >/dev/null
+curl -fsS -X POST "$planner/dns/zones" -H "$auth" -H 'Content-Type: application/json' \
+    -d '{"name":"second.example.test","ttl":60}' >/dev/null
+for _ in $(seq 1 50); do
+    primary_zone="$(dig @127.0.0.1 -p "$DNS_PORT" +time=1 +tries=1 +short first.example.test NS 2>/dev/null | LC_ALL=C sort)"
+    peer_zone="$(dig @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=1 +short second.example.test NS 2>/dev/null | LC_ALL=C sort)"
+    if [[ "$primary_zone" == $'ns1.example.net.\nns2.example.net.' && "$peer_zone" == $'ns1.example.net.\nns2.example.net.' ]]; then break; fi
+    sleep 0.1
+done
+[[ "$primary_zone" == $'ns1.example.net.\nns2.example.net.' && "$peer_zone" == $'ns1.example.net.\nns2.example.net.' ]]
 first="$(curl -fsS -X POST "$planner/dns/hooks" -H "$auth" -H 'Content-Type: application/json' -d '{"external_id":"smoke","zone":"first.example.test"}')"
 second="$(curl -fsS -X POST "$planner/dns/hooks" -H "$auth" -H 'Content-Type: application/json' -d '{"external_id":"smoke","zone":"second.example.test"}')"
 first_id="$(printf '%s' "$first" | php -r '$v=json_decode(stream_get_contents(STDIN),true); echo $v["id"] ?? "";')"
@@ -177,4 +188,4 @@ curl -fsS "$planner/dns/hooks/$second_id/events" -H "$auth" | php -r '
     if (count($events) !== 3) exit(1);
 '
 
-echo 'DNS two-zone, two-Spinner UDP/TCP failover integration smoke passed.'
+echo 'DNS API-provisioned two-zone, two-Spinner live reload and UDP/TCP failover integration smoke passed.'

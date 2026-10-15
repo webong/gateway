@@ -100,9 +100,11 @@ headers or expose the Planner listener directly.
   `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR`; without one, login is denied.
   Publish only the implicit-TLS listeners (normally ports 995 and 993) and keep the
   Spinner-to-Planner connection private. See [mail forwarding](mail-forwarding.md).
-- **DNS:** set the DNS address and either the legacy zone/nameserver pair or
-  `GATEWAY_DNS_ZONES` on both Spinner and Planner; publish both UDP and TCP.
-  Each configured zone requires parent-zone delegation. Gateway is
+- **DNS:** set `GATEWAY_DNS_ADDR` on Spinner and enable the Planner DNS control
+  plane. Spinner refreshes API-managed zones over its authenticated private
+  Planner connection without restarting; the old zone environment settings are
+  migration-only. Publish both UDP and TCP. Each active zone requires
+  parent-zone delegation. Gateway is
   authoritative-only, not recursive. See [DNS high availability](dns-ha.md)
   for the two-node deployment and validation shape.
 - **Realtime:** planner state can reconcile Reverb, Mercure, and Centrifugo

@@ -115,6 +115,7 @@ type Config struct {
 	DNSMaxResponseRecords      int
 	DNSRateLimit               int
 	DNSRateBurst               int
+	DNSZoneRefreshInterval     time.Duration
 	Provisioning               provision.HostConfig
 	ProvisioningRouteProxy     bool
 	ProvisioningRouteCIDRs     []string
@@ -243,7 +244,8 @@ func loadConfig(runtime string) (*Config, error) {
 	if len(dnsZones) > 0 && (dnsZone != "" || len(dnsNameservers) > 0) {
 		return nil, fmt.Errorf("GATEWAY_DNS_ZONES cannot be combined with GATEWAY_DNS_ZONE or GATEWAY_DNS_NAMESERVERS")
 	}
-	if dnsAddress != "" && len(dnsZones) == 0 && (dnsZone == "" || len(dnsNameservers) == 0) {
+	dynamicDNS := (runtime == "http" && getEnv("GATEWAY_LARAVEL_BACKEND_URL", "") != "" || runtime == "roadrunner") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
+	if dnsAddress != "" && len(dnsZones) == 0 && (dnsZone == "" || len(dnsNameservers) == 0) && !dynamicDNS {
 		return nil, fmt.Errorf("GATEWAY_DNS_ZONES or GATEWAY_DNS_ZONE with GATEWAY_DNS_NAMESERVERS is required when GATEWAY_DNS_ADDR is set")
 	}
 	dnsTTL := getEnvInt("GATEWAY_DNS_TTL", 0)
@@ -364,6 +366,7 @@ func loadConfig(runtime string) (*Config, error) {
 		DNSMaxResponseRecords:      getEnvInt("GATEWAY_DNS_MAX_RESPONSE_RECORDS", 16),
 		DNSRateLimit:               getEnvInt("GATEWAY_DNS_RATE_LIMIT", 5000),
 		DNSRateBurst:               getEnvInt("GATEWAY_DNS_RATE_BURST", 10000),
+		DNSZoneRefreshInterval:     getEnvDuration("GATEWAY_DNS_ZONE_REFRESH_INTERVAL", 5*time.Second),
 		Provisioning:               provisioningConfig,
 		ProvisioningRouteProxy:     getEnvBool("GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED", false),
 		ProvisioningRouteCIDRs:     getEnvList("GATEWAY_PROVISIONING_ROUTE_CIDRS"),
@@ -388,6 +391,9 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.SchedulePollInterval <= 0 {
 		return nil, fmt.Errorf("GATEWAY_SCHEDULE_POLL_INTERVAL must be positive")
+	}
+	if config.DNSZoneRefreshInterval <= 0 {
+		return nil, fmt.Errorf("GATEWAY_DNS_ZONE_REFRESH_INTERVAL must be positive")
 	}
 	if config.WebstreamHeartbeat < 0 || config.WebstreamRetry <= 0 {
 		return nil, fmt.Errorf("GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL must be non-negative and GATEWAY_WEBSTREAM_RETRY must be positive")

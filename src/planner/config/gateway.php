@@ -110,13 +110,21 @@ return [
     ],
 
     'dns' => [
-        // Setting GATEWAY_DNS_ZONE enables the PHP-owned DNS hook control
-        // plane. Go uses the same variable for its authoritative listener.
+        // The API owns zone identity and lifecycle. These zone variables are
+        // retained only as a legacy bootstrap path.
         'enabled' => (bool) env('GATEWAY_DNS_HOOKS_ENABLED', env('GATEWAY_DNS_ZONE') !== null || env('GATEWAY_DNS_ZONES') !== null),
         'zone' => strtolower(trim((string) env('GATEWAY_DNS_ZONE', ''), ". \t\n\r\0\x0B")),
         'nameservers' => array_values(array_filter(array_map('trim', explode(',', (string) env('GATEWAY_DNS_NAMESERVERS', ''))))),
+        'default_nameservers' => array_values(array_filter(array_map('trim', explode(',', (string) env('GATEWAY_DNS_DEFAULT_NAMESERVERS', env('GATEWAY_DNS_NAMESERVERS', '')))))),
         'zones' => json_decode((string) (env('GATEWAY_DNS_ZONES') ?: '[]'), true),
         'client' => (string) env('GATEWAY_DNS_PROXY_CLIENT', 'gateway'),
+        'providers' => [
+            'cloudflare' => [
+                // Provider credentials remain deployment secrets; domains do not.
+                'token' => (string) env('GATEWAY_DNS_CLOUDFLARE_TOKEN', ''),
+                'base_url' => (string) env('GATEWAY_DNS_CLOUDFLARE_BASE_URL', 'https://api.cloudflare.com/client/v4'),
+            ],
+        ],
     ],
 
     // Gateway core owns the managed-server control-plane records. Configure

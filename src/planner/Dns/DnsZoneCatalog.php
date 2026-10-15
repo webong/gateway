@@ -9,8 +9,35 @@ use InvalidArgumentException;
 /** Configured authoritative zones shared with Spinner, not a second identity store. */
 final class DnsZoneCatalog
 {
-    /** @return list<array{name: string, nameservers: list<string>}> */
+    public function __construct(private readonly DnsZoneRegistry $registry) {}
+
+    /** @return list<array{name: string, nameservers: list<string>, soa_email?: string, ttl?: int}> */
     public function all(): array
+    {
+        $zones = [];
+        foreach ($this->configured() as $zone) {
+            $zones[$zone['name']] = $zone;
+        }
+        foreach ($this->registry->all(activeOnly: true) as $endpoint) {
+            $gateway = $this->registry->gateway($endpoint);
+            $name = $this->canonical((string) ($gateway['hostname'] ?? ''));
+            if ($name !== '') {
+                $zones[$name] = [
+                    'name' => $name,
+                    'nameservers' => array_values(array_filter($gateway['nameservers'] ?? [], 'is_string')),
+                    'soa_email' => is_string($gateway['soa_email'] ?? null) ? $gateway['soa_email'] : '',
+                    'ttl' => max(0, (int) ($gateway['ttl'] ?? 0)),
+                ];
+            }
+        }
+
+        ksort($zones);
+
+        return array_values($zones);
+    }
+
+    /** @return list<array{name: string, nameservers: list<string>, soa_email?: string, ttl?: int}> */
+    private function configured(): array
     {
         $configured = config('gateway.dns.zones', []);
         if (! is_array($configured) || ! array_is_list($configured)) {

@@ -101,6 +101,10 @@ func TestRoadRunnerPluginExposesProtocolPlanner(t *testing.T) {
 	if decision.Action != bridge.GatewayAccept {
 		t.Fatalf("expected accept decision, got %+v", decision)
 	}
+	handler, err := plugin.WaitPHPHandler(context.Background())
+	if err != nil || handler == nil {
+		t.Fatalf("expected in-process PHP handler, got %v", err)
+	}
 }
 
 func TestEmbeddedRoadRunnerRegistersGatewayPlugin(t *testing.T) {

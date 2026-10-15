@@ -67,6 +67,7 @@ abstract class TestCase extends Orchestra
             'gateway.automation.languages' => ['test-script'],
             'gateway.dns.enabled' => true,
             'gateway.dns.zone' => 'dns.example.test',
+            'gateway.dns.nameservers' => ['ns1.example.test'],
             'gateway.dns.client' => 'gateway',
             'gateway.servers.tables.servers' => 'managed_servers',
             'gateway.servers.tables.applications' => 'managed_applications',

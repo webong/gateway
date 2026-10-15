@@ -20,12 +20,16 @@ use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Deliveries\Http\DeliveryController;
 use Webong\Gateway\Dns\CacheableDnsHookPathResolver;
+use Webong\Gateway\Dns\CloudflareDnsProvider;
 use Webong\Gateway\Dns\DnsHookEventRecorder;
 use Webong\Gateway\Dns\DnsHookPathResolver;
+use Webong\Gateway\Dns\DnsProviderRegistry;
 use Webong\Gateway\Dns\Http\DnsHookController;
 use Webong\Gateway\Dns\Http\DnsHookEventController;
 use Webong\Gateway\Dns\Http\DnsHookUsageController;
 use Webong\Gateway\Dns\Http\DnsZoneController;
+use Webong\Gateway\Dns\Http\InternalDnsZoneController;
+use Webong\Gateway\Dns\ManualDnsProvider;
 use Webong\Gateway\Email\Http\EmailController;
 use Webong\Gateway\Email\Http\EmailSubmissionController;
 use Webong\Gateway\Email\Http\EmailSuppressionController;
@@ -102,6 +106,13 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->singleton(ServerTypeRegistry::class);
         $this->app->singleton(ServerRegistry::class);
+        $this->app->singleton(DnsProviderRegistry::class, function (): DnsProviderRegistry {
+            $registry = new DnsProviderRegistry;
+            $registry->register('manual', $this->app->make(ManualDnsProvider::class));
+            $registry->register('cloudflare', $this->app->make(CloudflareDnsProvider::class));
+
+            return $registry;
+        });
         $this->app->bind(ScriptScheduleRegistrar::class, PersistScriptSchedules::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
         $this->app->singleton(AutomationLanguageRegistry::class, function (): AutomationLanguageRegistry {
@@ -307,6 +318,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/_internal/gateway/ready', InternalReadinessController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
+            if ((bool) config('gateway.dns.enabled', false)) {
+                $this->app['router']->get('/_internal/gateway/dns/zones', InternalDnsZoneController::class);
+            }
             $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
             $this->app['router']->post('/_internal/gateway/schedules/register', [InternalScheduleController::class, 'register']);
@@ -370,7 +384,11 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/schedules/{schedule}/runs/{run}/outcome', ScheduleDeliveryOutcomeController::class);
             $this->app['router']->post('/schedules/{schedule}/runs', [ScheduleController::class, 'run']);
             if ((bool) config('gateway.dns.enabled', false)) {
-                $this->app['router']->get('/dns/zones', DnsZoneController::class)->name('dns.zones.index');
+                $this->app['router']->get('/dns/zones', [DnsZoneController::class, 'index'])->name('dns.zones.index');
+                $this->app['router']->post('/dns/zones', [DnsZoneController::class, 'store'])->name('dns.zones.store');
+                $this->app['router']->get('/dns/zones/{zone}', [DnsZoneController::class, 'show'])->name('dns.zones.show');
+                $this->app['router']->post('/dns/zones/{zone}/provision', [DnsZoneController::class, 'provision'])->name('dns.zones.provision');
+                $this->app['router']->delete('/dns/zones/{zone}', [DnsZoneController::class, 'destroy'])->name('dns.zones.destroy');
                 $this->app['router']->get('/dns/hooks', [DnsHookController::class, 'index'])->name('dns.hooks.index');
                 $this->app['router']->post('/dns/hooks', [DnsHookController::class, 'store'])->name('dns.hooks.store');
                 $this->app['router']->get('/dns/hooks/{hook}', [DnsHookController::class, 'show'])->name('dns.hooks.show');

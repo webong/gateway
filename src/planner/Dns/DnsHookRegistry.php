@@ -16,6 +16,7 @@ final readonly class DnsHookRegistry
         private EndpointRegistry $endpoints,
         private RegistryRouteCache $routeCache,
         private DnsZoneCatalog $zones,
+        private DnsZoneRegistry $zoneRegistry,
     ) {}
 
     /** @param array<string, mixed> $metadata */
@@ -62,7 +63,7 @@ final readonly class DnsHookRegistry
         }
 
         $token = $this->uniqueToken();
-        $zoneEndpoint = $this->ensureZone($client, $zone, $registry);
+        $zoneEndpoint = $this->ensureZone($zone, $registry);
         $endpoint = $this->endpoints->ensure(new EndpointDefinition(
             client: $client,
             externalId: 'dns-hook:'.$zone.':'.$externalId,
@@ -154,25 +155,24 @@ final readonly class DnsHookRegistry
         return trim((string) config('gateway.dns.client', 'gateway'));
     }
 
-    private function ensureZone(string $client, string $zone, ?string $registry): WebProxyEndpoint
+    private function ensureZone(string $zone, ?string $registry): WebProxyEndpoint
     {
-        $endpoint = $this->endpoints->ensure(new EndpointDefinition(
-            client: $client,
-            externalId: 'dns-zone:'.$zone,
-            signingSecret: null,
-            verificationToken: null,
-            endpointKey: 'dns-zone-'.substr(hash('sha256', $zone), 0, 24),
-            credentialOwnerId: null,
-            managed: true,
-            registry: $registry,
-            metadata: ['_gateway' => [
-                'kind' => 'dns_zone',
-                'protocol' => 'dns',
-                'hostname' => $zone,
-            ]],
-        ));
+        if (($endpoint = $this->zoneRegistry->find($zone)) !== null) {
+            return $endpoint;
+        }
+        $definition = collect($this->zones->all())->firstWhere('name', $zone);
+        if (! is_array($definition)) {
+            throw new RuntimeException("DNS zone [{$zone}] is not active.");
+        }
 
-        return WebProxyEndpoint::query()->findOrFail($endpoint->record->id);
+        return $this->zoneRegistry->create(
+            name: $zone,
+            nameservers: $definition['nameservers'],
+            provider: 'manual',
+            soaEmail: is_string($definition['soa_email'] ?? null) ? $definition['soa_email'] : null,
+            ttl: max(0, (int) ($definition['ttl'] ?? 60)),
+            registry: $registry,
+        );
     }
 
     /** @param array<string, mixed> $metadata

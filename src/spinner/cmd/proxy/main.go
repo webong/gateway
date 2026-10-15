@@ -472,6 +472,7 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 		MaxResponseRecords: config.DNSMaxResponseRecords,
 		RateLimit:          config.DNSRateLimit,
 		RateBurst:          config.DNSRateBurst,
+		AllowEmptyZones:    config.Runtime == "http" || config.Runtime == "roadrunner",
 	}, planner, executor)
 }
 
@@ -606,11 +607,23 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
 		}
-		if len(config.DNSZones) > 0 {
-			logger.Info("Using authoritative DNS listener on %s for %d zones", config.DNSAddress, len(config.DNSZones))
-		} else {
-			logger.Info("Using authoritative DNS listener on %s for %s", config.DNSAddress, config.DNSZone)
+		zoneSource, sourceErr := dnsgateway.NewHTTPZoneSource(config.LaravelBackendURL, config.InternalToken, client)
+		if sourceErr != nil {
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize DNS zone source: %w", sourceErr)
 		}
+		reloadContext, cancelReload := context.WithCancel(context.Background())
+		defer cancelReload()
+		reloader := dnsgateway.ZoneReloader{
+			Server: dnsServer, Source: zoneSource, Interval: config.DNSZoneRefreshInterval, OnError: logger.Error,
+		}
+		initialContext, cancelInitial := context.WithTimeout(reloadContext, config.RequestTimeout)
+		if refreshErr := reloader.Refresh(initialContext); refreshErr != nil {
+			logger.Error("Initial authoritative DNS zone refresh failed; retaining the last valid snapshot: %v", refreshErr)
+		}
+		cancelInitial()
+		reloader.Start(reloadContext)
+		logger.Info("Using authoritative DNS listener on %s with Planner-managed zones (refresh %s)", config.DNSAddress, config.DNSZoneRefreshInterval)
 		listeners = append(listeners, dnsServer)
 	}
 	if config.POP3Address != "" {
@@ -655,12 +668,23 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 	if config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "" {
 		startupContext, cancelStartup := context.WithTimeout(context.Background(), config.RequestTimeout)
 		protocolPlanner, plannerErr := runner.WaitProtocolPlanner(startupContext)
+		var phpHandler http.Handler
+		var handlerErr error
+		if plannerErr == nil && config.DNSAddress != "" {
+			phpHandler, handlerErr = runner.WaitPHPHandler(startupContext)
+		}
 		cancelStartup()
 		if plannerErr != nil {
 			runner.Stop()
 			<-runnerErrors
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to initialize RoadRunner protocol planner: %w", plannerErr)
+		}
+		if handlerErr != nil {
+			runner.Stop()
+			<-runnerErrors
+			server.workerPool.Shutdown()
+			return fmt.Errorf("failed to initialize RoadRunner DNS zone source: %w", handlerErr)
 		}
 
 		executor := server.NewGatewayExecutor()
@@ -683,6 +707,25 @@ func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *l
 				server.workerPool.Shutdown()
 				return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
 			}
+			zoneSource, sourceErr := dnsgateway.NewHandlerZoneSource(phpHandler, config.InternalToken)
+			if sourceErr != nil {
+				runner.Stop()
+				<-runnerErrors
+				server.workerPool.Shutdown()
+				return fmt.Errorf("failed to initialize RoadRunner DNS zone source: %w", sourceErr)
+			}
+			reloadContext, cancelReload := context.WithCancel(context.Background())
+			defer cancelReload()
+			reloader := dnsgateway.ZoneReloader{
+				Server: dnsServer, Source: zoneSource, Interval: config.DNSZoneRefreshInterval, OnError: logger.Error,
+			}
+			initialContext, cancelInitial := context.WithTimeout(reloadContext, config.RequestTimeout)
+			if refreshErr := reloader.Refresh(initialContext); refreshErr != nil {
+				logger.Error("Initial authoritative DNS zone refresh failed; retaining the last valid snapshot: %v", refreshErr)
+			}
+			cancelInitial()
+			reloader.Start(reloadContext)
+			logger.Info("Using authoritative DNS listener on %s with Planner-managed zones (refresh %s)", config.DNSAddress, config.DNSZoneRefreshInterval)
 			listeners = append(listeners, dnsServer)
 		}
 		if config.POP3Address != "" {
