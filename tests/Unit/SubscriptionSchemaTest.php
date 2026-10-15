@@ -29,6 +29,10 @@ it('keeps the subscription JSON schema aligned with match-rules v1', function ()
         ->toBe(array_keys($matchRules->getConstant('ALLOWED_RULES')))
         ->and($schema['$defs']['fieldName']['anyOf'][0]['enum'])
         ->toContain('route', 'payload')
+        ->and($schema['properties']['target_kind']['enum'])
+        ->toBe(['http', 'shell'])
+        ->and($schema['oneOf'][1]['required'])
+        ->toContain('target_kind', 'hook', 'type')
         ->and(preg_match('/'.$schema['$defs']['fieldName']['anyOf'][1]['pattern'].'/', 'payload.data'))
         ->toBe(1);
 });
@@ -65,5 +69,6 @@ it('keeps lifecycle schemas aligned with subscription states', function (): void
     expect($status['properties']['status']['enum'])
         ->toBe([SubscriptionState::ACTIVE, SubscriptionState::PAUSED])
         ->and($update['properties']['type']['enum'])
-        ->toBe(['relay', 'reply']);
+        ->toBe(['relay', 'reply'])
+        ->and($update['anyOf'][1]['required'])->toBe(['hook']);
 });

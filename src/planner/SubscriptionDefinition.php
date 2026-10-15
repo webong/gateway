@@ -31,6 +31,7 @@ final readonly class SubscriptionDefinition
         public ?string $channel = null,
         public string $type = 'relay',
         public ?string $profile = null,
+        public ?string $shellHook = null,
     ) {
         $this->assertValid();
     }
@@ -64,6 +65,33 @@ final readonly class SubscriptionDefinition
         );
     }
 
+    /** @param array<string, string|list<string>> $rules @param array<string, mixed> $metadata */
+    public static function shellReply(
+        string $subscriberId,
+        string $subscriptionId,
+        string $webhookGroup,
+        string $routingScope,
+        string $routingKey,
+        string $hook,
+        array $rules = [],
+        array $metadata = [],
+        ?string $channel = null,
+    ): self {
+        return new self(
+            subscriberId: $subscriberId,
+            subscriptionId: $subscriptionId,
+            webhookGroup: $webhookGroup,
+            routingScope: $routingScope,
+            routingKey: $routingKey,
+            url: '',
+            match: MatchRules::make($rules),
+            metadata: $metadata,
+            channel: $channel,
+            type: 'reply',
+            shellHook: $hook,
+        );
+    }
+
     public function toDestinationDefinition(): DestinationDefinition
     {
         return new DestinationDefinition(
@@ -72,7 +100,7 @@ final readonly class SubscriptionDefinition
             webhookGroup: $this->webhookGroup,
             routingScope: $this->routingScope,
             routingKey: $this->routingKey,
-            target: $this->url,
+            target: $this->shellHook === null ? $this->url : ShellSubscriptionTarget::encode($this->shellHook),
             targetType: WebhookProxyTargetType::REQUEST,
             metadata: [
                 ...$this->metadata,
@@ -101,11 +129,18 @@ final readonly class SubscriptionDefinition
             }
         }
 
-        $parsed = parse_url($this->url);
-        if (! is_array($parsed)
-            || ! in_array($parsed['scheme'] ?? null, ['http', 'https'], true)
-            || ($parsed['host'] ?? '') === '') {
-            throw new InvalidArgumentException('Subscription URL must be an HTTP(S) URL.');
+        if ($this->shellHook !== null) {
+            ShellSubscriptionTarget::assertHook($this->shellHook);
+            if ($this->url !== '' || $this->type !== 'reply' || $this->profile !== null) {
+                throw new InvalidArgumentException('Shell subscriptions require a reply hook without URL or profile.');
+            }
+        } else {
+            $parsed = parse_url($this->url);
+            if (! is_array($parsed)
+                || ! in_array($parsed['scheme'] ?? null, ['http', 'https'], true)
+                || ($parsed['host'] ?? '') === '') {
+                throw new InvalidArgumentException('Subscription URL must be an HTTP(S) URL.');
+            }
         }
 
         foreach (array_keys($this->metadata) as $key) {

@@ -9,8 +9,7 @@
     "subscriber_id",
     "webhook_group",
     "routing_scope",
-    "routing_key",
-    "url"
+    "routing_key"
   ],
   "properties": {
     "subscriber_id": {
@@ -37,6 +36,17 @@
       "type": "string",
       "format": "uri",
       "pattern": "^https?://"
+    },
+    "target_kind": {
+      "type": "string",
+      "enum": ["http", "shell"],
+      "default": "http"
+    },
+    "hook": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"
     },
     "profile": {
       "type": "string",
@@ -69,6 +79,18 @@
       "$ref": "#/$defs/match"
     }
   },
+  "oneOf": [
+    {
+      "required": ["url"],
+      "properties": {"target_kind": {"const": "http"}},
+      "not": {"required": ["hook"]}
+    },
+    {
+      "required": ["target_kind", "type", "hook"],
+      "properties": {"target_kind": {"const": "shell"}, "type": {"const": "reply"}},
+      "not": {"anyOf": [{"required": ["url"]}, {"required": ["profile"]}]}
+    }
+  ],
   "$defs": {
     "requiredIdentifier": {
       "type": "string",

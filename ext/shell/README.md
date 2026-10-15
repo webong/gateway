@@ -52,6 +52,55 @@ use Webong\Gateway\Protocol\RoutePlan;
 return RoutePlan::automate(new Automation(language: 'shell', source: 'github/deploy'));
 ```
 
+Alternatively, a registry-managed HTTP route can select a Shell hook with a
+`reply` subscription. This uses the existing authenticated subscription
+endpoint and its match rules, ETag updates, pause/resume, and removal lifecycle:
+
+```http
+POST /registry/endpoints/{endpointKey}/subscriptions
+Authorization: Bearer {REGISTRY_TOKEN}
+X-Gateway-Shell-Subscription: {SHELL_OPERATOR_TOKEN}
+Content-Type: application/json
+
+{"subscriber_id":"deploy-owner","type":"reply","target_kind":"shell","hook":"github/deploy","webhook_group":"github","routing_scope":"repository","routing_key":"my-repo"}
+```
+
+Only one active reply subscription, whether HTTP or Shell, may own a route.
+The hook file must already be deployed to each eligible Spinner under
+`GATEWAY_SHELL_HOOKS_DIR`; subscribing does not upload it. PHP still decides
+whether the request matches, and Spinner returns the hook outcome to the
+original HTTP caller. A Shell reply has no `url` or outbound proxy `profile`.
+Because the registry token does not bind a caller to a subscriber identity,
+Shell subscription creation and mutation also require the separate
+`GATEWAY_SHELL_SUBSCRIPTION_TOKEN` on Planner, sent in the
+`X-Gateway-Shell-Subscription` header. Keep this operator token out of
+subscriber clients. Local hook subscriptions are denied by default. The
+operator must allow exact hook keys
+for the resolved endpoint key and subscriber ID in the host Laravel config:
+
+```php
+'shell' => [
+    'subscription_hooks' => [
+        'resolved-endpoint-key' => [
+            'deploy-owner' => ['github/deploy'],
+        ],
+    ],
+],
+```
+
+Add this inside the host application's `config/gateway.php` array.
+Removing a key from this policy also stops existing subscriptions from
+executing it; pause or remove those subscriptions separately to free the
+route's reply slot. The hook directory itself should remain operator-owned
+and read-only to Spinner.
+Shell subscription `PATCH`, status, match-patch, and `DELETE` requests require
+both tokens; read-only `GET` uses the registry token alone.
+PHP callers can use `SubscriptionDefinition::shellReply(...)` with
+`SubscribeEndpoint::handle(...)` instead of the JSON endpoint.
+See [the subscription contract](../../docs/subscription-dsl-v1.md) for updates
+and match rules. SSH execution and subscription-time credentials are not yet
+supported.
+
 Planner can also select a completion-notification destination:
 
 ```php

@@ -14,6 +14,7 @@ use Webong\WebProxy\WebProxyRegistryManager;
 use Webong\WebProxy\WebhookRoute;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Protocol\Automation;
 use Webong\Gateway\Protocol\Delivery;
 use Webong\Gateway\Protocol\HttpTransport;
 use Webong\Gateway\Protocol\IngressRequest;
@@ -37,6 +38,7 @@ final class RegistryRoutePlanner implements RoutePlanner
         private readonly SubscriptionMatcher $subscriptionMatcher,
         private readonly RegistryRouteCache $routeCache,
         private readonly EndpointHttpTransportResolver $transportResolver,
+        private readonly ShellSubscriptionPolicy $shellPolicy,
         private readonly ?DispatchWebhookProxyDestination $destinationDispatcher = null,
     ) {
     }
@@ -97,6 +99,7 @@ final class RegistryRoutePlanner implements RoutePlanner
         $destinations = $cachedRoute->destinations;
 
         $reply = null;
+        $shellHook = null;
         $relays = [];
         $profileEndpoint = null;
         /** @var array<string, HttpTransport> $profileTransports */
@@ -112,6 +115,24 @@ final class RegistryRoutePlanner implements RoutePlanner
             }
 
             if (! $this->subscriptionMatcher->matches($request, $destination->metadata)) {
+                continue;
+            }
+
+            if (ShellSubscriptionTarget::isShell($destination->target)) {
+                if ($destination->target_type !== WebhookProxyTargetType::REQUEST
+                    || ($destination->metadata['delivery_mode'] ?? null) !== 'reply'
+                    || isset($destination->metadata[SubscriptionDefinition::PROFILE_METADATA_KEY])
+                    || $shellHook !== null) {
+                    throw new InvalidArgumentException('Shell subscriptions must be a single reply target without a network profile.');
+                }
+                $hook = ShellSubscriptionTarget::hook($destination->target);
+                $subscriberId = $destination->metadata['subscriber_id'] ?? $destination->owner_id;
+                if (! is_string($subscriberId)) {
+                    throw new InvalidArgumentException('The Shell subscription contains an invalid subscriber identity.');
+                }
+                $this->shellPolicy->assertAllowed($cachedRoute->endpointKey, $subscriberId, $hook);
+                $shellHook = $hook;
+
                 continue;
             }
 
@@ -168,6 +189,24 @@ final class RegistryRoutePlanner implements RoutePlanner
             }
 
             $relays[] = $delivery;
+        }
+
+        if ($shellHook !== null) {
+            if ($reply !== null) {
+                throw new InvalidArgumentException('A route cannot have more than one synchronous reply destination.');
+            }
+            if ($request->protocol !== 'http') {
+                throw new InvalidArgumentException('Shell reply subscriptions require HTTP ingress.');
+            }
+
+            return RoutePlan::automate(
+                automation: new Automation(language: 'shell', source: $shellHook),
+                relays: $relays,
+                metadata: [
+                    'endpoint_id' => $cachedRoute->endpointId,
+                    'endpoint_key' => $cachedRoute->endpointKey,
+                ],
+            );
         }
 
         if ($reply === null && $relays === []) {

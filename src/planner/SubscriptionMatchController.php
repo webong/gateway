@@ -21,6 +21,7 @@ final readonly class SubscriptionMatchController
     public function __construct(
         private ValidationFactory $validator,
         private PatchSubscriptionMatch $subscriptions,
+        private ManageSubscriptions $subscriptionReader,
         private RegistryRequestAuthenticator $authenticator,
     ) {
     }
@@ -46,6 +47,11 @@ final readonly class SubscriptionMatchController
         }
 
         try {
+            $resource = $this->subscriptionReader->get($endpointKey, $destinationId, $input['channel'] ?? null);
+            if (ShellSubscriptionTarget::isShell($resource->destination->target)
+                && ($authorization = $this->authenticator->authorizeShellMutation($request)) !== null) {
+                return $authorization;
+            }
             $expectedRevision = SubscriptionState::parseEtag($request->header('If-Match'));
             $patchPayload = $input;
             unset($patchPayload['channel']);

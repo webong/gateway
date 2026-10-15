@@ -29,4 +29,23 @@ final class RegistryRequestAuthenticator
 
         return null;
     }
+
+    public function authorizeShellMutation(Request $request): ?JsonResponse
+    {
+        $token = (string) config('gateway.shell.subscription_token', '');
+        if ($token === '') {
+            return response()->json([
+                'message' => 'Shell subscription management is not configured.',
+            ], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+
+        $provided = (string) $request->header('X-Gateway-Shell-Subscription', '');
+        if ($provided === '' || ! hash_equals($token, $provided)) {
+            return response()->json([
+                'message' => 'Shell subscription management is forbidden.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        return null;
+    }
 }

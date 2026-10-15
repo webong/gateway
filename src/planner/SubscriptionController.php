@@ -36,6 +36,8 @@ final readonly class SubscriptionController
             'routing_scope',
             'routing_key',
             'url',
+            'target_kind',
+            'hook',
             'profile',
             'channel',
             'metadata',
@@ -54,7 +56,9 @@ final readonly class SubscriptionController
             'webhook_group' => ['required', 'string', 'max:255'],
             'routing_scope' => ['required', 'string', 'max:255'],
             'routing_key' => ['required', 'string', 'max:255'],
-            'url' => ['required', 'url:http,https'],
+            'url' => ['sometimes', 'url:http,https'],
+            'target_kind' => ['sometimes', 'in:http,shell'],
+            'hook' => ['sometimes', 'string', 'min:1', 'max:1024'],
             'profile' => ['sometimes', 'string', 'min:1', 'max:64'],
             'channel' => ['nullable', 'string', 'max:255'],
             'metadata' => ['sometimes', 'array'],
@@ -68,6 +72,18 @@ final readonly class SubscriptionController
                 'message' => 'The subscription is invalid.',
                 'errors' => $validator->errors()->toArray(),
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        $shell = ($input['target_kind'] ?? 'http') === 'shell';
+        if (($shell && (! isset($input['hook']) || array_key_exists('url', $input)))
+            || (! $shell && (array_key_exists('hook', $input) || ! isset($input['url'])))) {
+            return response()->json([
+                'message' => 'The subscription is invalid.',
+                'errors' => ['subscription' => ['HTTP subscriptions require a URL; Shell subscriptions require a hook and no URL.']],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+        if ($shell && ($authorization = $this->authenticator->authorizeShellMutation($request)) !== null) {
+            return $authorization;
         }
 
         try {
@@ -88,12 +104,13 @@ final readonly class SubscriptionController
                 webhookGroup: $input['webhook_group'],
                 routingScope: $input['routing_scope'],
                 routingKey: $input['routing_key'],
-                url: $input['url'],
+                url: $input['url'] ?? '',
                 match: $match,
                 metadata: $input['metadata'] ?? [],
                 channel: $input['channel'] ?? null,
                 type: $input['type'] ?? 'relay',
                 profile: $input['profile'] ?? null,
+                shellHook: $shell ? $input['hook'] : null,
             );
             $destination = $this->subscriptions->handle($endpointKey, $definition);
         } catch (EndpointNotFoundException $exception) {

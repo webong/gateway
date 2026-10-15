@@ -101,6 +101,14 @@ return [
         ))),
     ],
 
+    'shell' => [
+        // Separate operator approval for managing privileged local hooks.
+        'subscription_token' => (string) env('GATEWAY_SHELL_SUBSCRIPTION_TOKEN', ''),
+        // Exact endpoint key => subscriber ID => permitted local hook keys.
+        // Registry-managed hooks are denied until the operator opts in.
+        'subscription_hooks' => [],
+    ],
+
     'dns' => [
         // Setting GATEWAY_DNS_ZONE enables the PHP-owned DNS hook control
         // plane. Go uses the same variable for its authoritative listener.

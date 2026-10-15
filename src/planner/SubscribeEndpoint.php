@@ -9,6 +9,8 @@ use Webong\WebProxy\WebProxyChannelManager;
 use Webong\WebProxy\WebProxyRegistryManager;
 use Webong\WebProxy\WebhookRoute;
 use Webong\Gateway\Exceptions\EndpointNotFoundException;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Protocol\SubscriptionState;
 
 final readonly class SubscribeEndpoint
@@ -17,12 +19,18 @@ final readonly class SubscribeEndpoint
         private WebProxyRegistryManager $registryManager,
         private WebProxyChannelManager $channelManager,
         private EndpointHttpTransportResolver $transportResolver,
+        private AutomationLanguageRegistry $languages,
+        private ShellSubscriptionPolicy $shellPolicy,
         private ?RegistryRouteCache $routeCache = null,
     ) {
     }
 
     public function handle(string $endpointKey, SubscriptionDefinition $subscription): DestinationRecord
     {
+        if ($subscription->shellHook !== null && ! $this->languages->supports('shell', AutomationCapability::ROUTE)) {
+            throw new \InvalidArgumentException('The Shell route extension is not enabled.');
+        }
+
         $resolved = $this->registryManager->resolveByKey(
             $endpointKey,
             $this->channelManager->registries($subscription->channel),
@@ -30,6 +38,14 @@ final readonly class SubscribeEndpoint
 
         if ($resolved === null) {
             throw new EndpointNotFoundException("Registered endpoint [{$endpointKey}] was not found.");
+        }
+
+        if ($subscription->shellHook !== null) {
+            $this->shellPolicy->assertAllowed(
+                $resolved->endpoint->record->endpoint_key,
+                $subscription->subscriberId,
+                $subscription->shellHook,
+            );
         }
 
         if ($subscription->profile !== null) {

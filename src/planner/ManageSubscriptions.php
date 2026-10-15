@@ -12,6 +12,7 @@ final readonly class ManageSubscriptions
     public function __construct(
         private SubscriptionRegistry $subscriptions,
         private EndpointHttpTransportResolver $transportResolver,
+        private ShellSubscriptionPolicy $shellPolicy,
     ) {}
 
     /** @return list<SubscriptionResource> */
@@ -47,9 +48,14 @@ final readonly class ManageSubscriptions
         ?string $profile = null,
         bool $profileProvided = false,
         ?string $channel = null,
+        ?string $shellHook = null,
     ): SubscriptionResource {
-        if ($url === null && $metadata === null && $type === null && ! $profileProvided) {
-            throw new InvalidArgumentException('Update at least one of url, metadata, type, or profile.');
+        if ($url === null && $metadata === null && $type === null && ! $profileProvided && $shellHook === null) {
+            throw new InvalidArgumentException('Update at least one of url, hook, metadata, type, or profile.');
+        }
+
+        if ($shellHook !== null) {
+            ShellSubscriptionTarget::assertHook($shellHook);
         }
 
         if ($url !== null) {
@@ -82,9 +88,22 @@ final readonly class ManageSubscriptions
             $endpointKey,
             $destinationId,
             $expectedRevision,
-            function (ResolvedSubscription $resolved) use ($url, $metadata, $type, $profile, $profileProvided): array {
+            function (ResolvedSubscription $resolved) use ($url, $metadata, $type, $profile, $profileProvided, $shellHook): array {
                 $attributes = [];
                 $updatedMetadata = $resolved->destination->metadata;
+                $shell = ShellSubscriptionTarget::isShell($resolved->destination->target);
+
+                if (($shell && ($url !== null || $profileProvided || $type === 'relay'))
+                    || (! $shell && $shellHook !== null)) {
+                    throw new InvalidArgumentException('A subscription target kind cannot be changed; Shell replies accept only hook and metadata updates.');
+                }
+                if ($shellHook !== null) {
+                    $subscriberId = $updatedMetadata['subscriber_id'] ?? $resolved->destination->owner_id;
+                    if (! is_string($subscriberId)) {
+                        throw new InvalidArgumentException('The subscription contains an invalid subscriber identity.');
+                    }
+                    $this->shellPolicy->assertAllowed($resolved->endpoint->record->endpoint_key, $subscriberId, $shellHook);
+                }
 
                 if ($profileProvided) {
                     if ($profile === null) {
@@ -115,6 +134,9 @@ final readonly class ManageSubscriptions
 
                 if ($url !== null) {
                     $attributes['target'] = $url;
+                }
+                if ($shellHook !== null) {
+                    $attributes['target'] = ShellSubscriptionTarget::encode($shellHook);
                 }
                 $attributes['metadata'] = $updatedMetadata;
 

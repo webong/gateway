@@ -39,6 +39,8 @@ final readonly class SubscriptionResource
             throw new InvalidArgumentException('The subscription contains malformed persisted match rules.');
         }
 
+        $shell = ShellSubscriptionTarget::isShell($this->destination->target);
+
         return [
             'id' => $this->destination->id,
             'endpoint_key' => $this->endpointKey,
@@ -48,8 +50,10 @@ final readonly class SubscriptionResource
             'webhook_group' => $this->destination->webhook_group,
             'routing_scope' => $this->destination->routing_scope,
             'routing_key' => $this->destination->routing_key,
-            'url' => $this->destination->target,
-            'profile' => $this->profile(),
+            'target_kind' => $shell ? 'shell' : 'http',
+            'url' => $shell ? null : $this->destination->target,
+            'hook' => $shell ? ShellSubscriptionTarget::hook($this->destination->target) : null,
+            'profile' => $shell ? null : $this->profile(),
             'metadata' => $this->publicMetadata(),
             'match' => $match->toArray(),
             'status' => SubscriptionState::status($this->destination->metadata),

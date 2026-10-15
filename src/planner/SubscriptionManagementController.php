@@ -87,13 +87,14 @@ final readonly class SubscriptionManagementController
         }
 
         $input = $request->json()->all();
-        if (array_diff(array_keys($input), ['url', 'profile', 'metadata', 'type', 'channel']) !== []) {
+        if (array_diff(array_keys($input), ['url', 'hook', 'profile', 'metadata', 'type', 'channel']) !== []) {
             return $this->invalid('The subscription update is invalid.', [
                 'subscription' => ['The request contains unsupported properties.'],
             ]);
         }
         $validator = $this->validator->make($input, [
             'url' => ['sometimes', 'url:http,https', 'max:2048'],
+            'hook' => ['sometimes', 'string', 'min:1', 'max:1024'],
             'profile' => ['sometimes', 'nullable', 'string', 'min:1', 'max:64'],
             'metadata' => ['sometimes', 'array'],
             'type' => ['sometimes', 'in:relay,reply'],
@@ -104,6 +105,9 @@ final readonly class SubscriptionManagementController
         }
 
         try {
+            if (($authorization = $this->authorizeShellTarget($request, $endpointKey, $destinationId, $input['channel'] ?? null)) !== null) {
+                return $authorization;
+            }
             $expected = SubscriptionState::parseEtag($request->header('If-Match'));
             return $this->resource($this->subscriptions->update(
                 endpointKey: $endpointKey,
@@ -115,6 +119,7 @@ final readonly class SubscriptionManagementController
                 profile: array_key_exists('profile', $input) ? $input['profile'] : null,
                 profileProvided: array_key_exists('profile', $input),
                 channel: $input['channel'] ?? null,
+                shellHook: $input['hook'] ?? null,
             ));
         } catch (InvalidArgumentException $exception) {
             return $this->invalid('The subscription update is invalid.', ['subscription' => [$exception->getMessage()]]);
@@ -148,6 +153,9 @@ final readonly class SubscriptionManagementController
         }
 
         try {
+            if (($authorization = $this->authorizeShellTarget($request, $endpointKey, $destinationId, $input['channel'] ?? null)) !== null) {
+                return $authorization;
+            }
             $expected = SubscriptionState::parseEtag($request->header('If-Match'));
             return $this->resource($this->subscriptions->setStatus(
                 $endpointKey,
@@ -174,6 +182,9 @@ final readonly class SubscriptionManagementController
         }
 
         try {
+            if (($authorization = $this->authorizeShellTarget($request, $endpointKey, $destinationId, $this->channel($request))) !== null) {
+                return $authorization;
+            }
             $expected = SubscriptionState::parseEtag($request->header('If-Match'));
             $resource = $this->subscriptions->remove(
                 $endpointKey,
@@ -199,6 +210,15 @@ final readonly class SubscriptionManagementController
         $channel = $request->query('channel');
 
         return is_string($channel) && $channel !== '' ? $channel : null;
+    }
+
+    private function authorizeShellTarget(Request $request, string $endpointKey, string $destinationId, ?string $channel): ?JsonResponse
+    {
+        $resource = $this->subscriptions->get($endpointKey, $destinationId, $channel);
+
+        return ShellSubscriptionTarget::isShell($resource->destination->target)
+            ? $this->authenticator->authorizeShellMutation($request)
+            : null;
     }
 
     private function resource(SubscriptionResource $resource): JsonResponse

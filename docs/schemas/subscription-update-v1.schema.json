@@ -8,6 +8,7 @@
   "minProperties": 1,
   "properties": {
     "url": {"type": "string", "format": "uri", "pattern": "^https?://"},
+    "hook": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"},
     "type": {"type": "string", "enum": ["relay", "reply"]},
     "profile": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
     "channel": {"type": ["string", "null"], "maxLength": 255},
@@ -26,6 +27,7 @@
   },
   "anyOf": [
     {"required": ["url"]},
+    {"required": ["hook"]},
     {"required": ["type"]},
     {"required": ["profile"]},
     {"required": ["metadata"]}

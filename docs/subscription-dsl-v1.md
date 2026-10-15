@@ -21,6 +21,11 @@ Authorization: Bearer {REGISTRY_TOKEN}
 Content-Type: application/json
 ```
 
+Shell target creation and mutation additionally require Planner's
+`GATEWAY_SHELL_SUBSCRIPTION_TOKEN` in the
+`X-Gateway-Shell-Subscription` header. The registry token alone is not
+operator authority to execute a local hook.
+
 Use the resolved `endpoint_key` returned by `POST /registry/endpoints`, not the
 requested key: `webong/proxy` may suffix unmanaged endpoint keys.
 
@@ -64,11 +69,46 @@ Unknown properties are not part of the v1 contract and must not be sent.
 | `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/proxy` to manage the destination. |
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
-| `url` | yes | absolute HTTP(S) URL | Go sends matching ingress traffic to this destination. |
-| `profile` | no | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
+| `target_kind` | no | `http` or `shell` | Defaults to `http`. Shell targets require the optional Shell extension and `type: reply`. |
+| `url` | for HTTP | absolute HTTP(S) URL | Go sends matching ingress traffic to this destination. Not accepted for Shell targets. |
+| `hook` | for Shell | non-hidden relative hook key, max 1024 | Operator-deployed local Shell hook selected by Planner. Not accepted for HTTP targets. |
+| `profile` | HTTP only | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
 | `match` | no | match object | Versioned ingress-event selection rules. Omission means match every event. |
+
+For an HTTP request that should be answered by an operator-deployed Shell hook,
+use the same endpoint with a Shell reply target:
+
+```json
+{
+  "subscriber_id": "workspace-42",
+  "subscription_id": "workspace-42-deploy",
+  "type": "reply",
+  "target_kind": "shell",
+  "hook": "github/deploy",
+  "webhook_group": "meta",
+  "routing_scope": "application",
+  "routing_key": "app-123",
+  "match": {"version": "v1", "rules": {"method": ["in:POST"]}}
+}
+```
+
+Only one active reply—HTTP or Shell—may exist for the route. A Shell
+subscription's hook is not uploaded by this request: it must already exist
+under every eligible Spinner's configured Shell hook directory. Planner
+matches the subscription and emits an automation plan; Spinner executes the
+hook and returns its response to the original HTTP caller. The returned
+resource contains `target_kind: shell` and `hook`, never the internal storage
+locator. Updating `hook` uses the usual `PATCH` with `If-Match`; target kinds
+cannot be changed in place. SSH credentials and remote execution are not part
+of this local Shell reply contract. The operator must first allow the exact
+hook under `gateway.shell.subscription_hooks[endpoint_key][subscriber_id]`;
+the default empty map denies registration and execution. Removing an allowlist
+entry blocks an existing subscription immediately, but does not automatically
+remove its reply slot. The extra operator token is required when creating a
+Shell subscription or changing its hook, match, status, metadata, or lifecycle;
+read-only lookups use the registry token alone.
 
 The profile itself is registered and stored by `webong/proxy` on the endpoint.
 Subscriptions retain only its name. Planner resolves the active profile and

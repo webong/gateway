@@ -9,6 +9,10 @@ use Webong\WebProxy\Models\WebProxyDestination;
 use Webong\WebProxy\Models\WebProxyEndpoint;
 use Webong\WebProxy\ProfileDefinition;
 use Webong\Gateway\Protocol\IngressRequest;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationExecutionTarget;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Protocol\SubscriptionState;
 use Webong\Gateway\RegistryRoutePlanner;
 use Webong\Gateway\RegistryRouteCache;
@@ -782,4 +786,235 @@ it('rejects unsafe rules from a remote subscriber', function (): void {
         ->assertJsonPath('errors.match.0', 'Match-rule field [method] has invalid [required] parameters.');
 
     expect(WebProxyDestination::query()->count())->toBe(0);
+});
+
+it('registers a Shell reply, selects its hook, and manages its lifecycle', function (): void {
+    app(AutomationLanguageRegistry::class)->register('shell', AutomationExecutionTarget::SPINNER, AutomationCapability::ROUTE);
+    config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    $endpoint = relayEndpoint();
+    config()->set('gateway.shell.subscription_hooks', [
+        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy', 'github/deploy-v2']],
+    ]);
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $created = $this->withToken('registry-secret')->postJson($route, [
+        'subscriber_id' => 'shell-owner',
+        'subscription_id' => 'shell-deploy',
+        'type' => 'reply',
+        'target_kind' => 'shell',
+        'hook' => 'github/deploy',
+        'webhook_group' => 'meta',
+        'routing_scope' => 'application',
+        'routing_key' => 'app-123',
+        'match' => ['version' => 'v1', 'rules' => ['body.account.id' => ['in:account-42']]],
+    ]);
+    $created->assertCreated()
+        ->assertJsonPath('target_kind', 'shell')
+        ->assertJsonPath('hook', 'github/deploy')
+        ->assertJsonPath('url', null);
+    $created->assertDontSee('gateway-shell://');
+    $this->withToken('registry-secret')->getJson($route.'/'.$created->json('id'))
+        ->assertOk()->assertJsonPath('hook', 'github/deploy')->assertDontSee('gateway-shell://');
+    $this->withToken('registry-secret')->getJson($route.'?routing_scope=application&routing_key=app-123')
+        ->assertOk()->assertJsonPath('data.0.hook', 'github/deploy');
+
+    $planner = app(CapabilityAwareRoutePlanner::class);
+    $request = static fn (string $account): IngressRequest => new IngressRequest(
+        deliveryId: 'shell-delivery',
+        method: 'POST',
+        host: 'relay.example.test',
+        path: '/provider/events/app-123',
+        rawQuery: '',
+        headers: [],
+        body: json_encode(['account' => ['id' => $account]], JSON_THROW_ON_ERROR),
+        automationLanguages: ['shell'],
+    );
+    expect($planner->plan($request('account-42'))->automation?->toArray())->toBe([
+        'language' => 'shell', 'source' => 'github/deploy',
+    ]);
+    expect($planner->plan($request('account-99'))->immediateResponse?->statusCode)->toBe(204);
+
+    $url = $route.'/'.$created->json('id');
+    $updated = $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->patchJson($url, ['hook' => 'github/deploy-v2']);
+    $updated->assertOk()->assertJsonPath('hook', 'github/deploy-v2');
+    expect($planner->plan($request('account-42'))->automation?->source)->toBe('github/deploy-v2');
+
+    $paused = $this->withToken('registry-secret')->withHeader('If-Match', $updated->headers->get('ETag'))
+        ->patchJson($url.'/status', ['status' => 'paused']);
+    $paused->assertOk()->assertJsonPath('status', 'paused');
+    expect($planner->plan($request('account-42'))->immediateResponse?->statusCode)->toBe(204);
+
+    $active = $this->withToken('registry-secret')->withHeader('If-Match', $paused->headers->get('ETag'))
+        ->patchJson($url.'/status', ['status' => 'active']);
+    $active->assertOk()->assertJsonPath('status', 'active');
+    expect($planner->plan($request('account-42'))->automation?->source)->toBe('github/deploy-v2');
+
+    config()->set('gateway.shell.subscription_hooks', []);
+    expect(fn () => $planner->plan($request('account-42')))
+        ->toThrow(InvalidArgumentException::class, 'not authorized');
+    config()->set('gateway.shell.subscription_hooks', [
+        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy', 'github/deploy-v2']],
+    ]);
+
+    $this->withToken('registry-secret')->withHeader('If-Match', $active->headers->get('ETag'))
+        ->deleteJson($url)->assertNoContent();
+    expect($planner->plan($request('account-42'))->immediateResponse?->statusCode)->toBe(204);
+});
+
+it('shares reply cardinality between HTTP and Shell subscriptions', function (): void {
+    app(AutomationLanguageRegistry::class)->register('shell', AutomationExecutionTarget::SPINNER, AutomationCapability::ROUTE);
+    config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    $endpoint = relayEndpoint();
+    config()->set('gateway.shell.subscription_hooks', [
+        $endpoint->record->endpoint_key => [
+            'shell-owner' => ['github/deploy'],
+            'other-shell-owner' => ['github/other'],
+        ],
+    ]);
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $base = [
+        'webhook_group' => 'meta',
+        'routing_scope' => 'application',
+        'routing_key' => 'app-123',
+        'type' => 'reply',
+    ];
+
+    $shell = $this->withToken('registry-secret')->postJson($route, [
+        ...$base, 'subscriber_id' => 'shell-owner', 'target_kind' => 'shell', 'hook' => 'github/deploy',
+    ]);
+    $shell->assertCreated();
+    $this->withToken('registry-secret')->postJson($route, [
+        ...$base, 'subscriber_id' => 'http-owner', 'url' => 'https://example.test/hook',
+    ])->assertUnprocessable()->assertJsonPath('errors.subscription.0', 'This route already has a synchronous reply subscription.');
+    $this->withToken('registry-secret')->postJson($route, [
+        ...$base, 'subscriber_id' => 'other-shell-owner', 'target_kind' => 'shell', 'hook' => 'github/other',
+    ])->assertUnprocessable();
+
+    $paused = $this->withToken('registry-secret')->withHeader('If-Match', $shell->headers->get('ETag'))
+        ->patchJson($route.'/'.$shell->json('id').'/status', ['status' => 'paused']);
+    $paused->assertOk();
+    $this->withToken('registry-secret')->postJson($route, [
+        ...$base, 'subscriber_id' => 'http-owner', 'url' => 'https://example.test/hook',
+    ])->assertCreated();
+    $this->withToken('registry-secret')->withHeader('If-Match', $paused->headers->get('ETag'))
+        ->patchJson($route.'/'.$shell->json('id').'/status', ['status' => 'active'])
+        ->assertUnprocessable();
+});
+
+it('keeps HTTP relay fan-out alongside a Shell reply and requires Spinner capability', function (): void {
+    config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    $endpoint = relayEndpoint();
+    config()->set('gateway.shell.subscription_hooks', [
+        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy']],
+    ]);
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $base = [
+        'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+    ];
+    $this->withToken('registry-secret')->postJson($route, [
+        ...$base, 'subscriber_id' => 'shell-owner', 'type' => 'reply',
+        'target_kind' => 'shell', 'hook' => 'github/deploy',
+    ])->assertCreated();
+    $this->withToken('registry-secret')->postJson($route, [
+        ...$base, 'subscriber_id' => 'relay-owner', 'type' => 'relay',
+        'url' => 'https://relay.example.test/events',
+    ])->assertCreated();
+
+    $request = static fn (array $languages): IngressRequest => new IngressRequest(
+        deliveryId: 'shell-relay', method: 'POST', host: 'relay.example.test',
+        path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
+        automationLanguages: $languages,
+    );
+    $plan = app(CapabilityAwareRoutePlanner::class)->plan($request(['shell']));
+    expect($plan->action)->toBe('automation')
+        ->and($plan->automation?->source)->toBe('github/deploy')
+        ->and($plan->relays)->toHaveCount(1)
+        ->and($plan->relays[0]->url)->toBe('https://relay.example.test/events');
+    expect(fn () => app(CapabilityAwareRoutePlanner::class)->plan($request([])))
+        ->toThrow(RuntimeException::class, 'not available in this Spinner runtime');
+});
+
+it('offers the same Shell reply definition to trusted PHP callers', function (): void {
+    $endpoint = relayEndpoint();
+    config()->set('gateway.shell.subscription_hooks', [
+        $endpoint->record->endpoint_key => ['php-owner' => ['github/deploy.ps1']],
+    ]);
+    $destination = app(SubscribeEndpoint::class)->handle(
+        $endpoint->record->endpoint_key,
+        SubscriptionDefinition::shellReply(
+            subscriberId: 'php-owner',
+            subscriptionId: 'php-deploy',
+            webhookGroup: 'meta',
+            routingScope: 'application',
+            routingKey: 'app-123',
+            hook: 'github/deploy.ps1',
+            rules: ['method' => ['in:POST']],
+        ),
+    );
+    expect($destination->target)->toBe('gateway-shell://local/github/deploy.ps1');
+    $plan = app(RegistryRoutePlanner::class)->plan(new IngressRequest(
+        deliveryId: 'php-shell', method: 'POST', host: 'relay.example.test',
+        path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
+    ));
+    expect($plan->automation?->source)->toBe('github/deploy.ps1');
+});
+
+it('rejects unsafe Shell reply registrations and hook changes', function (): void {
+    config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
+    $endpoint = relayEndpoint();
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $base = [
+        'subscriber_id' => 'shell-owner',
+        'type' => 'reply',
+        'target_kind' => 'shell',
+        'hook' => 'github/deploy',
+        'webhook_group' => 'meta',
+        'routing_scope' => 'application',
+        'routing_key' => 'app-123',
+    ];
+    $this->withToken('registry-secret')->postJson($route, $base)->assertForbidden();
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    $this->withToken('registry-secret')->postJson($route, $base)->assertUnprocessable()
+        ->assertJsonPath('errors.subscription.0', 'The Shell hook is not authorized for this endpoint and subscriber.');
+    config()->set('gateway.shell.subscription_hooks', [
+        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy']],
+    ]);
+    foreach ([
+        ['hook' => '../escape'],
+        ['type' => 'relay'],
+        ['url' => 'https://example.test/hook'],
+        ['profile' => 'proxy'],
+        ['credential' => 'private-key'],
+    ] as $change) {
+        $this->withToken('registry-secret')->postJson($route, [...$base, ...$change])->assertUnprocessable();
+    }
+    $created = $this->withToken('registry-secret')->postJson($route, $base);
+    $created->assertCreated();
+    $url = $route.'/'.$created->json('id');
+    $this->withHeader('X-Gateway-Shell-Subscription', 'wrong-token');
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->patchJson($url, ['hook' => 'github/deploy'])->assertForbidden();
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->patchJson($url.'/status', ['status' => 'paused'])->assertForbidden();
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->patchJson($url.'/match', [
+            'version' => 'v1',
+            'operations' => [['op' => 'add', 'field' => 'body.id', 'rules' => ['required']]],
+        ])->assertForbidden();
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->deleteJson($url)->assertForbidden();
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    foreach ([
+        ['hook' => '../escape'],
+        ['hook' => 'github/other'],
+        ['url' => 'https://example.test/hook'],
+        ['type' => 'relay'],
+        ['profile' => null],
+    ] as $change) {
+        $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+            ->patchJson($url, $change)->assertUnprocessable();
+    }
 });
