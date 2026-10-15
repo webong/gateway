@@ -732,8 +732,12 @@ func (queue *Queue) deliver(path, name string, queued item) {
 		return
 	}
 
+	uncertain := errors.Is(err, bridge.ErrUncertainDelivery)
 	queued.LastError = err.Error()
-	if queued.Attempts >= queue.config.MaxAttempts || adapter == nil || errors.Is(err, bridge.ErrPermanentDelivery) {
+	if uncertain {
+		queued.BodyAssertion = "smtp_acceptance_unknown"
+	}
+	if queued.Attempts >= queue.config.MaxAttempts || adapter == nil || errors.Is(err, bridge.ErrPermanentDelivery) || uncertain {
 		queued.State = StateFailed
 		queue.transitionMu.Lock()
 		failed := false
@@ -746,7 +750,7 @@ func (queue *Queue) deliver(path, name string, queued item) {
 			}
 		}
 		queue.transitionMu.Unlock()
-		if failed {
+		if failed && !uncertain {
 			if err := queue.ensureFailureNotice(queued); err != nil {
 				log.Printf("Gateway delivery failure notice enqueue failed for %s: %v", queued.ID, err)
 			}

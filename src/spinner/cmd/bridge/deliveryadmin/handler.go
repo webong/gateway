@@ -70,8 +70,8 @@ func WithShellRunHistory(reader runHistoryReader) HandlerOption {
 	}
 }
 
-// WithEmailSubmission enables the private handoff only when a durable SMTP
-// queue and configured outbound relay are present on this node.
+// WithEmailSubmission enables the private handoff when a durable SMTP adapter
+// is present on this node, including per-connection mailbox SMTP routing.
 func WithEmailSubmission(queue emailQueue, checker signingChecker, scanner smtp.MalwareScanner, maxMessageSize int64, loopKey []byte, failureNotices bool) HandlerOption {
 	return func(handler *Handler) error {
 		if queue == nil || maxMessageSize < 1 || len(loopKey) == 0 {
@@ -231,11 +231,12 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	var input struct {
-		ReceiptID         string   `json:"receipt_id"`
-		MailFrom          string   `json:"mail_from"`
-		AuthorizedSenders []string `json:"authorized_senders"`
-		Recipients        []string `json:"recipients"`
-		Message           []byte   `json:"message"`
+		ReceiptID           string   `json:"receipt_id"`
+		MailFrom            string   `json:"mail_from"`
+		AuthorizedSenders   []string `json:"authorized_senders"`
+		Recipients          []string `json:"recipients"`
+		Message             []byte   `json:"message"`
+		MailboxConnectionID string   `json:"mailbox_connection_id"`
 	}
 	// Base64 expands the raw RFC 5322 message; leave room for the JSON envelope.
 	limit := handler.email.maxMessageSize*2 + 65536
@@ -279,6 +280,20 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 		"recipients":                      string(recipients),
 		bridge.DKIMSigningDomainAttribute: signingDomain,
 	}
+	adapter := ""
+	if input.MailboxConnectionID != "" {
+		if !validMailboxConnectionID(input.MailboxConnectionID) {
+			writeError(writer, http.StatusUnprocessableEntity, "Mailbox connection is invalid.")
+			return
+		}
+		attributes["mailbox_connection_id"] = input.MailboxConnectionID
+		adapter = "mailbox.smtp"
+		supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool })
+		if !ok || !supported.SupportsAdapter(adapter) {
+			writeError(writer, http.StatusServiceUnavailable, "Mailbox SMTP transport is unavailable.")
+			return
+		}
+	}
 	if handler.email.failureNotices {
 		attributes[bridge.FailureNoticeToAttribute] = input.MailFrom
 	}
@@ -287,9 +302,13 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 		Recipients []string `json:"recipients"`
 		Message    []byte   `json:"message"`
 	}{input.MailFrom, input.Recipients, input.Message})
+	if adapter != "" {
+		fingerprintInput = append(fingerprintInput, []byte(input.MailboxConnectionID)...)
+	}
 	fingerprint := sha256.Sum256(fingerprintInput)
 	replayed, err := handler.email.queue.EnqueueGatewayIdempotent(bridge.GatewayDelivery{
 		Protocol:   bridge.ProtocolSMTP,
+		Adapter:    adapter,
 		Target:     input.Recipients[0],
 		Payload:    message,
 		Attributes: attributes,
@@ -303,6 +322,24 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, map[string]any{"id": input.ReceiptID, "state": "queued", "replayed": replayed})
+}
+
+func validMailboxConnectionID(id string) bool {
+	if len(id) != 36 {
+		return false
+	}
+	for i, char := range id {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if char != '-' {
+				return false
+			}
+			continue
+		}
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func validReceiptID(id string) bool {

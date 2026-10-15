@@ -30,6 +30,9 @@ var (
 	ErrInvalidPlan       = errors.New("invalid route plan")
 	ErrInvalidDelivery   = errors.New("invalid delivery")
 	ErrPermanentDelivery = errors.New("permanent delivery failure")
+	// ErrUncertainDelivery means the remote service may have accepted the
+	// message. The queue must stop automatic retries to avoid duplicates.
+	ErrUncertainDelivery = errors.New("delivery acceptance is uncertain")
 	ErrMissingPlanResult = errors.New("route planner returned no plan")
 )
 
@@ -151,6 +154,13 @@ type GatewayExecutor interface {
 type DurableGatewayExecutor interface {
 	GatewayExecutor
 	DurableGatewayDeliveries() bool
+}
+
+// DurableGatewayBatchExecutor persists one fanout manifest before SMTP DATA
+// is acknowledged. Child receipts are created idempotently by the worker.
+type DurableGatewayBatchExecutor interface {
+	DurableGatewayExecutor
+	EnqueueGatewayBatch(string, []GatewayDelivery) bool
 }
 
 // GatewayDeliveryAdapter performs one resolved delivery. Adapters own their

@@ -45,6 +45,23 @@ return [
     ],
 
     'email' => [
+        // MX-to-webhook delivery is separate from alias-to-SMTP forwarding.
+        'hooks_enabled' => (bool) env('GATEWAY_EMAIL_HOOKS_ENABLED', false),
+        'hook_client' => (string) env('GATEWAY_EMAIL_HOOK_CLIENT', 'gateway'),
+        'provider_route_resolver' => env('GATEWAY_EMAIL_PROVIDER_ROUTE_RESOLVER'),
+        // Exact operator-approved upstream IDs. Customer input selects IDs,
+        // never raw network addresses.
+        'imap_upstreams' => json_decode((string) (env('GATEWAY_EMAIL_IMAP_UPSTREAMS') ?: '{}'), true),
+        'smtp_upstreams' => json_decode((string) (env('GATEWAY_EMAIL_SMTP_UPSTREAMS') ?: '{}'), true),
+        'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER'),
+        'oauth' => [
+            'google' => ['client_id' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_ID'),
+                'client_secret' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET')],
+            'microsoft' => ['client_id' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_ID'),
+                'client_secret' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET'),
+                'tenant' => env('GATEWAY_EMAIL_MICROSOFT_TENANT', 'common')],
+        ],
+        'connected_smtp_enabled' => (bool) env('GATEWAY_EMAIL_CONNECTED_SMTP_ENABLED', false),
         // Refresh TXT ownership during SMTP planning after this interval.
         // Zero checks every transaction; a stale, unverifiable domain fails
         // temporarily instead of accepting mail on historical ownership.

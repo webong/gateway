@@ -14,8 +14,11 @@ use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailPolicyVerdict;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionQuota;
+use Webong\Gateway\Email\EmailProviderRoute;
+use Webong\Gateway\Email\EmailProviderRouteResolver;
 use Webong\Gateway\Email\EmailSuppressionStore;
 use Webong\Gateway\Email\MailboxAuthenticator;
+use Webong\Gateway\Email\MailHookRegistry;
 use Webong\Gateway\Email\DmarcEvaluator;
 use Webong\Gateway\Email\SrsReturnStore;
 use Webong\Gateway\Protocol\Delivery;
@@ -47,6 +50,8 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         private readonly ?EmailSubmissionAuthenticator $submissionAuthenticator = null,
         private readonly ?EmailSubmissionQuota $submissionQuota = null,
         private readonly ?MailboxAuthenticator $mailboxAuthenticator = null,
+        private readonly ?MailHookRegistry $mailHooks = null,
+        private readonly ?EmailProviderRouteResolver $providerRoutes = null,
         private readonly ?EmailSuppressionStore $suppressions = null,
         private readonly array $webstreamRoutes = [],
     ) {}
@@ -110,6 +115,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                 metadata: [
                     'auth_identity' => $grant->identity,
                     'authorized_mail_from' => json_encode($grant->authorizedSenders, JSON_THROW_ON_ERROR),
+                    ...($grant->connectionId !== null ? ['mailbox_connection_id' => $grant->connectionId] : []),
                     ...($grant->dailyLimit !== null ? ['submission_daily_limit' => (string) $grant->dailyLimit] : []),
                     ...($grant->dailyByteLimit !== null ? ['submission_daily_byte_limit' => (string) $grant->dailyByteLimit] : []),
                 ],
@@ -125,6 +131,12 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             if ($this->srs !== null && $this->srs->isCandidate($event->route)) {
                 return $this->returnRecipient($event);
             }
+            if (($provider = $this->providerRoutes?->resolve(strtolower($event->route))) !== null) {
+                return $this->providerRecipient($event);
+            }
+            if ($this->mailHookDomain($event->route) !== null) {
+                return $this->mailHookRecipient($event);
+            }
             return $this->email !== null
                 ? $this->managedEmailRecipient($event)
                 : new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::ACCEPT, statusCode: 250);
@@ -132,6 +144,12 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         if ($event->protocol === Protocol::SMTP && $event->kind === EventKind::TRANSACTION && $this->email !== null) {
             if ($this->srs !== null && $this->hasReturnRecipient($event)) {
                 return $this->returnTransaction($event);
+            }
+            if (($provider = $this->providerRoutes?->resolve(strtolower($event->route))) !== null) {
+                return $this->providerTransaction($event, $provider);
+            }
+            if ($this->mailHookDomain($event->route) !== null) {
+                return $this->mailHookTransaction($event);
             }
             $managed = $this->managedEmail($event);
             if ($managed !== null) {
@@ -224,6 +242,136 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
 
         return null;
+    }
+
+    private function mailHookDomain(string $address): ?string
+    {
+        if ($this->mailHooks === null || ! str_contains($address, '@')) { return null; }
+        $domain = strtolower(rtrim(substr($address, (int) strrpos($address, '@') + 1), '.'));
+
+        return $this->mailHooks->activeForAddress($address) !== null ? $domain : null;
+    }
+
+    private function providerRecipient(GatewayEvent $event): GatewayDecision
+    {
+        if ($this->email === null) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 451, message: 'Mail domain registry is unavailable.'); }
+        $accepted = json_decode($event->attributes['accepted_recipients'] ?? '[]', true);
+        if ($accepted !== []) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 550, message: 'Hosted mailbox routes accept one recipient per SMTP transaction.');
+        }
+        $domain = substr($event->route, (int) strrpos($event->route, '@') + 1);
+        try { $this->email->requireActiveDomain($domain); }
+        catch (EmailRouteRejected) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Mail domain is unavailable.'); }
+        catch (Throwable) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 451, message: 'Mail domain verification is unavailable.'); }
+
+        return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::ACCEPT, statusCode: 250);
+    }
+
+    private function providerTransaction(GatewayEvent $event, EmailProviderRoute $route): GatewayDecision
+    {
+        if ($this->email === null) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 451, message: 'Mail domain registry is unavailable.'); }
+        $recipients = array_values(array_filter(explode(',', $event->attributes['recipients'] ?? $event->route)));
+        if (count($recipients) !== 1 || strcasecmp($recipients[0], $event->route) !== 0) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 550, message: 'Hosted mailbox routes accept one recipient per SMTP transaction.');
+        }
+        $domain = substr($event->route, (int) strrpos($event->route, '@') + 1);
+        try { $this->email->requireActiveDomain($domain); }
+        catch (EmailRouteRejected) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Mail domain is unavailable.'); }
+        catch (Throwable) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 451, message: 'Mail domain verification is unavailable.'); }
+        if ($this->suppressions?->containsAny($recipients) === true) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Recipient is suppressed.');
+        }
+        $assessment = $this->dmarc?->evaluate($event);
+        $policy = $this->emailPolicy?->assess($event, $recipients, $assessment) ?? EmailPolicyVerdict::Accept;
+        if ($policy !== EmailPolicyVerdict::Accept) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: $policy === EmailPolicyVerdict::Defer ? 451 : 550, message: 'Message rejected by email policy.');
+        }
+        if (config('gateway.email.dmarc_enforce_enabled', false) && $assessment !== null) {
+            if ($assessment->result === 'temperror') {
+                return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                    statusCode: 451, message: 'Sender authentication is temporarily unavailable.');
+            }
+            if ($assessment->result === 'fail' && in_array($assessment->effectivePolicy, ['quarantine', 'reject'], true)) {
+                return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::QUARANTINE, statusCode: 250);
+            }
+        }
+        return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::DELIVER,
+            statusCode: 250, deliveries: [new GatewayDelivery(
+                protocol: Protocol::SMTP, adapter: $route->adapter, target: $route->mailboxKey,
+                subscriberId: $route->accountId, payload: $event->payload,
+                attributes: ['event_id' => $event->id, 'account_id' => $route->accountId,
+                    'mail_from' => $event->attributes['mail_from'] ?? '',
+                    'recipient' => $recipients[0], 'recipients' => json_encode($recipients, JSON_THROW_ON_ERROR)],
+            )]);
+    }
+
+    private function mailHookRecipient(GatewayEvent $event): GatewayDecision
+    {
+        $domain = $this->mailHookDomain($event->route);
+        $accepted = json_decode($event->attributes['accepted_recipients'] ?? '[]', true);
+        if ($domain === null || ! is_array($accepted) || $accepted !== []) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Mail hooks accept one recipient per SMTP transaction.');
+        }
+        try { $this->email->requireActiveDomain($domain); }
+        catch (EmailRouteRejected) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Mail domain is unavailable.'); }
+        catch (Throwable) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 451, message: 'Mail domain verification is unavailable.'); }
+
+        return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::ACCEPT, statusCode: 250);
+    }
+
+    private function mailHookTransaction(GatewayEvent $event): GatewayDecision
+    {
+        $domain = $this->mailHookDomain($event->route);
+        $recipients = array_values(array_filter(explode(',', $event->attributes['recipients'] ?? $event->route)));
+        if ($domain === null || count($recipients) !== 1 || $this->mailHookDomain($recipients[0]) !== $domain) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Mail hooks accept one recipient per SMTP transaction.');
+        }
+        try { $this->email->requireActiveDomain($domain); }
+        catch (EmailRouteRejected) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Mail domain is unavailable.'); }
+        catch (Throwable) { return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 451, message: 'Mail domain verification is unavailable.'); }
+        if ($this->suppressions?->containsAny($recipients) === true) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Recipient is suppressed.');
+        }
+        $assessment = $this->dmarc?->evaluate($event);
+        $policy = $this->emailPolicy?->assess($event, $recipients, $assessment) ?? EmailPolicyVerdict::Accept;
+        if ($policy !== EmailPolicyVerdict::Accept) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: $policy === EmailPolicyVerdict::Defer ? 451 : 550,
+                message: 'Message rejected by email policy.');
+        }
+        if (config('gateway.email.dmarc_enforce_enabled', false) && $assessment !== null) {
+            if ($assessment->result === 'temperror') {
+                return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                    statusCode: 451, message: 'Sender authentication is temporarily unavailable.');
+            }
+            if ($assessment->result === 'fail' && in_array($assessment->effectivePolicy, ['quarantine', 'reject'], true)) {
+                return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::QUARANTINE, statusCode: 250);
+            }
+        }
+        $plan = $this->routePlanner->plan(new IngressRequest(
+            deliveryId: $event->id, method: 'POST', host: $event->host, path: $event->route, rawQuery: '',
+            headers: $event->headers, body: $event->payload, scheme: 'smtp',
+            protocol: 'smtp', event: $event->kind->value, sessionId: $event->sessionId,
+            attributes: $event->attributes,
+        ));
+        if ($plan->action !== RoutePlan::RELAY || $plan->reply !== null || $plan->relays === []) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'No mail hook subscribers are active.');
+        }
+        $deliveries = array_map(function (Delivery $target) use ($event): GatewayDelivery {
+            $delivery = $this->delivery($target, $event);
+            return new GatewayDelivery(
+                protocol: Protocol::HTTP, target: $delivery->target,
+                subscriberId: $delivery->subscriberId, headers: $delivery->headers,
+                attributes: $delivery->attributes, payload: $event->payload,
+                transport: $delivery->transport,
+            );
+        }, $plan->relays);
+
+        return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::DELIVER,
+            statusCode: 250, deliveries: $deliveries);
     }
 
     private function managedEmailRecipient(GatewayEvent $event): GatewayDecision
@@ -510,6 +658,14 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         $headers = $delivery->headers;
         if ($event->protocol === Protocol::DNS && ! isset($headers['Content-Type'])) {
             $headers['Content-Type'] = ['application/json'];
+        }
+        if ($event->protocol === Protocol::SMTP) {
+            $headers['Content-Type'] = ['message/rfc822'];
+            $headers['X-Gateway-Event-Id'] = [$event->id];
+            $headers['X-Gateway-Envelope'] = [base64_encode(json_encode([
+                'mail_from' => $event->attributes['mail_from'] ?? '',
+                'recipients' => array_values(array_filter(explode(',', $event->attributes['recipients'] ?? $event->route))),
+            ], JSON_THROW_ON_ERROR))];
         }
 
         return new GatewayDelivery(

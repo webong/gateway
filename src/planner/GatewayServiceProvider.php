@@ -33,6 +33,14 @@ use Webong\Gateway\Dns\ManualDnsProvider;
 use Webong\Gateway\Email\Http\EmailController;
 use Webong\Gateway\Email\Http\EmailSubmissionController;
 use Webong\Gateway\Email\Http\EmailSuppressionController;
+use Webong\Gateway\Email\Http\MailHookController;
+use Webong\Gateway\Email\Http\MailboxConnectionController;
+use Webong\Gateway\Email\Http\InternalMailboxTransportController;
+use Webong\Gateway\Email\MailHookPathResolver;
+use Webong\Gateway\Email\CacheableMailHookPathResolver;
+use Webong\Gateway\Email\MailHookRegistry;
+use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Email\MailboxOAuthRefresher;
 use Webong\Gateway\Email\EmailRegistry;
 use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
@@ -76,6 +84,18 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/config/webstream.php', 'gateway-webstream');
 
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
+        $this->app->bind(MailboxConnectionStore::class, function (): MailboxConnectionStore {
+            $configured = config('gateway.email.oauth_refresher');
+            $refresher = null;
+            if (is_string($configured) && $configured !== '') {
+                $refresher = $this->app->make($configured);
+                if (! $refresher instanceof MailboxOAuthRefresher) {
+                    throw new RuntimeException('Gateway mailbox OAuth refresher must implement MailboxOAuthRefresher.');
+                }
+            }
+
+            return new MailboxConnectionStore($refresher);
+        });
         $this->app->bind(SrsReturnStore::class, function (): SrsReturnStore {
             $encoded = config('gateway.email.srs_keys');
             if (! is_array($encoded) || ! array_is_list($encoded) || $encoded === []) {
@@ -172,9 +192,16 @@ final class GatewayServiceProvider extends ServiceProvider
             }
 
             if ((bool) config('gateway.dns.enabled', false)) {
-                return $fallback === null || $fallback instanceof CacheablePathResolver
+                $fallback = $fallback === null || $fallback instanceof CacheablePathResolver
                     ? new CacheableDnsHookPathResolver($fallback)
                     : new DnsHookPathResolver($fallback);
+            }
+
+            if ((bool) config('gateway.email.hooks_enabled', false)) {
+                $hooks = $this->app->make(MailHookRegistry::class);
+                return $fallback === null || $fallback instanceof CacheablePathResolver
+                    ? new CacheableMailHookPathResolver($hooks, $fallback)
+                    : new MailHookPathResolver($hooks, $fallback);
             }
 
             return $fallback ?? throw new RuntimeException('Configure gateway.path_resolver for the registry route planner.');
@@ -184,7 +211,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $configuredPlanner = config('gateway.planner');
             $configuredResolver = config('gateway.path_resolver');
             $hasResolver = (is_string($configuredResolver) && $configuredResolver !== '')
-                || (bool) config('gateway.dns.enabled', false);
+                || (bool) config('gateway.dns.enabled', false)
+                || (bool) config('gateway.email.hooks_enabled', false)
+                || (string) config('gateway.email.provider_route_resolver', '') !== '';
             $planner = $configuredPlanner
                 ?: ($hasResolver ? RegistryRoutePlanner::class : null);
 
@@ -217,6 +246,8 @@ final class GatewayServiceProvider extends ServiceProvider
             submissionQuota: $this->app->make(EmailSubmissionQuota::class),
             suppressions: $this->app->make(EmailSuppressionStore::class),
             mailboxAuthenticator: $this->mailboxAuthenticator(),
+            mailHooks: config('gateway.email.hooks_enabled', false) ? $this->app->make(MailHookRegistry::class) : null,
+            providerRoutes: $this->emailProviderRouteResolver(),
             webstreamRoutes: config('gateway-webstream.routes', []),
         ));
 
@@ -224,7 +255,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $configuredPlanner = config('gateway.protocol_planner');
             $configuredResolver = config('gateway.path_resolver');
             $hasResolver = (is_string($configuredResolver) && $configuredResolver !== '')
-                || (bool) config('gateway.dns.enabled', false);
+                || (bool) config('gateway.dns.enabled', false)
+                || (bool) config('gateway.email.hooks_enabled', false);
             $planner = $configuredPlanner
                 ?: ($hasResolver ? RegistryProtocolPlanner::class : null);
 
@@ -292,6 +324,19 @@ final class GatewayServiceProvider extends ServiceProvider
         return $authenticator;
     }
 
+    private function emailProviderRouteResolver(): ?\Webong\Gateway\Email\EmailProviderRouteResolver
+    {
+        $configured = config('gateway.email.provider_route_resolver');
+        if ($configured === null || $configured === '') { return null; }
+        if (! is_string($configured)) { throw new RuntimeException('Gateway Email provider route resolver must be a class name.'); }
+        $resolver = $this->app->make($configured);
+        if (! $resolver instanceof \Webong\Gateway\Email\EmailProviderRouteResolver) {
+            throw new RuntimeException('Gateway Email provider route resolver must implement EmailProviderRouteResolver.');
+        }
+
+        return $resolver;
+    }
+
     public function boot(): void
     {
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
@@ -310,6 +355,13 @@ final class GatewayServiceProvider extends ServiceProvider
             }
         }
 
+        if ((bool) config('gateway.email.hooks_enabled', false)) {
+            $client = trim((string) config('gateway.email.hook_client', 'gateway'));
+            if ($client === '') { throw new RuntimeException('Gateway mail hooks require gateway.email.hook_client.'); }
+            $webProxy = $this->app->make(WebProxy::class);
+            if (! $webProxy->has($client)) { $webProxy->register($client, GatewayRouter::class); }
+        }
+
         $this->publishes([
             __DIR__.'/config/gateway.php' => config_path('gateway.php'),
         ], 'gateway-config');
@@ -321,6 +373,7 @@ final class GatewayServiceProvider extends ServiceProvider
             if ((bool) config('gateway.dns.enabled', false)) {
                 $this->app['router']->get('/_internal/gateway/dns/zones', InternalDnsZoneController::class);
             }
+            $this->app['router']->get('/_internal/gateway/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
             $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
             $this->app['router']->post('/_internal/gateway/schedules/register', [InternalScheduleController::class, 'register']);
@@ -361,6 +414,21 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/deliveries/{delivery}', [DeliveryController::class, 'show']);
             $this->app['router']->post('/deliveries/{delivery}/retry', [DeliveryController::class, 'retry']);
             $this->app['router']->get('/email/domains', [EmailController::class, 'domains']);
+            $this->app['router']->post('/email/mailbox-accounts', [MailboxConnectionController::class, 'createAccount']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'index']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'create']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'show']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/connections/{connection}/test', [MailboxConnectionController::class, 'test']);
+            $this->app['router']->patch('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'status']);
+            $this->app['router']->put('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'replace']);
+            $this->app['router']->delete('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'delete']);
+            if ((bool) config('gateway.email.hooks_enabled', false)) {
+                $this->app['router']->get('/email/hooks', [MailHookController::class, 'index']);
+                $this->app['router']->post('/email/hooks', [MailHookController::class, 'create']);
+                $this->app['router']->get('/email/hooks/{hook}', [MailHookController::class, 'show']);
+                $this->app['router']->patch('/email/hooks/{hook}', [MailHookController::class, 'status']);
+                $this->app['router']->delete('/email/hooks/{hook}', [MailHookController::class, 'delete']);
+            }
             $this->app['router']->post('/email/submissions', EmailSubmissionController::class);
             $this->app['router']->get('/email/suppressions', [EmailSuppressionController::class, 'index']);
             $this->app['router']->post('/email/suppressions', [EmailSuppressionController::class, 'store']);

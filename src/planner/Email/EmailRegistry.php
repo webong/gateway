@@ -111,6 +111,25 @@ final readonly class EmailRegistry
         return DB::table('email_aliases')->where('domain_id', $domain->id)->where('local_part', $localPart)->first();
     }
 
+    /** A matching alias, including a paused one, reserves this address from catch-all hooks. */
+    public function hasAliasMatch(string $address): bool
+    {
+        $at = strrpos($address, '@');
+        if ($at === false) { return false; }
+        $domain = $this->domainByName(strtolower(rtrim(substr($address, $at + 1), '.')));
+        if ($domain === null) { return false; }
+        $local = strtolower(substr($address, 0, $at));
+        foreach ($this->aliases($domain) as $alias) {
+            if ($alias->local_part === $local || $alias->local_part === '*'
+                || (str_ends_with($alias->local_part, '*')
+                    && str_starts_with($local, substr($alias->local_part, 0, -1)))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<string> $recipients */
     public function createAlias(stdClass $domain, string $localPart, array $recipients): stdClass
     {

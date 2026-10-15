@@ -160,7 +160,7 @@ func (s *Server) ConfigureDeliveryQueue() error {
 		if history := automationextensions.RunHistory(); history != nil {
 			options = append(options, deliveryadmin.WithShellRunHistory(history))
 		}
-		if s.config.SMTPRelayAddress != "" {
+		if s.config.SMTPRelayAddress != "" || s.config.MailboxSMTPResolverURL != "" {
 			adapter, adapterErr := transport.NewSMTPAdapter(s.config)
 			if adapterErr != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)

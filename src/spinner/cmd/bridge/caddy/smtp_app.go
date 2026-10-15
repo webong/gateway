@@ -57,55 +57,58 @@ func init() {
 // SMTPApp is a Caddy app module which starts the same Go SMTP adapter as
 // src/spinner/cmd/proxy. It is a sibling TCP service, not an HTTP handler in php_server.
 type SMTPApp struct {
-	Listen                string          `json:"listen,omitempty"`
-	PlannerURL            string          `json:"planner_url,omitempty"`
-	InternalToken         string          `json:"internal_token,omitempty"`
-	Hostname              string          `json:"hostname,omitempty"`
-	MaxMessageSize        int64           `json:"max_message_size,omitempty"`
-	MaxLineSize           int             `json:"max_line_size,omitempty"`
-	MaxRecipients         int             `json:"max_recipients,omitempty"`
-	MaxConnections        int             `json:"max_connections,omitempty"`
-	MessagesPerMinute     int             `json:"messages_per_minute,omitempty"`
-	MessageBurst          int             `json:"message_burst,omitempty"`
-	ReadTimeout           caddy.Duration  `json:"read_timeout,omitempty"`
-	WriteTimeout          caddy.Duration  `json:"write_timeout,omitempty"`
-	PlannerTimeout        caddy.Duration  `json:"planner_timeout,omitempty"`
-	TLSCertFile           string          `json:"tls_cert_file,omitempty"`
-	TLSKeyFile            string          `json:"tls_key_file,omitempty"`
-	ImplicitTLS           bool            `json:"implicit_tls,omitempty"`
-	AuthEnabled           bool            `json:"auth_enabled,omitempty"`
-	RecipientPreflight    *bool           `json:"recipient_preflight,omitempty"`
-	RelayAddress          string          `json:"relay_address,omitempty"`
-	RelayLocalName        string          `json:"relay_local_name,omitempty"`
-	RelayServerName       string          `json:"relay_server_name,omitempty"`
-	RelayUsername         string          `json:"relay_username,omitempty"`
-	RelayPassword         string          `json:"relay_password,omitempty"`
-	RelayTLSMode          string          `json:"relay_tls_mode,omitempty"`
-	RelayTimeout          caddy.Duration  `json:"relay_timeout,omitempty"`
-	DKIMSigningConfig     string          `json:"dkim_signing_config,omitempty"`
-	ClamdNetwork          string          `json:"clamd_network,omitempty"`
-	ClamdAddress          string          `json:"clamd_address,omitempty"`
-	ClamdTimeout          caddy.Duration  `json:"clamd_timeout,omitempty"`
-	DomainResolverAddress string          `json:"domain_resolver_address,omitempty"`
-	DomainLookupTimeout   caddy.Duration  `json:"domain_lookup_timeout,omitempty"`
-	QuarantinePath        string          `json:"quarantine_path,omitempty"`
-	QuarantineRetention   caddy.Duration  `json:"quarantine_retention,omitempty"`
-	DSNDomain             string          `json:"dsn_domain,omitempty"`
-	SpoolPath             string          `json:"spool_path,omitempty"`
-	DeliveryDatabaseURL   string          `json:"delivery_database_url,omitempty"`
-	MaxAttempts           int             `json:"max_attempts,omitempty"`
-	InitialBackoff        caddy.Duration  `json:"initial_backoff,omitempty"`
-	MaxBackoff            caddy.Duration  `json:"max_backoff,omitempty"`
-	PollInterval          caddy.Duration  `json:"poll_interval,omitempty"`
-	ReceiptRetention      *caddy.Duration `json:"receipt_retention,omitempty"`
-	MaxWorkers            int             `json:"max_workers,omitempty"`
-	MaxQueueSize          int             `json:"max_queue_size,omitempty"`
-	RequestTimeout        caddy.Duration  `json:"request_timeout,omitempty"`
-	MaxBodySize           int64           `json:"max_body_size,omitempty"`
-	MaxIdleConns          int             `json:"max_idle_conns,omitempty"`
-	MaxConnsPerHost       int             `json:"max_conns_per_host,omitempty"`
-	IdleConnTimeout       caddy.Duration  `json:"idle_conn_timeout,omitempty"`
-	LogLevel              string          `json:"log_level,omitempty"`
+	Listen                string                                       `json:"listen,omitempty"`
+	PlannerURL            string                                       `json:"planner_url,omitempty"`
+	InternalToken         string                                       `json:"internal_token,omitempty"`
+	Hostname              string                                       `json:"hostname,omitempty"`
+	MaxMessageSize        int64                                        `json:"max_message_size,omitempty"`
+	MaxLineSize           int                                          `json:"max_line_size,omitempty"`
+	MaxRecipients         int                                          `json:"max_recipients,omitempty"`
+	MaxConnections        int                                          `json:"max_connections,omitempty"`
+	MessagesPerMinute     int                                          `json:"messages_per_minute,omitempty"`
+	MessageBurst          int                                          `json:"message_burst,omitempty"`
+	ReadTimeout           caddy.Duration                               `json:"read_timeout,omitempty"`
+	WriteTimeout          caddy.Duration                               `json:"write_timeout,omitempty"`
+	PlannerTimeout        caddy.Duration                               `json:"planner_timeout,omitempty"`
+	TLSCertFile           string                                       `json:"tls_cert_file,omitempty"`
+	TLSKeyFile            string                                       `json:"tls_key_file,omitempty"`
+	ImplicitTLS           bool                                         `json:"implicit_tls,omitempty"`
+	AuthEnabled           bool                                         `json:"auth_enabled,omitempty"`
+	RecipientPreflight    *bool                                        `json:"recipient_preflight,omitempty"`
+	RelayAddress          string                                       `json:"relay_address,omitempty"`
+	RelayLocalName        string                                       `json:"relay_local_name,omitempty"`
+	RelayServerName       string                                       `json:"relay_server_name,omitempty"`
+	RelayUsername         string                                       `json:"relay_username,omitempty"`
+	RelayPassword         string                                       `json:"relay_password,omitempty"`
+	RelayTLSMode          string                                       `json:"relay_tls_mode,omitempty"`
+	RelayTimeout          caddy.Duration                               `json:"relay_timeout,omitempty"`
+	MailboxResolverURL    string                                       `json:"mailbox_resolver_url,omitempty"`
+	MailboxUpstreams      map[string]relayconfig.SMTPUpstreamSpec      `json:"mailbox_upstreams,omitempty"`
+	HostedMailAdapters    map[string]relayconfig.HostedMailAdapterSpec `json:"hosted_mail_adapters,omitempty"`
+	DKIMSigningConfig     string                                       `json:"dkim_signing_config,omitempty"`
+	ClamdNetwork          string                                       `json:"clamd_network,omitempty"`
+	ClamdAddress          string                                       `json:"clamd_address,omitempty"`
+	ClamdTimeout          caddy.Duration                               `json:"clamd_timeout,omitempty"`
+	DomainResolverAddress string                                       `json:"domain_resolver_address,omitempty"`
+	DomainLookupTimeout   caddy.Duration                               `json:"domain_lookup_timeout,omitempty"`
+	QuarantinePath        string                                       `json:"quarantine_path,omitempty"`
+	QuarantineRetention   caddy.Duration                               `json:"quarantine_retention,omitempty"`
+	DSNDomain             string                                       `json:"dsn_domain,omitempty"`
+	SpoolPath             string                                       `json:"spool_path,omitempty"`
+	DeliveryDatabaseURL   string                                       `json:"delivery_database_url,omitempty"`
+	MaxAttempts           int                                          `json:"max_attempts,omitempty"`
+	InitialBackoff        caddy.Duration                               `json:"initial_backoff,omitempty"`
+	MaxBackoff            caddy.Duration                               `json:"max_backoff,omitempty"`
+	PollInterval          caddy.Duration                               `json:"poll_interval,omitempty"`
+	ReceiptRetention      *caddy.Duration                              `json:"receipt_retention,omitempty"`
+	MaxWorkers            int                                          `json:"max_workers,omitempty"`
+	MaxQueueSize          int                                          `json:"max_queue_size,omitempty"`
+	RequestTimeout        caddy.Duration                               `json:"request_timeout,omitempty"`
+	MaxBodySize           int64                                        `json:"max_body_size,omitempty"`
+	MaxIdleConns          int                                          `json:"max_idle_conns,omitempty"`
+	MaxConnsPerHost       int                                          `json:"max_conns_per_host,omitempty"`
+	IdleConnTimeout       caddy.Duration                               `json:"idle_conn_timeout,omitempty"`
+	LogLevel              string                                       `json:"log_level,omitempty"`
 
 	server            *smtpgateway.Server
 	forwarder         *forwarding.Forwarder
@@ -150,6 +153,9 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		SMTPRelayServerName: a.RelayServerName, SMTPRelayUsername: a.RelayUsername,
 		SMTPRelayPassword: a.RelayPassword, SMTPRelayTLSMode: a.RelayTLSMode,
 		SMTPRelayTimeout:       time.Duration(a.RelayTimeout),
+		MailboxSMTPResolverURL: a.MailboxResolverURL, MailboxSMTPUpstreams: a.MailboxUpstreams,
+		HostedMailAdapters:     a.HostedMailAdapters,
+		InternalToken:          a.InternalToken,
 		EmailDKIMSigningConfig: a.DKIMSigningConfig,
 		EmailClamdNetwork:      a.ClamdNetwork, EmailClamdAddress: a.ClamdAddress,
 		EmailClamdTimeout: time.Duration(a.ClamdTimeout), EmailQuarantinePath: a.QuarantinePath,
@@ -309,6 +315,15 @@ func (a *SMTPApp) Validate() error {
 	if a.RelayAddress != "" && strings.TrimSpace(a.SpoolPath) == "" && strings.TrimSpace(a.DeliveryDatabaseURL) == "" {
 		return fmt.Errorf("gateway.smtp spool_path or delivery_database_url is required when relay_address is configured")
 	}
+	if (a.MailboxResolverURL == "") != (len(a.MailboxUpstreams) == 0) {
+		return fmt.Errorf("gateway.smtp mailbox resolver and upstreams must be configured together")
+	}
+	if a.MailboxResolverURL != "" && (a.InternalToken == "" || (a.SpoolPath == "" && a.DeliveryDatabaseURL == "")) {
+		return fmt.Errorf("gateway.smtp mailbox delivery requires internal_token and durable storage")
+	}
+	if len(a.HostedMailAdapters) > 0 && a.SpoolPath == "" && a.DeliveryDatabaseURL == "" {
+		return fmt.Errorf("gateway.smtp hosted mail adapters require durable storage")
+	}
 	if a.MaxAttempts < 1 || a.InitialBackoff < 1 || a.MaxBackoff < a.InitialBackoff || a.PollInterval < 1 || (a.ReceiptRetention != nil && *a.ReceiptRetention < 0) {
 		return fmt.Errorf("gateway.smtp spool attempts and durations are invalid")
 	}
@@ -368,7 +383,7 @@ func (a *SMTPApp) Stop() error {
 
 func (a *SMTPApp) applyDefaults() {
 	if a.RecipientPreflight == nil {
-		enabled := a.RelayAddress != ""
+		enabled := a.RelayAddress != "" || len(a.HostedMailAdapters) > 0
 		a.RecipientPreflight = &enabled
 	}
 	if a.Listen == "" {
@@ -508,7 +523,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.TLSKeyFile = value
-		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "dkim_signing_config", "spool_path", "delivery_database_url", "clamd_network", "clamd_address", "domain_resolver_address", "quarantine_path", "dsn_domain":
+		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "mailbox_resolver_url", "mailbox_upstreams", "hosted_mail_adapters", "dkim_signing_config", "spool_path", "delivery_database_url", "clamd_network", "clamd_address", "domain_resolver_address", "quarantine_path", "dsn_domain":
 			option := d.Val()
 			value, err := stringArg(d)
 			if err != nil {
@@ -527,6 +542,16 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.RelayPassword = value
 			case "relay_tls_mode":
 				app.RelayTLSMode = strings.ToLower(value)
+			case "mailbox_resolver_url":
+				app.MailboxResolverURL = value
+			case "mailbox_upstreams":
+				if err := json.Unmarshal([]byte(value), &app.MailboxUpstreams); err != nil {
+					return nil, fmt.Errorf("gateway.smtp mailbox_upstreams must be JSON: %w", err)
+				}
+			case "hosted_mail_adapters":
+				if err := json.Unmarshal([]byte(value), &app.HostedMailAdapters); err != nil {
+					return nil, fmt.Errorf("gateway.smtp hosted_mail_adapters must be JSON: %w", err)
+				}
 			case "dkim_signing_config":
 				app.DKIMSigningConfig = value
 			case "spool_path":

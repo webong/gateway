@@ -1,9 +1,103 @@
 # Gateway mail forwarding plan
 
 Gateway is a mail transport and routing plane. It accepts SMTP transactions and
-asks the Laravel planner whether to accept, reject, or deliver them. The product
-builds on that seam instead of embedding alias, tenant, or storage policy in
-the Go listener.
+asks the Laravel planner whether to accept, reject, or deliver them. A hosted
+mail provider can build on these rails to offer a complete service comparable
+to Forward Email; Gateway itself does not need to host mailboxes, operate a
+webmail product, or own customers' sending reputation. Its contracts must let
+that provider implement those capabilities without changing the core SMTP,
+IMAP, HTTP submission, webhook, or durable delivery paths.
+
+Gateway's mail surface has three complementary routes: MX-to-SMTP alias
+forwarding, MX-to-HTTP webhook hooks, and client access to an external IMAP and
+SMTP provider. A hosted provider can register its own durable delivery adapter
+and mailbox upstream behind the same interfaces. Product parity is evaluated
+on whether that provider can be built and operated on Gateway, not on whether
+Gateway ships every hosted-service feature itself.
+
+## MX mail hooks
+
+Mail hooks are an opt-in MX receiving path alongside alias-to-SMTP forwarding
+and external IMAP mailbox connections. They require `GATEWAY_EMAIL_HOOKS_ENABLED=true`,
+an enabled TXT-verified domain under `/email/domains`, a durable delivery spool
+or shared PostgreSQL queue, and recipient preflight. `POST /email/hooks` with
+`{"domain":"example.com","local_part":"support"}` and the registry bearer
+token creates a managed endpoint for that address. Omitting `local_part`
+creates a catch-all hook for addresses without a matching alias or exact hook.
+The response includes its `endpoint_key`
+and `subscriptions_url`. Add `relay` subscriptions to that endpoint with
+`routing_scope: smtp`, `routing_key: recipient`, and a trusted HTTPS URL.
+`GET/PATCH/DELETE /email/hooks/{id}` lists status, toggles `active`, or disables
+the hook. Re-enabling rechecks domain ownership.
+
+For an active hook, Gateway checks the domain before accepting the recipient,
+routes one recipient per SMTP transaction, and queues the raw RFC 5322 MIME
+body in one durable fan-out manifest before replying `250` to DATA. A worker
+then creates one deterministic receipt per subscriber. The webhook
+body is `message/rfc822`. `X-Gateway-Event-Id` carries the transaction ID;
+`X-Gateway-Envelope` is base64-encoded JSON with `mail_from` and `recipients`.
+The durable HTTP adapter owns retry and failed-delivery receipts. An exact hook
+takes precedence over an alias at the same address; an alias takes precedence
+over a catch-all hook, including when the alias is paused. A hook with no subscribers
+rejects the message. MX DNS still has to point at this Gateway deployment;
+domain verification alone does not change the customer's MX records.
+
+If expansion stops after some child receipts are written, the parent retries
+using the same child IDs and fingerprints. Each child has its own delivery
+receipt and retry outcome. Webhook delivery remains at least once: a worker
+can crash after a subscriber accepts an HTTP request but before recording its
+receipt. Subscribers should deduplicate using Gateway event and delivery
+identifiers. The existing forwarding path itself remains an early capability with
+separate spam, abuse, and reputation gaps described below. Mail hooks do not
+provide mailbox storage, IMAP synchronization, or customer-specific SMTP
+reply sending.
+
+## Customer mailbox connections
+
+Mailbox connections are a separate opt-in path for customers whose mail lives
+on an external IMAP/SMTP provider. Run the new `mailbox_accounts` and
+`mailbox_connections` migration. Configure the same approved upstream IDs in
+Planner (`GATEWAY_EMAIL_IMAP_UPSTREAMS`, `GATEWAY_EMAIL_SMTP_UPSTREAMS`) and
+Spinner (`GATEWAY_IMAP_UPSTREAMS`, `GATEWAY_MAILBOX_SMTP_UPSTREAMS`). Each JSON
+map entry names an operator-controlled `address` and `server_name`; SMTP also
+requires `tls_mode` (`implicit` or `starttls`). Set
+`GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` to
+`Webong\Gateway\Email\ConnectedIMAPAuthenticator` and
+`GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR` to
+`Webong\Gateway\Email\ConnectedSMTPAuthenticator`. Enable existing IMAP and
+HTTPS submission listeners, set `GATEWAY_EMAIL_CONNECTED_SMTP_ENABLED=true`,
+and give Spinner durable delivery storage, `GATEWAY_INTERNAL_TOKEN`,
+`GATEWAY_MAILBOX_SMTP_RESOLVER_URL` pointing to Planner's private origin, and
+a private delivery admin listener. The Caddy SMTP app supports equivalent
+`mailbox_resolver_url` and `mailbox_upstreams` settings.
+
+An operator creates an account with `POST /email/mailbox-accounts` using the
+registry token and `{"id":"customer-id"}`. The returned account bearer token
+manages only `/email/mailbox-accounts/{account}/connections`. Create with an
+email `address`, separate `imap_upstream_id` and `smtp_upstream_id`, separate
+usernames and secrets, and each side's `auth` (`password`, `google`, or
+`microsoft`). The create response returns one-time IMAP and SMTP client
+passwords. Clients use the connection UUID as their username. `POST .../test`
+probes both upstream logins without submitting mail; `PATCH` with
+`{"enabled":true}` requires a healthy probe. `PUT` replaces all upstream
+settings, disables the connection, and requires another test. `DELETE` removes
+it. Management requires HTTPS. Secrets are encrypted at rest and omitted from
+read responses. Each queued SMTP message stores only the connection UUID;
+the worker fetches current credentials and approved routing at delivery time.
+
+For OAuth, set `GATEWAY_EMAIL_OAUTH_REFRESHER` to
+`Webong\Gateway\Email\ProviderMailboxOAuthRefresher` and configure the matching
+`GATEWAY_EMAIL_GOOGLE_CLIENT_ID`/`CLIENT_SECRET` or
+`GATEWAY_EMAIL_MICROSOFT_CLIENT_ID`/`CLIENT_SECRET` and optional
+`GATEWAY_EMAIL_MICROSOFT_TENANT`. This refreshes Google or Microsoft tokens at
+their fixed token endpoints, using transport-specific Microsoft IMAP or SMTP
+scopes, and stores a rotated refresh token when returned. A deployment may
+instead supply a `MailboxOAuthRefresher` implementation. The queue never stores
+access tokens. OAuth authorization and initial consent must supply a refresh
+token with the provider's IMAP or SMTP permission. Google and Microsoft real-provider
+compatibility still needs authorized live tests, including token rotation,
+revocation, and provider-specific permissions. Connection testing is a
+credential probe, not a guarantee that a provider will accept later DATA.
 
 ## Product boundary
 
@@ -21,6 +115,15 @@ the Go listener.
 The outbound mail module exposes one operation: submit an envelope and message
 through a configured SMTP relay. The implementation hides connection setup,
 TLS, authentication, and transaction lifecycle from callers.
+
+If an SMTP DATA write or final acknowledgement fails without a definitive
+server rejection, the sender reports uncertain acceptance. Both durable queue
+backends stop automatic retries, retain a failed receipt marked
+`body_assertion: smtp_acceptance_unknown`, and suppress an automatic failure
+notice. An operator must reconcile this result with the upstream before any
+manual resend. A process crash or lease loss after upstream acceptance and
+before the receipt is durably settled can still cause a duplicate; Gateway
+does not promise exactly-once SMTP delivery.
 
 ## Extension seam
 
@@ -40,8 +143,13 @@ an SMTP server.
 A storage vendor or application can add another adapter without changing SMTP
 ingress, alias resolution, retry scheduling, or the message contract. The
 adapter owns storage-specific encryption, indexing, retention, and quotas.
-Gateway only records whether the adapter durably accepted the delivery and
-exposes the resulting delivery event.
+Gateway records whether the adapter accepted the delivery and exposes the
+resulting receipt. A linked provider module registers its named adapter with
+`transport.RegisterDeliveryAdapterFactory` before the Spinner or Caddy runtime
+starts. The stock runtime also accepts operator-approved HTTPS provider
+profiles in `GATEWAY_HOSTED_MAIL_ADAPTERS` or Caddy's `hosted_mail_adapters`.
+The Planner selects one profile through a deployment-owned
+`EmailProviderRouteResolver`. See [Hosted provider contract](hosted-mail-provider.md).
 
 Retrieval uses a separate upstream seam. The POP3 and IMAP listeners own public
 TLS, pre-auth command parsing, session limits, and client lifecycle. After the planner

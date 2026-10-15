@@ -176,6 +176,25 @@ func TestQueueDoesNotRetryPermanentDeliveryError(t *testing.T) {
 	}
 }
 
+func TestQueueStopsOnUncertainSMTPAcceptance(t *testing.T) {
+	var attempts atomic.Int32
+	queue := newTestQueue(t, bridge.GatewayDeliveryAdapterFunc(func(context.Context, bridge.GatewayDelivery) error {
+		attempts.Add(1)
+		return bridge.ErrUncertainDelivery
+	}), nil)
+	if err := queue.EnqueueGateway(testDelivery()); err != nil {
+		t.Fatal(err)
+	}
+	waitForCounts(t, queue, 0, 1)
+	if attempts.Load() != 1 {
+		t.Fatalf("uncertain delivery was retried %d times", attempts.Load())
+	}
+	statuses, err := queue.List(StateFailed, 10)
+	if err != nil || len(statuses) != 1 || statuses[0].BodyAssertion != "smtp_acceptance_unknown" {
+		t.Fatalf("uncertain outcome is not visible: %+v %v", statuses, err)
+	}
+}
+
 func TestQueueRecoversPendingDeliveryAfterRestart(t *testing.T) {
 	path := t.TempDir()
 	started := make(chan struct{})

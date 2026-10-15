@@ -127,6 +127,7 @@ type GatewayDelivery struct {
 	Headers      map[string][]string `json:"headers,omitempty"`
 	Attributes   map[string]string   `json:"attributes,omitempty"`
 	Payload      []byte              `json:"payload,omitempty"`
+	Batch        []GatewayDelivery   `json:"batch,omitempty"`
 	Transport    *HTTPTransport      `json:"transport,omitempty"`
 }
 
@@ -147,6 +148,21 @@ func (d GatewayDelivery) Validate() error {
 	}
 	if d.Adapter != "" && !validAdapterName(d.Adapter) {
 		return fmt.Errorf("invalid gateway delivery adapter %q", d.Adapter)
+	}
+	if d.Adapter == "gateway.fanout" {
+		if len(d.Batch) < 2 || len(d.Batch) > 100 || len(d.Payload) == 0 {
+			return fmt.Errorf("gateway fanout requires a bounded batch and shared payload")
+		}
+		for index, child := range d.Batch {
+			if child.Adapter == "gateway.fanout" || len(child.Batch) != 0 || len(child.Payload) != 0 {
+				return fmt.Errorf("gateway fanout child %d is nested or duplicates payload", index)
+			}
+			if err := child.Validate(); err != nil {
+				return fmt.Errorf("gateway fanout child %d: %w", index, err)
+			}
+		}
+	} else if len(d.Batch) != 0 {
+		return fmt.Errorf("gateway batch is reserved for fanout")
 	}
 	if d.Transport != nil {
 		if err := d.Transport.Validate(); err != nil {

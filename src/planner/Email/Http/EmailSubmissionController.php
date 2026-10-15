@@ -14,6 +14,7 @@ use Webong\Gateway\Email\EmailHttpSubmissionStore;
 use Webong\Gateway\Email\EmailSubmissionKeyConflict;
 use Webong\Gateway\Email\EmailSubmissionLimitExceeded;
 use Webong\Gateway\Email\EmailRecipientSuppressed;
+use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
 use Webong\Gateway\Protocol\GatewayEvent;
@@ -28,6 +29,7 @@ final readonly class EmailSubmissionController
         private ProtocolPlanner $planner,
         private EmailHttpSubmissionStore $submissions,
         private DeliveryAdminClient $admin,
+        private MailboxConnectionStore $connections,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -87,6 +89,18 @@ final readonly class EmailSubmissionController
             || ! in_array($input['mail_from'], $senders, true)) {
             return $this->unauthorized();
         }
+        $connectionId = $decision->metadata['mailbox_connection_id'] ?? '';
+        if (! is_string($connectionId) || ($connectionId !== '' && ! config('gateway.email.connected_smtp_enabled', false))) {
+            return response()->json(['message' => 'Mailbox SMTP routing is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+        if ($connectionId !== '') {
+            $separator = strrpos($identity, ':');
+            $connection = $separator === false ? null : $this->connections->find(substr($identity, 0, $separator), $connectionId);
+            if ($connection === null || ! $connection->enabled || $identity !== $connection->account_id.':'.$connectionId
+                || ! hash_equals($connection->address, $input['mail_from'])) {
+                return $this->unauthorized();
+            }
+        }
         $rawLimit = $decision->metadata['submission_daily_limit'] ?? '';
         $rawByteLimit = $decision->metadata['submission_daily_byte_limit'] ?? '';
         $limit = $this->limit($rawLimit, (int) config('gateway.email.submission_daily_limit', 0), 1_000_000);
@@ -96,7 +110,7 @@ final readonly class EmailSubmissionController
         }
         try {
             $nodes = $this->admin->nodes();
-            $fingerprint = hash('sha256', json_encode([$input['mail_from'], $input['recipients']], JSON_THROW_ON_ERROR)."\0".$message);
+            $fingerprint = hash('sha256', json_encode([$connectionId, $input['mail_from'], $input['recipients']], JSON_THROW_ON_ERROR)."\0".$message);
             $reservation = $this->submissions->reserve($identity, $input['mail_from'], $input['recipients'], $key, $fingerprint, $nodes, $limit, strlen($message), $byteLimit);
             $node = $reservation->node;
             $id = $reservation->receipt_id;
@@ -109,6 +123,7 @@ final readonly class EmailSubmissionController
                 'authorized_senders' => $senders,
                 'recipients' => $input['recipients'],
                 'message' => $input['message_base64'],
+                ...($connectionId !== '' ? ['mailbox_connection_id' => $connectionId] : []),
             ], $node);
         } catch (EmailSubmissionKeyConflict) {
             return response()->json(['message' => 'Idempotency key already belongs to a different message.'], Response::HTTP_CONFLICT);

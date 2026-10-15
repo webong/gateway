@@ -645,6 +645,7 @@ func (s *session) Data(reader io.Reader) error {
 		if failureNoticeTo != "" && eligibleNotices == 0 {
 			return smtpError(451, "failure notice requires an SMTP delivery")
 		}
+		prepared := make([]bridge.GatewayDelivery, 0, len(deliveries))
 		for index := range deliveries {
 			delivery := deliveries[index]
 			if delivery.Attributes != nil {
@@ -671,9 +672,15 @@ func (s *session) Data(reader io.Reader) error {
 			if len(delivery.Payload) == 0 {
 				delivery.Payload = append([]byte(nil), message...)
 			}
-			if !s.executor.EnqueueGateway(delivery) {
-				return smtpError(452, "gateway delivery queue unavailable")
+			prepared = append(prepared, delivery)
+		}
+		if len(prepared) > 1 {
+			batch, ok := s.executor.(bridge.DurableGatewayBatchExecutor)
+			if !ok || !batch.EnqueueGatewayBatch(event.ID, prepared) {
+				return smtpError(452, "gateway fanout queue unavailable")
 			}
+		} else if !s.executor.EnqueueGateway(prepared[0]) {
+			return smtpError(452, "gateway delivery queue unavailable")
 		}
 		return nil
 	case bridge.GatewaySubmit:

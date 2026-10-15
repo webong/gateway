@@ -69,6 +69,8 @@ abstract class TestCase extends Orchestra
             'gateway.dns.zone' => 'dns.example.test',
             'gateway.dns.nameservers' => ['ns1.example.test'],
             'gateway.dns.client' => 'gateway',
+            'gateway.email.hooks_enabled' => true,
+            'gateway.email.hook_client' => 'gateway',
             'gateway.servers.tables.servers' => 'managed_servers',
             'gateway.servers.tables.applications' => 'managed_applications',
             'gateway.servers.tables.instances' => 'managed_instances',

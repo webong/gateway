@@ -98,6 +98,45 @@ type volatileExecutor struct{ recordingExecutor }
 
 func (e *volatileExecutor) DurableGatewayDeliveries() bool { return false }
 
+type batchRecordingExecutor struct {
+	recordingExecutor
+	batches [][]bridge.GatewayDelivery
+	accept  bool
+}
+
+func (e *batchRecordingExecutor) EnqueueGatewayBatch(_ string, deliveries []bridge.GatewayDelivery) bool {
+	e.batches = append(e.batches, deliveries)
+	return e.accept
+}
+
+func TestSMTPAcknowledgesMultipleDestinationsOnlyAfterOneDurableBatch(t *testing.T) {
+	for _, accepted := range []bool{true, false} {
+		executor := &batchRecordingExecutor{accept: accepted}
+		s := &session{executor: executor, config: Config{MaxMessageSize: 1024, PlannerTimeout: time.Second},
+			from: "sender@example.test", recipients: []string{"inbox@example.test"},
+			planner: plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+				return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolSMTP,
+					Action: bridge.GatewayDeliver, Deliveries: []bridge.GatewayDelivery{
+						{Protocol: bridge.ProtocolHTTP, Target: "https://one.example.test/mail"},
+						{Protocol: bridge.ProtocolHTTP, Target: "https://two.example.test/mail"},
+					}}, nil
+			})}
+		err := s.Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
+		if accepted && err != nil {
+			t.Fatal(err)
+		}
+		if !accepted {
+			var smtpErr *smtpclient.SMTPError
+			if !errors.As(err, &smtpErr) || smtpErr.Code != 452 {
+				t.Fatalf("failed batch was acknowledged: %v", err)
+			}
+		}
+		if len(executor.batches) != 1 || len(executor.batches[0]) != 2 || len(executor.snapshot()) != 0 {
+			t.Fatalf("SMTP enqueued individual destinations before batch acceptance: %+v, %+v", executor.batches, executor.snapshot())
+		}
+	}
+}
+
 func (e *recordingExecutor) snapshot() []bridge.GatewayDelivery {
 	e.mu.Lock()
 	defer e.mu.Unlock()

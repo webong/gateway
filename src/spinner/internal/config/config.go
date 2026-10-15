@@ -91,6 +91,9 @@ type Config struct {
 	SMTPRelayPassword          string
 	SMTPRelayTLSMode           string
 	SMTPRelayTimeout           time.Duration
+	MailboxSMTPResolverURL     string
+	MailboxSMTPUpstreams       map[string]SMTPUpstreamSpec
+	HostedMailAdapters         map[string]HostedMailAdapterSpec
 	EmailDKIMSigningConfig     string
 	DeliverySpoolPath          string
 	DeliveryDatabaseURL        string
@@ -136,6 +139,18 @@ type POP3UpstreamSpec struct {
 type IMAPUpstreamSpec struct {
 	Address    string `json:"address"`
 	ServerName string `json:"server_name"`
+}
+
+type SMTPUpstreamSpec struct {
+	Address    string `json:"address"`
+	ServerName string `json:"server_name"`
+	TLSMode    string `json:"tls_mode"`
+}
+
+// HostedMailAdapterSpec is an operator-owned private acceptance endpoint.
+type HostedMailAdapterSpec struct {
+	URL         string `json:"url"`
+	BearerToken string `json:"bearer_token"`
 }
 
 // ParseWebstreamPrivateSources validates operator grants scoped to exact SSE
@@ -253,6 +268,18 @@ func loadConfig(runtime string) (*Config, error) {
 		return nil, fmt.Errorf("GATEWAY_DNS_TTL must be between 0 and %d", uint64(^uint32(0)))
 	}
 	smtpRelayAddress := getEnv("GATEWAY_SMTP_RELAY_ADDR", "")
+	mailboxSMTPUpstreams := map[string]SMTPUpstreamSpec{}
+	if raw := getEnv("GATEWAY_MAILBOX_SMTP_UPSTREAMS", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &mailboxSMTPUpstreams); err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_MAILBOX_SMTP_UPSTREAMS: %w", err)
+		}
+	}
+	hostedMailAdapters := map[string]HostedMailAdapterSpec{}
+	if raw := getEnv("GATEWAY_HOSTED_MAIL_ADAPTERS", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &hostedMailAdapters); err != nil {
+			return nil, fmt.Errorf("invalid GATEWAY_HOSTED_MAIL_ADAPTERS: %w", err)
+		}
+	}
 	pop3Upstreams := map[string]POP3UpstreamSpec{}
 	if raw := getEnv("GATEWAY_POP3_UPSTREAMS", ""); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &pop3Upstreams); err != nil {
@@ -342,6 +369,9 @@ func loadConfig(runtime string) (*Config, error) {
 		SMTPRelayPassword:          getEnv("GATEWAY_SMTP_RELAY_PASSWORD", ""),
 		SMTPRelayTLSMode:           strings.ToLower(getEnv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")),
 		SMTPRelayTimeout:           getEnvDuration("GATEWAY_SMTP_RELAY_TIMEOUT", 30*time.Second),
+		MailboxSMTPResolverURL:     getEnv("GATEWAY_MAILBOX_SMTP_RESOLVER_URL", ""),
+		MailboxSMTPUpstreams:       mailboxSMTPUpstreams,
+		HostedMailAdapters:         hostedMailAdapters,
 		EmailDKIMSigningConfig:     getEnv("GATEWAY_EMAIL_DKIM_SIGNING_CONFIG", ""),
 		DeliverySpoolPath:          getEnv("GATEWAY_DELIVERY_SPOOL_PATH", ""),
 		DeliveryDatabaseURL:        getEnv("GATEWAY_DELIVERY_DATABASE_URL", ""),
@@ -458,6 +488,18 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.SMTPRelayAddress != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_SPOOL_PATH or GATEWAY_DELIVERY_DATABASE_URL is required when GATEWAY_SMTP_RELAY_ADDR is set")
+	}
+	if (config.MailboxSMTPResolverURL == "") != (len(config.MailboxSMTPUpstreams) == 0) {
+		return nil, fmt.Errorf("mailbox SMTP requires both a private resolver URL and approved upstreams")
+	}
+	if config.MailboxSMTPResolverURL != "" && config.InternalToken == "" {
+		return nil, fmt.Errorf("mailbox SMTP requires GATEWAY_INTERNAL_TOKEN")
+	}
+	if config.MailboxSMTPResolverURL != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
+		return nil, fmt.Errorf("mailbox SMTP requires durable delivery storage")
+	}
+	if len(config.HostedMailAdapters) > 0 && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
+		return nil, fmt.Errorf("hosted mail adapters require durable delivery storage")
 	}
 	if config.DeliveryAdminAddress != "" && config.InternalToken == "" {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_ADMIN_ADDR requires GATEWAY_INTERNAL_TOKEN")

@@ -15,6 +15,7 @@ final readonly class EmailSubmissionGrant
         public array $authorizedSenders,
         public ?int $dailyLimit = null,
         public ?int $dailyByteLimit = null,
+        public ?string $connectionId = null,
     ) {
         if ($identity === '' || strlen($identity) > 255 || trim($identity) !== $identity
             || preg_match('/[\x00-\x1F\x7F]/', $identity) === 1) {
@@ -29,6 +30,9 @@ final readonly class EmailSubmissionGrant
         }
         if ($dailyByteLimit !== null && ($dailyByteLimit < 1 || $dailyByteLimit > 1_000_000_000_000)) {
             throw new InvalidArgumentException('Email submission daily byte limit must be between 1 and 1000000000000.');
+        }
+        if ($connectionId !== null && ! preg_match('/^[0-9a-f-]{36}$/D', $connectionId)) {
+            throw new InvalidArgumentException('Email submission connection ID is invalid.');
         }
     }
 }

@@ -18,7 +18,7 @@ import (
 // With neither backend configured, HTTP keeps its legacy in-memory delivery.
 func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, logger *logging.Logger) (deliveryqueue.Backend, error) {
 	if settings.DeliverySpoolPath == "" && settings.DeliveryDatabaseURL == "" {
-		if settings.SMTPRelayAddress != "" {
+		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || len(settings.HostedMailAdapters) > 0 {
 			return nil, fmt.Errorf("durable delivery storage is required for outbound SMTP")
 		}
 		return nil, nil
@@ -38,8 +38,42 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 		}
 		adapters[string(bridge.ProtocolSMTP)] = adapter
 	}
+	if settings.MailboxSMTPResolverURL != "" {
+		resolver, err := smtpout.NewHTTPMailboxResolver(settings.MailboxSMTPResolverURL, settings.InternalToken)
+		if err != nil {
+			return nil, err
+		}
+		upstreams := make(map[string]smtpout.Config, len(settings.MailboxSMTPUpstreams))
+		for id, upstream := range settings.MailboxSMTPUpstreams {
+			upstreams[id] = smtpout.Config{Address: upstream.Address, ServerName: upstream.ServerName, TLSMode: smtpout.TLSMode(upstream.TLSMode), Timeout: settings.SMTPRelayTimeout}
+		}
+		adapter, err := smtpout.NewMailboxAdapter(resolver, upstreams)
+		if err != nil {
+			return nil, err
+		}
+		adapters["mailbox.smtp"] = adapter
+	}
+	providerAdapters, err := registeredDeliveryAdapters(settings)
+	if err != nil {
+		return nil, err
+	}
+	for name, adapter := range providerAdapters {
+		adapters[name] = adapter
+	}
+	for name, spec := range settings.HostedMailAdapters {
+		if !validProviderAdapterName(name) || adapters[name] != nil {
+			return nil, fmt.Errorf("hosted mail adapter %q conflicts with a registered adapter", name)
+		}
+		adapter, err := NewHostedMailHTTPAdapter(spec, nil)
+		if err != nil {
+			return nil, fmt.Errorf("configure hosted mail adapter %q: %w", name, err)
+		}
+		adapters[name] = adapter
+	}
+	fanout := newFanoutAdapter()
+	adapters["gateway.fanout"] = fanout
 	deliveryTimeout := settings.RequestTimeout
-	if settings.SMTPRelayAddress != "" && settings.SMTPRelayTimeout > deliveryTimeout {
+	if (settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "") && settings.SMTPRelayTimeout > deliveryTimeout {
 		deliveryTimeout = settings.SMTPRelayTimeout
 	}
 	if deliveryTimeout <= 0 {
@@ -67,9 +101,19 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 	}
 	if settings.DeliveryDatabaseURL != "" {
 		queueConfig.Path = ""
-		return deliveryqueue.NewShared(queueConfig, settings.DeliveryDatabaseURL)
+		queue, err := deliveryqueue.NewShared(queueConfig, settings.DeliveryDatabaseURL)
+		if err != nil {
+			return nil, err
+		}
+		fanout.bind(queue)
+		return queue, nil
 	}
-	return deliveryqueue.New(queueConfig)
+	queue, err := deliveryqueue.New(queueConfig)
+	if err != nil {
+		return nil, err
+	}
+	fanout.bind(queue)
+	return queue, nil
 }
 
 // NewSMTPAdapter constructs the configured outbound relay for durable queue

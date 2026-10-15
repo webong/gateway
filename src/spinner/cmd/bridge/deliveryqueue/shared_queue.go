@@ -414,7 +414,10 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 		queued.LastError = ""
 	} else {
 		queued.LastError = err.Error()
-		if queued.Attempts >= queue.config.MaxAttempts || adapter == nil || errors.Is(err, bridge.ErrPermanentDelivery) {
+		if errors.Is(err, bridge.ErrUncertainDelivery) {
+			queued.BodyAssertion = "smtp_acceptance_unknown"
+		}
+		if queued.Attempts >= queue.config.MaxAttempts || adapter == nil || errors.Is(err, bridge.ErrPermanentDelivery) || errors.Is(err, bridge.ErrUncertainDelivery) {
 			queued.State = StateFailed
 		} else {
 			queued.State = StateDeferred
@@ -422,7 +425,7 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 		}
 	}
 	var notice item
-	if queued.State == StateFailed && queued.Delivery.Attributes[bridge.FailureNoticeToAttribute] != "" {
+	if queued.State == StateFailed && !errors.Is(err, bridge.ErrUncertainDelivery) && queued.Delivery.Attributes[bridge.FailureNoticeToAttribute] != "" {
 		delivery, noticeErr := failureNoticeDelivery(queued, queue.config.FailureNoticeDomain)
 		if noticeErr != nil {
 			log.Printf("Gateway shared delivery %s could not construct failure notice: %v", lease.ID, noticeErr)

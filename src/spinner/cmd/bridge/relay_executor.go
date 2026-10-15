@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -234,6 +235,31 @@ func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
 			return adapter.DeliverGateway(ctx, queued)
 		},
 	})
+}
+
+// EnqueueGatewayBatch writes one durable fanout manifest, so a partial child
+// enqueue cannot make SMTP return a transient error after some destinations
+// have already been scheduled.
+func (e *RelayExecutor) EnqueueGatewayBatch(eventID string, deliveries []GatewayDelivery) bool {
+	if e == nil || e.queue == nil || eventID == "" || len(deliveries) < 2 || len(deliveries) > 100 {
+		return false
+	}
+	payload := deliveries[0].Payload
+	if len(payload) == 0 {
+		return false
+	}
+	children := make([]GatewayDelivery, len(deliveries))
+	for index, delivery := range deliveries {
+		if delivery.Validate() != nil || delivery.AdapterName() == "gateway.fanout" || !bytes.Equal(delivery.Payload, payload) {
+			return false
+		}
+		children[index] = cloneGatewayDelivery(delivery)
+		children[index].Payload = nil
+	}
+	batch := GatewayDelivery{Protocol: ProtocolSMTP, Adapter: "gateway.fanout", Target: eventID,
+		Payload: append([]byte(nil), payload...), Batch: children,
+		Attributes: map[string]string{"event_id": eventID}}
+	return e.queue.EnqueueGateway(batch) == nil
 }
 
 func (e *RelayExecutor) DurableGatewayDeliveries() bool {

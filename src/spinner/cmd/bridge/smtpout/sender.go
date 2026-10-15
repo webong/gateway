@@ -5,7 +5,6 @@
 package smtpout
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/emersion/go-sasl"
 	smtpclient "github.com/emersion/go-smtp"
+	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 )
 
 type TLSMode string
@@ -160,7 +160,26 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 			return fmt.Errorf("authenticate to outbound SMTP relay: %w", err)
 		}
 	}
-	if err := client.SendMail(message.EnvelopeFrom, message.Recipients, bytes.NewReader(message.Data)); err != nil {
+	if err := client.Mail(message.EnvelopeFrom, nil); err != nil {
+		return fmt.Errorf("submit outbound SMTP sender: %w", err)
+	}
+	for _, recipient := range message.Recipients {
+		if err := client.Rcpt(recipient, nil); err != nil {
+			return fmt.Errorf("submit outbound SMTP recipient: %w", err)
+		}
+	}
+	writer, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("start outbound SMTP data: %w", err)
+	}
+	if _, err := writer.Write(message.Data); err != nil {
+		return fmt.Errorf("%w: outbound SMTP DATA write failed", bridge.ErrUncertainDelivery)
+	}
+	if err := writer.Close(); err != nil {
+		var rejection *smtpclient.SMTPError
+		if !errors.As(err, &rejection) {
+			return fmt.Errorf("%w: outbound SMTP DATA acknowledgement was lost", bridge.ErrUncertainDelivery)
+		}
 		return fmt.Errorf("submit outbound SMTP message: %w", err)
 	}
 	// A successful DATA completion transfers responsibility to the relay.
