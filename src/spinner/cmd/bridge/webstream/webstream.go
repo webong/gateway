@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -41,6 +40,7 @@ type Config struct {
 	WriteTimeout      time.Duration
 	MaxBodySize       int64
 	BodyReadTimeout   time.Duration
+	UploadMaxDuration time.Duration
 }
 
 // Admission limits all streams sharing it, including streams still being planned.
@@ -76,6 +76,9 @@ type Metrics struct {
 }
 
 func NewHandler(planner bridge.ProtocolPlanner, source Source, config Config) *Handler {
+	if config.UploadMaxDuration <= 0 {
+		config.UploadMaxDuration = 5 * time.Minute
+	}
 	if config.MaxBodySize <= 0 {
 		config.MaxBodySize = 10 * 1024 * 1024
 	}
@@ -124,45 +127,44 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	defer h.admission.active.Add(-1)
+	upload := request.Header.Get("X-Gateway-Upload-Mode") == "stream"
+	if upload && request.Method != http.MethodPost {
+		http.Error(writer, "Streaming upload requires POST", 405)
+		return
+	}
+	headers := request.Header.Clone()
 	var payload []byte
-	if request.Method == http.MethodPost {
-		if encoding := request.Header.Get("Content-Encoding"); encoding != "" && !strings.EqualFold(encoding, "identity") {
-			http.Error(writer, "Encoded Webstream request bodies are not supported", http.StatusUnsupportedMediaType)
-			return
-		}
+	if request.Method == http.MethodPost && !upload {
 		controller := http.NewResponseController(writer)
 		_ = controller.SetReadDeadline(time.Now().Add(h.config.BodyReadTimeout))
-		body := http.MaxBytesReader(writer, request.Body, h.config.MaxBodySize)
-		var err error
-		payload, err = io.ReadAll(body)
-		_ = body.Close()
+		body, err := requestBody(writer, request, h.config.MaxBodySize)
+		if err == nil {
+			payload, err = io.ReadAll(body)
+			_ = body.Close()
+		}
 		_ = controller.SetReadDeadline(time.Time{})
 		if err != nil {
 			h.failed.Add(1)
-			var tooLarge *http.MaxBytesError
-			status := http.StatusBadRequest
-			if errors.As(err, &tooLarge) {
-				status = http.StatusRequestEntityTooLarge
-			}
-			if timeout, ok := err.(interface{ Timeout() bool }); ok && timeout.Timeout() {
-				status = http.StatusRequestTimeout
-			}
-			http.Error(writer, "Webstream request body rejected", status)
+			http.Error(writer, "Webstream request body rejected", bodyStatus(err))
 			return
 		}
+		headers = normalizedBodyHeaders(request)
 	}
 	streamContext, streamCancel := context.WithTimeout(request.Context(), h.config.MaxDuration)
 	defer streamCancel()
 	sessionID := sessionID(request)
 	ctx, cancel := context.WithTimeout(streamContext, h.config.PlannerTimeout)
 	attributes := map[string]string{"remote_addr": request.RemoteAddr}
+	if upload {
+		attributes["upload_mode"] = "stream"
+	}
 	if lastEventID := request.Header.Get("Last-Event-ID"); lastEventID != "" {
 		attributes["last_event_id"] = lastEventID
 	}
 	decision, err := h.planner.PlanEvent(ctx, bridge.GatewayEvent{
 		ID: sessionID, Protocol: bridge.ProtocolWebstream, Kind: bridge.EventConnect, SessionID: sessionID,
 		Host: request.Host, Route: request.URL.Path, Method: request.Method, RawQuery: request.URL.RawQuery,
-		Headers: cloneHeaders(request.Header), Attributes: attributes, Payload: payload,
+		Headers: cloneHeaders(headers), Attributes: attributes, Payload: payload,
 	})
 	cancel()
 	if err != nil || decision.Validate() != nil || decision.Protocol != bridge.ProtocolWebstream {
@@ -172,6 +174,10 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	switch decision.Action {
 	case bridge.GatewayStream:
+		if upload != (decision.Stream.Attributes["upload_mode"] == "stream") || (upload && (len(decision.Stream.Payload) > 0 || decision.Stream.Attributes["retry_idempotent"] == "true")) {
+			http.Error(writer, "Streaming upload was not authorized", 403)
+			return
+		}
 		method := decision.Stream.Attributes["method"]
 		if method == "" {
 			method = http.MethodGet
@@ -186,7 +192,38 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		_ = controller.SetWriteDeadline(time.Time{})
 		defer controller.SetWriteDeadline(time.Time{})
 		writer = &streamWriter{ResponseWriter: writer, controller: controller, timeout: h.config.WriteTimeout}
-		response, openErr := h.source.OpenWebstream(streamContext, *decision.Stream)
+		var response *http.Response
+		var openErr error
+		if upload {
+			source, ok := h.source.(interface {
+				OpenWebstreamUpload(context.Context, bridge.GatewayDelivery, io.ReadCloser) (*http.Response, error)
+			})
+			if !ok {
+				http.Error(writer, "Streaming uploads unavailable", 503)
+				return
+			}
+			// HTTP/2 is duplex by default; HTTP/1 requires this explicit opt-in.
+			if request.ProtoMajor == 1 {
+				if err := controller.EnableFullDuplex(); err != nil {
+					http.Error(writer, "Streaming uploads unavailable", 503)
+					return
+				}
+			}
+			_ = controller.SetReadDeadline(time.Now().Add(h.config.BodyReadTimeout))
+			body, err := requestBody(writer, request, h.config.MaxBodySize)
+			if err != nil {
+				http.Error(writer, "Invalid upload", bodyStatus(err))
+				return
+			}
+			defer body.Close()
+			defer controller.SetReadDeadline(time.Time{})
+			uploadTimer := time.AfterFunc(h.config.UploadMaxDuration, streamCancel)
+			defer uploadTimer.Stop()
+			bounded := &uploadBody{ReadCloser: body, controller: controller, idle: h.config.BodyReadTimeout, deadline: time.Now().Add(h.config.UploadMaxDuration), cancel: streamCancel, completed: func() { uploadTimer.Stop() }}
+			response, openErr = source.OpenWebstreamUpload(streamContext, *decision.Stream, bounded)
+		} else {
+			response, openErr = h.source.OpenWebstream(streamContext, *decision.Stream)
+		}
 		if openErr != nil {
 			h.failed.Add(1)
 			http.Error(writer, "Webstream source unavailable", http.StatusBadGateway)

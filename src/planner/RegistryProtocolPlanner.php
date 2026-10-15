@@ -48,6 +48,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         private readonly ?EmailSubmissionQuota $submissionQuota = null,
         private readonly ?MailboxAuthenticator $mailboxAuthenticator = null,
         private readonly ?EmailSuppressionStore $suppressions = null,
+        private readonly array $webstreamRoutes = [],
     ) {}
 
     public function planEvent(GatewayEvent $event): GatewayDecision
@@ -66,6 +67,12 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
 
     private function plan(GatewayEvent $event): GatewayDecision
     {
+        if ($event->protocol === Protocol::WEBSTREAM && ($event->attributes['upload_mode'] ?? '') === 'stream') {
+            $policy = $this->webstreamRoutes[$event->host.$event->route] ?? [];
+            if (($policy['upload'] ?? false) !== true || $event->method !== 'POST' || $event->payload !== '') {
+                return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 403, message: 'Streaming uploads are not enabled for this route.');
+            }
+        }
         if (in_array($event->protocol, [Protocol::POP3, Protocol::IMAP], true)) {
             if ($event->kind !== EventKind::AUTHENTICATE) {
                 return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::ACCEPT);
@@ -389,6 +396,25 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 405, message: 'Webstream source method is not permitted.');
         }
         $headers = $source->headers;
+        $upload = ($event->attributes['upload_mode'] ?? '') === 'stream';
+        $policy = $this->webstreamRoutes[$event->host.$event->route] ?? [];
+        $retry = ! $upload && $method === 'POST' && ($policy['retry'] ?? false) === true;
+        if (($upload || $retry) && (($policy['source'] ?? '') !== $source->target || ($upload && $plan->reply->body !== ''))) {
+            return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 403, message: 'Webstream policy does not permit this source.');
+        }
+        if ($retry) {
+            $keys = [];
+            foreach ($event->headers as $name => $values) {
+                if (strcasecmp($name, 'Idempotency-Key') === 0) {
+                    $keys = [...$keys, ...$values];
+                }
+            }
+            if (count($keys) !== 1 || trim($keys[0]) === '' || strlen($keys[0]) > 255) {
+                return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 400, message: 'One Idempotency-Key is required.');
+            }
+            $headers = array_filter($headers, static fn (string $name): bool => strcasecmp($name, 'Idempotency-Key') !== 0, ARRAY_FILTER_USE_KEY);
+            $headers['Idempotency-Key'] = $keys;
+        }
         if ($method === 'POST') {
             $hasContentType = false;
             foreach ($headers as $name => $values) {
@@ -420,7 +446,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             target: $source->target,
             subscriberId: $source->subscriberId,
             headers: $headers,
-            attributes: [...$source->attributes, 'method' => $method, 'raw_query' => $plan->reply->rawQuery !== '' ? $plan->reply->rawQuery : $event->rawQuery],
+            attributes: [...$source->attributes, 'method' => $method, 'raw_query' => $plan->reply->rawQuery !== '' ? $plan->reply->rawQuery : $event->rawQuery, 'upload_mode' => $upload ? 'stream' : 'buffered', 'retry_idempotent' => $retry ? 'true' : 'false'],
             payload: $method === 'POST' ? $source->payload : '',
             adapter: $source->adapter,
             transport: $source->transport,

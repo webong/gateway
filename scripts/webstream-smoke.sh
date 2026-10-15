@@ -68,4 +68,8 @@ curl -fsSN --max-time 5 -H 'Accept: text/event-stream' -H 'Content-Type: applica
 grep -Fx 'data: body={"input":"hello"}' "$BODY" >/dev/null
 grep -Fx 'data: done' "$BODY" >/dev/null
 if grep -q '^retry:' "$BODY"; then echo 'POST must not include a retry hint' >&2; exit 1; fi
-echo "Webstream GET and POST HTTP-runtime integration smoke passed."
+php -r 'echo gzencode("{\"input\":\"gzip\"}");' | curl -fsSN --max-time 5 -H 'Accept: text/event-stream' -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' --data-binary @- "http://127.0.0.1:$HTTP_PORT/hooks/updates" >"$BODY"
+grep -Fx 'data: body={"input":"gzip"}' "$BODY" >/dev/null
+curl -fsSN --max-time 5 -H 'Accept: text/event-stream' -H 'Content-Type: application/json' -H 'X-Gateway-Upload-Mode: stream' --data-binary '{"input":"upload"}' "http://127.0.0.1:$HTTP_PORT/hooks/updates" >"$BODY"
+grep -Fx 'data: body={"input":"upload"}' "$BODY" >/dev/null
+echo "Webstream GET, POST, gzip, and upload HTTP-runtime integration smoke passed."

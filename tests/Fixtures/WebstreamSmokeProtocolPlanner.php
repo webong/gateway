@@ -29,7 +29,7 @@ final class WebstreamSmokeProtocolPlanner implements ProtocolPlanner
                 protocol: Protocol::HTTP,
                 target: $source,
                 headers: ['Content-Type' => ['application/json'], ...(isset($event->attributes['last_event_id']) ? ['Last-Event-ID' => [$event->attributes['last_event_id']]] : [])],
-                attributes: ['method' => $event->method],
+                attributes: ['method' => $event->method, 'upload_mode' => $event->attributes['upload_mode'] ?? 'buffered'],
                 payload: $event->payload,
             ),
         );

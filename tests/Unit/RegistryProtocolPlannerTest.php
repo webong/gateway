@@ -17,6 +17,30 @@ use Webong\Gateway\Email\EmailSubmissionGrant;
 use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\MailboxAccessGrant;
 
+it('requires route opt-in for metadata-only uploads and idempotent retries', function (bool $upload, bool $enabled, string $key, int $status): void {
+    $route = new class implements RoutePlanner {
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            return RoutePlan::relay(reply: new Delivery(url: 'https://source.test/events'));
+        }
+    };
+    $planner = new RegistryProtocolPlanner($route, webstreamRoutes: $enabled ? ['gateway.test/events' => ['source' => 'https://source.test/events', 'upload' => true, 'retry' => true]] : []);
+    $decision = $planner->planEvent(new GatewayEvent(
+        id: 'request', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT, route: '/events', host: 'gateway.test', method: 'POST',
+        headers: $key !== '' ? ['idempotency-key' => [$key]] : [], attributes: $upload ? ['upload_mode' => 'stream'] : [], payload: $upload ? '' : 'input',
+    ));
+    if ($status !== 200) {
+        expect($decision->statusCode)->toBe($status)->and($decision->action)->toBe(GatewayAction::REJECT);
+        return;
+    }
+    expect($decision->action)->toBe(GatewayAction::STREAM)
+        ->and($decision->stream->attributes['upload_mode'])->toBe($upload ? 'stream' : 'buffered')
+        ->and($decision->stream->attributes['retry_idempotent'])->toBe(! $upload && $enabled ? 'true' : 'false');
+    if (! $upload && $enabled) { expect($decision->stream->headers['Idempotency-Key'])->toBe([$key]); }
+})->with([
+    [true, false, '', 403], [true, true, '', 200], [false, true, '', 400], [false, true, 'key-1', 200], [false, false, '', 200],
+]);
+
 it('does not route SMTP credentials through registry subscriptions', function (): void {
     $adapter = new class implements RoutePlanner {
         public bool $called = false;

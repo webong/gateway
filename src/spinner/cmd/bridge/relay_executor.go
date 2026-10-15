@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +16,17 @@ import (
 // OpenWebstream opens a Planner-authorized long-lived HTTP source. Unlike a
 // webhook reply, the response body is not buffered and follows ctx lifetime.
 func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDelivery) (*http.Response, error) {
+	return e.openWebstream(ctx, delivery, nil)
+}
+
+func (e *RelayExecutor) OpenWebstreamUpload(ctx context.Context, delivery GatewayDelivery, body io.ReadCloser) (*http.Response, error) {
+	if delivery.Attributes["method"] != "POST" || delivery.Attributes["upload_mode"] != "stream" || delivery.Attributes["retry_idempotent"] == "true" || len(delivery.Payload) > 0 {
+		return nil, fmt.Errorf("invalid streaming upload policy")
+	}
+	return e.openWebstream(ctx, delivery, body)
+}
+
+func (e *RelayExecutor) openWebstream(ctx context.Context, delivery GatewayDelivery, body io.ReadCloser) (*http.Response, error) {
 	if e == nil || e.forwarder == nil {
 		return nil, fmt.Errorf("webstream transport is not configured")
 	}
@@ -32,7 +44,16 @@ func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDeliv
 		}
 		target.RawQuery += query
 	}
-	return e.forwarder.OpenStreamRequest(ctx, method, target.String(), streamHeaders(delivery), delivery.Payload, forwardTransport(delivery.Transport))
+	headers := streamHeaders(delivery)
+	headers.Del("Content-Encoding") // Source bodies are decoded by the ingress.
+	retry := delivery.Attributes["retry_idempotent"] == "true"
+	if retry && (headers.Get("Idempotency-Key") != http.Header(delivery.Headers).Get("Idempotency-Key")) {
+		return nil, fmt.Errorf("source profile cannot override replay key")
+	}
+	if body != nil {
+		return e.forwarder.OpenStreamUpload(ctx, target.String(), headers, body, forwardTransport(delivery.Transport))
+	}
+	return e.forwarder.OpenStreamRequestPolicy(ctx, method, target.String(), headers, delivery.Payload, forwardTransport(delivery.Transport), retry)
 }
 
 func streamHeaders(delivery GatewayDelivery) http.Header {

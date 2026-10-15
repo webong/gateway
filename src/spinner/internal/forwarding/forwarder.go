@@ -9,12 +9,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/webong/gateway/src/spinner/internal/config"
@@ -171,6 +173,14 @@ func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.
 
 // OpenStreamRequest sends a single bounded request, never a replayable upload.
 func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string, headers http.Header, payload []byte, settings HTTPTransport) (*http.Response, error) {
+	return f.OpenStreamRequestPolicy(ctx, method, target, headers, payload, settings, false)
+}
+
+func (f *Forwarder) OpenStreamUpload(ctx context.Context, target string, headers http.Header, body io.ReadCloser, settings HTTPTransport) (*http.Response, error) {
+	return f.openStream(ctx, http.MethodPost, target, headers, body, 0, settings, false, nil, true)
+}
+
+func (f *Forwarder) OpenStreamRequestPolicy(ctx context.Context, method, target string, headers http.Header, payload []byte, settings HTTPTransport, retry bool) (*http.Response, error) {
 	if method != http.MethodGet && method != http.MethodPost {
 		return nil, fmt.Errorf("unsupported Webstream method %q", method)
 	}
@@ -179,6 +189,13 @@ func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string
 		// Hide GetBody, including for empty POSTs: net/http must not replay it.
 		body = io.NopCloser(bytes.NewReader(payload))
 	}
+	if retry && (method != http.MethodPost || len(headers.Values("Idempotency-Key")) != 1 || strings.TrimSpace(headers.Get("Idempotency-Key")) == "") {
+		return nil, fmt.Errorf("retry requires an idempotent POST with one key")
+	}
+	return f.openStream(ctx, method, target, headers, body, int64(len(payload)), settings, retry, payload, false)
+}
+
+func (f *Forwarder) openStream(ctx context.Context, method, target string, headers http.Header, body io.Reader, length int64, settings HTTPTransport, retry bool, payload []byte, upload bool) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	// Bound DNS, dialing, TLS and response headers, but not the response body.
 	timeout := settings.RequestTimeout
@@ -187,6 +204,9 @@ func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string
 	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second
+	}
+	if upload {
+		timeout = 5 * time.Minute
 	}
 	timer := time.AfterFunc(timeout, cancel)
 	defer timer.Stop()
@@ -208,8 +228,12 @@ func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string
 		request.Header.Del(name)
 	}
 	request.Header.Set("Accept", "text/event-stream")
-	if method == http.MethodPost && len(payload) > 0 {
-		request.ContentLength = int64(len(payload))
+	if method == http.MethodPost && length > 0 {
+		request.ContentLength = length
+	}
+	if retry && request.Header.Get("Idempotency-Key") != headers.Get("Idempotency-Key") {
+		cancel()
+		return nil, fmt.Errorf("idempotency key removed by connection headers")
 	}
 	client, err := f.clientFor(settings)
 	if err != nil {
@@ -247,7 +271,21 @@ func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string
 	streamClient.Timeout = 0
 	// A selected source must not redirect its credentials to another URL.
 	streamClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	var received atomic.Bool
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), &httptrace.ClientTrace{GotFirstResponseByte: func() { received.Store(true) }}))
 	response, err := streamClient.Do(request)
+	if retry && err != nil && !received.Load() && ctx.Err() == nil && transientStreamError(err) {
+		// Exactly one explicit retry; GetBody remains nil on both attempts.
+		retryRequest := request.Clone(request.Context())
+		retryRequest.Body = io.NopCloser(bytes.NewReader(payload))
+		select {
+		case <-ctx.Done():
+			cancel()
+			return nil, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+		response, err = streamClient.Do(retryRequest)
+	}
 	if err != nil {
 		cancel()
 		return nil, err
@@ -259,6 +297,14 @@ func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string
 	}
 	response.Body = &streamBody{ReadCloser: response.Body, cancel: cancel}
 	return response, nil
+}
+
+func transientStreamError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+	var network net.Error
+	return errors.As(err, &network) && network.Timeout()
 }
 
 type streamBody struct {

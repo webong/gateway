@@ -617,18 +617,23 @@ ordinary relay deliveries. Source profile headers override a same-named client
 header case-insensitively; connection-framing headers and `Last-Event-ID` are reserved, so the
 resume marker always remains client-controlled.
 
-POST Webstreams accept a bounded request body followed by an SSE response, not
-a continuous or duplex upload. Spinner reads the body before planning, under
+By default POST Webstreams accept a buffered request body followed by an SSE
+response. Spinner reads the body before planning, under
 the configured maximum body size and a 15-second read deadline. Oversized bodies
-(including chunked requests) receive 413; encoded/compressed request bodies are
-not supported (415). Admission also counts requests still uploading.
+(including chunked requests) receive 413. `Content-Encoding: gzip` is supported;
+both compressed and decoded bytes must fit the body limit. Malformed gzip is
+rejected with 400; other or stacked encodings receive 415. Planner and source
+receive decoded bytes, with encoding/length and stale digest headers removed.
+Signatures over compressed wire bytes cannot be verified against this decoded
+payload; use uncompressed requests for wire-body signature authentication.
+Admission also counts requests still uploading.
 Planner sees the method, headers, query, and body; the selected source must
 permit POST. Registry planning preserves the body and content type unless the
 selected delivery overrides them, without copying client credentials or cookies.
 Custom planners must explicitly return `stream.attributes.method = "POST"` and
 the approved `stream.payload`; a missing method retains the GET default.
 
-POST requests are sent once, without redirects, automatic replay, or an injected
+By default POST requests are sent once, without redirects, automatic replay, or an injected
 `retry:` hint. A disconnected POST may already have caused upstream work: only
 the application can decide whether it is safe to resubmit. An event ID is not an
 idempotency guarantee. Use `fetch()` or another streaming HTTP client, not native
@@ -648,6 +653,49 @@ if (response.status !== 204) {
   // Consume incrementally with an SSE parser; chunks are not event boundaries.
 }
 ```
+
+#### Opt-in replay and continuous uploads
+
+Configure `gateway-webstream.routes` in the consuming Laravel application's
+`config/gateway-webstream.php`. Policies use exact public `host/path` keys and
+pin the selected source URL; normal registry authorization still applies:
+
+```php
+return ['routes' => [
+    'gateway.example.test/hooks/updates' => [
+        'source' => 'https://producer.example.test/events',
+        'retry' => true, // Only if the producer guarantees idempotency.
+        'upload' => true, // Authorize this route using metadata only.
+    ],
+]];
+```
+
+Buffered POST retries require one nonempty `Idempotency-Key` (up to 255 bytes).
+Spinner makes at most one extra attempt, after 100ms, with the same approved
+body and key, within the original opening deadline. Only transient connection
+failures before any response byte qualify: HTTP errors, redirects, cancellation,
+and failures after response streaming starts are never retried. A source profile
+cannot replace the key. The producer—not Gateway—owns deduplication and retention.
+
+Clients request continuous uploads with `X-Gateway-Upload-Mode: stream` on POST.
+Planner receives an empty payload plus `attributes.upload_mode = stream` and
+must authorize from route/header metadata only. Do not enable this on routes
+requiring full-body matching, signatures, or validation. Without route opt-in,
+the request is rejected before reading the body or contacting the source.
+Spinner streams the body directly, with backpressure and no full-body buffering,
+and may return SSE while upload is in progress. Gzip is decoded incrementally.
+Wire/decoded size limits still apply, with a 15-second read-idle deadline and a
+five-minute upload deadline. Streamed uploads never retry, even on retry-enabled
+routes, and cannot use a configured replacement body. A late upload error closes
+the source/response; it cannot change an HTTP status already sent, nor undo bytes
+the producer has consumed. Browsers and intermediaries may buffer uploads or
+require HTTP/2; validate the actual deployment and client before relying on duplex.
+
+Custom planners opt in through `stream.attributes.upload_mode = stream` with an
+empty payload, or `stream.attributes.retry_idempotent = true` with an approved
+`Idempotency-Key` header, never both. The standard PHP registry planner enforces
+the deployment-owned policy above. The continuous-upload opening phase has a
+five-minute cap; ordinary buffered opens retain the normal request timeout.
 
 Production Spinner blocks private SSE source addresses by default, even when
 the source was selected by Planner. An operator who owns the private source may

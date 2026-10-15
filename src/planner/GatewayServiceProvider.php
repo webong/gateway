@@ -69,6 +69,7 @@ final class GatewayServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/config/gateway.php', 'gateway');
+        $this->mergeConfigFrom(__DIR__.'/config/webstream.php', 'gateway-webstream');
 
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
         $this->app->bind(SrsReturnStore::class, function (): SrsReturnStore {
@@ -205,6 +206,7 @@ final class GatewayServiceProvider extends ServiceProvider
             submissionQuota: $this->app->make(EmailSubmissionQuota::class),
             suppressions: $this->app->make(EmailSuppressionStore::class),
             mailboxAuthenticator: $this->mailboxAuthenticator(),
+            webstreamRoutes: config('gateway-webstream.routes', []),
         ));
 
         $this->app->bind(ProtocolPlanner::class, function (): ProtocolPlanner {
