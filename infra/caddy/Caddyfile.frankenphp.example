@@ -38,7 +38,7 @@
 		# relay_password {$GATEWAY_SMTP_RELAY_PASSWORD}
 		# relay_tls_mode starttls
 		# relay_timeout 30s
-		# dkim_signing_config /etc/gateway/dkim.json
+		# dkim_resolver_url http://127.0.0.1:8081
 		# spool_path /var/lib/gateway/deliveries
 		# Or use the same private PostgreSQL database in both gateway blocks:
 		# delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}

@@ -106,7 +106,8 @@ func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
 					if event.Attributes["username"] != "alice@example.test" || event.Attributes["password"] != "client-secret" {
 						t.Error("unexpected client credentials")
 					}
-					decision.Metadata = map[string]string{"identity": "account-1", "upstream_id": "primary", "upstream_username": "upstream-alice", "upstream_password": "upstream-secret"}
+					decision.Metadata = map[string]string{"identity": "account-1", "upstream_id": "primary", "upstream_username": "upstream-alice", "upstream_password": "upstream-secret",
+						"upstream_address": upstreamListener.Addr().String(), "upstream_server_name": "localhost"}
 					if method == "upstream XOAUTH2" {
 						decision.Metadata["upstream_auth_mechanism"] = "XOAUTH2"
 					}
@@ -114,7 +115,7 @@ func TestIMAPTLSProxyAuthenticatesAndPassesMailboxCommands(t *testing.T) {
 				return decision, nil
 			})
 			server, err := NewServer(Config{Address: "127.0.0.1:0", Hostname: "localhost", TLSConfig: tlsConfig,
-				Upstreams: map[string]Upstream{"primary": {Address: upstreamListener.Addr().String(), ServerName: "localhost"}}, UpstreamRootCAs: roots}, planner)
+				AllowedUpstreamHosts: []string{"127.0.0.1"}, UpstreamRootCAs: roots}, planner)
 			if err != nil {
 				t.Fatal(err)
 			}

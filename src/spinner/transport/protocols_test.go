@@ -24,13 +24,14 @@ func TestNewEmailDomainResolverRejectsAnUntrustedAddress(t *testing.T) {
 	}
 }
 
-func TestNewSMTPAdapterFailsStartupForMissingDKIMKeys(t *testing.T) {
+func TestNewSMTPAdapterRejectsInvalidPrivateDKIMResolver(t *testing.T) {
 	_, err := NewSMTPAdapter(&relayconfig.Config{
-		SMTPRelayAddress:       "127.0.0.1:2526",
-		SMTPRelayTLSMode:       "none",
-		EmailDKIMSigningConfig: filepath.Join(t.TempDir(), "missing-dkim.json"),
+		SMTPRelayAddress:     "127.0.0.1:2526",
+		SMTPRelayTLSMode:     "none",
+		EmailDKIMResolverURL: "http://public.example.test",
+		InternalToken:        "private-token",
 	})
 	if err == nil {
-		t.Fatal("SMTP adapter started without its configured DKIM keys")
+		t.Fatal("SMTP adapter accepted a non-private DKIM resolver")
 	}
 }

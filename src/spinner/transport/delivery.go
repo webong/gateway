@@ -18,7 +18,7 @@ import (
 // With neither backend configured, HTTP keeps its legacy in-memory delivery.
 func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, logger *logging.Logger) (deliveryqueue.Backend, error) {
 	if settings.DeliverySpoolPath == "" && settings.DeliveryDatabaseURL == "" {
-		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || len(settings.HostedMailAdapters) > 0 {
+		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.HostedMailResolverURL != "" {
 			return nil, fmt.Errorf("durable delivery storage is required for outbound SMTP")
 		}
 		return nil, nil
@@ -43,11 +43,7 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 		if err != nil {
 			return nil, err
 		}
-		upstreams := make(map[string]smtpout.Config, len(settings.MailboxSMTPUpstreams))
-		for id, upstream := range settings.MailboxSMTPUpstreams {
-			upstreams[id] = smtpout.Config{Address: upstream.Address, ServerName: upstream.ServerName, TLSMode: smtpout.TLSMode(upstream.TLSMode), Timeout: settings.SMTPRelayTimeout}
-		}
-		adapter, err := smtpout.NewMailboxAdapter(resolver, upstreams)
+		adapter, err := smtpout.NewManagedMailboxAdapter(resolver, settings.MailboxSMTPAllowedHosts, settings.SMTPRelayTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -60,15 +56,19 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 	for name, adapter := range providerAdapters {
 		adapters[name] = adapter
 	}
-	for name, spec := range settings.HostedMailAdapters {
-		if !validProviderAdapterName(name) || adapters[name] != nil {
-			return nil, fmt.Errorf("hosted mail adapter %q conflicts with a registered adapter", name)
+	if settings.HostedMailResolverURL != "" {
+		if adapters["hosted.mail"] != nil {
+			return nil, fmt.Errorf("hosted.mail is reserved for Planner-managed hosted delivery")
 		}
-		adapter, err := NewHostedMailHTTPAdapter(spec, nil)
+		resolver, err := newHTTPHostedMailResolver(settings.HostedMailResolverURL, settings.InternalToken)
 		if err != nil {
-			return nil, fmt.Errorf("configure hosted mail adapter %q: %w", name, err)
+			return nil, err
 		}
-		adapters[name] = adapter
+		adapter, err := newManagedHostedMailAdapter(resolver, settings.HostedMailAllowedHosts, nil)
+		if err != nil {
+			return nil, err
+		}
+		adapters["hosted.mail"] = adapter
 	}
 	fanout := newFanoutAdapter()
 	adapters["gateway.fanout"] = fanout
@@ -131,9 +131,13 @@ func NewSMTPAdapter(settings *config.Config) (*smtpout.GatewayAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	signer, err := smtpout.LoadDKIMSigner(settings.EmailDKIMSigningConfig)
-	if err != nil {
-		return nil, err
+	var signer smtpout.DKIMSigning
+	if settings.EmailDKIMResolverURL != "" {
+		resolved, err := smtpout.NewHTTPDKIMSigner(settings.EmailDKIMResolverURL, settings.InternalToken)
+		if err != nil {
+			return nil, err
+		}
+		signer = resolved
 	}
 	return smtpout.NewGatewayAdapter(sender, signer)
 }

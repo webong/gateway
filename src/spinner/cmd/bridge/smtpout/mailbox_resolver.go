@@ -17,6 +17,8 @@ type HTTPMailboxResolver struct {
 	client *http.Client
 }
 
+var ErrMailboxConnectionUnavailable = errors.New("mailbox connection is disabled or missing")
+
 func NewHTTPMailboxResolver(origin, token string) (*HTTPMailboxResolver, error) {
 	parsed, err := url.Parse(origin)
 	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Scheme != "https" && !(parsed.Scheme == "http" && (parsed.Hostname() == "127.0.0.1" || parsed.Hostname() == "localhost"))) || token == "" {
@@ -41,6 +43,9 @@ func (r *HTTPMailboxResolver) Resolve(ctx context.Context, id string) (MailboxCr
 		return MailboxCredential{}, errors.New("mailbox credential authority is unavailable")
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return MailboxCredential{}, ErrMailboxConnectionUnavailable
+	}
 	if response.StatusCode != http.StatusOK {
 		return MailboxCredential{}, fmt.Errorf("mailbox credential authority returned status %d", response.StatusCode)
 	}

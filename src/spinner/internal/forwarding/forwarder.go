@@ -35,27 +35,27 @@ type ForwardResponse struct {
 }
 
 type Forwarder struct {
-	client               *http.Client
-	transport            *http.Transport
-	clientsMu            sync.Mutex
-	clients              map[[sha256.Size]byte]*http.Client
-	clientOrder          [][sha256.Size]byte
-	logger               *logging.Logger
-	successCount         atomic.Uint64
-	errorCount           atomic.Uint64
-	totalRequests        atomic.Uint64
-	maxBodySize          int64
-	addressAllowed       func(net.IP) bool
-	privateStreamSources map[string][]netip.Prefix
+	client                *http.Client
+	transport             *http.Transport
+	clientsMu             sync.Mutex
+	clients               map[[sha256.Size]byte]*http.Client
+	clientOrder           [][sha256.Size]byte
+	logger                *logging.Logger
+	successCount          atomic.Uint64
+	errorCount            atomic.Uint64
+	totalRequests         atomic.Uint64
+	maxBodySize           int64
+	addressAllowed        func(net.IP) bool
+	privateStreamNetworks []netip.Prefix
 }
 
 func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 	forwarder := &Forwarder{
-		logger:               logger,
-		maxBodySize:          settings.MaxBodySize,
-		addressAllowed:       isAllowedTargetAddress,
-		privateStreamSources: settings.WebstreamPrivateSources,
-		clients:              make(map[[sha256.Size]byte]*http.Client),
+		logger:                logger,
+		maxBodySize:           settings.MaxBodySize,
+		addressAllowed:        isAllowedTargetAddress,
+		privateStreamNetworks: settings.WebstreamPrivateNetworks,
+		clients:               make(map[[sha256.Size]byte]*http.Client),
 	}
 
 	// Create optimized HTTP client with connection pooling
@@ -240,7 +240,29 @@ func (f *Forwarder) openStream(ctx context.Context, method, target string, heade
 		cancel()
 		return nil, err
 	}
-	if ranges := f.privateStreamSources[request.URL.Scheme+"://"+request.URL.Host]; len(ranges) > 0 {
+	var ranges []netip.Prefix
+	if settings.PrivateSourceCIDRs != "" {
+		for _, item := range strings.Split(settings.PrivateSourceCIDRs, ",") {
+			prefix, parseErr := netip.ParsePrefix(item)
+			if parseErr != nil || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
+				cancel()
+				return nil, fmt.Errorf("invalid Planner Webstream private CIDR")
+			}
+			withinCeiling := false
+			for _, ceiling := range f.privateStreamNetworks {
+				if prefix.Bits() >= ceiling.Bits() && ceiling.Contains(prefix.Addr()) {
+					withinCeiling = true
+					break
+				}
+			}
+			if !withinCeiling {
+				cancel()
+				return nil, fmt.Errorf("Planner Webstream private CIDR is outside deployment ceiling")
+			}
+			ranges = append(ranges, prefix)
+		}
+	}
+	if len(ranges) > 0 {
 		// An operator grant applies only to this exact SSE origin. Bypass any
 		// profile proxy and pin the DNS result at dial time to granted ranges.
 		if settings.HTTPProxy != "" || settings.HTTPSProxy != "" {

@@ -26,7 +26,7 @@ import (
 	"github.com/webong/gateway/src/spinner/cmd/bridge/pop3"
 )
 
-func TestMailboxAppsParseCaddyfileAndRejectDuplicateUpstreams(t *testing.T) {
+func TestMailboxAppsParseCaddyfileAllowedHosts(t *testing.T) {
 	for _, test := range []struct {
 		name  string
 		parse func(*caddyfile.Dispenser, any) (any, error)
@@ -43,7 +43,7 @@ func TestMailboxAppsParseCaddyfileAndRejectDuplicateUpstreams(t *testing.T) {
 	tls_cert_file /etc/gateway/mail.crt
 	tls_key_file /etc/gateway/mail.key
 	upstream_ca_file /etc/gateway/upstream-ca.crt
-	upstream primary mail.internal:995 mail.internal
+	allowed_upstream_hosts mail.internal
 	max_connections 25
 	auth_per_minute 12
 	auth_burst 3
@@ -63,15 +63,14 @@ func TestMailboxAppsParseCaddyfileAndRejectDuplicateUpstreams(t *testing.T) {
 			if err := json.Unmarshal(result.Value, &config); err != nil {
 				t.Fatal(err)
 			}
-			if config.Listen != "127.0.0.1:1995" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "private-token" || config.UpstreamCAFile != "/etc/gateway/upstream-ca.crt" || config.Upstreams["primary"].ServerName != "mail.internal" || config.MaxConnections != 25 || time.Duration(config.IdleTimeout) != 20*time.Minute {
+			if config.Listen != "127.0.0.1:1995" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "private-token" || config.UpstreamCAFile != "/etc/gateway/upstream-ca.crt" || len(config.AllowedUpstreamHosts) != 1 || config.AllowedUpstreamHosts[0] != "mail.internal" || config.MaxConnections != 25 || time.Duration(config.IdleTimeout) != 20*time.Minute {
 				t.Fatalf("unexpected mailbox app: %+v", config)
 			}
 			_, err = test.parse(caddyfile.NewTestDispenser(test.name+` {
 	upstream primary mail.internal:995 mail.internal
-	upstream primary other.internal:995 other.internal
 }`), nil)
-			if err == nil || !strings.Contains(err.Error(), "duplicate") {
-				t.Fatalf("duplicate upstream was accepted: %v", err)
+			if err == nil {
+				t.Fatalf("legacy upstream directive was accepted: %v", err)
 			}
 		})
 	}
@@ -82,7 +81,7 @@ func TestMailboxAppsProvisionTLSOnlyServers(t *testing.T) {
 	options := MailboxAppOptions{
 		PlannerURL: "http://127.0.0.1:8081", InternalToken: "private-token",
 		TLSCertFile: certFile, TLSKeyFile: keyFile,
-		Upstreams: map[string]MailboxUpstream{"primary": {Address: "127.0.0.1:2995", ServerName: "mail.internal"}},
+		AllowedUpstreamHosts: []string{"mail.internal"},
 	}
 	pop := &POP3App{MailboxAppOptions: options}
 	if err := pop.Provision(caddy.Context{}); err != nil {
@@ -98,14 +97,14 @@ func TestMailboxAppsProvisionTLSOnlyServers(t *testing.T) {
 	if _, ok := imapApp.server.(*imap.Server); !ok || imapApp.Listen != ":993" {
 		t.Fatalf("IMAP Caddy app did not provision the existing TLS server: %+v", imapApp)
 	}
-	missingTLS := &POP3App{MailboxAppOptions: MailboxAppOptions{PlannerURL: options.PlannerURL, InternalToken: options.InternalToken, Upstreams: options.Upstreams}}
+	missingTLS := &POP3App{MailboxAppOptions: MailboxAppOptions{PlannerURL: options.PlannerURL, InternalToken: options.InternalToken, AllowedUpstreamHosts: options.AllowedUpstreamHosts}}
 	if err := missingTLS.Provision(caddy.Context{}); err == nil {
 		t.Fatal("POP3 app accepted configuration without TLS")
 	}
 	invalidUpstream := &IMAPApp{MailboxAppOptions: options}
-	invalidUpstream.Upstreams = map[string]MailboxUpstream{"primary": {Address: "not-host-port", ServerName: "mail.internal"}}
+	invalidUpstream.AllowedUpstreamHosts = nil
 	if err := invalidUpstream.Provision(caddy.Context{}); err == nil {
-		t.Fatal("IMAP app accepted an invalid registered upstream")
+		t.Fatal("IMAP app accepted missing deployed allowed hosts")
 	}
 	invalidCA := &POP3App{MailboxAppOptions: options}
 	invalidCA.UpstreamCAFile = keyFile
@@ -167,7 +166,7 @@ func TestMailboxCaddyAppsServeImplicitTLSGreetings(t *testing.T) {
 			options := MailboxAppOptions{
 				Listen: "127.0.0.1:0", PlannerURL: "http://127.0.0.1:8081", InternalToken: "private-token",
 				TLSCertFile: certFile, TLSKeyFile: keyFile,
-				Upstreams: map[string]MailboxUpstream{"primary": {Address: "127.0.0.1:2995", ServerName: "mail.internal"}},
+				AllowedUpstreamHosts: []string{"mail.internal"},
 			}
 			var app interface {
 				Provision(caddy.Context) error

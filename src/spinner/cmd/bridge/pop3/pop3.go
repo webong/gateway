@@ -29,17 +29,18 @@ type Upstream struct {
 }
 
 type Config struct {
-	Address         string
-	Hostname        string
-	TLSConfig       *tls.Config
-	Upstreams       map[string]Upstream
-	UpstreamRootCAs *x509.CertPool
-	MaxConnections  int
-	AuthPerMinute   int
-	AuthBurst       int
-	IdleTimeout     time.Duration
-	PlannerTimeout  time.Duration
-	UpstreamTimeout time.Duration
+	Address              string
+	Hostname             string
+	TLSConfig            *tls.Config
+	Upstreams            map[string]Upstream
+	AllowedUpstreamHosts []string
+	UpstreamRootCAs      *x509.CertPool
+	MaxConnections       int
+	AuthPerMinute        int
+	AuthBurst            int
+	IdleTimeout          time.Duration
+	PlannerTimeout       time.Duration
+	UpstreamTimeout      time.Duration
 }
 
 type Server struct {
@@ -94,7 +95,7 @@ func NewServer(config Config, planner bridge.ProtocolPlanner) (*Server, error) {
 	if config.MaxConnections < 1 || config.AuthPerMinute < 1 || config.AuthBurst < 1 || config.IdleTimeout < 10*time.Minute || config.PlannerTimeout < 1 || config.UpstreamTimeout < 1 {
 		return nil, errors.New("POP3 connection and timeout limits are invalid")
 	}
-	if len(config.Upstreams) == 0 {
+	if len(config.Upstreams) == 0 && len(config.AllowedUpstreamHosts) == 0 {
 		return nil, errors.New("POP3 requires at least one registered mailbox upstream")
 	}
 	for id, upstream := range config.Upstreams {
@@ -329,6 +330,13 @@ func (s *Server) authenticate(sessionID, remoteAddr, username, password string) 
 	}
 	id := decision.Metadata["upstream_id"]
 	upstream, ok := s.config.Upstreams[id]
+	if address := decision.Metadata["upstream_address"]; address != "" {
+		name := decision.Metadata["upstream_server_name"]
+		if !bridge.ApprovedMailUpstream(address, name, s.config.AllowedUpstreamHosts) {
+			return nil, errors.New("POP3 upstream is outside the deployed host ceiling")
+		}
+		upstream, ok = Upstream{Address: address, ServerName: name}, true
+	}
 	identity := decision.Metadata["identity"]
 	upstreamUsername := decision.Metadata["upstream_username"]
 	upstreamPassword := decision.Metadata["upstream_password"]

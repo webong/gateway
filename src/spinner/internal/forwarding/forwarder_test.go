@@ -66,20 +66,19 @@ type streamRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f streamRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestOperatorPrivateSourceGrantOnlyAppliesToExactWebstreamOrigin(t *testing.T) {
+func TestPlannerPrivateSourceGrantDoesNotApplyToOrdinaryForwarding(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: authorized\n\n")
 	}))
 	defer source.Close()
 	f := NewForwarder(&config.Config{
-		RequestTimeout: time.Second,
-		WebstreamPrivateSources: map[string][]netip.Prefix{
-			source.URL: {netip.MustParsePrefix("127.0.0.0/8")},
-		},
+		RequestTimeout:           time.Second,
+		WebstreamPrivateNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
 	}, logging.NewLogger("error"))
 	defer f.CloseIdleConnections()
-	response, err := f.OpenStream(context.Background(), source.URL+"/events", nil, HTTPTransport{})
+	policy := HTTPTransport{PrivateSourceCIDRs: "127.0.0.0/8"}
+	response, err := f.OpenStream(context.Background(), source.URL+"/events", nil, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +90,42 @@ func TestOperatorPrivateSourceGrantOnlyAppliesToExactWebstreamOrigin(t *testing.
 	if _, err := f.ForwardSync(ForwardRequest{TargetURL: source.URL + "/events", Method: http.MethodGet}); err == nil {
 		t.Fatal("private grant leaked into ordinary webhook forwarding")
 	}
-	if _, err := f.OpenStream(context.Background(), source.URL+"1/events", nil, HTTPTransport{}); err == nil {
-		t.Fatal("private grant applied to a different port")
-	}
-	if _, err := f.OpenStream(context.Background(), source.URL+"/events", nil, HTTPTransport{HTTPProxy: "http://proxy.invalid:8080"}); err == nil {
+	policy.HTTPProxy = "http://proxy.invalid:8080"
+	if _, err := f.OpenStream(context.Background(), source.URL+"/events", nil, policy); err == nil {
 		t.Fatal("private grant accepted a profile proxy")
+	}
+}
+
+func TestPlannerPrivateSourceRequiresDeploymentCeiling(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: permitted\n\n")
+	}))
+	defer source.Close()
+	policy := HTTPTransport{PrivateSourceCIDRs: "127.0.0.0/8"}
+	forwarder := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
+	defer forwarder.CloseIdleConnections()
+	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
+		t.Fatal("Planner private grant bypassed missing deployment ceiling")
+	}
+	forwarder.privateStreamNetworks = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/16")}
+	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
+		t.Fatal("Planner grant wider than deployment ceiling was accepted")
+	}
+	forwarder.privateStreamNetworks = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
+	response, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	policy.PrivateSourceCIDRs = "127.0.0.1/8"
+	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
+		t.Fatal("noncanonical Planner CIDR was accepted")
+	}
+	policy.PrivateSourceCIDRs = "127.0.0.0/8"
+	policy.HTTPProxy = "http://proxy.invalid:8080"
+	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
+		t.Fatal("private Planner grant accepted proxy")
 	}
 }
 

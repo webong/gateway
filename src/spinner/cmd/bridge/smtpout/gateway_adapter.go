@@ -14,10 +14,15 @@ import (
 // submission. Routing and retry decisions remain outside the adapter.
 type GatewayAdapter struct {
 	sender *Sender
-	signer *DKIMSigner
+	signer DKIMSigning
 }
 
-func NewGatewayAdapter(sender *Sender, signer *DKIMSigner) (*GatewayAdapter, error) {
+type DKIMSigning interface {
+	CheckSigningDomain(string) error
+	Sign(string, []byte) ([]byte, error)
+}
+
+func NewGatewayAdapter(sender *Sender, signer DKIMSigning) (*GatewayAdapter, error) {
 	if sender == nil {
 		return nil, errors.New("outbound SMTP sender is required")
 	}
@@ -30,6 +35,9 @@ func NewGatewayAdapter(sender *Sender, signer *DKIMSigner) (*GatewayAdapter, err
 func (adapter *GatewayAdapter) CheckSigningDomain(domain string) error {
 	if adapter == nil {
 		return errors.New("outbound SMTP adapter is unavailable")
+	}
+	if adapter.signer == nil {
+		return nil
 	}
 	return adapter.signer.CheckSigningDomain(domain)
 }

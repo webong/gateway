@@ -11,6 +11,8 @@ type HTTPTransport struct {
 	NoProxy        []string
 	ConnectTimeout time.Duration
 	RequestTimeout time.Duration
+	// PrivateSourceCIDRs is a trusted Planner decision, bounded by deployment networks.
+	PrivateSourceCIDRs string
 }
 
 // ForwardRequest is the transport-level request sent to a subscriber.

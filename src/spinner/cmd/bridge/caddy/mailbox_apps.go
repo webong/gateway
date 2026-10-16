@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -32,30 +33,24 @@ type mailboxServer interface {
 	Shutdown(context.Context) error
 }
 
-type MailboxUpstream struct {
-	Address    string `json:"address"`
-	ServerName string `json:"server_name"`
-}
-
 // MailboxAppOptions are shared by the POP3 and IMAP Caddy apps. The listener
-// is TLS-only; upstream IDs and addresses are operator configuration, never
-// values supplied by a mailbox client or Planner response.
+// is TLS-only; Planner selects an endpoint within deployed allowed hosts.
 type MailboxAppOptions struct {
-	Listen          string                     `json:"listen,omitempty"`
-	PlannerURL      string                     `json:"planner_url,omitempty"`
-	InternalToken   string                     `json:"internal_token,omitempty"`
-	Hostname        string                     `json:"hostname,omitempty"`
-	TLSCertFile     string                     `json:"tls_cert_file,omitempty"`
-	TLSKeyFile      string                     `json:"tls_key_file,omitempty"`
-	UpstreamCAFile  string                     `json:"upstream_ca_file,omitempty"`
-	Upstreams       map[string]MailboxUpstream `json:"upstreams,omitempty"`
-	MaxConnections  int                        `json:"max_connections,omitempty"`
-	AuthPerMinute   int                        `json:"auth_per_minute,omitempty"`
-	AuthBurst       int                        `json:"auth_burst,omitempty"`
-	IdleTimeout     caddy.Duration             `json:"idle_timeout,omitempty"`
-	PlannerTimeout  caddy.Duration             `json:"planner_timeout,omitempty"`
-	UpstreamTimeout caddy.Duration             `json:"upstream_timeout,omitempty"`
-	MaxBodySize     int64                      `json:"max_body_size,omitempty"`
+	Listen               string         `json:"listen,omitempty"`
+	PlannerURL           string         `json:"planner_url,omitempty"`
+	InternalToken        string         `json:"internal_token,omitempty"`
+	Hostname             string         `json:"hostname,omitempty"`
+	TLSCertFile          string         `json:"tls_cert_file,omitempty"`
+	TLSKeyFile           string         `json:"tls_key_file,omitempty"`
+	UpstreamCAFile       string         `json:"upstream_ca_file,omitempty"`
+	AllowedUpstreamHosts []string       `json:"allowed_upstream_hosts,omitempty"`
+	MaxConnections       int            `json:"max_connections,omitempty"`
+	AuthPerMinute        int            `json:"auth_per_minute,omitempty"`
+	AuthBurst            int            `json:"auth_burst,omitempty"`
+	IdleTimeout          caddy.Duration `json:"idle_timeout,omitempty"`
+	PlannerTimeout       caddy.Duration `json:"planner_timeout,omitempty"`
+	UpstreamTimeout      caddy.Duration `json:"upstream_timeout,omitempty"`
+	MaxBodySize          int64          `json:"max_body_size,omitempty"`
 
 	server   mailboxServer
 	listener net.Listener
@@ -81,8 +76,8 @@ func (app *IMAPApp) Stop() error                     { return app.MailboxAppOpti
 
 func (app *MailboxAppOptions) provision(kind string) error {
 	app.applyDefaults(kind)
-	if app.InternalToken == "" || app.PlannerURL == "" || app.Listen == "" || app.TLSCertFile == "" || app.TLSKeyFile == "" || len(app.Upstreams) == 0 {
-		return fmt.Errorf("gateway.%s requires a listener, private Planner URL, internal token, TLS certificate and registered upstream", kind)
+	if app.InternalToken == "" || app.PlannerURL == "" || app.Listen == "" || app.TLSCertFile == "" || app.TLSKeyFile == "" || len(app.AllowedUpstreamHosts) == 0 {
+		return fmt.Errorf("gateway.%s requires a listener, private Planner URL, internal token, TLS certificate and deployed allowed hosts", kind)
 	}
 	if app.MaxConnections < 1 || app.AuthPerMinute < 1 || app.AuthBurst < 1 || app.IdleTimeout < caddy.Duration(10*time.Minute) || app.PlannerTimeout < 1 || app.UpstreamTimeout < 1 || app.MaxBodySize < 1 {
 		return fmt.Errorf("gateway.%s connection, authentication or timeout limits are invalid", kind)
@@ -107,12 +102,8 @@ func (app *MailboxAppOptions) provision(kind string) error {
 		if err != nil {
 			return err
 		}
-		upstreams := make(map[string]pop3.Upstream, len(app.Upstreams))
-		for id, upstream := range app.Upstreams {
-			upstreams[id] = pop3.Upstream{Address: upstream.Address, ServerName: upstream.ServerName}
-		}
 		app.server, err = pop3.NewServer(pop3.Config{
-			Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, Upstreams: upstreams, UpstreamRootCAs: upstreamRoots,
+			Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, AllowedUpstreamHosts: app.AllowedUpstreamHosts, UpstreamRootCAs: upstreamRoots,
 			MaxConnections: app.MaxConnections, AuthPerMinute: app.AuthPerMinute, AuthBurst: app.AuthBurst,
 			IdleTimeout: time.Duration(app.IdleTimeout), PlannerTimeout: time.Duration(app.PlannerTimeout), UpstreamTimeout: time.Duration(app.UpstreamTimeout),
 		}, planner)
@@ -122,12 +113,8 @@ func (app *MailboxAppOptions) provision(kind string) error {
 	if err != nil {
 		return err
 	}
-	upstreams := make(map[string]imap.Upstream, len(app.Upstreams))
-	for id, upstream := range app.Upstreams {
-		upstreams[id] = imap.Upstream{Address: upstream.Address, ServerName: upstream.ServerName}
-	}
 	app.server, err = imap.NewServer(imap.Config{
-		Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, Upstreams: upstreams, UpstreamRootCAs: upstreamRoots,
+		Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, AllowedUpstreamHosts: app.AllowedUpstreamHosts, UpstreamRootCAs: upstreamRoots,
 		MaxConnections: app.MaxConnections, AuthPerMinute: app.AuthPerMinute, AuthBurst: app.AuthBurst,
 		IdleTimeout: time.Duration(app.IdleTimeout), PlannerTimeout: time.Duration(app.PlannerTimeout), UpstreamTimeout: time.Duration(app.UpstreamTimeout),
 	}, planner)
@@ -217,11 +204,11 @@ func parseIMAPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 }
 
 func parseMailboxApp(d *caddyfile.Dispenser, kind string) (any, error) {
-	app := MailboxAppOptions{Upstreams: make(map[string]MailboxUpstream)}
+	app := MailboxAppOptions{}
 	d.Next()
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
-		case "listen", "planner_url", "internal_token", "hostname", "tls_cert_file", "tls_key_file", "upstream_ca_file":
+		case "listen", "planner_url", "internal_token", "hostname", "tls_cert_file", "tls_key_file", "upstream_ca_file", "allowed_upstream_hosts":
 			option := d.Val()
 			value, err := stringArg(d)
 			if err != nil {
@@ -242,16 +229,9 @@ func parseMailboxApp(d *caddyfile.Dispenser, kind string) (any, error) {
 				app.TLSKeyFile = value
 			case "upstream_ca_file":
 				app.UpstreamCAFile = value
+			case "allowed_upstream_hosts":
+				app.AllowedUpstreamHosts = strings.Split(value, ",")
 			}
-		case "upstream":
-			args := d.RemainingArgs()
-			if len(args) != 3 || args[0] == "" || args[1] == "" || args[2] == "" {
-				return nil, d.ArgErr()
-			}
-			if _, exists := app.Upstreams[args[0]]; exists {
-				return nil, d.Errf("duplicate %s upstream %q", kind, args[0])
-			}
-			app.Upstreams[args[0]] = MailboxUpstream{Address: args[1], ServerName: args[2]}
 		case "max_connections", "auth_per_minute", "auth_burst":
 			option := d.Val()
 			value, err := nextInt(d)

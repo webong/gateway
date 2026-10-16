@@ -6,32 +6,18 @@ import (
 	"time"
 )
 
-func TestWebstreamPrivateSourceGrantsAreExactAndPrivate(t *testing.T) {
-	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES", `{"http://events.internal:8080":["10.42.1.0/24","fd00::/64"]}`)
-	settings, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	grants := settings.WebstreamPrivateSources["http://events.internal:8080"]
-	if len(grants) != 2 || grants[0] != netip.MustParsePrefix("10.42.1.0/24") {
-		t.Fatalf("unexpected private source grants: %v", grants)
-	}
-	for _, invalid := range []string{
-		`{"http://events.internal:8080/path":["10.0.0.0/8"]}`,
-		`{"http://localhost:8080":["10.0.0.0/8"]}`,
-		`{"http://127.0.0.1:8080":["10.0.0.0/8"]}`,
-		`{"http://events.internal:8080":["127.0.0.0/8"]}`,
-		`{"http://events.internal:8080":["10.0.0.0/7"]}`,
-		`{"http://events.internal:8080":["169.254.0.0/16"]}`,
-		`{"http://events.internal:8080":["0.0.0.0/0"]}`,
-		`{"http://events.internal:8080":["10.1.2.3/24"]}`,
-		`{"http://events.internal:8080":[]}`,
-	} {
-		t.Setenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES", invalid)
-		if _, err := LoadConfig(); err == nil {
-			t.Fatalf("accepted unsafe Webstream grant: %s", invalid)
+func TestWebstreamPrivateNetworkCeiling(t *testing.T) {
+	for _, invalid := range []string{"127.0.0.0/8", "0.0.0.0/0", "10.0.0.0/7", "10.42.1.1/24", "169.254.0.0/16", ""} {
+		if invalid == "" {
+			continue
 		}
+		if _, err := ParseWebstreamPrivateNetworks(invalid); err == nil {
+			t.Fatalf("accepted unsafe private network ceiling %q", invalid)
+		}
+	}
+	got, err := ParseWebstreamPrivateNetworks("10.42.0.0/16,fd00::/64")
+	if err != nil || len(got) != 2 || got[0] != netip.MustParsePrefix("10.42.0.0/16") {
+		t.Fatalf("private network ceiling: %v %v", got, err)
 	}
 }
 
@@ -52,7 +38,7 @@ func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRequiresExplicitPOP3TLSAndUpstream(t *testing.T) {
+func TestLoadConfigRequiresExplicitPOP3TLSAndAllowedHosts(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_POP3_ADDR", ":995")
 	if _, err := LoadConfig(); err == nil {
@@ -60,13 +46,13 @@ func TestLoadConfigRequiresExplicitPOP3TLSAndUpstream(t *testing.T) {
 	}
 	t.Setenv("GATEWAY_POP3_TLS_CERT_FILE", "/cert.pem")
 	t.Setenv("GATEWAY_POP3_TLS_KEY_FILE", "/key.pem")
-	t.Setenv("GATEWAY_POP3_UPSTREAMS", `{"primary":{"address":"pop.internal:995","server_name":"pop.internal"}}`)
+	t.Setenv("GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS", "pop.internal")
 	settings, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.POP3Upstreams["primary"].ServerName != "pop.internal" {
-		t.Fatalf("POP3 upstreams = %+v", settings.POP3Upstreams)
+	if len(settings.POP3AllowedUpstreamHosts) != 1 || settings.POP3AllowedUpstreamHosts[0] != "pop.internal" {
+		t.Fatalf("POP3 allowed hosts = %+v", settings.POP3AllowedUpstreamHosts)
 	}
 	t.Setenv("GATEWAY_POP3_IDLE_TIMEOUT", "1m")
 	if _, err := LoadConfig(); err == nil {
@@ -79,7 +65,7 @@ func TestLoadConfigRequiresExplicitPOP3TLSAndUpstream(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRequiresExplicitIMAPTLSAndUpstream(t *testing.T) {
+func TestLoadConfigRequiresExplicitIMAPTLSAndAllowedHosts(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_IMAP_ADDR", ":993")
 	if _, err := LoadConfig(); err == nil {
@@ -87,13 +73,13 @@ func TestLoadConfigRequiresExplicitIMAPTLSAndUpstream(t *testing.T) {
 	}
 	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", "/cert.pem")
 	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", "/key.pem")
-	t.Setenv("GATEWAY_IMAP_UPSTREAMS", `{"primary":{"address":"imap.internal:993","server_name":"imap.internal"}}`)
+	t.Setenv("GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS", "imap.internal")
 	settings, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings.IMAPUpstreams["primary"].ServerName != "imap.internal" {
-		t.Fatalf("IMAP upstreams = %+v", settings.IMAPUpstreams)
+	if len(settings.IMAPAllowedUpstreamHosts) != 1 || settings.IMAPAllowedUpstreamHosts[0] != "imap.internal" {
+		t.Fatalf("IMAP allowed hosts = %+v", settings.IMAPAllowedUpstreamHosts)
 	}
 	t.Setenv("GATEWAY_IMAP_AUTH_BURST", "-1")
 	if _, err := LoadConfig(); err == nil {
@@ -329,13 +315,13 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_DNS_NAMESERVERS", "")
 	t.Setenv("GATEWAY_SMTP_RELAY_ADDR", "")
 	t.Setenv("GATEWAY_POP3_ADDR", "")
-	t.Setenv("GATEWAY_POP3_UPSTREAMS", "")
+	t.Setenv("GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS", "")
 	t.Setenv("GATEWAY_POP3_TLS_CERT_FILE", "")
 	t.Setenv("GATEWAY_POP3_TLS_KEY_FILE", "")
 	t.Setenv("GATEWAY_POP3_AUTH_PER_MINUTE", "")
 	t.Setenv("GATEWAY_POP3_AUTH_BURST", "")
 	t.Setenv("GATEWAY_IMAP_ADDR", "")
-	t.Setenv("GATEWAY_IMAP_UPSTREAMS", "")
+	t.Setenv("GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS", "")
 	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", "")
 	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", "")
 	t.Setenv("GATEWAY_IMAP_AUTH_PER_MINUTE", "")
@@ -546,15 +532,16 @@ func TestLoadConfigRequiresRelayForFailureNotices(t *testing.T) {
 
 func TestLoadConfigRequiresRelayForDKIMSigning(t *testing.T) {
 	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_EMAIL_DKIM_SIGNING_CONFIG", "/private/dkim.json")
+	t.Setenv("GATEWAY_EMAIL_DKIM_RESOLVER_URL", "http://127.0.0.1:8081")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("DKIM signing configuration without outbound relay was accepted")
 	}
 	t.Setenv("GATEWAY_SMTP_RELAY_ADDR", "127.0.0.1:2526")
 	t.Setenv("GATEWAY_DELIVERY_SPOOL_PATH", t.TempDir())
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "private-token")
 	config, err := LoadConfig()
-	if err != nil || config.EmailDKIMSigningConfig != "/private/dkim.json" {
-		t.Fatalf("DKIM signing configuration was not loaded: %+v, %v", config, err)
+	if err != nil || config.EmailDKIMResolverURL != "http://127.0.0.1:8081" {
+		t.Fatalf("DKIM resolver URL was not loaded: %+v, %v", config, err)
 	}
 }
 
@@ -569,9 +556,11 @@ func TestLoadConfigRejectsOutboundSMTPCredentialsWithoutTLS(t *testing.T) {
 	}
 }
 
-func TestLoadConfigLoadsAuthoritativeDNSSettings(t *testing.T) {
+func TestLoadConfigIgnoresLegacyDNSZoneEnvironment(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
+	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://planner.internal")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
 	t.Setenv("GATEWAY_DNS_ZONE", "dns.example.test")
 	t.Setenv("GATEWAY_DNS_NAMESERVERS", "ns1.example.test, ns2.example.test")
 	t.Setenv("GATEWAY_DNS_TTL", "15")
@@ -580,20 +569,20 @@ func TestLoadConfigLoadsAuthoritativeDNSSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.DNSAddress != ":5353" || config.DNSZone != "dns.example.test" || config.DNSTTL != 15 {
+	if config.DNSAddress != ":5353" || config.DNSZone != "" || config.DNSTTL != 0 {
 		t.Fatalf("unexpected DNS config: %+v", config)
 	}
-	if len(config.DNSNameservers) != 2 || config.DNSNameservers[1] != "ns2.example.test" {
-		t.Fatalf("unexpected DNS nameservers: %+v", config.DNSNameservers)
+	if len(config.DNSNameservers) != 0 {
+		t.Fatalf("legacy DNS nameservers were loaded: %+v", config.DNSNameservers)
 	}
 }
 
-func TestLoadConfigRequiresDNSZoneAndNameservers(t *testing.T) {
+func TestLoadConfigRequiresPlannerForDNSListener(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
 
 	if _, err := LoadConfig(); err == nil {
-		t.Fatal("expected enabled DNS listener to require zone settings")
+		t.Fatal("expected enabled DNS listener to require Planner connection")
 	}
 }
 
@@ -624,28 +613,6 @@ func TestLoadConfigAllowsPlannerManagedDNSZonesForRoadRunnerRuntime(t *testing.T
 	}
 	if config.DNSZone != "" || len(config.DNSZones) != 0 {
 		t.Fatalf("unexpected RoadRunner dynamic DNS config: %+v", config)
-	}
-}
-
-func TestLoadConfigAcceptsMultipleDNSZonesWithoutLegacySettings(t *testing.T) {
-	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-	t.Setenv("GATEWAY_DNS_ZONES", `[{"name":"one.example.test","nameservers":["ns1.example.test"]},{"name":"two.example.test","nameservers":["ns2.example.test"],"ttl":15}]`)
-	config, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(config.DNSZones) != 2 || config.DNSZones[1].Name != "two.example.test" || config.DNSZones[1].TTL != 15 {
-		t.Fatalf("unexpected multi-zone configuration: %+v", config.DNSZones)
-	}
-	t.Setenv("GATEWAY_DNS_ZONE", "legacy.example.test")
-	if _, err := LoadConfig(); err == nil {
-		t.Fatal("mixed legacy and multi-zone configuration was accepted")
-	}
-	t.Setenv("GATEWAY_DNS_ZONE", "")
-	t.Setenv("GATEWAY_DNS_ZONES", `[{"name":"one.example.test","nameservers":[]}]`)
-	if _, err := LoadConfig(); err == nil {
-		t.Fatal("zone without nameservers was accepted")
 	}
 }
 

@@ -64,6 +64,7 @@ func TestExternalMailboxCaddyInteroperability(t *testing.T) {
 						decision.Metadata = map[string]string{
 							"identity": "account-1", "upstream_id": "dovecot",
 							"upstream_username": "alice@example.test", "upstream_password": password,
+							"upstream_address": upstreamAddress, "upstream_server_name": "localhost",
 						}
 					}
 				}
@@ -75,7 +76,7 @@ func TestExternalMailboxCaddyInteroperability(t *testing.T) {
 			options := MailboxAppOptions{
 				Listen: "127.0.0.1:0", PlannerURL: planner.URL, InternalToken: internalToken,
 				Hostname: "localhost", TLSCertFile: certFile, TLSKeyFile: keyFile, UpstreamCAFile: upstreamCA,
-				Upstreams: map[string]MailboxUpstream{"dovecot": {Address: upstreamAddress, ServerName: "localhost"}},
+				AllowedUpstreamHosts: []string{"127.0.0.1"},
 			}
 			var app interface {
 				Provision(caddy.Context) error

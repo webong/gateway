@@ -2,6 +2,9 @@ package gateway
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -10,6 +13,31 @@ import (
 	"github.com/webong/gateway/src/spinner/internal/logging"
 	"github.com/webong/gateway/src/spinner/internal/workers"
 )
+
+func TestRelayExecutorPassesPlannerPrivateSourceGrantToBoundedWebstreamDial(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer source.Close()
+	forwarder := forwarding.NewForwarder(&relayconfig.Config{
+		RequestTimeout:           time.Second,
+		WebstreamPrivateNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+	}, logging.NewLogger("error"))
+	defer forwarder.CloseIdleConnections()
+	executor := NewRelayExecutor(forwarder, nil)
+	delivery := GatewayDelivery{Protocol: ProtocolHTTP, Target: source.URL + "/events",
+		Attributes: map[string]string{"private_source_cidrs": "127.0.0.0/8"}}
+	response, err := executor.OpenWebstream(context.Background(), delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	delete(delivery.Attributes, "private_source_cidrs")
+	if _, err := executor.OpenWebstream(context.Background(), delivery); err == nil {
+		t.Fatal("private source reached without a Planner grant")
+	}
+}
 
 type capturingQueue struct{ deliveries []GatewayDelivery }
 

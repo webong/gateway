@@ -1,12 +1,8 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
-	"net"
 	"net/netip"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -32,7 +28,7 @@ type Config struct {
 	WebstreamRetry             time.Duration
 	WebstreamMaxConnections    int
 	WebstreamMaxDuration       time.Duration
-	WebstreamPrivateSources    map[string][]netip.Prefix
+	WebstreamPrivateNetworks   []netip.Prefix
 	MaxBodySize                int64
 	MaxIdleConns               int
 	MaxConnsPerHost            int
@@ -45,6 +41,7 @@ type Config struct {
 	POP3TLSCertFile            string
 	POP3TLSKeyFile             string
 	POP3Upstreams              map[string]POP3UpstreamSpec
+	POP3AllowedUpstreamHosts   []string
 	POP3MaxConnections         int
 	POP3AuthPerMinute          int
 	POP3AuthBurst              int
@@ -56,6 +53,7 @@ type Config struct {
 	IMAPTLSCertFile            string
 	IMAPTLSKeyFile             string
 	IMAPUpstreams              map[string]IMAPUpstreamSpec
+	IMAPAllowedUpstreamHosts   []string
 	IMAPMaxConnections         int
 	IMAPAuthPerMinute          int
 	IMAPAuthBurst              int
@@ -92,9 +90,10 @@ type Config struct {
 	SMTPRelayTLSMode           string
 	SMTPRelayTimeout           time.Duration
 	MailboxSMTPResolverURL     string
-	MailboxSMTPUpstreams       map[string]SMTPUpstreamSpec
-	HostedMailAdapters         map[string]HostedMailAdapterSpec
-	EmailDKIMSigningConfig     string
+	MailboxSMTPAllowedHosts    []string
+	HostedMailResolverURL      string
+	HostedMailAllowedHosts     []string
+	EmailDKIMResolverURL       string
 	DeliverySpoolPath          string
 	DeliveryDatabaseURL        string
 	DeliveryAdminAddress       string
@@ -141,66 +140,39 @@ type IMAPUpstreamSpec struct {
 	ServerName string `json:"server_name"`
 }
 
-type SMTPUpstreamSpec struct {
-	Address    string `json:"address"`
-	ServerName string `json:"server_name"`
-	TLSMode    string `json:"tls_mode"`
-}
-
-// HostedMailAdapterSpec is an operator-owned private acceptance endpoint.
+// HostedMailAdapterSpec is a private Planner-resolved acceptance endpoint.
 type HostedMailAdapterSpec struct {
 	URL         string `json:"url"`
 	BearerToken string `json:"bearer_token"`
 }
 
-// ParseWebstreamPrivateSources validates operator grants scoped to exact SSE
-// origins and private address ranges. Public subscriptions cannot create them.
-func ParseWebstreamPrivateSources(raw string) (map[string][]netip.Prefix, error) {
+// ParseWebstreamPrivateNetworks sets a deployment ceiling, not a source grant.
+// Planner grants must be narrower than these ranges to permit a private dial.
+func ParseWebstreamPrivateNetworks(raw string) ([]netip.Prefix, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
-	var entries map[string][]string
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil || len(entries) == 0 {
-		return nil, fmt.Errorf("GATEWAY_WEBSTREAM_PRIVATE_SOURCES must be a non-empty JSON origin-to-CIDR map")
-	}
 	privateRanges := []netip.Prefix{
-		netip.MustParsePrefix("10.0.0.0/8"),
-		netip.MustParsePrefix("172.16.0.0/12"),
-		netip.MustParsePrefix("192.168.0.0/16"),
-		netip.MustParsePrefix("fc00::/7"),
+		netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("172.16.0.0/12"),
+		netip.MustParsePrefix("192.168.0.0/16"), netip.MustParsePrefix("fc00::/7"),
 	}
-	result := make(map[string][]netip.Prefix, len(entries))
-	for origin, cidrs := range entries {
-		parsed, err := url.Parse(origin)
-		port := 0
-		if err == nil && parsed != nil {
-			port, _ = strconv.Atoi(parsed.Port())
+	var result []netip.Prefix
+	for _, item := range strings.Split(raw, ",") {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(item))
+		if err != nil || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
+			return nil, fmt.Errorf("invalid GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS entry %q", item)
 		}
-		if err != nil || parsed == nil || !parsed.IsAbs() ||
-			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
-			parsed.Hostname() == "" || port < 1 || port > 65535 ||
-			parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" ||
-			origin != parsed.Scheme+"://"+strings.ToLower(parsed.Host) || net.ParseIP(parsed.Hostname()) != nil ||
-			strings.EqualFold(parsed.Hostname(), "localhost") || strings.HasSuffix(strings.ToLower(parsed.Hostname()), ".localhost") || len(cidrs) == 0 {
-			return nil, fmt.Errorf("invalid GATEWAY_WEBSTREAM_PRIVATE_SOURCES origin %q", origin)
+		private := false
+		for _, allowed := range privateRanges {
+			if prefix.Bits() >= allowed.Bits() && allowed.Contains(prefix.Addr()) {
+				private = true
+				break
+			}
 		}
-		for _, cidr := range cidrs {
-			prefix, err := netip.ParsePrefix(cidr)
-			if err != nil || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
-				return nil, fmt.Errorf("invalid private Webstream CIDR %q", cidr)
-			}
-			private := false
-			for _, allowed := range privateRanges {
-				if prefix.Bits() >= allowed.Bits() && allowed.Contains(prefix.Addr()) {
-					private = true
-					break
-				}
-			}
-			if !private {
-				return nil, fmt.Errorf("Webstream CIDR %q is not wholly inside a private address range", cidr)
-			}
-			result[origin] = append(result[origin], prefix)
+		if !private {
+			return nil, fmt.Errorf("Webstream private network %q is outside private address space", item)
 		}
+		result = append(result, prefix)
 	}
 	return result, nil
 }
@@ -237,7 +209,7 @@ func loadConfig(runtime string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	privateSources, err := ParseWebstreamPrivateSources(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_SOURCES"))
+	privateNetworks, err := ParseWebstreamPrivateNetworks(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS"))
 	if err != nil {
 		return nil, err
 	}
@@ -250,48 +222,11 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 
 	dnsAddress := getEnv("GATEWAY_DNS_ADDR", "")
-	dnsZone := getEnv("GATEWAY_DNS_ZONE", "")
-	dnsNameservers := getEnvList("GATEWAY_DNS_NAMESERVERS")
-	dnsZones, err := parseDNSZones(getEnv("GATEWAY_DNS_ZONES", ""))
-	if err != nil {
-		return nil, err
-	}
-	if len(dnsZones) > 0 && (dnsZone != "" || len(dnsNameservers) > 0) {
-		return nil, fmt.Errorf("GATEWAY_DNS_ZONES cannot be combined with GATEWAY_DNS_ZONE or GATEWAY_DNS_NAMESERVERS")
-	}
 	dynamicDNS := (runtime == "http" && getEnv("GATEWAY_LARAVEL_BACKEND_URL", "") != "" || runtime == "roadrunner") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
-	if dnsAddress != "" && len(dnsZones) == 0 && (dnsZone == "" || len(dnsNameservers) == 0) && !dynamicDNS {
-		return nil, fmt.Errorf("GATEWAY_DNS_ZONES or GATEWAY_DNS_ZONE with GATEWAY_DNS_NAMESERVERS is required when GATEWAY_DNS_ADDR is set")
-	}
-	dnsTTL := getEnvInt("GATEWAY_DNS_TTL", 0)
-	if dnsTTL < 0 || uint64(dnsTTL) > uint64(^uint32(0)) {
-		return nil, fmt.Errorf("GATEWAY_DNS_TTL must be between 0 and %d", uint64(^uint32(0)))
+	if dnsAddress != "" && !dynamicDNS {
+		return nil, fmt.Errorf("GATEWAY_DNS_ADDR requires a private Planner connection and GATEWAY_INTERNAL_TOKEN")
 	}
 	smtpRelayAddress := getEnv("GATEWAY_SMTP_RELAY_ADDR", "")
-	mailboxSMTPUpstreams := map[string]SMTPUpstreamSpec{}
-	if raw := getEnv("GATEWAY_MAILBOX_SMTP_UPSTREAMS", ""); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &mailboxSMTPUpstreams); err != nil {
-			return nil, fmt.Errorf("invalid GATEWAY_MAILBOX_SMTP_UPSTREAMS: %w", err)
-		}
-	}
-	hostedMailAdapters := map[string]HostedMailAdapterSpec{}
-	if raw := getEnv("GATEWAY_HOSTED_MAIL_ADAPTERS", ""); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &hostedMailAdapters); err != nil {
-			return nil, fmt.Errorf("invalid GATEWAY_HOSTED_MAIL_ADAPTERS: %w", err)
-		}
-	}
-	pop3Upstreams := map[string]POP3UpstreamSpec{}
-	if raw := getEnv("GATEWAY_POP3_UPSTREAMS", ""); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &pop3Upstreams); err != nil {
-			return nil, fmt.Errorf("invalid GATEWAY_POP3_UPSTREAMS: %w", err)
-		}
-	}
-	imapUpstreams := map[string]IMAPUpstreamSpec{}
-	if raw := getEnv("GATEWAY_IMAP_UPSTREAMS", ""); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &imapUpstreams); err != nil {
-			return nil, fmt.Errorf("invalid GATEWAY_IMAP_UPSTREAMS: %w", err)
-		}
-	}
 
 	config := &Config{
 		Runtime:                    runtime,
@@ -310,7 +245,7 @@ func loadConfig(runtime string) (*Config, error) {
 		WebstreamRetry:             getEnvDuration("GATEWAY_WEBSTREAM_RETRY", 3*time.Second),
 		WebstreamMaxConnections:    getEnvInt("GATEWAY_WEBSTREAM_MAX_CONNECTIONS", 1000),
 		WebstreamMaxDuration:       getEnvDuration("GATEWAY_WEBSTREAM_MAX_DURATION", 24*time.Hour),
-		WebstreamPrivateSources:    privateSources,
+		WebstreamPrivateNetworks:   privateNetworks,
 		MaxBodySize:                getEnvInt64("MAX_BODY_SIZE", 10*1024*1024),
 		MaxIdleConns:               getEnvInt("MAX_IDLE_CONNS", 100),
 		MaxConnsPerHost:            getEnvInt("MAX_CONNS_PER_HOST", 100),
@@ -322,7 +257,7 @@ func loadConfig(runtime string) (*Config, error) {
 		POP3Hostname:               getEnv("GATEWAY_POP3_HOSTNAME", "gateway.local"),
 		POP3TLSCertFile:            getEnv("GATEWAY_POP3_TLS_CERT_FILE", ""),
 		POP3TLSKeyFile:             getEnv("GATEWAY_POP3_TLS_KEY_FILE", ""),
-		POP3Upstreams:              pop3Upstreams,
+		POP3AllowedUpstreamHosts:   getEnvList("GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS"),
 		POP3MaxConnections:         getEnvInt("GATEWAY_POP3_MAX_CONNECTIONS", 1000),
 		POP3AuthPerMinute:          getEnvInt("GATEWAY_POP3_AUTH_PER_MINUTE", 30),
 		POP3AuthBurst:              getEnvInt("GATEWAY_POP3_AUTH_BURST", 5),
@@ -333,7 +268,7 @@ func loadConfig(runtime string) (*Config, error) {
 		IMAPHostname:               getEnv("GATEWAY_IMAP_HOSTNAME", "gateway.local"),
 		IMAPTLSCertFile:            getEnv("GATEWAY_IMAP_TLS_CERT_FILE", ""),
 		IMAPTLSKeyFile:             getEnv("GATEWAY_IMAP_TLS_KEY_FILE", ""),
-		IMAPUpstreams:              imapUpstreams,
+		IMAPAllowedUpstreamHosts:   getEnvList("GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS"),
 		IMAPMaxConnections:         getEnvInt("GATEWAY_IMAP_MAX_CONNECTIONS", 1000),
 		IMAPAuthPerMinute:          getEnvInt("GATEWAY_IMAP_AUTH_PER_MINUTE", 30),
 		IMAPAuthBurst:              getEnvInt("GATEWAY_IMAP_AUTH_BURST", 5),
@@ -370,9 +305,10 @@ func loadConfig(runtime string) (*Config, error) {
 		SMTPRelayTLSMode:           strings.ToLower(getEnv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")),
 		SMTPRelayTimeout:           getEnvDuration("GATEWAY_SMTP_RELAY_TIMEOUT", 30*time.Second),
 		MailboxSMTPResolverURL:     getEnv("GATEWAY_MAILBOX_SMTP_RESOLVER_URL", ""),
-		MailboxSMTPUpstreams:       mailboxSMTPUpstreams,
-		HostedMailAdapters:         hostedMailAdapters,
-		EmailDKIMSigningConfig:     getEnv("GATEWAY_EMAIL_DKIM_SIGNING_CONFIG", ""),
+		MailboxSMTPAllowedHosts:    getEnvList("GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS"),
+		HostedMailResolverURL:      getEnv("GATEWAY_HOSTED_MAIL_RESOLVER_URL", ""),
+		HostedMailAllowedHosts:     getEnvList("GATEWAY_HOSTED_MAIL_ALLOWED_HOSTS"),
+		EmailDKIMResolverURL:       getEnv("GATEWAY_EMAIL_DKIM_RESOLVER_URL", ""),
 		DeliverySpoolPath:          getEnv("GATEWAY_DELIVERY_SPOOL_PATH", ""),
 		DeliveryDatabaseURL:        getEnv("GATEWAY_DELIVERY_DATABASE_URL", ""),
 		DeliveryAdminAddress:       getEnv("GATEWAY_DELIVERY_ADMIN_ADDR", ""),
@@ -385,11 +321,6 @@ func loadConfig(runtime string) (*Config, error) {
 		SchedulesEnabled:           getEnvBool("GATEWAY_SCHEDULES_ENABLED", false),
 		SchedulePollInterval:       getEnvDuration("GATEWAY_SCHEDULE_POLL_INTERVAL", 5*time.Second),
 		DNSAddress:                 dnsAddress,
-		DNSZone:                    dnsZone,
-		DNSZones:                   dnsZones,
-		DNSNameservers:             dnsNameservers,
-		DNSSOAEmail:                getEnv("GATEWAY_DNS_SOA_EMAIL", ""),
-		DNSTTL:                     uint32(dnsTTL),
 		DNSPlannerTimeout:          getEnvDuration("GATEWAY_DNS_PLANNER_TIMEOUT", 750*time.Millisecond),
 		DNSReadTimeout:             getEnvDuration("GATEWAY_DNS_READ_TIMEOUT", 2*time.Second),
 		DNSWriteTimeout:            getEnvDuration("GATEWAY_DNS_WRITE_TIMEOUT", 2*time.Second),
@@ -438,16 +369,16 @@ func loadConfig(runtime string) (*Config, error) {
 		return nil, fmt.Errorf("GATEWAY_SMTP_MAX_CONNECTIONS must be positive")
 	}
 	if config.POP3Address != "" {
-		if config.POP3TLSCertFile == "" || config.POP3TLSKeyFile == "" || len(config.POP3Upstreams) == 0 {
-			return nil, fmt.Errorf("GATEWAY_POP3_ADDR requires a TLS certificate, private key, and registered upstreams")
+		if config.POP3TLSCertFile == "" || config.POP3TLSKeyFile == "" || len(config.POP3AllowedUpstreamHosts) == 0 {
+			return nil, fmt.Errorf("GATEWAY_POP3_ADDR requires a TLS certificate, private key, and deployed allowed hosts")
 		}
 		if config.POP3MaxConnections < 1 || config.POP3AuthPerMinute < 1 || config.POP3AuthBurst < 1 || config.POP3IdleTimeout < 10*time.Minute || config.POP3PlannerTimeout <= 0 || config.POP3UpstreamTimeout <= 0 {
 			return nil, fmt.Errorf("invalid POP3 connection or timeout limits")
 		}
 	}
 	if config.IMAPAddress != "" {
-		if config.IMAPTLSCertFile == "" || config.IMAPTLSKeyFile == "" || len(config.IMAPUpstreams) == 0 {
-			return nil, fmt.Errorf("GATEWAY_IMAP_ADDR requires a TLS certificate, private key, and registered upstreams")
+		if config.IMAPTLSCertFile == "" || config.IMAPTLSKeyFile == "" || len(config.IMAPAllowedUpstreamHosts) == 0 {
+			return nil, fmt.Errorf("GATEWAY_IMAP_ADDR requires a TLS certificate, private key, and deployed allowed hosts")
 		}
 		if config.IMAPMaxConnections < 1 || config.IMAPAuthPerMinute < 1 || config.IMAPAuthBurst < 1 || config.IMAPIdleTimeout < 10*time.Minute || config.IMAPPlannerTimeout <= 0 || config.IMAPUpstreamTimeout <= 0 {
 			return nil, fmt.Errorf("invalid IMAP connection or timeout limits")
@@ -480,8 +411,8 @@ func loadConfig(runtime string) (*Config, error) {
 	if config.EmailDSNDomain != "" && config.SMTPRelayAddress == "" {
 		return nil, fmt.Errorf("GATEWAY_EMAIL_DSN_DOMAIN requires an outbound SMTP relay")
 	}
-	if config.EmailDKIMSigningConfig != "" && config.SMTPRelayAddress == "" {
-		return nil, fmt.Errorf("GATEWAY_EMAIL_DKIM_SIGNING_CONFIG requires an outbound SMTP relay")
+	if config.EmailDKIMResolverURL != "" && (config.SMTPRelayAddress == "" || config.InternalToken == "") {
+		return nil, fmt.Errorf("GATEWAY_EMAIL_DKIM_RESOLVER_URL requires an outbound SMTP relay and internal token")
 	}
 	if strings.TrimSpace(config.DeliverySpoolPath) != "" && strings.TrimSpace(config.DeliveryDatabaseURL) != "" {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_SPOOL_PATH and GATEWAY_DELIVERY_DATABASE_URL are mutually exclusive")
@@ -489,8 +420,8 @@ func loadConfig(runtime string) (*Config, error) {
 	if config.SMTPRelayAddress != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_SPOOL_PATH or GATEWAY_DELIVERY_DATABASE_URL is required when GATEWAY_SMTP_RELAY_ADDR is set")
 	}
-	if (config.MailboxSMTPResolverURL == "") != (len(config.MailboxSMTPUpstreams) == 0) {
-		return nil, fmt.Errorf("mailbox SMTP requires both a private resolver URL and approved upstreams")
+	if config.MailboxSMTPResolverURL != "" && len(config.MailboxSMTPAllowedHosts) == 0 {
+		return nil, fmt.Errorf("mailbox SMTP requires deployed allowed hosts")
 	}
 	if config.MailboxSMTPResolverURL != "" && config.InternalToken == "" {
 		return nil, fmt.Errorf("mailbox SMTP requires GATEWAY_INTERNAL_TOKEN")
@@ -498,7 +429,10 @@ func loadConfig(runtime string) (*Config, error) {
 	if config.MailboxSMTPResolverURL != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("mailbox SMTP requires durable delivery storage")
 	}
-	if len(config.HostedMailAdapters) > 0 && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
+	if config.HostedMailResolverURL != "" && (config.InternalToken == "" || len(config.HostedMailAllowedHosts) == 0) {
+		return nil, fmt.Errorf("hosted mail requires a private resolver, internal token, and deployed allowed hosts")
+	}
+	if config.HostedMailResolverURL != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("hosted mail adapters require durable delivery storage")
 	}
 	if config.DeliveryAdminAddress != "" && config.InternalToken == "" {
@@ -512,31 +446,6 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 
 	return config, nil
-}
-
-func parseDNSZones(value string) ([]DNSZoneSpec, error) {
-	if strings.TrimSpace(value) == "" {
-		return nil, nil
-	}
-	decoder := json.NewDecoder(strings.NewReader(value))
-	decoder.DisallowUnknownFields()
-	var zones []DNSZoneSpec
-	if err := decoder.Decode(&zones); err != nil {
-		return nil, fmt.Errorf("decode GATEWAY_DNS_ZONES: %w", err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, fmt.Errorf("GATEWAY_DNS_ZONES must contain one JSON array")
-	}
-	if len(zones) == 0 {
-		return nil, fmt.Errorf("GATEWAY_DNS_ZONES must contain at least one zone")
-	}
-	for _, zone := range zones {
-		if strings.TrimSpace(zone.Name) == "" || len(zone.Nameservers) == 0 {
-			return nil, fmt.Errorf("each GATEWAY_DNS_ZONES entry needs a name and nameservers")
-		}
-	}
-	return zones, nil
 }
 
 func getEnvList(key string) []string {

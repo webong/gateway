@@ -89,7 +89,7 @@ func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
 	relay_password secret
 	relay_tls_mode starttls
 	relay_timeout 12s
-	dkim_signing_config /etc/gateway/dkim.json
+	dkim_resolver_url http://127.0.0.1:8081
 	clamd_network unix
 	clamd_address /run/clamav/clamd.sock
 	clamd_timeout 7s
@@ -124,8 +124,8 @@ func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
 	if config.RelayAddress != "smtp-relay.example.test:587" || config.RelayLocalName != "smtp.example.test" || config.RelayUsername != "gateway" || config.RelayTLSMode != "starttls" || time.Duration(config.RelayTimeout) != 12*time.Second {
 		t.Fatalf("unexpected parsed outbound SMTP relay: %+v", config)
 	}
-	if config.DKIMSigningConfig != "/etc/gateway/dkim.json" {
-		t.Fatalf("unexpected DKIM signing config: %q", config.DKIMSigningConfig)
+	if config.DKIMResolverURL != "http://127.0.0.1:8081" {
+		t.Fatalf("unexpected DKIM resolver URL: %q", config.DKIMResolverURL)
 	}
 	if config.ClamdNetwork != "unix" || config.ClamdAddress != "/run/clamav/clamd.sock" || time.Duration(config.ClamdTimeout) != 7*time.Second || config.QuarantinePath != "/var/lib/gateway/email-quarantine" || time.Duration(config.QuarantineRetention) != 720*time.Hour {
 		t.Fatalf("unexpected parsed malware protection: %+v", config)

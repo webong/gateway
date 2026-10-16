@@ -59,6 +59,54 @@ func (r staticMailboxResolver) Resolve(context.Context, string) (MailboxCredenti
 	return r.credential, nil
 }
 
+type unavailableMailboxResolver struct{}
+
+func (unavailableMailboxResolver) Resolve(context.Context, string) (MailboxCredential, error) {
+	return MailboxCredential{}, ErrMailboxConnectionUnavailable
+}
+
+func TestManagedMailboxAdapterStopsRetryingRevokedConnection(t *testing.T) {
+	adapter, err := NewManagedMailboxAdapter(unavailableMailboxResolver{}, []string{"smtp.example.test"}, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = adapter.DeliverGateway(context.Background(), bridge.GatewayDelivery{
+		Protocol: bridge.ProtocolSMTP, Adapter: "mailbox.smtp", Target: "recipient@example.test",
+		Attributes: map[string]string{"mailbox_connection_id": "11111111-1111-4111-8111-111111111111", "mail_from": "a@example.test"},
+		Payload:    []byte("Subject: test\r\n\r\nbody\r\n"),
+	})
+	if !errors.Is(err, bridge.ErrPermanentDelivery) {
+		t.Fatalf("revoked mailbox remained retryable: %v", err)
+	}
+}
+
+func TestManagedMailboxAdapterEnforcesDeployedHostAndTLS(t *testing.T) {
+	credential := MailboxCredential{UpstreamID: "smtp-a", Username: "account-a", Secret: "secret",
+		Mechanism: "PLAIN", Address: "a@example.test", UpstreamAddress: "blocked.test:465",
+		UpstreamServerName: "blocked.test", UpstreamTLSMode: "implicit"}
+	adapter, err := NewManagedMailboxAdapter(staticMailboxResolver{credential}, []string{"smtp.example.test"}, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery := bridge.GatewayDelivery{Protocol: bridge.ProtocolSMTP, Adapter: "mailbox.smtp",
+		Target: "recipient@example.test", Attributes: map[string]string{
+			"mailbox_connection_id": "11111111-1111-4111-8111-111111111111", "mail_from": "a@example.test"},
+		Payload: []byte("Subject: test\r\n\r\nbody\r\n")}
+	if err := adapter.DeliverGateway(context.Background(), delivery); err == nil || !strings.Contains(err.Error(), "not deployed") {
+		t.Fatalf("unapproved host was accepted: %v", err)
+	}
+	credential.UpstreamAddress = "smtp.example.test:465"
+	credential.UpstreamServerName = "smtp.example.test"
+	credential.UpstreamTLSMode = "none"
+	adapter, err = NewManagedMailboxAdapter(staticMailboxResolver{credential}, []string{"smtp.example.test"}, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := adapter.DeliverGateway(context.Background(), delivery); err == nil || !strings.Contains(err.Error(), "not deployed") {
+		t.Fatalf("non-TLS upstream was accepted: %v", err)
+	}
+}
+
 func TestMailboxAdapterRejectsCrossAccountSenderBeforeSMTP(t *testing.T) {
 	adapter, err := NewMailboxAdapter(staticMailboxResolver{MailboxCredential{
 		UpstreamID: "smtp-a", Username: "account-a", Secret: "secret", Mechanism: "PLAIN", Address: "a@example.test",

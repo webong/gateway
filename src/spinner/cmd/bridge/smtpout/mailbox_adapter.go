@@ -14,11 +14,14 @@ import (
 
 // MailboxCredential is resolved at delivery time and must not enter a spool.
 type MailboxCredential struct {
-	UpstreamID string `json:"upstream_id"`
-	Username   string `json:"username"`
-	Secret     string `json:"secret"`
-	Mechanism  string `json:"mechanism"`
-	Address    string `json:"address"`
+	UpstreamID         string `json:"upstream_id"`
+	Username           string `json:"username"`
+	Secret             string `json:"secret"`
+	Mechanism          string `json:"mechanism"`
+	Address            string `json:"address"`
+	UpstreamAddress    string `json:"upstream_address"`
+	UpstreamServerName string `json:"upstream_server_name"`
+	UpstreamTLSMode    string `json:"upstream_tls_mode"`
 }
 
 type MailboxCredentialResolver interface {
@@ -26,8 +29,24 @@ type MailboxCredentialResolver interface {
 }
 
 type MailboxAdapter struct {
-	resolver  MailboxCredentialResolver
-	upstreams map[string]Config
+	resolver     MailboxCredentialResolver
+	upstreams    map[string]Config
+	allowedHosts []string
+	timeout      time.Duration
+}
+
+// NewManagedMailboxAdapter resolves the current transport and credentials for
+// each attempt. The exact host list is a deployment ceiling, not a route map.
+func NewManagedMailboxAdapter(resolver MailboxCredentialResolver, allowedHosts []string, timeout time.Duration) (*MailboxAdapter, error) {
+	if resolver == nil || len(allowedHosts) == 0 || timeout <= 0 {
+		return nil, errors.New("managed mailbox SMTP requires a resolver and deployed allowed hosts")
+	}
+	for _, host := range allowedHosts {
+		if host == "" || host != strings.ToLower(host) || strings.ContainsAny(host, ":/ \t\r\n") {
+			return nil, errors.New("invalid managed mailbox SMTP allowed host")
+		}
+	}
+	return &MailboxAdapter{resolver: resolver, allowedHosts: append([]string(nil), allowedHosts...), timeout: timeout}, nil
 }
 
 func NewMailboxAdapter(resolver MailboxCredentialResolver, upstreams map[string]Config) (*MailboxAdapter, error) {
@@ -60,9 +79,21 @@ func (a *MailboxAdapter) DeliverGateway(ctx context.Context, delivery bridge.Gat
 	}
 	credential, err := a.resolver.Resolve(ctx, id)
 	if err != nil {
+		if errors.Is(err, ErrMailboxConnectionUnavailable) {
+			return fmt.Errorf("%w: mailbox connection is unavailable", bridge.ErrPermanentDelivery)
+		}
 		return errors.New("mailbox SMTP credential lookup is unavailable")
 	}
 	config, ok := a.upstreams[credential.UpstreamID]
+	if len(a.allowedHosts) > 0 {
+		if !bridge.ApprovedMailUpstream(credential.UpstreamAddress, credential.UpstreamServerName, a.allowedHosts) ||
+			(credential.UpstreamTLSMode != string(TLSImplicit) && credential.UpstreamTLSMode != string(TLSStartTLS)) {
+			return fmt.Errorf("%w: mailbox upstream is not deployed", bridge.ErrPermanentDelivery)
+		}
+		config = Config{Address: credential.UpstreamAddress, ServerName: credential.UpstreamServerName,
+			TLSMode: TLSMode(credential.UpstreamTLSMode), Timeout: a.timeout}
+		ok = true
+	}
 	if !ok || credential.Address == "" || !strings.EqualFold(credential.Address, delivery.Attributes["mail_from"]) {
 		return fmt.Errorf("%w: mailbox sender is not authorized", bridge.ErrPermanentDelivery)
 	}

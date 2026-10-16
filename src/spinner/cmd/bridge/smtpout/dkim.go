@@ -96,11 +96,30 @@ func loadSigningKey(path string) (crypto.Signer, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseSigningKey(data)
+}
+
+// NewDKIMSignerFromPEM builds an in-memory signer from one private Planner
+// resolution. The key is never written to a Spinner file or delivery spool.
+func NewDKIMSignerFromPEM(domain, selector, privatePEM string) (*DKIMSigner, error) {
+	if normalizedSigningDomain(domain) != domain || domain == "" || !validSelector(selector) ||
+		privatePEM == "" || len(privatePEM) > 16384 {
+		return nil, errors.New("DKIM signing resource is invalid")
+	}
+	key, err := parseSigningKey([]byte(privatePEM))
+	if err != nil {
+		return nil, err
+	}
+	return &DKIMSigner{keys: map[string]dkimSigningKey{domain: {selector: selector, signer: key}}}, nil
+}
+
+func parseSigningKey(data []byte) (crypto.Signer, error) {
 	block, rest := pem.Decode(data)
 	if block == nil || len(bytes.TrimSpace(rest)) != 0 {
 		return nil, errors.New("DKIM private key must contain exactly one PEM block")
 	}
 	var key any
+	var err error
 	switch block.Type {
 	case "PRIVATE KEY":
 		key, err = x509.ParsePKCS8PrivateKey(block.Bytes)

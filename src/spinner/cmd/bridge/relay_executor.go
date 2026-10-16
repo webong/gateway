@@ -52,9 +52,13 @@ func (e *RelayExecutor) openWebstream(ctx context.Context, delivery GatewayDeliv
 		return nil, fmt.Errorf("source profile cannot override replay key")
 	}
 	if body != nil {
-		return e.forwarder.OpenStreamUpload(ctx, target.String(), headers, body, forwardTransport(delivery.Transport))
+		settings := forwardTransport(delivery.Transport)
+		settings.PrivateSourceCIDRs = delivery.Attributes["private_source_cidrs"]
+		return e.forwarder.OpenStreamUpload(ctx, target.String(), headers, body, settings)
 	}
-	return e.forwarder.OpenStreamRequestPolicy(ctx, method, target.String(), headers, delivery.Payload, forwardTransport(delivery.Transport), retry)
+	settings := forwardTransport(delivery.Transport)
+	settings.PrivateSourceCIDRs = delivery.Attributes["private_source_cidrs"]
+	return e.forwarder.OpenStreamRequestPolicy(ctx, method, target.String(), headers, delivery.Payload, settings, retry)
 }
 
 func streamHeaders(delivery GatewayDelivery) http.Header {

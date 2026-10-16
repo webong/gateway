@@ -67,7 +67,7 @@ func NewIMAPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner) (
 	}
 	return imapgateway.NewServer(imapgateway.Config{
 		Address: config.IMAPAddress, Hostname: config.IMAPHostname,
-		TLSConfig: tlsConfig, Upstreams: upstreams,
+		TLSConfig: tlsConfig, Upstreams: upstreams, AllowedUpstreamHosts: config.IMAPAllowedUpstreamHosts,
 		MaxConnections: config.IMAPMaxConnections, IdleTimeout: config.IMAPIdleTimeout,
 		AuthPerMinute: config.IMAPAuthPerMinute, AuthBurst: config.IMAPAuthBurst,
 		PlannerTimeout: config.IMAPPlannerTimeout, UpstreamTimeout: config.IMAPUpstreamTimeout,
@@ -85,7 +85,7 @@ func NewPOP3Server(config *relayconfig.Config, planner bridge.ProtocolPlanner) (
 	}
 	return pop3gateway.NewServer(pop3gateway.Config{
 		Address: config.POP3Address, Hostname: config.POP3Hostname,
-		TLSConfig: tlsConfig, Upstreams: upstreams,
+		TLSConfig: tlsConfig, Upstreams: upstreams, AllowedUpstreamHosts: config.POP3AllowedUpstreamHosts,
 		MaxConnections: config.POP3MaxConnections, IdleTimeout: config.POP3IdleTimeout,
 		AuthPerMinute: config.POP3AuthPerMinute, AuthBurst: config.POP3AuthBurst,
 		PlannerTimeout: config.POP3PlannerTimeout, UpstreamTimeout: config.POP3UpstreamTimeout,
