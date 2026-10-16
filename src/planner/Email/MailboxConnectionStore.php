@@ -14,7 +14,8 @@ use stdClass;
 /** Secrets are encrypted with Laravel's application key and never returned by resources. */
 final readonly class MailboxConnectionStore
 {
-    public function __construct(private ?MailboxOAuthRefresher $refresher = null) {}
+    public function __construct(private ?MailboxOAuthRefresher $refresher = null,
+        private ?EmailUpstreamCatalog $upstreams = null) {}
 
     public function createAccount(string $id): string
     {
@@ -167,8 +168,7 @@ final readonly class MailboxConnectionStore
         }
         foreach (['imap', 'smtp'] as $side) {
             $id = $input[$side.'_upstream_id'];
-            $approved = config("gateway.email.{$side}_upstreams", []);
-            if (! is_array($approved) || ! array_key_exists($id, $approved)
+            if ($this->upstreams?->active($side, $id) === null
                 || preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $id) !== 1
                 || ! in_array($input[$side.'_auth'], ['password', 'google', 'microsoft'], true)
                 || $input[$side.'_username'] === '' || strlen($input[$side.'_username']) > 320

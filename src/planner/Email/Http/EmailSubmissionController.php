@@ -14,6 +14,7 @@ use Webong\Gateway\Email\EmailHttpSubmissionStore;
 use Webong\Gateway\Email\EmailSubmissionKeyConflict;
 use Webong\Gateway\Email\EmailSubmissionLimitExceeded;
 use Webong\Gateway\Email\EmailRecipientSuppressed;
+use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
@@ -30,11 +31,13 @@ final readonly class EmailSubmissionController
         private EmailHttpSubmissionStore $submissions,
         private DeliveryAdminClient $admin,
         private MailboxConnectionStore $connections,
+        private \Webong\Gateway\Email\EmailSubmissionPolicyStore $policies,
+        private EmailRuntimePolicyStore $runtimePolicy,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
     {
-        if (! config('gateway.email.http_submission_enabled', false)) {
+        if (! $this->runtimePolicy->current()['http_submission_enabled']) {
             return response()->json(['message' => 'Not found.'], Response::HTTP_NOT_FOUND);
         }
         if (! $request->isSecure()) {
@@ -90,7 +93,7 @@ final readonly class EmailSubmissionController
             return $this->unauthorized();
         }
         $connectionId = $decision->metadata['mailbox_connection_id'] ?? '';
-        if (! is_string($connectionId) || ($connectionId !== '' && ! config('gateway.email.connected_smtp_enabled', false))) {
+        if (! is_string($connectionId) || ($connectionId !== '' && ! $this->runtimePolicy->current()['connected_smtp_enabled'])) {
             return response()->json(['message' => 'Mailbox SMTP routing is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }
         if ($connectionId !== '') {
@@ -103,8 +106,9 @@ final readonly class EmailSubmissionController
         }
         $rawLimit = $decision->metadata['submission_daily_limit'] ?? '';
         $rawByteLimit = $decision->metadata['submission_daily_byte_limit'] ?? '';
-        $limit = $this->limit($rawLimit, (int) config('gateway.email.submission_daily_limit', 0), 1_000_000);
-        $byteLimit = $this->limit($rawByteLimit, (int) config('gateway.email.submission_daily_byte_limit', 0), 1_000_000_000_000);
+        $policy = $this->policies->limits();
+        $limit = $this->limit($rawLimit, $policy['daily_limit'], 1_000_000);
+        $byteLimit = $this->limit($rawByteLimit, $policy['daily_byte_limit'], 1_000_000_000_000);
         if ($limit === null || $byteLimit === null) {
             return response()->json(['message' => 'Email submission quota policy is invalid.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }

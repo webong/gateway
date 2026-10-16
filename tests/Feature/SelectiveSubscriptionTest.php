@@ -17,6 +17,7 @@ use Webong\Gateway\Protocol\SubscriptionState;
 use Webong\Gateway\RegistryRoutePlanner;
 use Webong\Gateway\RegistryRouteCache;
 use Webong\Gateway\SubscribeEndpoint;
+use Webong\Gateway\ShellHookGrantStore;
 use Webong\Gateway\SubscriptionDefinition;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 
@@ -40,6 +41,21 @@ function relayEndpoint(): Endpoint
     TestPathResolver::$endpointKey = $endpoint->record->endpoint_key;
 
     return $endpoint;
+}
+
+/** @return list<object> */
+function grantShellHooks(string $endpointKey, array $subscribers): array
+{
+    $grants = [];
+    foreach ($subscribers as $subscriberId => $hooks) {
+        foreach ($hooks as $hook) {
+            $grants[] = app(ShellHookGrantStore::class)->create([
+                'endpoint_key' => $endpointKey, 'subscriber_id' => $subscriberId, 'hook' => $hook,
+            ]);
+        }
+    }
+
+    return $grants;
 }
 
 function subscriptionEtag(WebProxyDestination $destination): string
@@ -793,9 +809,8 @@ it('registers a Shell reply, selects its hook, and manages its lifecycle', funct
     config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
     $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
     $endpoint = relayEndpoint();
-    config()->set('gateway.shell.subscription_hooks', [
-        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy', 'github/deploy-v2']],
-    ]);
+    $grants = grantShellHooks($endpoint->record->endpoint_key,
+        ['shell-owner' => ['github/deploy', 'github/deploy-v2']]);
     $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
     $created = $this->withToken('registry-secret')->postJson($route, [
         'subscriber_id' => 'shell-owner',
@@ -850,12 +865,16 @@ it('registers a Shell reply, selects its hook, and manages its lifecycle', funct
     $active->assertOk()->assertJsonPath('status', 'active');
     expect($planner->plan($request('account-42'))->automation?->source)->toBe('github/deploy-v2');
 
-    config()->set('gateway.shell.subscription_hooks', []);
+    $grant = app(ShellHookGrantStore::class)->replace($grants[1]->id, [
+        'endpoint_key' => $endpoint->record->endpoint_key,
+        'subscriber_id' => 'shell-owner', 'hook' => 'github/deploy-v2', 'enabled' => false,
+    ], $grants[1]->revision);
     expect(fn () => $planner->plan($request('account-42')))
         ->toThrow(InvalidArgumentException::class, 'not authorized');
-    config()->set('gateway.shell.subscription_hooks', [
-        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy', 'github/deploy-v2']],
-    ]);
+    app(ShellHookGrantStore::class)->replace($grant->id, [
+        'endpoint_key' => $endpoint->record->endpoint_key,
+        'subscriber_id' => 'shell-owner', 'hook' => 'github/deploy-v2',
+    ], $grant->revision);
 
     $this->withToken('registry-secret')->withHeader('If-Match', $active->headers->get('ETag'))
         ->deleteJson($url)->assertNoContent();
@@ -867,11 +886,8 @@ it('shares reply cardinality between HTTP and Shell subscriptions', function ():
     config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
     $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
     $endpoint = relayEndpoint();
-    config()->set('gateway.shell.subscription_hooks', [
-        $endpoint->record->endpoint_key => [
-            'shell-owner' => ['github/deploy'],
-            'other-shell-owner' => ['github/other'],
-        ],
+    grantShellHooks($endpoint->record->endpoint_key, [
+        'shell-owner' => ['github/deploy'], 'other-shell-owner' => ['github/other'],
     ]);
     $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
     $base = [
@@ -907,9 +923,7 @@ it('keeps HTTP relay fan-out alongside a Shell reply and requires Spinner capabi
     config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
     $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
     $endpoint = relayEndpoint();
-    config()->set('gateway.shell.subscription_hooks', [
-        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy']],
-    ]);
+    grantShellHooks($endpoint->record->endpoint_key, ['shell-owner' => ['github/deploy']]);
     $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
     $base = [
         'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
@@ -939,9 +953,7 @@ it('keeps HTTP relay fan-out alongside a Shell reply and requires Spinner capabi
 
 it('offers the same Shell reply definition to trusted PHP callers', function (): void {
     $endpoint = relayEndpoint();
-    config()->set('gateway.shell.subscription_hooks', [
-        $endpoint->record->endpoint_key => ['php-owner' => ['github/deploy.ps1']],
-    ]);
+    grantShellHooks($endpoint->record->endpoint_key, ['php-owner' => ['github/deploy.ps1']]);
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
         SubscriptionDefinition::shellReply(
@@ -979,9 +991,7 @@ it('rejects unsafe Shell reply registrations and hook changes', function (): voi
     $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
     $this->withToken('registry-secret')->postJson($route, $base)->assertUnprocessable()
         ->assertJsonPath('errors.subscription.0', 'The Shell hook is not authorized for this endpoint and subscriber.');
-    config()->set('gateway.shell.subscription_hooks', [
-        $endpoint->record->endpoint_key => ['shell-owner' => ['github/deploy']],
-    ]);
+    grantShellHooks($endpoint->record->endpoint_key, ['shell-owner' => ['github/deploy']]);
     foreach ([
         ['hook' => '../escape'],
         ['type' => 'relay'],

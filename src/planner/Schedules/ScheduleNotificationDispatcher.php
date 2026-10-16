@@ -13,16 +13,18 @@ use RuntimeException;
 /** At-least-once operator alerts for completed schedule runs. */
 final readonly class ScheduleNotificationDispatcher
 {
-    public function __construct(private ScheduleRunOutcome $outcomes) {}
+    public function __construct(private ScheduleRunOutcome $outcomes,
+        private ScheduleNotificationConfig $notifications) {}
 
     /** @return array{checked: int, sent: int, deferred: int, resolved: int} */
     public function dispatch(int $limit = 25): array
     {
         $summary = ['checked' => 0, 'sent' => 0, 'deferred' => 0, 'resolved' => 0];
-        $url = trim((string) config('gateway.schedule_notifications.url', ''));
-        if ($url === '') {
+        $destination = $this->notifications->effective();
+        if ($destination === null) {
             return $summary;
         }
+        $url = $destination['url'];
         $this->validateURL($url);
         foreach ($this->claim(max(1, min(100, $limit))) as $claim) {
             $summary['checked']++;
@@ -76,7 +78,7 @@ final readonly class ScheduleNotificationDispatcher
                 $request = Http::acceptJson()->asJson()->withoutRedirecting()
                     ->connectTimeout(2)->timeout(5)
                     ->withHeaders(['Idempotency-Key' => 'gateway-schedule-run-'.$run->id]);
-                $token = (string) config('gateway.schedule_notifications.token', '');
+                $token = $destination['token'];
                 if ($token !== '') {
                     $request = $request->withToken($token);
                 }

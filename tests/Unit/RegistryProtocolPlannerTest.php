@@ -16,6 +16,7 @@ use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
 use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\MailboxAccessGrant;
+use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;
 
 it('requires route opt-in for metadata-only uploads and idempotent retries', function (bool $upload, bool $enabled, string $key, int $status): void {
     $route = new class implements RoutePlanner {
@@ -24,7 +25,12 @@ it('requires route opt-in for metadata-only uploads and idempotent retries', fun
             return RoutePlan::relay(reply: new Delivery(url: 'https://source.test/events'));
         }
     };
-    $planner = new RegistryProtocolPlanner($route, webstreamRoutes: $enabled ? ['gateway.test/events' => ['source' => 'https://source.test/events', 'upload' => true, 'retry' => true]] : []);
+    $policies = app(WebstreamRoutePolicyStore::class);
+    if ($enabled) {
+        $policies->create(['host' => 'gateway.test', 'path' => '/events',
+            'source' => 'https://source.test/events', 'upload' => true, 'retry' => true]);
+    }
+    $planner = new RegistryProtocolPlanner($route, webstreamRoutePolicies: $policies);
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'request', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT, route: '/events', host: 'gateway.test', method: 'POST',
         headers: $key !== '' ? ['idempotency-key' => [$key]] : [], attributes: $upload ? ['upload_mode' => 'stream'] : [], payload: $upload ? '' : 'input',

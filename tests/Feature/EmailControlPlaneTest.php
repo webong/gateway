@@ -183,7 +183,6 @@ it('registers the Email submission usage retention command', function (): void {
         'created_at' => now('UTC'),
         'updated_at' => now('UTC'),
     ]);
-    config()->set('gateway.email.submission_usage_retention_days', 90);
 
     $this->artisan('gateway:prune-email-submission-usage')->assertExitCode(0);
     expect(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'old-account'))->exists())->toBeFalse()
@@ -191,8 +190,9 @@ it('registers the Email submission usage retention command', function (): void {
 });
 
 it('shares sender-domain limits across accounts and rolls back a rejected account charge', function (): void {
-    config()->set('gateway.email.submission_domain_daily_limit', 1);
-    config()->set('gateway.email.submission_domain_daily_byte_limit', 12);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create([
+        'domain_daily_limit' => 1, 'domain_daily_byte_limit' => 12,
+    ]);
     $quota = app(EmailSubmissionQuota::class);
 
     expect($quota->consumeSubmission('account-a', 'first@EXAMPLE.TEST.', 1, 6, 10))->toBeTrue()
@@ -203,7 +203,7 @@ it('shares sender-domain limits across accounts and rolls back a rejected accoun
 });
 
 it('enforces sender-domain byte limits even when account quotas are disabled', function (): void {
-    config()->set('gateway.email.submission_domain_daily_byte_limit', 10);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create(['domain_daily_byte_limit' => 10]);
     $quota = app(EmailSubmissionQuota::class);
 
     expect($quota->consumeSubmission('account-a', 'first@example.test', 0, 6, 0))->toBeTrue()
@@ -214,7 +214,7 @@ it('enforces sender-domain byte limits even when account quotas are disabled', f
 });
 
 it('enforces a granted account quota before routing an SMTP transaction', function (): void {
-    config()->set('gateway.email.submission_daily_limit', 1);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create(['daily_limit' => 1]);
     $planner = app(ProtocolPlanner::class);
     $event = static fn (string $id): GatewayEvent => new GatewayEvent(
         id: $id,
@@ -241,7 +241,7 @@ it('enforces a granted account quota before routing an SMTP transaction', functi
 });
 
 it('rejects an authenticated SMTP DATA recipient on the suppression list before charging quota', function (): void {
-    config()->set('gateway.email.submission_daily_limit', 1);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create(['daily_limit' => 1]);
     $entry = $this->withToken('registry-secret')->postJson('/email/suppressions', [
         'address' => 'recipient@EXAMPLE.TEST', 'reason' => 'complaint',
     ])->assertCreated()->json();
@@ -264,8 +264,9 @@ it('rejects an authenticated SMTP DATA recipient on the suppression list before 
 });
 
 it('enforces the shared sender-domain cap before routing authenticated SMTP transactions', function (): void {
-    config()->set('gateway.email.submission_daily_limit', 1);
-    config()->set('gateway.email.submission_domain_daily_limit', 1);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create([
+        'daily_limit' => 1, 'domain_daily_limit' => 1,
+    ]);
     $planner = app(ProtocolPlanner::class);
     $event = static fn (string $id, string $identity): GatewayEvent => new GatewayEvent(
         id: $id, protocol: Protocol::SMTP, kind: EventKind::TRANSACTION,
@@ -286,8 +287,7 @@ it('enforces the shared sender-domain cap before routing authenticated SMTP tran
 });
 
 it('enforces the configured submission byte cap before routing SMTP DATA', function (): void {
-    config()->set('gateway.email.submission_daily_limit', 0);
-    config()->set('gateway.email.submission_daily_byte_limit', 50);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create(['daily_byte_limit' => 50]);
     $planner = app(ProtocolPlanner::class);
     $event = static fn (string $id, int $bytes): GatewayEvent => new GatewayEvent(
         id: $id, protocol: Protocol::SMTP, kind: EventKind::TRANSACTION,
@@ -303,7 +303,7 @@ it('enforces the configured submission byte cap before routing SMTP DATA', funct
 });
 
 it('does not apply the submission byte cap to unauthenticated inbound mail', function (): void {
-    config()->set('gateway.email.submission_daily_byte_limit', 1);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create(['daily_byte_limit' => 1]);
     $decision = app(ProtocolPlanner::class)->planEvent(new GatewayEvent(
         id: 'inbound-not-submission', protocol: Protocol::SMTP, kind: EventKind::TRANSACTION,
         route: 'recipient@example.test',
@@ -367,7 +367,8 @@ it('rechecks TXT ownership before re-enabling a managed email domain', function 
 });
 
 it('temporarily fails SMTP planning when an enabled domain needs TXT revalidation', function (): void {
-    config()->set('gateway.email.verification_ttl_seconds', 3600);
+    $runtimePolicy = app(\Webong\Gateway\Email\EmailRuntimePolicyStore::class);
+    $runtimePolicy->create(['verification_ttl_seconds' => 3600]);
     $resolver = new FakeEmailTxtResolver();
     $this->app->instance(TxtResolver::class, $resolver);
     $domain = $this->withToken('registry-secret')->postJson('/email/domains', ['domain' => 'freshness.test'])->assertCreated()->json();
@@ -399,7 +400,7 @@ it('temporarily fails SMTP planning when an enabled domain needs TXT revalidatio
     expect(strtotime((string) DB::table('email_domains')->where('id', $domain['id'])->value('verified_at')))
         ->toBeGreaterThan($stale->getTimestamp());
 
-    config()->set('gateway.email.verification_ttl_seconds', 0);
+    $runtimePolicy->replace(['verification_ttl_seconds' => 0], $runtimePolicy->find()->revision);
     $resolver->values = [];
     expect(fn (): mixed => $planner->planEvent($event))->toThrow(VerificationRecordMissing::class);
 });
@@ -635,7 +636,7 @@ it('assesses DMARC before managed forwarding and quarantines opted-in failures',
         ->and($monitored->metadata['dmarc_result'])->toBe('fail')
         ->and($monitored->metadata['dmarc_policy'])->toBe('reject');
 
-    config()->set('gateway.email.dmarc_enforce_enabled', true);
+    app(\Webong\Gateway\Email\EmailRuntimePolicyStore::class)->create(['dmarc_enforce_enabled' => true]);
     $quarantined = $planner->planEvent($event($attributes));
     expect($quarantined->action)->toBe(GatewayAction::QUARANTINE)
         ->and($quarantined->statusCode)->toBe(250)

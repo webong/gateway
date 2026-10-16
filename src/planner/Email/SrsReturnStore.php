@@ -12,27 +12,36 @@ use Illuminate\Support\Facades\DB;
 final readonly class SrsReturnStore
 {
     public function __construct(
-        private SrsCodec $codec,
+        private EmailSrsPolicyStore $policy,
         private EmailRegistry $domains,
     ) {}
 
+    public function rewriteEnabled(): bool
+    {
+        return $this->policy->rewriteEnabled();
+    }
+
     public function isCandidate(string $address): bool
     {
+        $codec = $this->policy->codec();
         $separator = strrpos($address, '@');
 
-        return $separator !== false
-            && strcasecmp(substr($address, $separator + 1), $this->codec->domain) === 0
+        return $codec !== null && $separator !== false
+            && strcasecmp(substr($address, $separator + 1), $codec->domain) === 0
             && preg_match('/^SRS[01]-/i', substr($address, 0, $separator)) === 1;
     }
 
     public function issue(string $sender): string
     {
+        if (! $this->policy->rewriteEnabled() || ($codec = $this->policy->codec()) === null) {
+            throw new EmailRouteRejected('SRS rewriting is disabled.');
+        }
         if (filter_var($sender, FILTER_VALIDATE_EMAIL) === false) {
             throw new EmailRouteRejected('The SMTP reverse-path is invalid.');
         }
 
-        $this->domains->requireActiveDomain($this->codec->domain);
-        $token = $this->codec->issue();
+        $this->domains->requireActiveDomain($codec->domain);
+        $token = $codec->issue();
         $now = now();
         DB::table('srs_returns')->insert([
             'token_hash' => $token->hash,
@@ -52,7 +61,7 @@ final readonly class SrsReturnStore
 
     public function resolve(string $address): ?string
     {
-        $token = $this->codec->verify($address);
+        $token = $this->policy->codec()?->verify($address);
         if ($token === null) {
             return null;
         }

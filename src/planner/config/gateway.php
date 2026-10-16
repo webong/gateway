@@ -38,21 +38,16 @@ return [
     'delivery_admin_nodes' => env('GATEWAY_DELIVERY_ADMIN_NODES'),
 
     'schedule_notifications' => [
-        // Opt-in operator webhook for failed schedule executions or deliveries.
-        // All Planner workers should share this configuration.
-        'url' => (string) env('GATEWAY_SCHEDULE_NOTIFICATION_URL', ''),
-        'token' => (string) env('GATEWAY_SCHEDULE_NOTIFICATION_TOKEN', ''),
+        // Exact approved receiver hosts; HTTP is accepted only for 127.0.0.1.
+        'allowed_hosts' => (string) env('GATEWAY_SCHEDULE_NOTIFICATION_ALLOWED_HOSTS', ''),
     ],
 
     'email' => [
         // MX-to-webhook delivery is separate from alias-to-SMTP forwarding.
-        'hooks_enabled' => (bool) env('GATEWAY_EMAIL_HOOKS_ENABLED', false),
         'hook_client' => (string) env('GATEWAY_EMAIL_HOOK_CLIENT', 'gateway'),
         'provider_route_resolver' => env('GATEWAY_EMAIL_PROVIDER_ROUTE_RESOLVER'),
         // Exact operator-approved upstream IDs. Customer input selects IDs,
         // never raw network addresses.
-        'imap_upstreams' => json_decode((string) (env('GATEWAY_EMAIL_IMAP_UPSTREAMS') ?: '{}'), true),
-        'smtp_upstreams' => json_decode((string) (env('GATEWAY_EMAIL_SMTP_UPSTREAMS') ?: '{}'), true),
         'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER'),
         'oauth' => [
             'google' => ['client_id' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_ID'),
@@ -61,14 +56,6 @@ return [
                 'client_secret' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET'),
                 'tenant' => env('GATEWAY_EMAIL_MICROSOFT_TENANT', 'common')],
         ],
-        'connected_smtp_enabled' => (bool) env('GATEWAY_EMAIL_CONNECTED_SMTP_ENABLED', false),
-        // Refresh TXT ownership during SMTP planning after this interval.
-        // Zero checks every transaction; a stale, unverifiable domain fails
-        // temporarily instead of accepting mail on historical ownership.
-        'verification_ttl_seconds' => (int) env('GATEWAY_EMAIL_VERIFICATION_TTL_SECONDS', 86400),
-        // Public forwarding is not enabled by this switch: it only applies a
-        // sender's DMARC p=reject request after conclusive failed alignment.
-        'dmarc_enforce_enabled' => (bool) env('GATEWAY_EMAIL_DMARC_ENFORCE_ENABLED', false),
         // Optional deployment-owned scanner/abuse policy class. It is
         // resolved by Planner, never selected by an SMTP client or domain.
         'policy' => env('GATEWAY_EMAIL_POLICY'),
@@ -76,36 +63,19 @@ return [
         // credential and returns exact sender grants; registry routes never
         // receive AUTH passwords.
         'submission_authenticator' => env('GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR'),
-        // Public HTTP submission is a separate opt-in from SMTP AUTH.
-        'http_submission_enabled' => (bool) env('GATEWAY_EMAIL_HTTP_SUBMISSION_ENABLED', false),
-        // Zero disables the shared UTC-day submission-attempt quota unless an
-        // authenticator returns an account-specific limit in its grant.
-        'submission_daily_limit' => (int) env('GATEWAY_EMAIL_SUBMISSION_DAILY_LIMIT', 0),
-        'submission_daily_byte_limit' => (int) env('GATEWAY_EMAIL_SUBMISSION_DAILY_BYTE_LIMIT', 0),
-        // These caps are shared by all authenticated accounts sending from
-        // the same envelope-sender domain. Zero disables each cap.
-        'submission_domain_daily_limit' => (int) env('GATEWAY_EMAIL_SUBMISSION_DOMAIN_DAILY_LIMIT', 0),
-        'submission_domain_daily_byte_limit' => (int) env('GATEWAY_EMAIL_SUBMISSION_DOMAIN_DAILY_BYTE_LIMIT', 0),
-        'submission_usage_retention_days' => (int) env('GATEWAY_EMAIL_SUBMISSION_USAGE_RETENTION_DAYS', 90),
         // Optional deployment-owned POP3 credential authority. It returns a
         // registered upstream ID, never a client-selected network address.
         'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR'),
-        // Explicit opt-in. Keys are a JSON array of base64-encoded 32+ byte
-        // secrets shared by all Planner workers; the first signs new tokens.
-        'srs_enabled' => (bool) env('GATEWAY_EMAIL_SRS_ENABLED', false),
-        // Can stop issuing new tokens while old return addresses remain valid.
-        'srs_rewrite_enabled' => (bool) env('GATEWAY_EMAIL_SRS_REWRITE_ENABLED', true),
-        'srs_domain' => (string) env('GATEWAY_EMAIL_SRS_DOMAIN', ''),
-        'srs_keys' => json_decode((string) (env('GATEWAY_EMAIL_SRS_KEYS') ?: '[]'), true),
-        'srs_max_age_seconds' => (int) env('GATEWAY_EMAIL_SRS_MAX_AGE_SECONDS', 21 * 86400),
+        // Deployment ceiling, supplied by the host application or mounted config;
+        // Planner resources may only select these exact upstream hosts.
+        'upstream_allowed_hosts' => [],
+        'hosted_allowed_hosts' => [],
     ],
 
     'events' => [
         // Bounded Web ingress history is opt-in for high-volume deployments.
         // Bodies are retained only when endpoint metadata explicitly opts in.
-        'enabled' => (bool) env('GATEWAY_EVENTS_ENABLED', false),
         'max_body_bytes' => (int) env('GATEWAY_EVENTS_MAX_BODY_BYTES', 65536),
-        'retention_days' => (int) env('GATEWAY_EVENTS_RETENTION_DAYS', 30),
     ],
 
     'automation' => [
@@ -121,19 +91,9 @@ return [
     'shell' => [
         // Separate operator approval for managing privileged local hooks.
         'subscription_token' => (string) env('GATEWAY_SHELL_SUBSCRIPTION_TOKEN', ''),
-        // Exact endpoint key => subscriber ID => permitted local hook keys.
-        // Registry-managed hooks are denied until the operator opts in.
-        'subscription_hooks' => [],
     ],
 
     'dns' => [
-        // The API owns zone identity and lifecycle. These zone variables are
-        // retained only as a legacy bootstrap path.
-        'enabled' => (bool) env('GATEWAY_DNS_HOOKS_ENABLED', env('GATEWAY_DNS_ZONE') !== null || env('GATEWAY_DNS_ZONES') !== null),
-        'zone' => strtolower(trim((string) env('GATEWAY_DNS_ZONE', ''), ". \t\n\r\0\x0B")),
-        'nameservers' => array_values(array_filter(array_map('trim', explode(',', (string) env('GATEWAY_DNS_NAMESERVERS', ''))))),
-        'default_nameservers' => array_values(array_filter(array_map('trim', explode(',', (string) env('GATEWAY_DNS_DEFAULT_NAMESERVERS', env('GATEWAY_DNS_NAMESERVERS', '')))))),
-        'zones' => json_decode((string) (env('GATEWAY_DNS_ZONES') ?: '[]'), true),
         'client' => (string) env('GATEWAY_DNS_PROXY_CLIENT', 'gateway'),
         'providers' => [
             'cloudflare' => [

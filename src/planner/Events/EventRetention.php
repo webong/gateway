@@ -8,6 +8,8 @@ use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 
 final class EventRetention
 {
+    public function __construct(private readonly WebEventPolicyStore $policy) {}
+
     public function maybePrune(): void
     {
         if (random_int(1, 1000) === 1) {
@@ -17,7 +19,7 @@ final class EventRetention
 
     public function prune(): int
     {
-        $days = max(1, (int) config('gateway.events.retention_days', 30));
+        $days = $this->policy->current()['retention_days'];
 
         return GatewayEndpointEvent::query()->where('received_at', '<', now()->subDays($days))->delete();
     }

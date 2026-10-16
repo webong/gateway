@@ -24,9 +24,10 @@ final class SrsTestTxtResolver implements TxtResolver
 }
 
 it('rewrites only the outbound reverse path and routes a validated null-sender bounce', function (): void {
-    config()->set('gateway.email.srs_enabled', true);
-    config()->set('gateway.email.srs_domain', 'returns.example.test');
-    config()->set('gateway.email.srs_keys', [base64_encode(str_repeat('k', 32))]);
+    $srs = $this->withToken('registry-secret')->postJson('/email/srs-policy', [
+        'domain' => 'returns.example.test', 'keys' => [base64_encode(str_repeat('k', 32))],
+    ])->assertCreated();
+    expect($srs->json())->not->toHaveKey('keys');
     $txt = new SrsTestTxtResolver();
     $this->app->instance(TxtResolver::class, $txt);
 
@@ -72,7 +73,8 @@ it('rewrites only the outbound reverse path and routes a validated null-sender b
         ->and($returned->deliveries[0]->attributes['mail_from'])->toBe('')
         ->and(json_decode($returned->deliveries[0]->attributes['recipients'], true))->toBe(['sender@origin.test']);
 
-    config()->set('gateway.email.srs_rewrite_enabled', false);
+    $this->withToken('registry-secret')->withHeaders(['If-Match' => $srs->headers->get('ETag')])
+        ->putJson('/email/srs-policy', ['rewrite_enabled' => false])->assertOk();
     expect(app(ProtocolPlanner::class)->planEvent($forward)->deliveries[0]->attributes['mail_from'])->toBe('sender@origin.test')
         ->and(app(ProtocolPlanner::class)->planEvent($bounce)->action)->toBe(GatewayAction::SUBMIT)
         ->and(DB::table('srs_returns')->count())->toBe(1);

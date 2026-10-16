@@ -13,9 +13,10 @@ final class PruneEmailSubmissionUsageCommand extends Command
 
     protected $description = 'Delete old account and sender-domain Email submission counters';
 
-    public function handle(EmailSubmissionQuota $quota, EmailHttpSubmissionStore $submissions): int
+    public function handle(EmailSubmissionQuota $quota, EmailHttpSubmissionStore $submissions,
+        EmailRuntimePolicyStore $runtimePolicy): int
     {
-        $days = (int) config('gateway.email.submission_usage_retention_days', 90);
+        $days = $runtimePolicy->current()['submission_usage_retention_days'];
         if ($days < 1) {
             throw new InvalidArgumentException('Gateway Email submission usage retention must be positive.');
         }

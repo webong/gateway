@@ -10,6 +10,8 @@ use InvalidArgumentException;
 /** Atomic per-account and per-sender-domain UTC-day submission counters. */
 final class EmailSubmissionQuota
 {
+    public function __construct(private readonly EmailSubmissionPolicyStore $policies) {}
+
     public function consume(string $identity, int $limit, int $messageBytes = 0, int $byteLimit = 0): bool
     {
         if ($identity === '' || $limit < 0 || $limit > 1_000_000 || $byteLimit < 0 || $byteLimit > 1_000_000_000_000
@@ -27,8 +29,9 @@ final class EmailSubmissionQuota
     /** Apply configured sender-domain caps across accounts, atomically with account caps. */
     public function consumeSubmission(string $identity, string $mailFrom, int $accountLimit, int $messageBytes, int $accountByteLimit): bool
     {
-        $domainLimit = (int) config('gateway.email.submission_domain_daily_limit', 0);
-        $domainByteLimit = (int) config('gateway.email.submission_domain_daily_byte_limit', 0);
+        $policy = $this->policies->limits();
+        $domainLimit = $policy['domain_daily_limit'];
+        $domainByteLimit = $policy['domain_daily_byte_limit'];
         if ($domainLimit < 0 || $domainLimit > 1_000_000 || $domainByteLimit < 0 || $domainByteLimit > 1_000_000_000_000) {
             throw new InvalidArgumentException('Email submission domain quota policy is invalid.');
         }

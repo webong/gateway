@@ -9,6 +9,10 @@ use Illuminate\Support\Facades\Http;
 /** @return array{0: string, 1: string, 2: string} */
 function claimNotifiedScheduleRun(mixed $case): array
 {
+    $notifications = app(\Webong\Gateway\Schedules\ScheduleNotificationConfig::class);
+    if ($notifications->find() === null) {
+        $notifications->create(['url' => 'https://ops.example.test/alerts', 'token' => 'operator-secret']);
+    }
     $schedule = $case->withToken('registry-secret')->postJson('/schedules', [
         'name' => 'Notification check', 'cron' => '0 0 * * *',
         'language' => 'test-script', 'source' => 'run()',
@@ -34,8 +38,7 @@ function completeNotifiedScheduleRun(mixed $case, string $run, string $token, st
 }
 
 beforeEach(function (): void {
-    config()->set('gateway.schedule_notifications.url', 'https://ops.example.test/alerts');
-    config()->set('gateway.schedule_notifications.token', 'operator-secret');
+    config()->set('gateway.schedule_notifications.allowed_hosts', 'ops.example.test');
     config()->set('gateway.delivery_admin_url', 'http://spinner.internal:5052');
 });
 
@@ -138,8 +141,66 @@ it('recovers an expired notification claim and does not create alerts when disab
     $this->artisan('gateway:send-schedule-notifications')->assertSuccessful();
     expect(DB::table('schedule_notifications')->where('run_id', $run)->value('state'))->toBe('sent');
 
-    config()->set('gateway.schedule_notifications.url', '');
+    $notifications = app(\Webong\Gateway\Schedules\ScheduleNotificationConfig::class);
+    $notifications->replace(['url' => 'https://ops.example.test/alerts', 'enabled' => false],
+        $notifications->find()->revision);
     [, $disabledRun, $disabledToken] = claimNotifiedScheduleRun($this);
     completeNotifiedScheduleRun($this, $disabledRun, $disabledToken, 'failed', 0);
     expect(DB::table('schedule_notifications')->where('run_id', $disabledRun)->exists())->toBeFalse();
+});
+
+it('uses a CMS-managed destination without exposing its token and obeys the deployed host ceiling', function (): void {
+    config()->set('gateway.schedule_notifications.allowed_hosts', 'ops.example.test');
+    $this->postJson('/schedules/notification-destination', [
+        'url' => 'https://ops.example.test/managed', 'token' => 'managed-secret',
+    ])->assertUnauthorized();
+    $this->withToken('registry-secret')->postJson('/schedules/notification-destination', [
+        'url' => 'https://other.example.test/managed', 'token' => 'managed-secret',
+    ])->assertUnprocessable();
+    $created = $this->withToken('registry-secret')->postJson('/schedules/notification-destination', [
+        'url' => 'https://ops.example.test/managed', 'token' => 'managed-secret',
+    ])->assertCreated()->assertHeader('ETag', '"1"')->assertJsonPath('token_configured', true)
+        ->assertDontSee('managed-secret')->json();
+    expect(DB::table('configurations')->where('id', $created['id'])->value('document'))
+        ->not->toContain('managed-secret');
+    $this->withToken('registry-secret')->getJson('/schedules/notification-destination')
+        ->assertOk()->assertDontSee('managed-secret');
+    $this->withToken('registry-secret')
+        ->getJson('/configurations/schedule.notification/'.$created['id'].'/revisions')
+        ->assertOk()->assertDontSee('managed-secret');
+
+    [, $run, $token] = claimNotifiedScheduleRun($this);
+    completeNotifiedScheduleRun($this, $run, $token, 'failed', 0);
+    Http::fake(['https://ops.example.test/managed' => Http::response([], 204)]);
+    $this->artisan('gateway:send-schedule-notifications')->assertSuccessful();
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://ops.example.test/managed'
+        && $request->hasHeader('Authorization', 'Bearer managed-secret'));
+
+    $this->withToken('registry-secret')->withHeader('If-Match', '"1"')
+        ->putJson('/schedules/notification-destination', [
+            'url' => 'https://ops.example.test/managed', 'enabled' => false,
+        ])->assertOk()->assertHeader('ETag', '"2"')->assertJsonPath('token_configured', true);
+    $this->withToken('registry-secret')->withHeader('If-Match', '"1"')
+        ->deleteJson('/schedules/notification-destination')->assertStatus(412);
+    [, $disabledRun, $disabledToken] = claimNotifiedScheduleRun($this);
+    completeNotifiedScheduleRun($this, $disabledRun, $disabledToken, 'failed', 0);
+    expect(DB::table('schedule_notifications')->where('run_id', $disabledRun)->exists())->toBeFalse();
+
+    $this->withToken('registry-secret')->withHeader('If-Match', '"2"')
+        ->deleteJson('/schedules/notification-destination')->assertNoContent();
+    expect(app(\Webong\Gateway\Schedules\ScheduleNotificationConfig::class)->effective())->toBeNull();
+});
+
+it('stops CMS-managed alerts when the deployed receiver hostname is withdrawn', function (): void {
+    config()->set('gateway.schedule_notifications.allowed_hosts', 'ops.example.test');
+    $this->withToken('registry-secret')->postJson('/schedules/notification-destination', [
+        'url' => 'https://ops.example.test/managed',
+    ])->assertCreated();
+    [, $run, $token] = claimNotifiedScheduleRun($this);
+    completeNotifiedScheduleRun($this, $run, $token, 'failed', 0);
+    config()->set('gateway.schedule_notifications.allowed_hosts', '');
+    Http::fake();
+    $this->artisan('gateway:send-schedule-notifications')->assertSuccessful();
+    Http::assertNothingSent();
+    expect(DB::table('schedule_notifications')->where('run_id', $run)->value('state'))->toBe('pending');
 });

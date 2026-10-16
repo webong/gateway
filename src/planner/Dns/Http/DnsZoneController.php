@@ -81,9 +81,9 @@ final readonly class DnsZoneController
         if (! in_array($provider, $this->providers->names(), true)) {
             return $this->invalid(['provider' => ['The selected DNS provider is not registered.']]);
         }
-        $nameservers = $attributes['nameservers'] ?? config('gateway.dns.default_nameservers', []);
+        $nameservers = $attributes['nameservers'] ?? [];
         if (! is_array($nameservers) || $nameservers === []) {
-            return $this->invalid(['nameservers' => ['Provide nameservers or configure gateway.dns.default_nameservers.']]);
+            return $this->invalid(['nameservers' => ['Provide the nameservers for this zone.']]);
         }
 
         try {

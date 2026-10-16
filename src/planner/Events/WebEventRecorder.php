@@ -16,12 +16,13 @@ final readonly class WebEventRecorder
 {
     public function __construct(
         private EventRetention $retention,
+        private WebEventPolicyStore $policy,
         private ?LoggerInterface $logger = null,
     ) {}
 
     public function record(IngressRequest $request, RoutePlan $plan): void
     {
-        if (! config('gateway.events.enabled', false)
+        if (! $this->policy->current()['enabled']
             || ! in_array($request->protocol, ['http', 'websocket', 'webstream'], true)
             || ! is_string($plan->metadata['endpoint_id'] ?? null)) {
             return;

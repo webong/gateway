@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Webong\Gateway\Email\ConnectedIMAPAuthenticator;
 use Webong\Gateway\Email\ConnectedSMTPAuthenticator;
+use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\ProviderMailboxOAuthRefresher;
 use Webong\Gateway\Protocol\EventKind;
@@ -23,9 +24,18 @@ function mailboxInput(string $address): array
     ];
 }
 
+function registerMailboxUpstreams(): void
+{
+    config()->set('gateway.email.upstream_allowed_hosts', ['imap.test', 'smtp.test']);
+    $catalog = app(EmailUpstreamCatalog::class);
+    $catalog->create(['protocol' => 'imap', 'name' => 'imap-a',
+        'address' => 'imap.test:993', 'server_name' => 'imap.test']);
+    $catalog->create(['protocol' => 'smtp', 'name' => 'smtp-a',
+        'address' => 'smtp.test:465', 'server_name' => 'smtp.test', 'tls_mode' => 'implicit']);
+}
+
 it('keeps mailbox credentials and control scoped to the owning account', function (): void {
-    config()->set('gateway.email.imap_upstreams', ['imap-a' => ['address' => 'imap.test:993', 'server_name' => 'imap.test']]);
-    config()->set('gateway.email.smtp_upstreams', ['smtp-a' => ['address' => 'smtp.test:465', 'server_name' => 'smtp.test', 'tls_mode' => 'implicit']]);
+    registerMailboxUpstreams();
     $store = app(MailboxConnectionStore::class);
     $aToken = $store->createAccount('account-a');
     $bToken = $store->createAccount('account-b');
@@ -41,6 +51,12 @@ it('keeps mailbox credentials and control scoped to the owning account', functio
 
     $store->markHealth('account-a', $id, true);
     $store->update('account-a', $id, true);
+    $this->getJson('/_internal/gateway/mailbox-connections/'.$id.'/smtp')->assertNotFound();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->getJson('/_internal/gateway/mailbox-connections/'.$id.'/smtp')->assertOk()
+        ->assertJsonPath('upstream_address', 'smtp.test:465')
+        ->assertJsonPath('upstream_server_name', 'smtp.test')
+        ->assertJsonPath('upstream_tls_mode', 'implicit');
     expect($store->authenticate($id, $created['imap_password'], 'imap'))->not->toBeNull()
         ->and($store->authenticate($id, $created['smtp_password'], 'smtp'))->not->toBeNull()
         ->and($store->authenticate($id, $created['imap_password'], 'smtp'))->toBeNull();
@@ -64,8 +80,7 @@ it('keeps mailbox credentials and control scoped to the owning account', functio
 });
 
 it('exposes an HTTPS-only account API without leaking provider secrets', function (): void {
-    config()->set('gateway.email.imap_upstreams', ['imap-a' => ['address' => 'imap.test:993', 'server_name' => 'imap.test']]);
-    config()->set('gateway.email.smtp_upstreams', ['smtp-a' => ['address' => 'smtp.test:465', 'server_name' => 'smtp.test', 'tls_mode' => 'implicit']]);
+    registerMailboxUpstreams();
     $this->withToken('registry-secret')->postJson('/email/mailbox-accounts', ['id' => 'one'])->assertForbidden();
     $one = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'one'])->assertCreated()->json();
     $two = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'two'])->assertCreated()->json();
@@ -97,9 +112,8 @@ it('refreshes Google and Microsoft tokens for the requested transport and stores
     Http::assertSent(fn ($request): bool => $request->url() === 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
         && str_contains($request->body(), 'scope=https%3A%2F%2Foutlook.office.com%2FSMTP.Send'));
 
-    config()->set('gateway.email.imap_upstreams', ['imap-a' => ['address' => 'imap.test:993', 'server_name' => 'imap.test']]);
-    config()->set('gateway.email.smtp_upstreams', ['smtp-a' => ['address' => 'smtp.test:465', 'server_name' => 'smtp.test', 'tls_mode' => 'implicit']]);
-    $store = new MailboxConnectionStore($refresher);
+    registerMailboxUpstreams();
+    $store = new MailboxConnectionStore($refresher, app(EmailUpstreamCatalog::class));
     $store->createAccount('oauth-account');
     $input = mailboxInput('oauth@example.test');
     $input['imap_auth'] = 'google';

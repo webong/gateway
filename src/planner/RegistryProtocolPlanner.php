@@ -14,6 +14,7 @@ use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailPolicyVerdict;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionQuota;
+use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\EmailProviderRoute;
 use Webong\Gateway\Email\EmailProviderRouteResolver;
 use Webong\Gateway\Email\EmailSuppressionStore;
@@ -53,7 +54,10 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         private readonly ?MailHookRegistry $mailHooks = null,
         private readonly ?EmailProviderRouteResolver $providerRoutes = null,
         private readonly ?EmailSuppressionStore $suppressions = null,
-        private readonly array $webstreamRoutes = [],
+        private readonly ?\Webong\Gateway\Webstream\WebstreamPrivateSourceStore $webstreamPrivateSources = null,
+        private readonly ?\Webong\Gateway\Webstream\WebstreamRoutePolicyStore $webstreamRoutePolicies = null,
+        private readonly ?\Webong\Gateway\Email\EmailSubmissionPolicyStore $emailSubmissionPolicies = null,
+        private readonly ?EmailRuntimePolicyStore $emailRuntimePolicy = null,
     ) {}
 
     public function planEvent(GatewayEvent $event): GatewayDecision
@@ -73,7 +77,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
     private function plan(GatewayEvent $event): GatewayDecision
     {
         if ($event->protocol === Protocol::WEBSTREAM && ($event->attributes['upload_mode'] ?? '') === 'stream') {
-            $policy = $this->webstreamRoutes[$event->host.$event->route] ?? [];
+            $policy = $this->webstreamPolicy($event);
             if (($policy['upload'] ?? false) !== true || $event->method !== 'POST' || $event->payload !== '') {
                 return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 403, message: 'Streaming uploads are not enabled for this route.');
             }
@@ -96,6 +100,10 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                     'upstream_username' => $grant->upstreamUsername,
                     'upstream_password' => $grant->upstreamPassword,
                     'upstream_auth_mechanism' => $grant->upstreamAuthMechanism,
+                    ...($grant->upstreamAddress !== '' ? [
+                        'upstream_address' => $grant->upstreamAddress,
+                        'upstream_server_name' => $grant->upstreamServerName,
+                    ] : []),
                 ],
             );
         }
@@ -196,10 +204,14 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT, statusCode: 550, message: 'Recipient is suppressed.');
         }
         $username = $event->attributes['auth_username'] ?? '';
-        $defaultLimit = (int) config('gateway.email.submission_daily_limit', 0);
-        $defaultByteLimit = (int) config('gateway.email.submission_daily_byte_limit', 0);
-        $domainLimit = (int) config('gateway.email.submission_domain_daily_limit', 0);
-        $domainByteLimit = (int) config('gateway.email.submission_domain_daily_byte_limit', 0);
+        $policy = $this->emailSubmissionPolicies?->limits() ?? [
+            'daily_limit' => 0, 'daily_byte_limit' => 0,
+            'domain_daily_limit' => 0, 'domain_daily_byte_limit' => 0,
+        ];
+        $defaultLimit = $policy['daily_limit'];
+        $defaultByteLimit = $policy['daily_byte_limit'];
+        $domainLimit = $policy['domain_daily_limit'];
+        $domainByteLimit = $policy['domain_daily_byte_limit'];
         $rawLimit = $event->attributes['submission_daily_limit'] ?? '';
         $rawByteLimit = $event->attributes['submission_daily_byte_limit'] ?? '';
         if ($defaultLimit < 0 || $defaultLimit > 1_000_000) {
@@ -289,7 +301,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
                 statusCode: $policy === EmailPolicyVerdict::Defer ? 451 : 550, message: 'Message rejected by email policy.');
         }
-        if (config('gateway.email.dmarc_enforce_enabled', false) && $assessment !== null) {
+        if (($this->emailRuntimePolicy?->current()['dmarc_enforce_enabled'] ?? false) && $assessment !== null) {
             if ($assessment->result === 'temperror') {
                 return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
                     statusCode: 451, message: 'Sender authentication is temporarily unavailable.');
@@ -303,6 +315,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                 protocol: Protocol::SMTP, adapter: $route->adapter, target: $route->mailboxKey,
                 subscriberId: $route->accountId, payload: $event->payload,
                 attributes: ['event_id' => $event->id, 'account_id' => $route->accountId,
+                    ...($route->hostedAdapterId !== null ? ['hosted_adapter_id' => $route->hostedAdapterId] : []),
                     'mail_from' => $event->attributes['mail_from'] ?? '',
                     'recipient' => $recipients[0], 'recipients' => json_encode($recipients, JSON_THROW_ON_ERROR)],
             )]);
@@ -342,7 +355,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                 statusCode: $policy === EmailPolicyVerdict::Defer ? 451 : 550,
                 message: 'Message rejected by email policy.');
         }
-        if (config('gateway.email.dmarc_enforce_enabled', false) && $assessment !== null) {
+        if (($this->emailRuntimePolicy?->current()['dmarc_enforce_enabled'] ?? false) && $assessment !== null) {
             if ($assessment->result === 'temperror') {
                 return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
                     statusCode: 451, message: 'Sender authentication is temporarily unavailable.');
@@ -432,7 +445,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             );
         }
 
-        if (config('gateway.email.dmarc_enforce_enabled', false) && $assessment !== null) {
+        if (($this->emailRuntimePolicy?->current()['dmarc_enforce_enabled'] ?? false) && $assessment !== null) {
             if ($assessment->result === 'temperror') {
                 return new GatewayDecision(
                     protocol: Protocol::SMTP,
@@ -453,7 +466,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
 
         $mailFrom = $event->attributes['mail_from'] ?? '';
-        if ($mailFrom !== '' && $this->srs !== null && config('gateway.email.srs_rewrite_enabled', true)) {
+        if ($mailFrom !== '' && $this->srs?->rewriteEnabled()) {
             try {
                 $mailFrom = $this->srs->issue($mailFrom);
             } catch (EmailRouteRejected $exception) {
@@ -546,7 +559,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
         $headers = $source->headers;
         $upload = ($event->attributes['upload_mode'] ?? '') === 'stream';
-        $policy = $this->webstreamRoutes[$event->host.$event->route] ?? [];
+        $policy = $this->webstreamPolicy($event);
         $retry = ! $upload && $method === 'POST' && ($policy['retry'] ?? false) === true;
         if (($upload || $retry) && (($policy['source'] ?? '') !== $source->target || ($upload && $plan->reply->body !== ''))) {
             return new GatewayDecision(protocol: $event->protocol, action: GatewayAction::REJECT, statusCode: 403, message: 'Webstream policy does not permit this source.');
@@ -595,7 +608,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             target: $source->target,
             subscriberId: $source->subscriberId,
             headers: $headers,
-            attributes: [...$source->attributes, 'method' => $method, 'raw_query' => $plan->reply->rawQuery !== '' ? $plan->reply->rawQuery : $event->rawQuery, 'upload_mode' => $upload ? 'stream' : 'buffered', 'retry_idempotent' => $retry ? 'true' : 'false'],
+            attributes: [...$source->attributes, 'method' => $method, 'raw_query' => $plan->reply->rawQuery !== '' ? $plan->reply->rawQuery : $event->rawQuery, 'upload_mode' => $upload ? 'stream' : 'buffered', 'retry_idempotent' => $retry ? 'true' : 'false', 'private_source_cidrs' => $this->privateSourceCidrs($source->target)],
             payload: $method === 'POST' ? $source->payload : '',
             adapter: $source->adapter,
             transport: $source->transport,
@@ -607,6 +620,35 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             stream: $source,
             metadata: $plan->metadata,
         );
+    }
+
+    private function privateSourceCidrs(string $target): string
+    {
+        if ($this->webstreamPrivateSources === null) {
+            return '';
+        }
+        $parts = parse_url($target);
+        if ($parts === false || ! isset($parts['scheme'], $parts['host'], $parts['port'])) {
+            return '';
+        }
+        $origin = strtolower($parts['scheme']).'://'.strtolower($parts['host']).':'.$parts['port'];
+
+        return implode(',', $this->webstreamPrivateSources->activeCidrs($origin));
+    }
+
+    /** @return array{source?: string, upload?: bool, retry?: bool} */
+    private function webstreamPolicy(GatewayEvent $event): array
+    {
+        $stored = $this->webstreamRoutePolicies?->forRoute($event->host, $event->route);
+        if ($stored !== null) {
+            return (bool) $stored->enabled ? [
+                'source' => $stored->source,
+                'upload' => (bool) $stored->upload,
+                'retry' => (bool) $stored->retry,
+            ] : [];
+        }
+
+        return [];
     }
 
     private function respond(GatewayEvent $event, RoutePlan $plan): GatewayDecision

@@ -11,7 +11,7 @@ use stdClass;
 
 final readonly class EmailRegistry
 {
-    public function __construct(private TxtResolver $txt) {}
+    public function __construct(private TxtResolver $txt, private EmailRuntimePolicyStore $runtimePolicy) {}
 
     /** @return list<stdClass> */
     public function domains(): array
@@ -35,7 +35,7 @@ final readonly class EmailRegistry
         if ($domain === null || ! $domain->enabled || $domain->verified_at === null) {
             throw new EmailRouteRejected('The email domain is unavailable.');
         }
-        $ttl = max(0, (int) config('gateway.email.verification_ttl_seconds', 86400));
+        $ttl = $this->runtimePolicy->current()['verification_ttl_seconds'];
         if ($ttl === 0 || Carbon::parse($domain->verified_at)->lte(now()->subSeconds($ttl))) {
             return $this->verify($domain);
         }

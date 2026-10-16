@@ -18,6 +18,8 @@ final class ScheduleStore
 {
     private const int MAX_SCRIPT_SCHEDULES_PER_ORIGIN = 32;
 
+    public function __construct(private readonly ScheduleNotificationConfig $notifications) {}
+
     public function nextRun(string $cron, string $timezone, ?DateTimeImmutable $after = null): string
     {
         $next = (new CronExpression($cron))->getNextRunDate(
@@ -181,7 +183,7 @@ final class ScheduleStore
                 'completed_at' => $now,
                 'updated_at' => $now,
                 ]) === 1;
-            if ($updated && trim((string) config('gateway.schedule_notifications.url', '')) !== '') {
+            if ($updated && $this->notifications->effective() !== null) {
                 DB::table('schedule_notifications')->insertOrIgnore([
                     'run_id' => $id,
                     'state' => 'pending',

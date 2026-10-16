@@ -6,7 +6,7 @@ namespace Webong\Gateway\Email;
 
 use InvalidArgumentException;
 
-/** A verified mailbox login mapped to a deployment-registered upstream. */
+/** A verified mailbox login mapped to a Planner-managed, TLS-only upstream. */
 final readonly class MailboxAccessGrant
 {
     public function __construct(
@@ -15,6 +15,8 @@ final readonly class MailboxAccessGrant
         public string $upstreamUsername,
         public string $upstreamPassword,
         public string $upstreamAuthMechanism = 'LOGIN',
+        public string $upstreamAddress = '',
+        public string $upstreamServerName = '',
     ) {
         if ($identity === '' || strlen($identity) > 255 || trim($identity) !== $identity
             || preg_match('/[\x00-\x1F\x7F]/', $identity) === 1) {
@@ -34,6 +36,9 @@ final readonly class MailboxAccessGrant
         }
         if (! in_array($upstreamAuthMechanism, ['LOGIN', 'XOAUTH2'], true)) {
             throw new InvalidArgumentException('Mailbox upstream authentication mechanism is invalid.');
+        }
+        if (($upstreamAddress === '') !== ($upstreamServerName === '')) {
+            throw new InvalidArgumentException('Mailbox upstream endpoint is incomplete.');
         }
     }
 }

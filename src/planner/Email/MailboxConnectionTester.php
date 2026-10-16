@@ -9,7 +9,8 @@ use RuntimeException;
 /** Credential-only probes; SMTP tests never send MAIL FROM or DATA. */
 final readonly class MailboxConnectionTester
 {
-    public function __construct(private MailboxConnectionStore $connections) {}
+    public function __construct(private MailboxConnectionStore $connections,
+        private EmailUpstreamCatalog $upstreams) {}
 
     public function test(string $id): bool
     {
@@ -23,7 +24,7 @@ final readonly class MailboxConnectionTester
     /** @param array<string, string> $credentials */
     private function testIMAP(array $credentials): bool
     {
-        $upstream = config('gateway.email.imap_upstreams.'.$credentials['upstream_id']);
+        $upstream = $this->upstreams->active('imap', $credentials['upstream_id']);
         if (! is_array($upstream)) { return false; }
         $stream = $this->connect($upstream, true);
         if (! is_resource($stream)) { return false; }
@@ -49,7 +50,7 @@ final readonly class MailboxConnectionTester
     /** @param array<string, string> $credentials */
     private function testSMTP(array $credentials): bool
     {
-        $upstream = config('gateway.email.smtp_upstreams.'.$credentials['upstream_id']);
+        $upstream = $this->upstreams->active('smtp', $credentials['upstream_id']);
         if (! is_array($upstream) || ! in_array($upstream['tls_mode'] ?? null, ['implicit', 'starttls'], true)) { return false; }
         $stream = $this->connect($upstream, $upstream['tls_mode'] === 'implicit');
         if (! is_resource($stream)) { return false; }

@@ -29,12 +29,13 @@ final class HttpEmailSubmissionAuthenticator implements EmailSubmissionAuthentic
 
 beforeEach(function (): void {
     config()->set('gateway.email.submission_authenticator', HttpEmailSubmissionAuthenticator::class);
-    config()->set('gateway.email.http_submission_enabled', true);
+    app(\Webong\Gateway\Email\EmailRuntimePolicyStore::class)->create(['http_submission_enabled' => true]);
     config()->set('gateway.delivery_admin_url', 'http://spinner.internal:5052');
 });
 
 it('keeps HTTP submission off unless explicitly enabled', function (): void {
-    config()->set('gateway.email.http_submission_enabled', false);
+    $policy = app(\Webong\Gateway\Email\EmailRuntimePolicyStore::class);
+    $policy->replace(['http_submission_enabled' => false], $policy->find()->revision);
     Http::fake();
     $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'email-1'])
         ->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertNotFound();
@@ -209,7 +210,7 @@ it('rejects reuse of a key with different message bytes', function (): void {
 });
 
 it('shares the sender-domain quota across HTTP accounts without charging a rejected account', function (): void {
-    config()->set('gateway.email.submission_domain_daily_limit', 1);
+    app(\Webong\Gateway\Email\EmailSubmissionPolicyStore::class)->create(['domain_daily_limit' => 1]);
     Http::fake(fn (ClientRequest $request) => Http::response(['id' => $request['receipt_id']], 202));
     $first = $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'domain-alice'])
         ->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertAccepted()->json('id');

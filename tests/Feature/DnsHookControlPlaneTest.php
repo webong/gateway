@@ -18,6 +18,11 @@ use Webong\WebProxy\Models\WebProxyEndpoint;
 
 function createDnsHook($test, string $externalId = 'dns-hook-1'): array
 {
+    if (app(\Webong\Gateway\Dns\DnsZoneCatalog::class)->all() === []) {
+        $test->withToken('registry-secret')->postJson('/dns/zones', [
+            'name' => 'dns.example.test', 'nameservers' => ['ns1.example.test'],
+        ])->assertCreated();
+    }
     return $test->withToken('registry-secret')->postJson('/dns/hooks', [
         'external_id' => $externalId,
         'name' => 'Login verification',
@@ -200,14 +205,15 @@ it('can pause and delete a DNS hook without exposing its WebProxy endpoint', fun
     expect(WebProxyEndpoint::query()->where('endpoint_key', $hook['endpoint_key'])->exists())->toBeTrue();
 });
 
-it('creates independent hooks in configured zones and rejects cross-zone routing', function (): void {
-    config()->set('gateway.dns.zone', '');
-    config()->set('gateway.dns.zones', [
-        ['name' => 'first.example.test', 'nameservers' => ['ns1.example.test']],
-        ['name' => 'second.example.test', 'nameservers' => ['ns2.example.test']],
-    ]);
+it('creates independent hooks in Planner-managed zones and rejects cross-zone routing', function (): void {
+    $this->withToken('registry-secret')->postJson('/dns/zones', [
+        'name' => 'first.example.test', 'nameservers' => ['ns1.example.test'],
+    ])->assertCreated();
+    $this->withToken('registry-secret')->postJson('/dns/zones', [
+        'name' => 'second.example.test', 'nameservers' => ['ns2.example.test'],
+    ])->assertCreated();
 
-    $this->getJson('/dns/zones')->assertUnauthorized();
+    $this->withHeader('Authorization', '')->getJson('/dns/zones')->assertUnauthorized();
     $this->withToken('registry-secret')->getJson('/dns/zones')->assertOk()
         ->assertJsonCount(2, 'data')
         ->assertJsonPath('data.0.name', 'first.example.test');
@@ -267,13 +273,11 @@ it('creates independent hooks in configured zones and rejects cross-zone routing
         ->and($planner->planEvent($wrongEvent)->action)->toBe(GatewayAction::REJECT);
 });
 
-it('provisions registry-backed zones through the API without environment zone configuration', function (): void {
-    config()->set('gateway.dns.zone', '');
-    config()->set('gateway.dns.zones', []);
-    config()->set('gateway.dns.default_nameservers', ['ns1.gateway.test', 'ns2.gateway.test']);
+it('provisions registry-backed zones through the API', function (): void {
 
     $zone = $this->withToken('registry-secret')->postJson('/dns/zones', [
         'name' => 'hooks.customer.test',
+        'nameservers' => ['ns1.gateway.test', 'ns2.gateway.test'],
     ])->assertCreated()
         ->assertJsonPath('name', 'hooks.customer.test')
         ->assertJsonPath('status', 'active')
@@ -301,8 +305,6 @@ it('provisions registry-backed zones through the API without environment zone co
 });
 
 it('automates Cloudflare subdomain delegation and removes only provider-created records', function (): void {
-    config()->set('gateway.dns.zone', '');
-    config()->set('gateway.dns.zones', []);
     config()->set('gateway.dns.providers.cloudflare.token', 'cloudflare-secret');
     config()->set('gateway.dns.providers.cloudflare.base_url', 'https://cloudflare.test/client/v4');
     Http::fake([
@@ -336,8 +338,6 @@ it('automates Cloudflare subdomain delegation and removes only provider-created 
 });
 
 it('persists provider failures and retries provisioning without recreating the zone', function (): void {
-    config()->set('gateway.dns.zone', '');
-    config()->set('gateway.dns.zones', []);
     $provider = new class implements DnsProvider
     {
         public bool $fail = true;
