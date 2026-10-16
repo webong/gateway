@@ -30,6 +30,15 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
             'gateway.cache.enabled' => false,
             'gateway.mutations.lock_store' => 'array',
         ];
+        foreach ([
+            'gateway.email.upstream_allowed_hosts' => 'GATEWAY_EMAIL_UPSTREAM_ALLOWED_HOSTS',
+            'gateway.email.hosted_allowed_hosts' => 'GATEWAY_EMAIL_HOSTED_ALLOWED_HOSTS',
+        ] as $key => $variable) {
+            $value = getenv($variable);
+            if (is_string($value) && $value !== '') {
+                $settings[$key] = array_values(array_filter(array_map('trim', explode(',', $value))));
+            }
+        }
         if (getenv('DB_CONNECTION') !== 'pgsql') {
             $settings['database.default'] = 'sqlite';
             $settings['database.connections.sqlite'] = [

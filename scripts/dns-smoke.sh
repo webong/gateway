@@ -178,6 +178,22 @@ failover_second="$(dig +tcp @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +noall +
 survivor_nameservers="$(dig @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +short first.example.test NS | LC_ALL=C sort)"
 [[ "$survivor_nameservers" == "$expected_nameservers" ]]
 
+# A restarted node is a cold process: it must reload the Planner-owned zone
+# snapshot before serving, rather than depending on its previous in-memory copy.
+GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
+GATEWAY_INTERNAL_TOKEN="$TOKEN" GATEWAY_DNS_ADDR="127.0.0.1:$DNS_PORT" \
+GATEWAY_DNS_ZONE_REFRESH_INTERVAL=100ms PORT="$GO_PORT" LOG_LEVEL=error \
+"$GO_BIN" >"$GO_LOG" 2>&1 &
+GO_PID=$!
+wait_http "http://127.0.0.1:$GO_PORT/health" "$GO_LOG" "$GO_PID"
+reloaded_nameservers=""
+for _ in $(seq 1 50); do
+    reloaded_nameservers="$(dig @127.0.0.1 -p "$DNS_PORT" +time=1 +tries=1 +short first.example.test NS 2>/dev/null | LC_ALL=C sort)"
+    if [[ "$reloaded_nameservers" == "$expected_nameservers" ]]; then break; fi
+    sleep 0.1
+done
+[[ "$reloaded_nameservers" == "$expected_nameservers" ]]
+
 curl -fsS "$planner/dns/hooks/$first_id/events" -H "$auth" | php -r '
     $events = json_decode(stream_get_contents(STDIN), true)["data"] ?? [];
     if (count($events) !== 7) exit(1);

@@ -34,6 +34,14 @@ final class HttpSmokePlanner implements RoutePlanner
             }
         }
 
+        if ($request->path === '/http-smoke/stream-source') {
+            $source = getenv('GATEWAY_WEBSTREAM_REPLY_URL');
+
+            if (is_string($source) && $source !== '') {
+                return RoutePlan::relay(reply: new Delivery(url: $source, subscriberId: 'webstream-smoke'));
+            }
+        }
+
         if ($request->path === '/http-smoke/plan') {
             return RoutePlan::respond(new Response(
                 statusCode: 202,
