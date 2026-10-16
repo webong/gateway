@@ -19,6 +19,21 @@ import (
 
 type plannerFunc func(context.Context, IngressRequest) (RoutePlan, error)
 
+func TestEdgeRejectsSSHStreamRequestsBeforeExecution(t *testing.T) {
+	planner := plannerFunc(func(context.Context, IngressRequest) (RoutePlan, error) {
+		return RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
+			Automation: &Automation{Language: "shell", Source: "ssh:2c034453-f6ef-4f98-a9a2-6dfb624758d0"}}, nil
+	})
+	edge := NewEdge(planner, &recordingExecutor{}, 1024)
+	request := httptest.NewRequest(http.MethodGet, "/events", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	recorder := httptest.NewRecorder()
+	edge.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("SSH stream request should be rejected, got %d", recorder.Code)
+	}
+}
+
 func (f plannerFunc) Plan(ctx context.Context, request IngressRequest) (RoutePlan, error) {
 	return f(ctx, request)
 }

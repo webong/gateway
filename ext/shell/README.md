@@ -1,7 +1,7 @@
 # Gateway Shell extension
 
-This optional extension adds the `shell` automation language for a controlled
-local hook flow. A source is a relative hook key, not a command line: for
+This optional extension adds the `shell` automation language for controlled
+local and SSH-backed reply hooks. A local source is a relative hook key, not a command line: for
 example, `github/deploy` resolves to an executable inside the configured hook
 directory. Spinner executes the file directly through its shebang; it never
 passes the source to `sh -c`.
@@ -75,20 +75,9 @@ Shell subscription creation and mutation also require the separate
 `GATEWAY_SHELL_SUBSCRIPTION_TOKEN` on Planner, sent in the
 `X-Gateway-Shell-Subscription` header. Keep this operator token out of
 subscriber clients. Local hook subscriptions are denied by default. The
-operator must allow exact hook keys
-for the resolved endpoint key and subscriber ID in the host Laravel config:
-
-```php
-'shell' => [
-    'subscription_hooks' => [
-        'resolved-endpoint-key' => [
-            'deploy-owner' => ['github/deploy'],
-        ],
-    ],
-],
-```
-
-Add this inside the host application's `config/gateway.php` array.
+operator creates an exact Planner grant with `POST /shell/hook-grants` using
+the resolved endpoint key, subscriber ID, and hook. Grants are typed,
+versioned Planner resources rather than host configuration entries.
 Removing a key from this policy also stops existing subscriptions from
 executing it; pause or remove those subscriptions separately to free the
 route's reply slot. The hook directory itself should remain operator-owned
@@ -98,8 +87,72 @@ both tokens; read-only `GET` uses the registry token alone.
 PHP callers can use `SubscriptionDefinition::shellReply(...)` with
 `SubscribeEndpoint::handle(...)` instead of the JSON endpoint.
 See [the subscription contract](../../docs/subscription-dsl-v1.md) for updates
-and match rules. SSH execution and subscription-time credentials are not yet
-supported.
+and match rules.
+
+## SSH-backed replies
+
+SSH is opt-in. Build the `gateway_shell` extension, set
+`GATEWAY_SHELL_ENABLED=true`, and deploy a hard outbound ceiling such as
+`GATEWAY_SHELL_SSH_ALLOWED_CIDRS=10.42.0.0/16`. This is a process safety
+limit, not a route destination; Planner cannot widen it. A Spinner with only
+SSH targets does not need `GATEWAY_SHELL_HOOKS_DIR`. Without a CIDR ceiling or
+a private Planner resolver, SSH sources fail closed. In HTTP Planner mode,
+the private credential connection must use HTTPS, loopback HTTP, or a Unix
+socket. Plaintext HTTP to another host is refused when SSH is enabled.
+
+On each remote host, install the separately built helper and an
+operator-owned hook tree:
+
+```bash
+go build -o gateway-shell-helper ./ext/shell/cmd/gateway-shell-helper
+```
+
+Configure the remote SSH account's `authorized_keys` entry with a forced
+command pointing to that absolute helper path, and disable forwarding and
+PTY:
+
+```text
+restrict,command="/usr/local/bin/gateway-shell-helper" ssh-ed25519 AAAA... gateway
+```
+
+Set the helper's `GATEWAY_SHELL_HOOKS_DIR`, timeout, output, and concurrency
+ceilings in the remote account's environment. The helper accepts only the
+fixed SSH original command `gateway-shell-helper`, reads bounded JSON stdin,
+and invokes the selected relative hook using the local Shell engine. It does
+not accept an executable path or shell command from the subscription. Set
+`GATEWAY_SHELL_OUTPUT_MODE=outcome` on remote hosts. SSH replies do not stream
+SSE or chunked output. Gateway does not retry an SSH attempt whose outcome
+is unknown.
+
+Before subscription creation, the operator creates a distinct SSH grant via
+`POST /shell/hook-grants` with `mode: ssh`, `endpoint_key`, `subscriber_id`,
+`hook`, `host`, `port` (default 22), `user`, and `host_public_key` (the pinned
+OpenSSH host public key). A local-mode grant does not authorize SSH. Then the
+authenticated subscription create request includes:
+
+```json
+{
+  "subscriber_id": "deploy-owner", "subscription_id": "deploy-ssh",
+  "type": "reply", "target_kind": "shell", "hook": "github/deploy",
+  "webhook_group": "github", "routing_scope": "repository", "routing_key": "my-repo",
+  "ssh": {
+    "host": "worker.internal.example", "port": 22, "user": "gateway",
+    "host_public_key": "ssh-ed25519 AAAA...",
+    "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----..."
+  }
+}
+```
+
+`private_key` is write-only. Planner stores it encrypted in the live generic
+`configuration_secrets` collection, which is not copied into configuration
+revision history; route plans contain only an opaque execution reference.
+Public subscription reads return the host, port, user, pinned key, and
+credential version, not the private key. Rotate only the client key with
+`POST /registry/endpoints/{endpointKey}/subscriptions/{id}/ssh/rotate-key`,
+body `{"private_key":"..."}`, both mutation tokens, and a current
+subscription `If-Match` ETag. A stale ETag fails with 412. Host, user, pin,
+and hook changes require a new subscription and matching grant. Removal
+revokes the live credential. Do not send keys in metadata or URLs.
 
 Planner can also select a completion-notification destination:
 

@@ -17,7 +17,7 @@ WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary
   pinned QuickJS-NG adapter.
 - [`ext/lua`](../ext/lua/README.md) adds `lua` using gopher-lua without
   standard host libraries.
-- [`ext/shell`](../ext/shell/README.md) adds `shell` as an opt-in local hook
+- [`ext/shell`](../ext/shell/README.md) adds `shell` as an opt-in local or SSH-backed hook
   executor rooted to one configured directory.
 
 Neither interpreter is linked into a default Gateway build. Select the

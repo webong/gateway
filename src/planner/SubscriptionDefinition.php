@@ -32,6 +32,7 @@ final readonly class SubscriptionDefinition
         public string $type = 'relay',
         public ?string $profile = null,
         public ?string $shellHook = null,
+        public ?string $shellSshExecutionId = null,
     ) {
         $this->assertValid();
     }
@@ -100,7 +101,9 @@ final readonly class SubscriptionDefinition
             webhookGroup: $this->webhookGroup,
             routingScope: $this->routingScope,
             routingKey: $this->routingKey,
-            target: $this->shellHook === null ? $this->url : ShellSubscriptionTarget::encode($this->shellHook),
+            target: $this->shellHook === null ? $this->url : ($this->shellSshExecutionId === null
+                ? ShellSubscriptionTarget::encode($this->shellHook)
+                : ShellSubscriptionTarget::encodeSsh($this->shellSshExecutionId, $this->shellHook)),
             targetType: WebhookProxyTargetType::REQUEST,
             metadata: [
                 ...$this->metadata,
@@ -135,6 +138,9 @@ final readonly class SubscriptionDefinition
                 throw new InvalidArgumentException('Shell subscriptions require a reply hook without URL or profile.');
             }
         } else {
+            if ($this->shellSshExecutionId !== null) {
+                throw new InvalidArgumentException('SSH execution requires a Shell hook.');
+            }
             $parsed = parse_url($this->url);
             if (! is_array($parsed)
                 || ! in_array($parsed['scheme'] ?? null, ['http', 'https'], true)
@@ -148,6 +154,9 @@ final readonly class SubscriptionDefinition
                 || str_starts_with($key, '_')
                 || in_array($key, ['subscriber_id', 'delivery_mode', 'profile'], true)) {
                 throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
+            }
+            if ($this->shellHook !== null) {
+                ShellSubscriptionTarget::assertMetadataKey($key);
             }
         }
 

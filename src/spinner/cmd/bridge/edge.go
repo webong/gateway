@@ -141,6 +141,11 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if plan.Action == ActionAutomation {
+		if plan.Automation != nil && strings.HasPrefix(plan.Automation.Source, "ssh:") &&
+			shellStreamMode(r, plan.Automation.Language) != "" {
+			http.Error(w, "SSH Shell replies do not support streaming", http.StatusUnprocessableEntity)
+			return
+		}
 		if e.automation == nil {
 			http.Error(w, "automation execution failed", http.StatusBadGateway)
 			return
@@ -187,7 +192,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			var identified interface{ RunID() string }
 			if errors.As(automationErr, &identified) && identified.RunID() != "" {
 				w.Header().Set("X-Gateway-Shell-Run-Id", identified.RunID())
-				if !e.enqueueShellNotification(plan.ShellNotification, ingress, script.Source, identified.RunID(), "failed") {
+				if !e.enqueueShellNotification(plan.ShellNotification, ingress, shellNotificationHook(plan, script.Source), identified.RunID(), "failed") {
 					http.Error(w, "shell notification queue unavailable", http.StatusServiceUnavailable)
 					return
 				}
@@ -208,7 +213,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if outcome.RunFailed {
 			completionStatus = "failed"
 		}
-		if !e.enqueueShellNotification(plan.ShellNotification, ingress, script.Source, outcome.RunID, completionStatus) {
+		if !e.enqueueShellNotification(plan.ShellNotification, ingress, shellNotificationHook(plan, script.Source), outcome.RunID, completionStatus) {
 			http.Error(w, "shell notification queue unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -251,6 +256,16 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("Request accepted"))
+}
+
+func shellNotificationHook(plan RoutePlan, source string) string {
+	if !strings.HasPrefix(source, "ssh:") {
+		return source
+	}
+	if hook := plan.Metadata["shell_hook"]; hook != "" {
+		return hook
+	}
+	return source
 }
 
 func shellStreamMode(r *http.Request, language automation.Language) string {

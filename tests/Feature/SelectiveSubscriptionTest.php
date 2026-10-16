@@ -881,6 +881,102 @@ it('registers a Shell reply, selects its hook, and manages its lifecycle', funct
     expect($planner->plan($request('account-42'))->immediateResponse?->statusCode)->toBe(204);
 });
 
+it('registers an SSH Shell reply without exposing its write-only credential', function (): void {
+    app(AutomationLanguageRegistry::class)->register('shell', AutomationExecutionTarget::SPINNER, AutomationCapability::ROUTE);
+    config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    $endpoint = relayEndpoint();
+    grantShellHooks($endpoint->record->endpoint_key, ['shell-owner' => ['github/deploy']]);
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $secret = "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-only-key\n-----END OPENSSH PRIVATE KEY-----";
+    $hostKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5kAfyNpppj3EYei3vB4jC6TMMgrW9P3xOaUbE5bciE';
+    $input = [
+        'subscriber_id' => 'shell-owner', 'subscription_id' => 'ssh-deploy',
+        'type' => 'reply', 'target_kind' => 'shell', 'hook' => 'github/deploy',
+        'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'ssh' => [
+            'host' => 'worker.example.test', 'port' => 22, 'user' => 'gateway',
+            'host_public_key' => $hostKey,
+            'private_key' => $secret,
+        ],
+    ];
+    $this->withToken('registry-secret')->postJson($route, $input)->assertUnprocessable();
+    app(ShellHookGrantStore::class)->create([
+        'endpoint_key' => $endpoint->record->endpoint_key, 'subscriber_id' => 'shell-owner',
+        'hook' => 'github/deploy', 'mode' => 'ssh', 'host' => 'worker.example.test',
+        'user' => 'gateway', 'host_public_key' => $hostKey,
+    ]);
+    $created = $this->withToken('registry-secret')->postJson($route, $input);
+
+    $created->assertCreated()->assertJsonPath('hook', 'github/deploy')
+        ->assertJsonPath('ssh.host', 'worker.example.test')
+        ->assertJsonMissingPath('ssh.private_key');
+    $created->assertDontSee($secret);
+    $this->withToken('registry-secret')->postJson($route, $input)->assertUnprocessable();
+    $this->withToken('registry-secret')->getJson($route.'/'.$created->json('id'))
+        ->assertOk()->assertDontSee($secret);
+
+    $plan = app(CapabilityAwareRoutePlanner::class)->plan(new IngressRequest(
+        deliveryId: 'ssh-shell', method: 'POST', host: 'relay.example.test',
+        path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
+        automationLanguages: ['shell'],
+    ));
+    expect($plan->automation?->source)->toStartWith('ssh:');
+    expect(json_encode($plan->toArray(), JSON_THROW_ON_ERROR))->not->toContain($secret, 'worker.example.test');
+});
+
+it('rotates and revokes an SSH Shell credential through authenticated subscription lifecycle', function (): void {
+    app(AutomationLanguageRegistry::class)->register('shell', AutomationExecutionTarget::SPINNER, AutomationCapability::ROUTE);
+    config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
+    $this->withHeader('X-Gateway-Shell-Subscription', 'shell-admin-secret');
+    $endpoint = relayEndpoint();
+    app(ShellHookGrantStore::class)->create([
+        'endpoint_key' => $endpoint->record->endpoint_key, 'subscriber_id' => 'shell-owner',
+        'hook' => 'github/deploy', 'mode' => 'ssh', 'host' => 'worker.example.test',
+        'user' => 'gateway',
+        'host_public_key' => 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5kAfyNpppj3EYei3vB4jC6TMMgrW9P3xOaUbE5bciE',
+    ]);
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $firstKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nfirst-key\n-----END OPENSSH PRIVATE KEY-----";
+    $nextKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nnext-key\n-----END OPENSSH PRIVATE KEY-----";
+    $created = $this->withToken('registry-secret')->postJson($route, [
+        'subscriber_id' => 'shell-owner', 'subscription_id' => 'ssh-deploy',
+        'type' => 'reply', 'target_kind' => 'shell', 'hook' => 'github/deploy',
+        'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'ssh' => ['host' => 'worker.example.test', 'user' => 'gateway',
+            'host_public_key' => 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5kAfyNpppj3EYei3vB4jC6TMMgrW9P3xOaUbE5bciE',
+            'private_key' => $firstKey],
+    ]);
+    $created->assertCreated();
+    $source = app(CapabilityAwareRoutePlanner::class)->plan(new IngressRequest(
+        deliveryId: 'ssh-shell', method: 'POST', host: 'relay.example.test',
+        path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
+        automationLanguages: ['shell'],
+    ))->automation->source;
+    $private = '/_internal/gateway/shell/executions/'.substr($source, 4);
+    $audit = '/configurations/shell.ssh-execution/'.substr($source, 4).'/revisions';
+    $this->withToken('registry-secret')->getJson($audit)->assertOk()->assertJsonCount(1, 'data');
+    $this->withHeader('X-Gateway-Internal', 'wrong')->getJson($private)->assertNotFound();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->getJson($private)
+        ->assertOk()->assertJsonPath('private_key', $firstKey);
+
+    $url = $route.'/'.$created->json('id');
+    $rotated = $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->postJson($url.'/ssh/rotate-key', ['private_key' => $nextKey]);
+    $rotated->assertOk()->assertJsonPath('ssh.credential_version', 2)->assertDontSee($nextKey);
+    $this->withToken('registry-secret')->getJson($audit)->assertOk()->assertJsonCount(2, 'data')
+        ->assertDontSee($firstKey)->assertDontSee($nextKey);
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->postJson($url.'/ssh/rotate-key', ['private_key' => $firstKey])->assertStatus(412);
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->getJson($private)
+        ->assertOk()->assertJsonPath('private_key', $nextKey)->assertDontSee($firstKey);
+
+    $this->withToken('registry-secret')->withHeader('If-Match', $rotated->headers->get('ETag'))
+        ->deleteJson($url)->assertNoContent();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->getJson($private)->assertNotFound();
+    $this->withToken('registry-secret')->getJson($audit)->assertOk()->assertJsonCount(3, 'data');
+});
+
 it('shares reply cardinality between HTTP and Shell subscriptions', function (): void {
     app(AutomationLanguageRegistry::class)->register('shell', AutomationExecutionTarget::SPINNER, AutomationCapability::ROUTE);
     config()->set('gateway.shell.subscription_token', 'shell-admin-secret');
@@ -998,6 +1094,7 @@ it('rejects unsafe Shell reply registrations and hook changes', function (): voi
         ['url' => 'https://example.test/hook'],
         ['profile' => 'proxy'],
         ['credential' => 'private-key'],
+        ['metadata' => ['private_key' => 'private-key']],
     ] as $change) {
         $this->withToken('registry-secret')->postJson($route, [...$base, ...$change])->assertUnprocessable();
     }

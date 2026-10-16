@@ -62,6 +62,11 @@ func (p *RoadRunnerPlugin) Name() string {
 }
 
 func (p *RoadRunnerPlugin) Middleware(next http.Handler) http.Handler {
+	if err := automationextensions.ConfigureShellSSHHandler(next, p.InternalToken); err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "Planner Shell credential control is unavailable", http.StatusServiceUnavailable)
+		})
+	}
 	planner := bridge.NewPHPPlanner(next, p.MaxBodySize)
 	planner.PlanPath = p.PlanPath
 	planner.InternalToken = p.InternalToken

@@ -34,6 +34,20 @@ func TestShellHookReceivesJSONAndReturnsAnOutcome(t *testing.T) {
 	}
 }
 
+func TestRemoteHelperKeepsSpinnerRunID(t *testing.T) {
+	root := t.TempDir()
+	writeHook(t, root, "github/deploy", "#!/bin/sh\nprintf '{\"response\":{\"status\":202}}'\n")
+	engine, err := New(Config{HooksDir: root})
+	if err != nil { t.Fatal(err) }
+	ctx, err := WithRunID(context.Background(), "aabbccddeeff00112233445566778899")
+	if err != nil { t.Fatal(err) }
+	outcome, err := engine.Execute(ctx, "github/deploy", automation.Input{})
+	if err != nil { t.Fatal(err) }
+	if outcome.RunID != "aabbccddeeff00112233445566778899" {
+		t.Fatalf("remote helper changed Spinner run ID to %q", outcome.RunID)
+	}
+}
+
 func TestShellHookRejectsTraversalAndSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

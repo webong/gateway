@@ -39,6 +39,7 @@ final class RegistryRoutePlanner implements RoutePlanner
         private readonly RegistryRouteCache $routeCache,
         private readonly EndpointHttpTransportResolver $transportResolver,
         private readonly ShellSubscriptionPolicy $shellPolicy,
+        private readonly ShellSshExecutionStore $sshExecutions,
         private readonly ?DispatchWebhookProxyDestination $destinationDispatcher = null,
     ) {
     }
@@ -130,8 +131,15 @@ final class RegistryRoutePlanner implements RoutePlanner
                 if (! is_string($subscriberId)) {
                     throw new InvalidArgumentException('The Shell subscription contains an invalid subscriber identity.');
                 }
-                $this->shellPolicy->assertAllowed($cachedRoute->endpointKey, $subscriberId, $hook);
-                $shellHook = $hook;
+                $sshId = ShellSubscriptionTarget::sshId($destination->target);
+                if ($sshId !== null && $this->sshExecutions->findForPlan(
+                    $sshId, $cachedRoute->endpointKey, $subscriberId, $hook,
+                ) === null) {
+                    throw new InvalidArgumentException('The SSH Shell execution is unavailable.');
+                }
+                $this->shellPolicy->assertAllowed($cachedRoute->endpointKey, $subscriberId, $hook,
+                    $sshId === null ? null : $this->sshExecutions->publicIdentity($sshId));
+                $shellHook = $sshId === null ? $hook : 'ssh:'.$sshId;
 
                 continue;
             }
@@ -205,6 +213,7 @@ final class RegistryRoutePlanner implements RoutePlanner
                 metadata: [
                     'endpoint_id' => $cachedRoute->endpointId,
                     'endpoint_key' => $cachedRoute->endpointKey,
+                    ...($sshId === null ? [] : ['shell_hook' => $hook]),
                 ],
             );
         }

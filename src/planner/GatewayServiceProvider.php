@@ -352,6 +352,7 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->booted(function (): void {
             $this->app['router']->get('/_internal/gateway/ready', InternalReadinessController::class);
+            $this->app['router']->get('/_internal/gateway/shell/executions/{execution}', ShellSshExecutionController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']->get('/_internal/gateway/dns/zones', InternalDnsZoneController::class);
@@ -523,6 +524,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']
                 ->patch('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/status', [SubscriptionManagementController::class, 'status'])
                 ->name('registry.subscriptions.status');
+            $this->app['router']
+                ->post('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/ssh/rotate-key', [SubscriptionManagementController::class, 'rotateSshKey'])
+                ->name('registry.subscriptions.ssh.rotate-key');
             $this->app['router']
                 ->delete('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}', [SubscriptionManagementController::class, 'destroy'])
                 ->name('registry.subscriptions.destroy');

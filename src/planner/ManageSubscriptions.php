@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use InvalidArgumentException;
+use Illuminate\Support\Facades\DB;
 use Webong\Gateway\Protocol\SubscriptionState;
 
 final readonly class ManageSubscriptions
@@ -13,6 +14,7 @@ final readonly class ManageSubscriptions
         private SubscriptionRegistry $subscriptions,
         private EndpointHttpTransportResolver $transportResolver,
         private ShellSubscriptionPolicy $shellPolicy,
+        private ShellSshExecutionStore $sshExecutions,
     ) {}
 
     /** @return list<SubscriptionResource> */
@@ -98,6 +100,9 @@ final readonly class ManageSubscriptions
                     throw new InvalidArgumentException('A subscription target kind cannot be changed; Shell replies accept only hook and metadata updates.');
                 }
                 if ($shellHook !== null) {
+                    if (ShellSubscriptionTarget::sshId($resolved->destination->target) !== null) {
+                        throw new InvalidArgumentException('SSH Shell identity is immutable; create a new subscription to change its hook.');
+                    }
                     $subscriberId = $updatedMetadata['subscriber_id'] ?? $resolved->destination->owner_id;
                     if (! is_string($subscriberId)) {
                         throw new InvalidArgumentException('The subscription contains an invalid subscriber identity.');
@@ -116,6 +121,9 @@ final readonly class ManageSubscriptions
 
                 if ($metadata !== null) {
                     foreach ($metadata as $key => $value) {
+                        if ($shell) {
+                            ShellSubscriptionTarget::assertMetadataKey($key);
+                        }
                         if ($value === null) {
                             unset($updatedMetadata[$key]);
                         } else {
@@ -182,15 +190,40 @@ final readonly class ManageSubscriptions
         string $expectedRevision,
         ?string $channel = null,
     ): SubscriptionResource {
-        return $this->subscriptions->mutate(
+        return DB::transaction(fn (): SubscriptionResource => $this->subscriptions->mutate(
             $endpointKey,
             $destinationId,
             $expectedRevision,
-            static fn (ResolvedSubscription $resolved): array => ['metadata' => [
-                ...$resolved->destination->metadata,
-                SubscriptionState::STATUS_METADATA_KEY => SubscriptionState::REMOVED,
-            ]],
+            function (ResolvedSubscription $resolved): array {
+                if (($id = ShellSubscriptionTarget::sshId($resolved->destination->target)) !== null) {
+                    $this->sshExecutions->revoke($id);
+                }
+
+                return ['metadata' => [
+                    ...$resolved->destination->metadata,
+                    SubscriptionState::STATUS_METADATA_KEY => SubscriptionState::REMOVED,
+                ]];
+            },
             $channel,
-        );
+        ));
+    }
+
+    public function rotateSshKey(string $endpointKey, string $destinationId,
+        string $expectedRevision, string $privateKey): SubscriptionResource
+    {
+        ShellSshExecutionStore::assertPrivateKey($privateKey);
+
+        return DB::transaction(fn (): SubscriptionResource => $this->subscriptions->mutate(
+            $endpointKey, $destinationId, $expectedRevision,
+            function (ResolvedSubscription $resolved) use ($privateKey): array {
+                $id = ShellSubscriptionTarget::sshId($resolved->destination->target);
+                if ($id === null || SubscriptionState::status($resolved->destination->metadata) === SubscriptionState::REMOVED) {
+                    throw new InvalidArgumentException('The subscription has no active SSH credential.');
+                }
+                $this->sshExecutions->rotate($id, $privateKey);
+
+                return ['metadata' => $resolved->destination->metadata];
+            },
+        ));
     }
 }

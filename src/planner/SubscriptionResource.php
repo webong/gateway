@@ -53,6 +53,8 @@ final readonly class SubscriptionResource
             'target_kind' => $shell ? 'shell' : 'http',
             'url' => $shell ? null : $this->destination->target,
             'hook' => $shell ? ShellSubscriptionTarget::hook($this->destination->target) : null,
+            'ssh' => ($sshId = ShellSubscriptionTarget::sshId($this->destination->target)) === null
+                ? null : app(ShellSshExecutionStore::class)->publicIdentity($sshId),
             'profile' => $shell ? null : $this->profile(),
             'metadata' => $this->publicMetadata(),
             'match' => $match->toArray(),

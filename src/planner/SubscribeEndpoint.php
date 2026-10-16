@@ -21,6 +21,7 @@ final readonly class SubscribeEndpoint
         private EndpointHttpTransportResolver $transportResolver,
         private AutomationLanguageRegistry $languages,
         private ShellSubscriptionPolicy $shellPolicy,
+        private ShellSshExecutionStore $sshExecutions,
         private ?RegistryRouteCache $routeCache = null,
     ) {
     }
@@ -41,10 +42,16 @@ final readonly class SubscribeEndpoint
         }
 
         if ($subscription->shellHook !== null) {
+            $sshIdentity = $subscription->shellSshExecutionId === null ? null
+                : $this->sshExecutions->publicIdentity($subscription->shellSshExecutionId);
+            if ($subscription->shellSshExecutionId !== null && $sshIdentity === null) {
+                throw new \InvalidArgumentException('The SSH Shell execution is unavailable.');
+            }
             $this->shellPolicy->assertAllowed(
                 $resolved->endpoint->record->endpoint_key,
                 $subscription->subscriberId,
                 $subscription->shellHook,
+                $sshIdentity,
             );
         }
 
@@ -63,7 +70,9 @@ final readonly class SubscribeEndpoint
             )->first(static fn (DestinationRecord $destination): bool =>
                 SubscriptionState::status($destination->metadata) === SubscriptionState::ACTIVE
                 && ($destination->metadata['delivery_mode'] ?? 'relay') === 'reply'
-                && ($destination->owner_id !== $subscription->subscriberId
+                && ($subscription->shellSshExecutionId !== null
+                    || ShellSubscriptionTarget::sshId($destination->target) !== null
+                    || $destination->owner_id !== $subscription->subscriberId
                     || $destination->registration_id !== $subscription->subscriptionId));
 
             if ($reply !== null) {

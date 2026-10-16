@@ -11,7 +11,7 @@ final class ConfigurationKindRegistry
     public function all(): array
     {
         return ['webstream.private-source', 'webstream.route-policy', 'web.event-policy',
-            'schedule.notification', 'shell.hook-grant', 'email.submission-policy',
+            'schedule.notification', 'shell.hook-grant', 'shell.ssh-execution', 'email.submission-policy',
             'email.runtime-policy', 'email.srs-policy', 'email.upstream',
             'email.hosted-adapter', 'email.hosted-route', 'email.dkim-key'];
     }

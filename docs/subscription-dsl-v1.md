@@ -24,7 +24,7 @@ Content-Type: application/json
 Shell target creation and mutation additionally require Planner's
 `GATEWAY_SHELL_SUBSCRIPTION_TOKEN` in the
 `X-Gateway-Shell-Subscription` header. The registry token alone is not
-operator authority to execute a local hook.
+operator authority to execute a Shell hook.
 
 Use the resolved `endpoint_key` returned by `POST /registry/endpoints`, not the
 requested key: `webong/proxy` may suffix unmanaged endpoint keys.
@@ -71,7 +71,8 @@ Unknown properties are not part of the v1 contract and must not be sent.
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
 | `target_kind` | no | `http` or `shell` | Defaults to `http`. Shell targets require the optional Shell extension and `type: reply`. |
 | `url` | for HTTP | absolute HTTP(S) URL | Go sends matching ingress traffic to this destination. Not accepted for Shell targets. |
-| `hook` | for Shell | non-hidden relative hook key, max 1024 | Operator-deployed local Shell hook selected by Planner. Not accepted for HTTP targets. |
+| `hook` | for Shell | non-hidden relative hook key, max 1024 | Operator-deployed local or SSH-side Shell hook selected by Planner. Not accepted for HTTP targets. |
+| `ssh` | no | object with `host`, optional `port` (default 22), `user`, `host_public_key`, and write-only `private_key` | Selects an SSH-backed Shell reply. Requires an exact SSH-mode Shell grant and a deployed Spinner network ceiling. Not accepted for HTTP targets. |
 | `profile` | HTTP only | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
@@ -101,10 +102,17 @@ matches the subscription and emits an automation plan; Spinner executes the
 hook and returns its response to the original HTTP caller. The returned
 resource contains `target_kind: shell` and `hook`, never the internal storage
 locator. Updating `hook` uses the usual `PATCH` with `If-Match`; target kinds
-cannot be changed in place. SSH credentials and remote execution are not part
-of this local Shell reply contract. The operator must first allow the exact
+cannot be changed in place. For an SSH-backed reply, include the nested `ssh`
+object on creation. Planner stores the private key outside revision history;
+public reads expose only safe identity and credential version. Host, port,
+user, host-key pin, and hook are immutable; rotate the client key with
+`POST /registry/endpoints/{endpointKey}/subscriptions/{id}/ssh/rotate-key`
+using both mutation tokens and a current `If-Match` ETag. Removal revokes the
+live key. The operator must first allow the exact
 hook with `POST /shell/hook-grants` using the resolved `endpoint_key`,
-`subscriber_id`, and `hook`. This Planner resource needs both the registry
+`subscriber_id`, and `hook`. SSH grants additionally set `mode: ssh` plus the
+exact host, port, user, and pinned host key; local grants cannot authorize
+remote execution. This Planner resource needs both the registry
 bearer token and `X-Gateway-Shell-Subscription`. Without an enabled exact grant,
 registration and execution are denied. Disabling or deleting a grant blocks an
 existing subscription immediately but does not automatically remove its reply

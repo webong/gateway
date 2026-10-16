@@ -478,6 +478,9 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	client := newLaravelBackendClient(config)
+	if err := automationextensions.ConfigureShellSSHHTTP(config.LaravelBackendURL, config.InternalToken, client, config.LaravelBackendSocket != ""); err != nil {
+		return fmt.Errorf("failed to initialize private Shell credential resolver: %w", err)
+	}
 	control, controlErr := schedules.NewHTTPControlPlane(
 		config.LaravelBackendURL,
 		config.InternalToken,

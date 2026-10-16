@@ -350,10 +350,14 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		MaxBodySize:   g.MaxBodySize,
 	}
 	passThrough := &caddyPassThrough{handler: next}
+	context, err := automationextensions.ContextWithShellSSHHandler(r.Context(), &caddyHTTPAdapter{handler: next}, g.InternalToken)
+	if err != nil {
+		return err
+	}
 	edge := bridge.NewEdge(planner, g.executor, g.MaxBodySize).
 		SetAutomationExecutor(automationextensions.Runtime()).
 		SetPassThrough(passThrough)
-	edge.ServeHTTP(w, r)
+	edge.ServeHTTP(w, r.WithContext(context))
 
 	return passThrough.err
 }

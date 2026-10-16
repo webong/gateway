@@ -53,6 +53,11 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 	}
 	ready := make(chan plannerReady, 1)
 	server, err := newServer(configPath, func(next http.Handler) http.Handler {
+		if resolverErr := automationextensions.ConfigureShellSSHHandler(next, spinner.InternalToken); resolverErr != nil {
+			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				http.Error(writer, "Planner Shell credential control is unavailable", http.StatusServiceUnavailable)
+			})
+		}
 		planner := bridge.NewPHPPlanner(next, spinner.MaxBodySize)
 		planner.InternalToken = spinner.InternalToken
 		protocolPlanner := bridge.NewPHPProtocolPlanner(next, spinner.MaxBodySize)

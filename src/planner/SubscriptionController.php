@@ -7,6 +7,7 @@ namespace Webong\Gateway;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Exceptions\EndpointNotFoundException;
@@ -18,6 +19,7 @@ final readonly class SubscriptionController
         private ValidationFactory $validator,
         private SubscribeEndpoint $subscriptions,
         private RegistryRequestAuthenticator $authenticator,
+        private ShellSshExecutionStore $sshExecutions,
     ) {
     }
 
@@ -38,6 +40,7 @@ final readonly class SubscriptionController
             'url',
             'target_kind',
             'hook',
+            'ssh',
             'profile',
             'channel',
             'metadata',
@@ -59,6 +62,7 @@ final readonly class SubscriptionController
             'url' => ['sometimes', 'url:http,https'],
             'target_kind' => ['sometimes', 'in:http,shell'],
             'hook' => ['sometimes', 'string', 'min:1', 'max:1024'],
+            'ssh' => ['sometimes', 'array'],
             'profile' => ['sometimes', 'string', 'min:1', 'max:64'],
             'channel' => ['nullable', 'string', 'max:255'],
             'metadata' => ['sometimes', 'array'],
@@ -75,6 +79,11 @@ final readonly class SubscriptionController
         }
 
         $shell = ($input['target_kind'] ?? 'http') === 'shell';
+        if (array_key_exists('ssh', $input) && ! $shell) {
+            return response()->json(['message' => 'The subscription is invalid.',
+                'errors' => ['subscription' => ['SSH configuration requires a Shell reply subscription.']]],
+                Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
         if (($shell && (! isset($input['hook']) || array_key_exists('url', $input)))
             || (! $shell && (array_key_exists('hook', $input) || ! isset($input['url'])))) {
             return response()->json([
@@ -98,21 +107,28 @@ final readonly class SubscriptionController
         }
 
         try {
-            $definition = new SubscriptionDefinition(
-                subscriberId: $input['subscriber_id'],
-                subscriptionId: $input['subscription_id'] ?? $input['subscriber_id'],
-                webhookGroup: $input['webhook_group'],
-                routingScope: $input['routing_scope'],
-                routingKey: $input['routing_key'],
-                url: $input['url'] ?? '',
-                match: $match,
-                metadata: $input['metadata'] ?? [],
-                channel: $input['channel'] ?? null,
-                type: $input['type'] ?? 'relay',
-                profile: $input['profile'] ?? null,
-                shellHook: $shell ? $input['hook'] : null,
-            );
-            $destination = $this->subscriptions->handle($endpointKey, $definition);
+            $destination = DB::transaction(function () use ($input, $shell, $endpointKey, $match) {
+                $sshExecution = isset($input['ssh']) ? $this->sshExecutions->create(
+                    $endpointKey, $input['subscriber_id'], $input['hook'], $input['ssh'],
+                ) : null;
+                $definition = new SubscriptionDefinition(
+                    subscriberId: $input['subscriber_id'],
+                    subscriptionId: $input['subscription_id'] ?? $input['subscriber_id'],
+                    webhookGroup: $input['webhook_group'],
+                    routingScope: $input['routing_scope'],
+                    routingKey: $input['routing_key'],
+                    url: $input['url'] ?? '',
+                    match: $match,
+                    metadata: $input['metadata'] ?? [],
+                    channel: $input['channel'] ?? null,
+                    type: $input['type'] ?? 'relay',
+                    profile: $input['profile'] ?? null,
+                    shellHook: $shell ? $input['hook'] : null,
+                    shellSshExecutionId: $sshExecution?->id,
+                );
+
+                return $this->subscriptions->handle($endpointKey, $definition);
+            });
         } catch (EndpointNotFoundException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -129,5 +145,4 @@ final readonly class SubscriptionController
         return response()->json($resource->toArray(), Response::HTTP_CREATED)
             ->header('ETag', $resource->etag());
     }
-
 }

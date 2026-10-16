@@ -110,6 +110,9 @@ final readonly class ShellHookGrantController
     {
         return ['id' => $row->id, 'endpoint_key' => $row->endpoint_key,
             'subscriber_id' => $row->subscriber_id, 'hook' => $row->hook,
+            'mode' => $row->mode ?? 'local',
+            ...(($row->mode ?? 'local') === 'ssh' ? ['host' => $row->host, 'port' => $row->port, 'user' => $row->user,
+                'host_public_key' => $row->host_public_key] : []),
             'enabled' => $row->enabled, 'revision' => $row->revision];
     }
 }

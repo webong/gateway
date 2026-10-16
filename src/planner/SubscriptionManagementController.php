@@ -205,6 +205,32 @@ final readonly class SubscriptionManagementController
         }
     }
 
+    public function rotateSshKey(Request $request, string $endpointKey, string $destinationId): JsonResponse
+    {
+        if (($authorization = $this->authenticator->authorize($request)
+            ?? $this->authenticator->authorizeShellMutation($request)) !== null) {
+            return $authorization;
+        }
+        $input = $request->json()->all();
+        if (array_keys($input) !== ['private_key'] || ! is_string($input['private_key'])) {
+            return $this->invalid('The SSH credential is invalid.', ['subscription' => ['A private_key is required.']]);
+        }
+        try {
+            $expected = SubscriptionState::parseEtag($request->header('If-Match'));
+            return $this->resource($this->subscriptions->rotateSshKey(
+                $endpointKey, $destinationId, $expected, $input['private_key'],
+            ));
+        } catch (InvalidArgumentException $exception) {
+            return $this->invalid('The SSH credential is invalid.', ['subscription' => [$exception->getMessage()]]);
+        } catch (EndpointNotFoundException|SubscriptionNotFoundException $exception) {
+            return response()->json(['message' => $exception->getMessage()], Response::HTTP_NOT_FOUND);
+        } catch (SubscriptionRevisionMismatchException $exception) {
+            return $this->conflict($exception);
+        } catch (SubscriptionLockUnavailableException $exception) {
+            return response()->json(['message' => $exception->getMessage()], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
+    }
+
     private function channel(Request $request): ?string
     {
         $channel = $request->query('channel');

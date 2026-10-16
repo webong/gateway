@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,34 +71,42 @@ type Config struct {
 	OutputMode      string
 	Interpreter     string
 	PowerShellPath  string
+	SSHAllowedCIDRs []string
 }
 
 type Engine struct {
-	config    Config
-	slots     chan struct{}
-	queue     chan struct{}
-	pruneMu   sync.Mutex
-	lastPrune time.Time
+	config      Config
+	slots       chan struct{}
+	queue       chan struct{}
+	pruneMu     sync.Mutex
+	lastPrune   time.Time
+	sshMu       sync.RWMutex
+	sshResolver SSHResolver
+	sshAllowed  []*net.IPNet
 }
 
 func New(config Config) (*Engine, error) {
-	if strings.TrimSpace(config.HooksDir) == "" {
+	if strings.TrimSpace(config.HooksDir) == "" && len(config.SSHAllowedCIDRs) == 0 {
 		return nil, errors.New("shell hook directory is required")
 	}
-	root, err := filepath.Abs(config.HooksDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve shell hook directory: %w", err)
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, fmt.Errorf("resolve shell hook directory symlinks: %w", err)
-	}
-	info, err := os.Stat(root)
-	if err != nil {
-		return nil, fmt.Errorf("stat shell hook directory: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, errors.New("shell hook directory is not a directory")
+	root := ""
+	if strings.TrimSpace(config.HooksDir) != "" {
+		var err error
+		root, err = filepath.Abs(config.HooksDir)
+		if err != nil {
+			return nil, fmt.Errorf("resolve shell hook directory: %w", err)
+		}
+		root, err = filepath.EvalSymlinks(root)
+		if err != nil {
+			return nil, fmt.Errorf("resolve shell hook directory symlinks: %w", err)
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			return nil, fmt.Errorf("stat shell hook directory: %w", err)
+		}
+		if !info.IsDir() {
+			return nil, errors.New("shell hook directory is not a directory")
+		}
 	}
 	if config.Timeout <= 0 {
 		config.Timeout = defaultTimeout
@@ -182,6 +191,13 @@ func New(config Config) (*Engine, error) {
 	}
 	config.HooksDir = root
 	engine := &Engine{config: config, slots: make(chan struct{}, config.MaxConcurrent), queue: make(chan struct{}, config.MaxQueued)}
+	for _, cidr := range config.SSHAllowedCIDRs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SSH outbound CIDR ceiling: %w", err)
+		}
+		engine.sshAllowed = append(engine.sshAllowed, network)
+	}
 	if err := engine.pruneRuns(time.Now()); err != nil {
 		return nil, fmt.Errorf("prune shell run records: %w", err)
 	}
@@ -227,6 +243,7 @@ func NewFromEnvironment() (*Engine, error) {
 		OutputMode:      strings.TrimSpace(os.Getenv("GATEWAY_SHELL_OUTPUT_MODE")),
 		Interpreter:     strings.TrimSpace(os.Getenv("GATEWAY_SHELL_INTERPRETER")),
 		PowerShellPath:  strings.TrimSpace(os.Getenv("GATEWAY_SHELL_POWERSHELL_PATH")),
+		SSHAllowedCIDRs: splitCIDRs(os.Getenv("GATEWAY_SHELL_SSH_ALLOWED_CIDRS")),
 	})
 }
 
@@ -241,13 +258,16 @@ func (e *Engine) Execute(ctx context.Context, source string, input automation.In
 	if e == nil {
 		return automation.Outcome{}, errors.New("shell hook engine is not configured")
 	}
+	if strings.HasPrefix(source, "ssh:") {
+		return e.executeSSH(ctx, source, input)
+	}
 	release, err := e.admit(ctx)
 	if err != nil {
 		return automation.Outcome{}, err
 	}
 	defer release()
 	started := time.Now().UTC()
-	runID, err := newRunID()
+	runID, err := assignedRunID(ctx)
 	if err != nil {
 		return automation.Outcome{}, err
 	}
@@ -643,6 +663,9 @@ func (e *Engine) admit(ctx context.Context) (func(), error) {
 func (e *Engine) hookPath(source string) (string, error) {
 	if e == nil {
 		return "", errors.New("shell hook engine is not configured")
+	}
+	if e.config.HooksDir == "" {
+		return "", errors.New("local Shell hooks are not configured")
 	}
 	key := strings.TrimSpace(source)
 	if key == "" || !fs.ValidPath(key) || strings.Contains(key, "\\") {
