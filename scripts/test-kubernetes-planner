@@ -61,11 +61,6 @@ kubectl -n "$NAMESPACE" create secret generic spinner-planner \
     --from-literal=internal-token="$(openssl rand -hex 24)" >/dev/null
 kubectl -n "$NAMESPACE" create configmap planner-settings \
     --from-literal=public-url=https://gateway.example.test >/dev/null
-if [[ "$WITH_DNS" == true ]]; then
-    DNS_ZONES='[{"name":"hooks.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15}]'
-    kubectl -n "$NAMESPACE" create configmap gateway-dns \
-        --from-literal=zones="$DNS_ZONES" >/dev/null
-fi
 if [[ "$WITH_EMAIL" == true ]]; then
     SMTP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-smtp.XXXXXX")
     chmod 700 "$SMTP_DIR"
@@ -325,13 +320,19 @@ if [[ "$WITH_WEBSTREAM" == true ]]; then
         echo 'Webstream fixture has no IPv4 Service address for its exact-origin grant.' >&2
         exit 1
     fi
-    SOURCE_GRANT="{\"http://webstream-source:8080\":[\"$SOURCE_IP/32\"]}"
     OLD_SPINNER=$(kubectl -n "$NAMESPACE" get pods \
         -l app.kubernetes.io/name=spinner -o jsonpath='{.items[0].metadata.name}')
     kubectl -n "$NAMESPACE" set env deployment/spinner \
-        "GATEWAY_WEBSTREAM_PRIVATE_SOURCES=$SOURCE_GRANT" >/dev/null
+        "GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS=$SOURCE_IP/32" >/dev/null
     kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null
     kubectl -n "$NAMESPACE" wait --for=delete "pod/$OLD_SPINNER" --timeout=120s >/dev/null
+    if [[ $(tls_status -X POST "$TLS_URL/webstream/private-sources" \
+        -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        -H 'Content-Type: application/json' \
+        --data "{\"origin\":\"http://webstream-source:8080\",\"cidrs\":[\"$SOURCE_IP/32\"]}") != 201 ]]; then
+        echo 'Planner did not accept the exact private Webstream source grant.' >&2
+        exit 1
+    fi
     TLS_OUTPUT_FILE="$TLS_DIR/webstream-authorized-response"
     STREAM_STATUS=$(tls_status -H 'Accept: text/event-stream' \
         "$TLS_URL/hooks/planner-tls-smoke")
@@ -440,6 +441,13 @@ if [[ "$ENDPOINT_COUNT" != 1 ]]; then
     exit 1
 fi
 if [[ "$WITH_DNS" == true ]]; then
+    if [[ $(tls_status -X POST "$TLS_URL/dns/zones" \
+        -H "Authorization: Bearer $REGISTRY_TOKEN" \
+        -H 'Content-Type: application/json' \
+        --data '{"name":"hooks.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":15}') != 201 ]]; then
+        echo 'Production Planner DNS zone creation failed.' >&2
+        exit 1
+    fi
     DNS_TOKEN=$(kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
         $context = stream_context_create(["http" => [
             "method" => "POST",

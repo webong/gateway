@@ -272,11 +272,29 @@ through failed delivery receipts.
 
 ### Operator notifications
 
-Set `GATEWAY_SCHEDULE_NOTIFICATION_URL` on every Planner instance to opt in to
-failed-run webhook alerts. Set `GATEWAY_SCHEDULE_NOTIFICATION_TOKEN` for a
-bearer-authenticated receiver; use HTTPS for production. The configured URL is
-operator-owned, not selected by schedule scripts, and cannot contain embedded
-credentials, query parameters, or a fragment. Redirects are not followed.
+For a Planner-managed failed-run alert, deploy an exact HTTPS receiver hostname
+with `GATEWAY_SCHEDULE_NOTIFICATION_ALLOWED_HOSTS=ops.example.test`, then create
+the singleton destination:
+
+```sh
+curl -X POST https://planner.example.test/schedules/notification-destination \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"url":"https://ops.example.test/gateway-alerts","token":"receiver-secret"}'
+```
+
+The authenticated `GET` returns the URL, enabled flag, revision, and whether a
+token is set, never the token itself. `PUT` replaces the destination (omitting
+`token` keeps the existing secret), and `DELETE` removes it. Use the ETag from
+`POST`, `GET`, or `PUT` as `If-Match` for changes. A disabled or deleted resource
+cannot enable an env destination. The deployed host list is checked
+again before dispatch, so removing a hostname stops delivery without deleting
+the resource. Scripts cannot select a receiver. Redirects are not followed.
+
+The former `GATEWAY_SCHEDULE_NOTIFICATION_URL` and
+`GATEWAY_SCHEDULE_NOTIFICATION_TOKEN` settings are no longer read. Migrate
+their values into the Planner resource before upgrading a live deployment.
+HTTP is accepted only for an explicitly allowed `127.0.0.1` receiver, for
+local smoke tests; use HTTPS for externally named receivers.
 
 Completed runs enter the `schedule_notifications` outbox. A script or queue
 handoff failure is alertable immediately. For a successfully executed run,

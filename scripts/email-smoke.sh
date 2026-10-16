@@ -71,11 +71,6 @@ go build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/src/spinner/cmd/email-relay-sm
     GATEWAY_HTTP_REGISTRY_SMOKE=1 \
     GATEWAY_EMAIL_SMOKE=1 \
     GATEWAY_EMAIL_POLICY='Webong\Gateway\Tests\Fixtures\EmailSmokeMessagePolicy' \
-    GATEWAY_EMAIL_DMARC_ENFORCE_ENABLED=true \
-    GATEWAY_EMAIL_VERIFICATION_TTL_SECONDS=0 \
-    GATEWAY_EMAIL_SRS_ENABLED=true \
-    GATEWAY_EMAIL_SRS_DOMAIN=managed.test \
-    GATEWAY_EMAIL_SRS_KEYS="[\"$SRS_KEY\"]" \
     DB_CONNECTION=sqlite DB_DATABASE="$DB_FILE" \
     exec php -S "127.0.0.1:$PHP_PORT" -t public public/index.php
 ) >"$PHP_LOG" 2>&1 &
@@ -124,6 +119,10 @@ wait_http "http://127.0.0.1:$GO_PORT/health" "$GO_LOG" "$GO_PID"
 
 planner="http://127.0.0.1:$PHP_PORT"
 auth="Authorization: Bearer $REGISTRY_TOKEN"
+curl -fsS -X POST "$planner/email/runtime-policy" -H "$auth" -H 'Content-Type: application/json' \
+    -d '{"dmarc_enforce_enabled":true,"verification_ttl_seconds":0}' >/dev/null
+curl -fsS -X POST "$planner/email/srs-policy" -H "$auth" -H 'Content-Type: application/json' \
+    -d "{\"domain\":\"managed.test\",\"keys\":[\"$SRS_KEY\"]}" >/dev/null
 domain_json="$(curl -fsS -X POST "$planner/email/domains" -H "$auth" -H 'Content-Type: application/json' -d '{"domain":"managed.test"}')"
 domain_id="$(printf '%s' "$domain_json" | php -r '$v=json_decode(stream_get_contents(STDIN),true); echo $v["id"] ?? "";')"
 if [[ -z "$domain_id" ]]; then echo 'Email domain creation returned no ID.' >&2; exit 1; fi
@@ -248,7 +247,7 @@ php -r '
 
 # Stop the original Planner and Spinner before starting a fresh pair. The
 # return token must survive both processes, using only the persisted database
-# and configured signing key.
+# and Planner-managed signing key.
 kill "$GO_PID" "$PHP_PID"
 wait "$GO_PID" 2>/dev/null || true
 wait "$PHP_PID" 2>/dev/null || true
@@ -266,10 +265,6 @@ PHP_PID=""
     GATEWAY_SMOKE_SKIP_MIGRATIONS=1 \
     GATEWAY_EMAIL_SMOKE=1 \
     GATEWAY_EMAIL_POLICY='Webong\Gateway\Tests\Fixtures\EmailSmokeMessagePolicy' \
-    GATEWAY_EMAIL_VERIFICATION_TTL_SECONDS=0 \
-    GATEWAY_EMAIL_SRS_ENABLED=true \
-    GATEWAY_EMAIL_SRS_DOMAIN=managed.test \
-    GATEWAY_EMAIL_SRS_KEYS="[\"$SRS_KEY\"]" \
     DB_CONNECTION=sqlite DB_DATABASE="$DB_FILE" \
     exec php -S "127.0.0.1:$PHP2_PORT" -t public public/index.php
 ) >"$PHP2_LOG" 2>&1 &

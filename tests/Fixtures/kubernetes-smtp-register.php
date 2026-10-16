@@ -19,6 +19,10 @@ function registryRequest(string $method, string $path, ?array $payload = null): 
     return $response === '' ? [] : json_decode($response, true, 512, JSON_THROW_ON_ERROR);
 }
 
+registryRequest('POST', '/email/runtime-policy', [
+    'verification_ttl_seconds' => 0,
+    'http_submission_enabled' => true,
+]);
 $domain = registryRequest('POST', '/email/domains', ['domain' => 'managed.test']);
 $id = $domain['id'] ?? null;
 if (! is_string($id) || $id === '') {

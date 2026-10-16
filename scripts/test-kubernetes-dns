@@ -35,7 +35,6 @@ kubectl -n "$NAMESPACE" create secret generic planner-credentials \
     --from-literal=APP_KEY="$APP_KEY" \
     --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)" \
     --from-literal=GATEWAY_INTERNAL_TOKEN="$INTERNAL_TOKEN" \
-    --from-literal=GATEWAY_DNS_HOOKS_ENABLED=true \
     --from-literal=GATEWAY_DNS_SMOKE=1 \
     --from-literal=GATEWAY_HTTP_REGISTRY_SMOKE=1 \
     --from-literal='GATEWAY_PATH_RESOLVER=Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \

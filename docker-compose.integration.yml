@@ -12,8 +12,6 @@ services:
       GATEWAY_HTTP_RECEIVER_FILE: /tmp/receiver.txt
       GATEWAY_HTTP_REGISTRY_SMOKE: "1"
       GATEWAY_EMAIL_SMOKE: "1"
-      GATEWAY_EMAIL_HTTP_SUBMISSION_ENABLED: "true"
-      GATEWAY_EMAIL_SUBMISSION_DOMAIN_DAILY_LIMIT: "1"
       GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR: "Webong\\Gateway\\Tests\\Fixtures\\EmailHttpSmokeAuthenticator"
       GATEWAY_DELIVERY_ADMIN_URL: http://gateway:5052
       GATEWAY_PLANNER: "Webong\\Gateway\\Tests\\Fixtures\\HttpSmokePlanner"

@@ -64,7 +64,6 @@ go build "$GO_BUILD_FLAGS" -o "$DELEGATION_BIN" "$ROOT/tests/Fixtures/dns-delega
     COMPOSER_VENDOR_DIR="$ROOT/vendor" DB_CONNECTION=sqlite DB_DATABASE="$DB_FILE" \
     GATEWAY_HTTP_REGISTRY_SMOKE=1 GATEWAY_DNS_SMOKE=1 \
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
-    GATEWAY_DNS_HOOKS_ENABLED=true GATEWAY_DNS_DEFAULT_NAMESERVERS='ns1.example.net,ns2.example.net' \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" REGISTRY_TOKEN="$REGISTRY_TOKEN" \
     exec php -S "127.0.0.1:$PHP_PORT" -t public public/index.php
 ) >"$PHP_LOG" 2>&1 &
@@ -114,9 +113,9 @@ curl -fsS "$planner/dns/zones" -H "$auth" | php -r '
     if (count($zones) !== 0) exit(1);
 '
 curl -fsS -X POST "$planner/dns/zones" -H "$auth" -H 'Content-Type: application/json' \
-    -d '{"name":"first.example.test","ttl":60}' >/dev/null
+    -d '{"name":"first.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":60}' >/dev/null
 curl -fsS -X POST "$planner/dns/zones" -H "$auth" -H 'Content-Type: application/json' \
-    -d '{"name":"second.example.test","ttl":60}' >/dev/null
+    -d '{"name":"second.example.test","nameservers":["ns1.example.net","ns2.example.net"],"ttl":60}' >/dev/null
 for _ in $(seq 1 50); do
     primary_zone="$(dig @127.0.0.1 -p "$DNS_PORT" +time=1 +tries=1 +short first.example.test NS 2>/dev/null | LC_ALL=C sort)"
     peer_zone="$(dig @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=1 +short second.example.test NS 2>/dev/null | LC_ALL=C sort)"

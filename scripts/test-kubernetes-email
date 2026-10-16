@@ -53,7 +53,6 @@ PLANNER_SECRET_ARGS=(
     --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)"
     --from-literal=GATEWAY_INTERNAL_TOKEN="$INTERNAL_TOKEN"
     --from-literal=GATEWAY_EMAIL_SMOKE=1
-    --from-literal=GATEWAY_EMAIL_VERIFICATION_TTL_SECONDS=0
     --from-literal=GATEWAY_HTTP_REGISTRY_SMOKE=1
     '--from-literal=GATEWAY_PATH_RESOLVER=Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver'
     --from-literal=APP_ENV=testing
@@ -75,7 +74,6 @@ if [[ "$WITH_RELAY" == true ]]; then
         --from-literal=DB_USERNAME=postgres --from-literal=DB_PASSWORD="$DB_PASSWORD")
     PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DELIVERY_ADMIN_URL=http://spinner-delivery-admin:5052)
     PLANNER_SECRET_ARGS+=(
-        --from-literal=GATEWAY_EMAIL_HTTP_SUBMISSION_ENABLED=true
         '--from-literal=GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR=Webong\Gateway\Tests\Fixtures\EmailHttpSmokeAuthenticator'
     )
     unset DB_PASSWORD DB_URL
@@ -86,7 +84,7 @@ kubectl -n "$NAMESPACE" create configmap gateway-smtp \
 kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
     --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" >/dev/null
 if [[ "$WITH_DNS" == true ]]; then
-    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DNS_HOOKS_ENABLED=true --from-literal=GATEWAY_DNS_SMOKE=1)
+    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DNS_SMOKE=1)
 fi
 kubectl -n "$NAMESPACE" create secret generic planner-credentials \
     "${PLANNER_SECRET_ARGS[@]}" >/dev/null

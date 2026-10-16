@@ -13,6 +13,14 @@ _Avoid_: Go gateway, router
 The PHP module that owns routing policy and registry decisions.
 _Avoid_: Laravel gateway
 
+**Planner Resource**:
+An operator-managed desired-state record with a stable key and a declared kind. It is distinct from a process's deployment configuration.
+_Avoid_: environment setting, arbitrary config key
+
+**Resource Kind**:
+The contract that gives a Planner Resource its meaning and validation rules.
+_Avoid_: database table type
+
 **Router**:
 The bundled service containing both Spinner and Planner behind one public listener.
 _Avoid_: Standalone Gateway, FrankenPHP image

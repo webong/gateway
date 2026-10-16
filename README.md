@@ -367,8 +367,8 @@ go run ./src/spinner/cmd/proxy
 
 Planner supplies active zones over the authenticated private connection and
 Spinner refreshes the complete snapshot without restarting (every 5 seconds by
-default). `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS`, and
-`GATEWAY_DNS_ZONES` remain supported only as legacy bootstrap inputs. A wildcard
+default). Zone names and nameservers must be created through Planner; the old
+DNS zone env snapshots are no longer read. A wildcard
 A record is not a substitute for an NS delegation. The listener needs permission
 to bind port 53; a container can map public UDP/TCP port 53 to an unprivileged
 internal port such as 5353.
@@ -428,15 +428,9 @@ DNS names are case-insensitive and each label is limited to 63 bytes.
 
 ### DNS hook product API
 
-Set `GATEWAY_DNS_HOOKS_ENABLED=true` on Planner to enable the DNS control plane.
-Domains are created through the API and stored as ordinary WebProxy endpoints;
-they do not need to be duplicated in Spinner environment configuration. Set
-default authoritative nameservers once if the API should be able to omit them:
-
-```bash
-export GATEWAY_DNS_HOOKS_ENABLED=true
-export GATEWAY_DNS_DEFAULT_NAMESERVERS='ns1.example.net,ns2.example.net'
-```
+The DNS control plane is available through Planner. Domains and their
+authoritative nameservers are created through the API and stored as ordinary
+WebProxy endpoints; they are not duplicated in Spinner env.
 
 Create any number of authoritative zones with the bearer-token-protected API:
 
@@ -456,7 +450,7 @@ export GATEWAY_DNS_CLOUDFLARE_TOKEN='scoped-api-token'
 curl -X POST https://relay.example.test/dns/zones \
   -H "Authorization: Bearer $REGISTRY_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"name":"hooks.example.com","provider":"cloudflare"}'
+  -d '{"name":"hooks.example.com","provider":"cloudflare","nameservers":["ns1.example.net","ns2.example.net"]}'
 ```
 
 The token is a deployment secret and needs permission to read zones and edit DNS
@@ -549,8 +543,8 @@ audit records are not orphaned.
 `GATEWAY_DNS_PROXY_CLIENT` customizes the built-in client. Hook identity uses
 WebProxy endpoints, and history uses the generic `events` table; the historical
 `GATEWAY_DNS_HOOKS_TABLE` and `GATEWAY_DNS_EVENTS_TABLE` settings are not used.
-`GATEWAY_DNS_HOOKS_ENABLED=false` disables the product control plane
-while leaving explicit custom protocol planners available.
+Disable or remove individual DNS resources through Planner. The DNS listener
+itself remains a deployment decision.
 
 ### Spinner container
 
@@ -594,7 +588,7 @@ GATEWAY_INTERNAL_TOKEN=replace-me \
 docker compose -f docker-compose.dns.example.yml up -d
 ```
 
-Enable `GATEWAY_DNS_HOOKS_ENABLED`, configure `REGISTRY_TOKEN`, and run the
+Configure `REGISTRY_TOKEN`, run the
 Gateway and WebProxy migrations on Planner. Create each domain through
 `POST /dns/zones`; every Spinner observes active zones over its authenticated
 Planner connection without restarting. At each parent DNS provider, delegate
@@ -691,19 +685,21 @@ if (response.status !== 204) {
 
 #### Opt-in replay and continuous uploads
 
-Configure `gateway-webstream.routes` in the consuming Laravel application's
-`config/gateway-webstream.php`. Policies use exact public `host/path` keys and
-pin the selected source URL; normal registry authorization still applies:
+Create an exact public host/path policy through Planner. It pins the selected
+source URL; normal registry authorization still applies:
 
-```php
-return ['routes' => [
-    'gateway.example.test/hooks/updates' => [
-        'source' => 'https://producer.example.test/events',
-        'retry' => true, // Only if the producer guarantees idempotency.
-        'upload' => true, // Authorize this route using metadata only.
-    ],
-]];
+```sh
+curl -X POST https://planner.example.test/webstream/routes \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"host":"gateway.example.test","path":"/hooks/updates","source":"https://producer.example.test/events","retry":true,"upload":true}'
 ```
+
+`GET`, `POST`, `GET /{id}`, `PUT /{id}`, and `DELETE /{id}` are available under
+`/webstream/routes`. Replacing or disabling a policy takes effect on the next
+Planner decision. A disabled or absent Planner policy does not enable upload or
+retries.
+`POST` and `GET /{id}` return an ETag such as `"1"`. Send that value as
+`If-Match` for `PUT` or `DELETE`; missing or stale revisions are rejected.
 
 Buffered POST retries require one nonempty `Idempotency-Key` (up to 255 bytes).
 Spinner makes at most one extra attempt, after 100ms, with the same approved
@@ -729,23 +725,37 @@ require HTTP/2; validate the actual deployment and client before relying on dupl
 Custom planners opt in through `stream.attributes.upload_mode = stream` with an
 empty payload, or `stream.attributes.retry_idempotent = true` with an approved
 `Idempotency-Key` header, never both. The standard PHP registry planner enforces
-the deployment-owned policy above. The continuous-upload opening phase has a
+the Planner-owned policy above. The continuous-upload opening phase has a
 five-minute cap; ordinary buffered opens retain the normal request timeout.
 
 Production Spinner blocks private SSE source addresses by default, even when
-the source was selected by Planner. An operator who owns the private source may
-grant one exact, lowercase origin and its private address range in Spinner's
-`GATEWAY_WEBSTREAM_PRIVATE_SOURCES` JSON setting, for example:
+the source was selected by Planner. First deploy a narrow network ceiling on
+Spinner, then create an exact-origin source grant through the authenticated
+Planner API:
 
 ```sh
-GATEWAY_WEBSTREAM_PRIVATE_SOURCES='{"http://events.internal:8080":["10.42.7.19/32"]}'
+GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS='10.42.7.0/24'
+curl -X POST https://planner.example.test/webstream/private-sources \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"origin":"http://events.internal:8080","cidrs":["10.42.7.19/32"]}'
 ```
 
-The grant applies only to Webstream, never ordinary webhook forwarding. It
-requires an explicit port, accepts only RFC 1918 or IPv6 unique-local CIDRs,
-checks the resolved address again when dialing, disallows a source profile
-proxy, and does not follow redirects. Keep the CIDR as narrow as possible;
-the operator is authorizing every SSE route that can select that origin.
+`GET`, `POST`, `GET /{id}`, `PUT /{id}`, and `DELETE /{id}` are available under
+`/webstream/private-sources`; `PUT` replaces the exact origin, CIDRs, and
+optional `enabled` flag. A grant takes effect on the next Planner decision
+without a Spinner restart. Spinner accepts the grant only inside its deployed
+network ceiling. The grant applies only to Webstream, never ordinary webhook
+forwarding. Both layers require private RFC 1918 or IPv6 unique-local CIDRs;
+Spinner checks the resolved address again when dialing, disallows a source
+profile proxy, and does not follow redirects. Keep both ranges narrow.
+`POST` and `GET /{id}` return an ETag; send it as `If-Match` for `PUT` or
+`DELETE` to prevent overwriting a newer grant.
+
+Private-source grants are created only through Planner; there is no env origin
+map. `GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS` remains a deployment safety
+ceiling and cannot itself grant a private source.
+Unset it after migrating its grants to the API; while set, it can still grant
+an origin independently of the Planner resource.
 
 For GET, Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
 reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
@@ -791,9 +801,6 @@ bidirectional sessions.
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - Spinner shutdown timeout (default `30s`)
 - `GATEWAY_DNS_ADDR` - enables authoritative DNS over UDP and TCP
-- `GATEWAY_DNS_ZONE`, `GATEWAY_DNS_NAMESERVERS` - legacy single delegated zone
-- `GATEWAY_DNS_ZONES` - JSON array of delegated zone definitions for one or
-  more authoritative zones; mutually exclusive with the legacy pair
 - `GATEWAY_DNS_ZONE_REFRESH_INTERVAL` - Planner zone snapshot refresh interval
   for HTTP and bundled RoadRunner runtimes (default `5s`)
 - `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
@@ -802,16 +809,16 @@ bidirectional sessions.
   Spinner or the bundled Router; see [mail forwarding](docs/mail-forwarding.md)
 - `GATEWAY_POP3_TLS_CERT_FILE`, `GATEWAY_POP3_TLS_KEY_FILE` - required PEM
   certificate and key for POP3 client connections
-- `GATEWAY_POP3_UPSTREAMS` - required JSON map of operator-registered upstream
-  IDs to `address` and TLS `server_name`
+- `GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS` - exact deployment host ceiling;
+  POP3 endpoint IDs and addresses are managed through `/email/upstreams`
 - `GATEWAY_POP3_AUTH_PER_MINUTE`, `GATEWAY_POP3_AUTH_BURST` - per-socket-peer
   password-attempt limit local to each Spinner process (defaults `30` and `5`)
 - `GATEWAY_IMAP_ADDR` - enables the implicit-TLS IMAP upstream proxy; see
   [mail forwarding](docs/mail-forwarding.md)
 - `GATEWAY_IMAP_TLS_CERT_FILE`, `GATEWAY_IMAP_TLS_KEY_FILE` - required IMAP
   listener certificate and key
-- `GATEWAY_IMAP_UPSTREAMS` - required JSON map of registered IMAP upstream IDs
-  to `address` and TLS `server_name`
+- `GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS` - exact deployment host ceiling;
+  IMAP endpoint IDs and addresses are managed through `/email/upstreams`
 - `GATEWAY_IMAP_AUTH_PER_MINUTE`, `GATEWAY_IMAP_AUTH_BURST` - per-socket-peer
   password-attempt limit local to each Spinner process (defaults `30` and `5`)
 - `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` - Planner-owned mailbox credential
@@ -834,15 +841,12 @@ bidirectional sessions.
 - `GATEWAY_SMTP_AUTH_ENABLED` - require PHP-planned SMTP AUTH (default
   `false`; TLS is required). The AUTH decision must grant exact envelope
   senders, and the message's visible From address must also be granted.
-- `GATEWAY_EMAIL_DKIM_SIGNING_CONFIG` - optional JSON key manifest for
-  per-domain signing of authenticated outbound mail; see
+- `GATEWAY_EMAIL_DKIM_RESOLVER_URL` - private Planner origin for per-domain
+  DKIM keys managed through `/email/dkim-keys`; see
   [mail forwarding](docs/mail-forwarding.md)
-- `GATEWAY_EMAIL_SUBMISSION_DAILY_LIMIT` - optional shared per-account UTC-day
-  limit on authenticated SMTP DATA attempts (default `0`, disabled); an
-  authenticator can set a per-account override
-- `GATEWAY_EMAIL_SUBMISSION_DAILY_BYTE_LIMIT` - optional shared per-account
-  UTC-day cap on raw authenticated SMTP DATA bytes (default `0`, disabled);
-  an authenticator can set a per-account override
+- Authenticated SMTP and HTTP submission quotas are managed through
+  `POST /email/submission-policy`; an authenticator may return per-account
+  overrides.
 - `GATEWAY_SMTP_RECIPIENT_PREFLIGHT` - `smtp`/`recipient` planning at
   each `RCPT TO`; defaults on when an outbound relay is configured and off
   otherwise. Custom planners must support this event or explicitly set `false`.

@@ -66,7 +66,6 @@ touch "$DATABASE_FILE"
     GATEWAY_HTTP_RECEIVER_URL="http://127.0.0.1:$PHP_PORT/http-smoke/receiver" \
     GATEWAY_HTTP_RECEIVER_FILE="$RECEIVER_FILE" \
     GATEWAY_HTTP_REGISTRY_SMOKE=1 \
-    GATEWAY_EVENTS_ENABLED=true \
     GATEWAY_DELIVERY_ADMIN_URL="http://127.0.0.1:$ADMIN_PORT" \
     GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
@@ -98,6 +97,10 @@ if [[ "$php_ready" != "true" ]]; then
     cat "$PHP_LOG" >&2
     exit 1
 fi
+
+curl -fsS --max-time 5 -X POST "$PHP_URL/web/event-policy" \
+    -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+    -d '{"enabled":true,"retention_days":30}' >/dev/null
 
 php_internal_status="$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' \
     -X POST "$PHP_URL/_internal/gateway/plan")"

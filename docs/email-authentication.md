@@ -25,7 +25,7 @@ or verified DKIM pass satisfies DMARC; a temporary authentication or DNS
 failure is not treated as a conclusive DMARC failure.
 
 By default, this assessment does not alter mail acceptance. An operator can set
-`GATEWAY_EMAIL_DMARC_ENFORCE_ENABLED=true` and configure
+`dmarc_enforce_enabled: true` in `/email/runtime-policy` and configure
 `GATEWAY_EMAIL_QUARANTINE_PATH` to durably quarantine conclusive DMARC failures
 under `p=quarantine` or `p=reject` and temporarily defer uncertain assessments.
 Testing mode (`t=y`) lowers `p=quarantine` to no DMARC disposition and
@@ -70,16 +70,19 @@ original sender with `MAIL FROM:<>`. Invalid, expired, mixed, and non-null-sende
 returns are rejected. This is a Gateway-owned, bounded opaque return token,
 not a general decoder for other hosts' SRS addresses.
 
-The feature is **off by default**. Configure the same shared Planner database,
-stable Laravel `APP_KEY`, and SRS settings on every Planner worker:
+The feature is **off by default**. With the shared Planner database and a
+stable Laravel `APP_KEY`, create one encrypted Planner resource (authenticated
+registry operator request):
 
-```text
-GATEWAY_EMAIL_SRS_ENABLED=true
-GATEWAY_EMAIL_SRS_REWRITE_ENABLED=true
-GATEWAY_EMAIL_SRS_DOMAIN=returns.example.com
-GATEWAY_EMAIL_SRS_KEYS=["<base64-encoded-32-byte-or-longer-secret>"]
-GATEWAY_EMAIL_SRS_MAX_AGE_SECONDS=1814400
+```json
+POST /email/srs-policy
+{"domain":"returns.example.com","keys":["<base64-encoded-32-byte-or-longer-secret>"],"max_age_seconds":1814400,"rewrite_enabled":true}
 ```
+
+`GET /email/srs-policy` returns the current revision and key count, never the
+keys. Use its ETag in `If-Match` for `PUT` or `DELETE`. The former
+`GATEWAY_EMAIL_SRS_*` environment settings are no longer read; migrate their
+values into this resource before upgrading an installation with active returns.
 
 The return domain must be a verified, enabled managed Email domain; an
 unavailable domain temporarily fails new forwarding rather than issuing an
@@ -88,11 +91,12 @@ authorize the actual outbound relay—Gateway does not verify those records
 automatically. Keep the old key in the list when rotating (`new` first, `old`
 second) for at least the configured token lifetime. Keep the shared database
 mapping for that same window. Expired mappings are pruned opportunistically
-as new tokens are issued. Set `GATEWAY_EMAIL_SRS_REWRITE_ENABLED=false` to
-stop issuing new addresses while keeping `GATEWAY_EMAIL_SRS_ENABLED=true`,
-the old keys, and mappings in place until the bounce window closes. Test the
-live MX/relay bounce path before accepting public traffic. Restart all long-lived
-Planner workers when changing the key list or SRS configuration.
+as new tokens are issued. Set `rewrite_enabled` or resource `enabled` to
+`false` to stop issuing new addresses; keep the old keys and mappings until
+the bounce window closes. Planner rejects removal of an old key, return-domain
+changes, or deletion while unexpired returns are recorded. Test the live
+MX/relay bounce path before accepting public traffic. Long-lived Planner
+workers read this resource on each operation, so no worker restart is needed.
 
 Before enabling rewriting, check the return domain against public DNS. Supply
 **every** expected MX host and the actual public source IPs used by the

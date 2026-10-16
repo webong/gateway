@@ -1,0 +1,3 @@
+# Store Planner configuration as typed resources in one shared collection
+
+Planner acts as a CMS for operator-managed configuration: one encrypted, versioned `configurations` collection stores resources identified by kind and stable key. Each resource kind retains its own validation, authorization, and runtime projection; callers cannot write arbitrary environment keys or use a JSON document to exceed deployment-level safety ceilings. This replaces a table-per-setting design, which made every new policy require a migration and duplicated lifecycle logic, while avoiding an unvalidated generic key/value API.

@@ -58,10 +58,8 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
         $provider = new ReflectionClass(WebProxyServiceProvider::class);
         $migrator->run(dirname((string) $provider->getFileName(), 2).'/database/migrations');
 
-        if (getenv('GATEWAY_EMAIL_SMOKE') === '1' || getenv('GATEWAY_DNS_SMOKE') === '1' || getenv('GATEWAY_EVENTS_ENABLED') === 'true') {
-            $gatewayProvider = new ReflectionClass(GatewayServiceProvider::class);
-            $migrator->run(dirname((string) $gatewayProvider->getFileName()).'/database/migrations');
-        }
+        $gatewayProvider = new ReflectionClass(GatewayServiceProvider::class);
+        $migrator->run(dirname((string) $gatewayProvider->getFileName()).'/database/migrations');
 
     }
 }

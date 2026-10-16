@@ -15,16 +15,10 @@ Planner is the shared zone catalog; each Spinner refreshes it without a restart.
 Do not expose Planner publicly. The Compose
 example publishes both `53/udp` and `53/tcp` on its host.
 
-Enable the control plane and set deployment-wide nameserver defaults on Planner:
-
-```sh
-GATEWAY_DNS_HOOKS_ENABLED=true
-GATEWAY_DNS_DEFAULT_NAMESERVERS='ns1.example.net,ns2.example.net'
-```
-
-Create zones through `POST /dns/zones`. The legacy `GATEWAY_DNS_ZONES` snapshot
-remains accepted for migration, but it is no longer the primary multi-domain
-control plane.
+Create each zone through `POST /dns/zones`, including its `nameservers` array.
+The old zone, zones, nameserver, SOA, and TTL env settings are no longer read;
+There is no production installation to migrate; configure a fresh local
+deployment through Planner before testing delegated DNS.
 
 Publish the nameserver address records, then delegate `hooks.example.com` to
 both nameserver names at its parent zone. If a nameserver name is inside the

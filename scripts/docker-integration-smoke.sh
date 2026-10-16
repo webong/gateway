@@ -121,6 +121,20 @@ fi
 # Exercise public TLS -> Spinner -> Planner -> private durable Spinner queue
 # -> SMTP relay. The queue's 202 means durable acceptance; the relay check
 # below separately proves that delivery completed.
+policy_status="$(curl -ksS --max-time 10 -o "$BODY" -w '%{http_code}' \
+    -X POST -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+    --data '{"http_submission_enabled":true}' "$BASE_URL/email/runtime-policy")"
+if [[ "$policy_status" != "201" ]]; then
+    echo "Container Email runtime policy setup failed: status=$policy_status body=$(<"$BODY")" >&2
+    exit 1
+fi
+quota_status="$(curl -ksS --max-time 10 -o "$BODY" -w '%{http_code}' \
+    -X POST -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+    --data '{"domain_daily_limit":1}' "$BASE_URL/email/submission-policy")"
+if [[ "$quota_status" != "201" ]]; then
+    echo "Container Email submission quota setup failed: status=$quota_status body=$(<"$BODY")" >&2
+    exit 1
+fi
 email_body="$(php -r 'echo json_encode([
     "mail_from" => "sender@example.test",
     "recipients" => ["recipient@example.test"],

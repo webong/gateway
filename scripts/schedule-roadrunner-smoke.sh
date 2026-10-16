@@ -69,7 +69,7 @@ GATEWAY_SCHEDULES_ENABLED=true \
 GATEWAY_SCHEDULE_POLL_INTERVAL=200ms \
 GATEWAY_DELIVERY_ADMIN_ADDR="127.0.0.1:$ADMIN_PORT" \
 GATEWAY_DELIVERY_ADMIN_URL="http://127.0.0.1:$ADMIN_PORT" \
-GATEWAY_SCHEDULE_NOTIFICATION_URL="http://127.0.0.1:$CALLBACK_PORT/README.md" \
+GATEWAY_SCHEDULE_NOTIFICATION_ALLOWED_HOSTS=127.0.0.1 \
 LOG_LEVEL=error \
 sh "$ROOT/scripts/router-start" roadrunner >"$ROUTER_LOG" 2>&1 &
 ROUTER_PID=$!
@@ -94,6 +94,11 @@ fi
 set -a
 source "$TEMP_DIR/data/gateway.env"
 set +a
+
+curl -fsS --max-time 10 -X POST "http://127.0.0.1:$PORT/schedules/notification-destination" \
+    -H "Authorization: Bearer $REGISTRY_TOKEN" \
+    -H 'Content-Type: application/json' \
+    --data-binary "{\"url\":\"http://127.0.0.1:$CALLBACK_PORT/README.md\"}" >/dev/null
 
 curl -fsS --max-time 10 -X POST "http://127.0.0.1:$PORT/schedules" \
     -H "Authorization: Bearer $REGISTRY_TOKEN" \

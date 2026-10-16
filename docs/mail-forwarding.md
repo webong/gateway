@@ -18,7 +18,7 @@ Gateway ships every hosted-service feature itself.
 ## MX mail hooks
 
 Mail hooks are an opt-in MX receiving path alongside alias-to-SMTP forwarding
-and external IMAP mailbox connections. They require `GATEWAY_EMAIL_HOOKS_ENABLED=true`,
+and external IMAP mailbox connections. They require an active hook resource,
 an enabled TXT-verified domain under `/email/domains`, a durable delivery spool
 or shared PostgreSQL queue, and recipient preflight. `POST /email/hooks` with
 `{"domain":"example.com","local_part":"support"}` and the registry bearer
@@ -54,22 +54,44 @@ reply sending.
 
 ## Customer mailbox connections
 
+### Planner-managed transport setup
+
+For a new local deployment, run the shared `configurations` migration
+and create IMAP, POP3, and mailbox SMTP upstreams through
+`POST /email/upstreams`. Deploy matching exact-host ceilings to both Planner
+and Spinner (or Caddy). Create hosted adapters and routes through
+`POST /email/hosted-adapters` and `POST /email/hosted-routes`, and import each
+DKIM domain/selector/private key through `POST /email/dkim-keys`. For SRS,
+create `/email/srs-policy` with a Gateway-controlled return domain and stable
+verification keys before accepting forwarded mail or bounces.
+Old Mail transport JSON maps, DKIM file manifest, and SRS env values are no
+longer read. A missing or disabled Planner resource fails closed. Verify one
+connection, hosted delivery, signing, and SRS bounce locally before directing
+public MX or submission traffic to the deployment.
+
+These are local implementation contracts, not evidence of compatibility with
+real Google/Microsoft mailboxes or a production MX/relay deployment.
+
 Mailbox connections are a separate opt-in path for customers whose mail lives
-on an external IMAP/SMTP provider. Run the new `mailbox_accounts` and
-`mailbox_connections` migration. Configure the same approved upstream IDs in
-Planner (`GATEWAY_EMAIL_IMAP_UPSTREAMS`, `GATEWAY_EMAIL_SMTP_UPSTREAMS`) and
-Spinner (`GATEWAY_IMAP_UPSTREAMS`, `GATEWAY_MAILBOX_SMTP_UPSTREAMS`). Each JSON
-map entry names an operator-controlled `address` and `server_name`; SMTP also
-requires `tls_mode` (`implicit` or `starttls`). Set
+on an external IMAP/SMTP provider. Run the `mailbox_accounts`,
+`mailbox_connections`, and shared `configurations` migrations. Configure exact
+upstream hosts as deployment ceilings in Planner's
+`gateway.email.upstream_allowed_hosts` and Spinner's
+`GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS` and
+`GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS` (or the matching Caddy options). Then
+create `POST /email/upstreams` resources for each IMAP and SMTP ID with
+`protocol`, `name`, `address`, and `server_name`; SMTP also requires
+`tls_mode` (`implicit` or `starttls`). Set
 `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` to
 `Webong\Gateway\Email\ConnectedIMAPAuthenticator` and
 `GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR` to
 `Webong\Gateway\Email\ConnectedSMTPAuthenticator`. Enable existing IMAP and
-HTTPS submission listeners, set `GATEWAY_EMAIL_CONNECTED_SMTP_ENABLED=true`,
+HTTPS submission listeners, create `/email/runtime-policy` with
+`connected_smtp_enabled: true`,
 and give Spinner durable delivery storage, `GATEWAY_INTERNAL_TOKEN`,
 `GATEWAY_MAILBOX_SMTP_RESOLVER_URL` pointing to Planner's private origin, and
 a private delivery admin listener. The Caddy SMTP app supports equivalent
-`mailbox_resolver_url` and `mailbox_upstreams` settings.
+`mailbox_resolver_url` and `mailbox_allowed_hosts` settings.
 
 An operator creates an account with `POST /email/mailbox-accounts` using the
 registry token and `{"id":"customer-id"}`. The returned account bearer token
@@ -146,10 +168,10 @@ adapter owns storage-specific encryption, indexing, retention, and quotas.
 Gateway records whether the adapter accepted the delivery and exposes the
 resulting receipt. A linked provider module registers its named adapter with
 `transport.RegisterDeliveryAdapterFactory` before the Spinner or Caddy runtime
-starts. The stock runtime also accepts operator-approved HTTPS provider
-profiles in `GATEWAY_HOSTED_MAIL_ADAPTERS` or Caddy's `hosted_mail_adapters`.
-The Planner selects one profile through a deployment-owned
-`EmailProviderRouteResolver`. See [Hosted provider contract](hosted-mail-provider.md).
+starts. The stock runtime instead resolves Planner-managed HTTPS provider
+adapters and exact-recipient routes on each attempt. Provider secrets remain
+encrypted in Planner and are constrained by deployed allowed hosts. See
+[Hosted provider contract](hosted-mail-provider.md).
 
 Retrieval uses a separate upstream seam. The POP3 and IMAP listeners own public
 TLS, pre-auth command parsing, session limits, and client lifecycle. After the planner
@@ -191,7 +213,7 @@ record on every call; enabling a disabled domain rechecks live TXT ownership
 before accepting mail. A missing record or unavailable DNS lookup leaves the
 domain disabled. For an enabled domain, Planner rechecks TXT ownership on the
 next SMTP recipient or DATA decision once `verified_at` is older than
-`GATEWAY_EMAIL_VERIFICATION_TTL_SECONDS` (default 86400 seconds; `0` checks
+`verification_ttl_seconds` in `/email/runtime-policy` (default 86400 seconds; `0` checks
 every decision). Until a successful recheck, missing TXT or a DNS lookup
 failure produces a temporary SMTP `451`, so the sender can retry. This is
 traffic-triggered revalidation, not a background DNS polling service.
@@ -381,17 +403,12 @@ authorizes the envelope and requires the visible RFC 5322 `From` address to be
 one of the same granted addresses. Never accept AUTH through a generic
 registry route.
 
-Per-domain outbound DKIM signing is opt-in. Set
-`GATEWAY_EMAIL_DKIM_SIGNING_CONFIG=/etc/gateway/dkim.json` on Spinner (or
-`dkim_signing_config` in the Caddy SMTP app) and mount an operator-owned JSON
-file containing one key per author domain:
-
-```json
-[{"domain":"example.com","selector":"mail1","key_file":"/etc/gateway/keys/example.com.pem"}]
-```
-
-The private key must be a single PKCS#8 Ed25519 or PKCS#8/PKCS#1 RSA PEM file
-with owner-only permissions; RSA keys must be at least 2048 bits. Publish the
+Per-domain outbound DKIM signing is opt-in. Create a protected
+`POST /email/dkim-keys` resource with `domain`, `selector`, and
+`private_key_pem`; public reads return only selector and key presence. Configure
+`GATEWAY_EMAIL_DKIM_RESOLVER_URL` to Planner's private origin (or
+`dkim_resolver_url` in Caddy). The private key must be PKCS#8 Ed25519 or
+PKCS#8/PKCS#1 RSA PEM; RSA keys must be at least 2048 bits. Publish the
 corresponding TXT public key at `mail1._domainkey.example.com` before sending.
 Spinner, not Planner or the SMTP client, marks the authorized RFC 5322 author
 domain. The outbound adapter signs the final message bytes immediately before
@@ -399,42 +416,45 @@ relay submission, including on durable-queue retries. If signing is configured
 but that author domain has no key, authenticated SMTP submission is deferred
 before accepting DATA rather than queueing mail that cannot be signed. The
 adapter also refuses such a delivery if it reaches the queue by another path.
-With no signing configuration, existing submission remains
-unsigned. Rotate selectors by publishing the new DNS key before switching the
-configuration and restarting every Spinner/Router instance. Retain the old
-public key until previously sent mail has cleared.
+With no private signing resolver, existing submission remains unsigned.
+Rotate selectors by publishing the new DNS key before replacing the Planner
+resource. No Spinner restart is needed; retain the old public key until
+previously sent mail has cleared. The private key is resolved over authenticated
+private HTTP for signing and never enters the delivery queue or a generated file.
 
-For a shared per-account daily submission-attempt quota, set
-`GATEWAY_EMAIL_SUBMISSION_DAILY_LIMIT` on every Planner worker. `0` (the
-default) disables the global limit. An authenticator may return an
+For shared submission quotas, create `POST /email/submission-policy` with
+`daily_limit`, `daily_byte_limit`, `domain_daily_limit`, and
+`domain_daily_byte_limit` (integer values; omitted fields default to `0`,
+disabled). Use `GET` for the current revision and `PUT` or `DELETE` with its
+ETag as `If-Match` to change or remove it. All Planner workers read this
+shared resource; the former `GATEWAY_EMAIL_SUBMISSION_*_LIMIT` env settings
+are no longer read. An authenticator may return an
 `EmailSubmissionGrant` with a positive `dailyLimit` to override it for one
 account. Spinner carries the canonical `auth_identity` and approved limit
 from AUTH to each SMTP transaction; the username spelling supplied by a client
 is never the quota key. Planner atomically increments one hashed-identity row
 in its shared database per UTC day and replies with SMTP 452 once the limit is
-reached. Set `GATEWAY_EMAIL_SUBMISSION_DAILY_BYTE_LIMIT` (default `0`, disabled)
-for an independent per-account cap on raw SMTP DATA bytes, or let the
+reached. Set `daily_byte_limit` for an independent per-account cap on raw SMTP DATA bytes, or let the
 authenticator return `dailyByteLimit` for an account-specific override (up to
 1 TB). The same atomic update charges both attempt and byte usage before route
 planning. A message rejected by either quota is charged to neither; a message
 admitted by the quotas counts even if later policy or relay delivery fails.
-Set `GATEWAY_EMAIL_SUBMISSION_DOMAIN_DAILY_LIMIT` and/or
-`GATEWAY_EMAIL_SUBMISSION_DOMAIN_DAILY_BYTE_LIMIT` for independent UTC-day
+Set `domain_daily_limit` and/or `domain_daily_byte_limit` for independent UTC-day
 caps shared by **all authenticated accounts** sending from the same
 case-insensitive envelope-sender domain. Each cap defaults to `0` (disabled).
 Planner updates account and domain counters in one transaction: reaching
 either cap rejects the message without charging the other counter. Domain
 caps apply to SMTP AUTH and HTTP submission alike, but not to unauthenticated
 inbound mail. All Planner workers must use the same database and quota
-configuration; install the domain-usage migration before enabling the caps.
+policy; install the domain-usage migration before enabling the caps.
 These are abuse-control limits, not counts of delivered mail. Run
 `php artisan gateway:prune-email-submission-usage` periodically to remove
-rows older than `GATEWAY_EMAIL_SUBMISSION_USAGE_RETENTION_DAYS` (default 90).
+rows older than `submission_usage_retention_days` in `/email/runtime-policy` (default 90).
 The limits require the Planner usage, byte-column, and domain-usage migrations
 and a shared database across workers;
 a database failure defers submission rather than bypassing the quota.
 
-Set `GATEWAY_EMAIL_HTTP_SUBMISSION_ENABLED=true` on Planner to opt in to HTTP
+Set `http_submission_enabled: true` in `/email/runtime-policy` to opt in to HTTP
 email submission at `POST /email/submissions`. This public route requires HTTPS
 and HTTP Basic credentials checked by the
 same deployment-owned `EmailSubmissionAuthenticator` as SMTP AUTH; it does not
@@ -520,8 +540,8 @@ policy.
 
 Set `GATEWAY_POP3_ADDR=:995`, `GATEWAY_POP3_HOSTNAME`,
 `GATEWAY_POP3_TLS_CERT_FILE`, `GATEWAY_POP3_TLS_KEY_FILE`, and
-`GATEWAY_POP3_UPSTREAMS` (a JSON object keyed by stable IDs, for example
-`{"primary":{"address":"pop.internal:995","server_name":"pop.internal"}}`).
+`GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS` (an exact-host deployment ceiling).
+Create a `POST /email/upstreams` resource for each POP3 ID.
 The address must point to an operator-trusted POP3 server with a certificate
 valid for `server_name`; Spinner verifies it against the host trust store.
 Planner sets `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` to a container-resolvable
@@ -536,8 +556,8 @@ Optional limits are `GATEWAY_POP3_MAX_CONNECTIONS`,
 
 For IMAP set `GATEWAY_IMAP_ADDR=:993`, `GATEWAY_IMAP_HOSTNAME`,
 `GATEWAY_IMAP_TLS_CERT_FILE`, `GATEWAY_IMAP_TLS_KEY_FILE`, and
-`GATEWAY_IMAP_UPSTREAMS` using the same ID-to-`address`/`server_name` JSON
-shape as POP3, but pointing to native implicit-TLS IMAP upstreams. Optional
+`GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS`, then create IMAP upstream resources
+pointing to native implicit-TLS IMAP servers. Optional
 limits are `GATEWAY_IMAP_MAX_CONNECTIONS`, `GATEWAY_IMAP_AUTH_PER_MINUTE`,
 `GATEWAY_IMAP_AUTH_BURST`, `GATEWAY_IMAP_IDLE_TIMEOUT` (minimum ten minutes),
 `GATEWAY_IMAP_PLANNER_TIMEOUT`, and `GATEWAY_IMAP_UPSTREAM_TIMEOUT`.
@@ -546,8 +566,7 @@ The custom FrankenPHP/Caddy build also registers `gateway.pop3` and
 `gateway.imap` sibling TCP apps. They use the same TLS-only POP3/IMAP servers
 and private HTTP Planner bridge as standalone Spinner. Configure either app
 in the Caddy global block with `listen`, `planner_url`, `internal_token`,
-`tls_cert_file`, `tls_key_file`, and one or more
-`upstream <id> <host:port> <TLS server name>` entries. For example:
+`tls_cert_file`, `tls_key_file`, and `allowed_upstream_hosts`. For example:
 
 ```caddyfile
 {
@@ -557,7 +576,7 @@ in the Caddy global block with `listen`, `planner_url`, `internal_token`,
         internal_token {$GATEWAY_INTERNAL_TOKEN}
         tls_cert_file /etc/gateway/mail.crt
         tls_key_file /etc/gateway/mail.key
-        upstream primary pop.internal:995 pop.internal
+        allowed_upstream_hosts pop.internal
     }
     gateway_imap {
         listen :993
@@ -565,7 +584,7 @@ in the Caddy global block with `listen`, `planner_url`, `internal_token`,
         internal_token {$GATEWAY_INTERNAL_TOKEN}
         tls_cert_file /etc/gateway/mail.crt
         tls_key_file /etc/gateway/mail.key
-        upstream primary imap.internal:993 imap.internal
+        allowed_upstream_hosts imap.internal
     }
 }
 ```
@@ -576,9 +595,9 @@ it publicly. Optional Caddyfile controls are `hostname`, `max_connections`,
 `auth_per_minute`, `auth_burst`, `idle_timeout`, `planner_timeout`,
 `upstream_timeout`, `max_body_size`, and `upstream_ca_file` for a private CA
 certificate. Without that option the host trust store is used. The upstream
-list is operator-owned;
-Planner returns only an ID from that list, and the TLS certificate of the
-chosen upstream is verified against its configured server name.
+host ceiling is deployment-owned; Planner returns an approved endpoint with
+the authenticated decision, and Spinner verifies its TLS certificate against
+the resource's server name. Disabling a resource stops new logins.
 
 For an OAuth mailbox, `MailboxAccessGrant` may set
 `upstreamAuthMechanism: 'XOAUTH2'` and provide a current access token in

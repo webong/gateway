@@ -103,10 +103,12 @@ resource contains `target_kind: shell` and `hook`, never the internal storage
 locator. Updating `hook` uses the usual `PATCH` with `If-Match`; target kinds
 cannot be changed in place. SSH credentials and remote execution are not part
 of this local Shell reply contract. The operator must first allow the exact
-hook under `gateway.shell.subscription_hooks[endpoint_key][subscriber_id]`;
-the default empty map denies registration and execution. Removing an allowlist
-entry blocks an existing subscription immediately, but does not automatically
-remove its reply slot. The extra operator token is required when creating a
+hook with `POST /shell/hook-grants` using the resolved `endpoint_key`,
+`subscriber_id`, and `hook`. This Planner resource needs both the registry
+bearer token and `X-Gateway-Shell-Subscription`. Without an enabled exact grant,
+registration and execution are denied. Disabling or deleting a grant blocks an
+existing subscription immediately but does not automatically remove its reply
+slot. The extra operator token is required when creating a
 Shell subscription or changing its hook, match, status, metadata, or lifecycle;
 read-only lookups use the registry token alone.
 

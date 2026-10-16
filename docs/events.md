@@ -1,9 +1,9 @@
 # Endpoint event history
 
 Gateway uses the shared `events` table for endpoint-bound ingress history. DNS
-hooks already write query events there. Set `GATEWAY_EVENTS_ENABLED=true` on
-Planner to also record planned HTTP/webhook requests, WebSocket events, and
-Webstream connects. Apply the Planner migrations before enabling it. This is
+hooks already write query events there. Create an enabled `POST /web/event-policy`
+Planner resource to also record planned HTTP/webhook requests, WebSocket events,
+and Webstream connects. Apply the Planner migrations before enabling it. This is
 an ingress/planning record, **not** proof that an asynchronous subscriber
 received a delivery; use `/deliveries` for delivery status.
 Each event resource has a `deliveries_url` that filters durable delivery
@@ -44,10 +44,13 @@ DNS-specific view. Unknown endpoints return 404. The history route is a
 management API and should not be exposed without the same access controls as
 subscriptions.
 
-`GATEWAY_EVENTS_RETENTION_DAYS` defaults to 30 (minimum 1). On approximately
+`/web/event-policy` sets `retention_days` (default 30, range 1–3650) and can
+be disabled without restarting Planner. On approximately
 one in every thousand new event writes, Planner deletes older rows using the
 indexed `received_at` column. This is traffic-triggered retention, not a
 precise deletion deadline; installations with strict deletion SLAs should run
 `php artisan gateway:prune-events` on a suitable schedule. DNS and Web history
 share this retention policy. A history write failure is logged but never
 changes the ingress route decision.
+Disabling the Web event policy stops Web capture, not DNS hook history; its
+retention value still governs existing DNS and Web event rows.
