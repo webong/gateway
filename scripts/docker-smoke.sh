@@ -24,7 +24,7 @@ done
 
 curl -fsS --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null
 user="$(docker inspect -f '{{.Config.User}}' "$NAME")"
-if [[ "$user" != "gateway" ]]; then
+if [[ "$user" != "10001:10001" ]]; then
     echo "Gateway container is unexpectedly running as ${user:-root}." >&2
     exit 1
 fi

@@ -15,8 +15,15 @@ call `POST /_internal/gateway/plan` privately.
 ## Spinner image
 
 ```bash
-docker build -t webong/gateway-spinner:local .
+docker pull webong/gateway:sha-545d432
+# Or build the same router locally from this checkout:
+docker build -t webong/gateway:local .
 ```
+
+The published `webong/gateway` image contains the Go Spinner/router for
+`linux/amd64` and `linux/arm64`, not the PHP Planner. Pin a release tag (or its
+digest) in Compose; `latest` may move. Both processes must share a private
+network and the same `GATEWAY_INTERNAL_TOKEN`.
 
 The image runs as the unprivileged `gateway` user and exposes:
 
@@ -40,7 +47,7 @@ services:
     # Do not publish this service's ports.
 
   gateway:
-    image: webong/gateway-spinner:local
+    image: webong/gateway:sha-545d432
     environment:
       GATEWAY_RUNTIME: http
       GATEWAY_LARAVEL_BACKEND_URL: http://planner:8080
