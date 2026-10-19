@@ -128,9 +128,9 @@ it('atomically limits authenticated SMTP attempts per canonical identity and UTC
         ->and($quota->consume('account-123', 2))->toBeFalse()
         ->and($quota->consume('account-456', 2))->toBeTrue();
 
-    $usage = DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-123'))->first();
+    $usage = DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-123'))->first();
     expect($usage->attempts)->toBe(2)
-        ->and(DB::table('email_submission_usage')->where('identity_hash', 'account-123')->exists())->toBeFalse();
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', 'account-123')->exists())->toBeFalse();
 });
 
 it('atomically limits authenticated SMTP bytes per canonical identity and UTC day', function (): void {
@@ -140,13 +140,13 @@ it('atomically limits authenticated SMTP bytes per canonical identity and UTC da
         ->and($quota->consume('account-bytes', 0, 4, 10))->toBeTrue()
         ->and($quota->consume('account-bytes', 0, 1, 10))->toBeFalse();
 
-    $usage = DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-bytes'))->first();
+    $usage = DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-bytes'))->first();
     expect($usage->attempts)->toBe(2)->and($usage->bytes)->toBe(10);
 
     expect($quota->consume('account-combined', 2, 6, 10))->toBeTrue()
         ->and($quota->consume('account-combined', 2, 5, 10))->toBeFalse()
         ->and($quota->consume('account-combined', 2, 4, 10))->toBeTrue();
-    $combined = DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-combined'))->first();
+    $combined = DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-combined'))->first();
     expect($combined->attempts)->toBe(2)->and($combined->bytes)->toBe(10);
 });
 
@@ -158,25 +158,27 @@ it('resets submission quotas at the UTC day boundary and prunes old counters', f
             ->and($quota->consume('account-utc', 1))->toBeFalse();
         Carbon::setTestNow(Carbon::parse('2026-09-29 00:00:01', 'UTC'));
         expect($quota->consume('account-utc', 1))->toBeTrue()
-            ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-utc'))->count())->toBe(2);
+            ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-utc'))->count())->toBe(2);
         Carbon::setTestNow(Carbon::parse('2026-10-01 00:00:01', 'UTC'));
         expect($quota->prune(1))->toBe(2)
-            ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-utc'))->count())->toBe(0);
+            ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-utc'))->count())->toBe(0);
     } finally {
         Carbon::setTestNow();
     }
 });
 
 it('registers the Email submission usage retention command', function (): void {
-    DB::table('email_submission_usage')->insert([
-        'identity_hash' => hash('sha256', 'old-account'),
+    DB::table('usage_counters')->insert([
+        'metric' => 'email.submission.account',
+        'subject_hash' => hash('sha256', 'old-account'),
         'day' => '2000-01-01',
         'attempts' => 1,
         'created_at' => now('UTC'),
         'updated_at' => now('UTC'),
     ]);
-    DB::table('email_domain_submission_usage')->insert([
-        'domain_hash' => hash('sha256', 'example.test'),
+    DB::table('usage_counters')->insert([
+        'metric' => 'email.submission.domain',
+        'subject_hash' => hash('sha256', 'example.test'),
         'day' => '2000-01-01',
         'attempts' => 1,
         'bytes' => 5,
@@ -185,8 +187,8 @@ it('registers the Email submission usage retention command', function (): void {
     ]);
 
     $this->artisan('gateway:prune-email-submission-usage')->assertExitCode(0);
-    expect(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'old-account'))->exists())->toBeFalse()
-        ->and(DB::table('email_domain_submission_usage')->where('domain_hash', hash('sha256', 'example.test'))->exists())->toBeFalse();
+    expect(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'old-account'))->exists())->toBeFalse()
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.domain')->where('subject_hash', hash('sha256', 'example.test'))->exists())->toBeFalse();
 });
 
 it('shares sender-domain limits across accounts and rolls back a rejected account charge', function (): void {
@@ -198,8 +200,8 @@ it('shares sender-domain limits across accounts and rolls back a rejected accoun
     expect($quota->consumeSubmission('account-a', 'first@EXAMPLE.TEST.', 1, 6, 10))->toBeTrue()
         ->and($quota->consumeSubmission('account-b', 'second@example.test', 1, 6, 10))->toBeFalse()
         ->and($quota->consumeSubmission('account-b', 'second@other.test', 1, 6, 10))->toBeTrue()
-        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-b'))->value('attempts'))->toBe(1)
-        ->and(DB::table('email_domain_submission_usage')->where('domain_hash', hash('sha256', 'example.test'))->value('attempts'))->toBe(1);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-b'))->value('attempts'))->toBe(1)
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.domain')->where('subject_hash', hash('sha256', 'example.test'))->value('attempts'))->toBe(1);
 });
 
 it('enforces sender-domain byte limits even when account quotas are disabled', function (): void {
@@ -209,8 +211,8 @@ it('enforces sender-domain byte limits even when account quotas are disabled', f
     expect($quota->consumeSubmission('account-a', 'first@example.test', 0, 6, 0))->toBeTrue()
         ->and($quota->consumeSubmission('account-b', 'second@example.test', 0, 5, 0))->toBeFalse()
         ->and($quota->consumeSubmission('account-b', 'second@example.test', 0, 4, 0))->toBeTrue()
-        ->and(DB::table('email_domain_submission_usage')->where('domain_hash', hash('sha256', 'example.test'))->value('bytes'))->toBe(10)
-        ->and(DB::table('email_submission_usage')->count())->toBe(0);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.domain')->where('subject_hash', hash('sha256', 'example.test'))->value('bytes'))->toBe(10)
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->count())->toBe(0);
 });
 
 it('enforces a granted account quota before routing an SMTP transaction', function (): void {
@@ -237,7 +239,7 @@ it('enforces a granted account quota before routing an SMTP transaction', functi
     expect($first->statusCode)->not->toBe(452)
         ->and($second->statusCode)->not->toBe(452)
         ->and($third->statusCode)->toBe(452)
-        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-123'))->value('attempts'))->toBe(2);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-123'))->value('attempts'))->toBe(2);
 });
 
 it('rejects an authenticated SMTP DATA recipient on the suppression list before charging quota', function (): void {
@@ -257,10 +259,10 @@ it('rejects an authenticated SMTP DATA recipient on the suppression list before 
     $decision = app(ProtocolPlanner::class)->planEvent($event);
     expect($decision->action)->toBe(GatewayAction::REJECT)
         ->and($decision->statusCode)->toBe(550)
-        ->and(DB::table('email_submission_usage')->count())->toBe(0);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->count())->toBe(0);
     $this->withToken('registry-secret')->deleteJson('/email/suppressions/'.$entry['id'])->assertNoContent();
     expect(app(ProtocolPlanner::class)->planEvent($event)->message)->not->toBe('Recipient is suppressed.')
-        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-123'))->value('attempts'))->toBe(1);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-123'))->value('attempts'))->toBe(1);
 });
 
 it('enforces the shared sender-domain cap before routing authenticated SMTP transactions', function (): void {
@@ -282,8 +284,8 @@ it('enforces the shared sender-domain cap before routing authenticated SMTP tran
 
     expect($planner->planEvent($event('domain-1', 'account-a'))->statusCode)->not->toBe(452)
         ->and($planner->planEvent($event('domain-2', 'account-b'))->statusCode)->toBe(452)
-        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-b'))->exists())->toBeFalse()
-        ->and(DB::table('email_domain_submission_usage')->where('domain_hash', hash('sha256', 'example.test'))->value('attempts'))->toBe(1);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-b'))->exists())->toBeFalse()
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.domain')->where('subject_hash', hash('sha256', 'example.test'))->value('attempts'))->toBe(1);
 });
 
 it('enforces the configured submission byte cap before routing SMTP DATA', function (): void {
@@ -299,7 +301,7 @@ it('enforces the configured submission byte cap before routing SMTP DATA', funct
     expect($planner->planEvent($event('bytes-1', 30))->statusCode)->not->toBe(452)
         ->and($planner->planEvent($event('bytes-2', 25))->statusCode)->toBe(452)
         ->and($planner->planEvent($event('bytes-3', 20))->statusCode)->not->toBe(452)
-        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-123'))->value('bytes'))->toBe(50);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-123'))->value('bytes'))->toBe(50);
 });
 
 it('does not apply the submission byte cap to unauthenticated inbound mail', function (): void {
@@ -312,7 +314,7 @@ it('does not apply the submission byte cap to unauthenticated inbound mail', fun
     ));
 
     expect($decision->statusCode)->not->toBe(452)
-        ->and(DB::table('email_submission_usage')->count())->toBe(0);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->count())->toBe(0);
 });
 
 it('requires registry authentication and TXT ownership before enabling a domain', function (): void {
@@ -340,6 +342,31 @@ it('requires registry authentication and TXT ownership before enabling a domain'
     $this->withToken('registry-secret')->patchJson('/email/domains/'.$domain['id'], ['enabled' => true])->assertOk()
         ->assertJsonPath('enabled', true);
     $this->withToken('registry-secret')->postJson('/email/domains', ['domain' => 'example.test'])->assertConflict();
+});
+
+it('stores email domains and their aliases as audited Planner resources', function (): void {
+    $domain = $this->withToken('registry-secret')->postJson('/email/domains', [
+        'domain' => 'resource.test',
+    ])->assertCreated()->json();
+    $alias = $this->withToken('registry-secret')->postJson('/email/domains/'.$domain['id'].'/aliases', [
+        'local_part' => 'support', 'recipients' => ['desk@example.net'],
+    ])->assertCreated()->json();
+    $this->withToken('registry-secret')->patchJson('/email/domains/'.$domain['id'].'/aliases/'.$alias['id'], [
+        'recipients' => ['tickets@example.net'],
+    ])->assertOk();
+
+    $resources = app(\Webong\Gateway\Resources\PlannerResourceStore::class);
+    expect($resources->byKey('email.domain', 'resource.test')->id)->toBe($domain['id'])
+        ->and($resources->children('email.alias', $domain['id']))->toHaveCount(1)
+        ->and($resources->byKey('email.alias', $domain['id'].'/support')->document['recipients'])
+        ->toBe(['tickets@example.net'])
+        ->and(array_map(fn ($revision) => $revision->operation, $resources->history('email.alias', $alias['id'])))
+        ->toBe(['created', 'replaced']);
+
+    $this->withToken('registry-secret')->deleteJson('/email/domains/'.$domain['id'])->assertNoContent();
+    expect($resources->find('email.domain', $domain['id']))->toBeNull()
+        ->and($resources->find('email.alias', $alias['id']))->toBeNull()
+        ->and($resources->history('email.alias', $alias['id']))->toHaveCount(3);
 });
 
 it('rechecks TXT ownership before re-enabling a managed email domain', function (): void {
@@ -388,7 +415,10 @@ it('temporarily fails SMTP planning when an enabled domain needs TXT revalidatio
     expect($planner->planEvent($event)->action)->toBe(GatewayAction::SUBMIT);
 
     $stale = now()->subHours(2);
-    DB::table('email_domains')->where('id', $domain['id'])->update(['verified_at' => $stale]);
+    $resources = app(\Webong\Gateway\Resources\PlannerResourceStore::class);
+    $resource = $resources->find('email.domain', $domain['id']);
+    $resources->replace('email.domain', $resource->id, $resource->key,
+        [...$resource->document, 'verified_at' => $stale->toIso8601String()], $resource->enabled, $resource->revision);
     expect(fn (): mixed => $planner->planEvent($event))->toThrow(VerificationRecordMissing::class);
     $recipient = new GatewayEvent(
         id: 'smtp-freshness-recipient', protocol: Protocol::SMTP, kind: EventKind::RECIPIENT,
@@ -397,7 +427,7 @@ it('temporarily fails SMTP planning when an enabled domain needs TXT revalidatio
     expect(fn (): mixed => $planner->planEvent($recipient))->toThrow(VerificationRecordMissing::class);
     $resolver->values = [$domain['verification']['value']];
     expect($planner->planEvent($event)->action)->toBe(GatewayAction::SUBMIT);
-    expect(strtotime((string) DB::table('email_domains')->where('id', $domain['id'])->value('verified_at')))
+    expect(strtotime((string) app(\Webong\Gateway\Email\EmailRegistry::class)->domain($domain['id'])->verified_at))
         ->toBeGreaterThan($stale->getTimestamp());
 
     $runtimePolicy->replace(['verification_ttl_seconds' => 0], $runtimePolicy->find()->revision);

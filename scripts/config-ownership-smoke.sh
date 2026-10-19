@@ -355,7 +355,7 @@ request GET "$planner/_internal/gateway/email/hosted-adapters/smoke.adapter" -H 
 
 # Mailbox account and connection: HTTPS control plane, health-gated enable, and
 # unavailable credential resolution while disabled.
-request POST "$planner/email/mailbox-accounts" -H "$auth" -H 'X-Forwarded-Proto: https' \
+request POST "$planner/accounts" -H "$auth" -H 'X-Forwarded-Proto: https' \
     -H 'Content-Type: application/json' -d '{"id":"smoke"}'
 [[ "$CODE" == "201" ]] || fail "Mailbox account creation failed: $CODE $(cat "$RESP_BODY")"
 account_token="$(field token)"
@@ -399,14 +399,12 @@ php -r '
             fwrite(STDERR, "Configuration document leaked plaintext secret: {$needle}\n"); exit(1);
         }
     }
-    $secrets = 0;
-    foreach ($db->query("SELECT imap_secret, smtp_secret FROM mailbox_connections") as $row) {
-        if (str_contains((string) $row["imap_secret"], "imap-secret") || str_contains((string) $row["smtp_secret"], "smtp-secret")) {
-            fwrite(STDERR, "Mailbox secret was stored in plaintext.\n"); exit(1);
-        }
-        $secrets++;
-    }
-    if ($secrets !== 0) { fwrite(STDERR, "Mailbox connection was not revoked.\n"); exit(1); }
-' "$DB_FILE"
+    $statement = $db->prepare("SELECT COUNT(*) FROM configurations WHERE id = ?");
+    $statement->execute([$argv[2]]);
+    if ((int) $statement->fetchColumn() !== 0) { fwrite(STDERR, "Mailbox resource was not revoked.\n"); exit(1); }
+    $statement = $db->prepare("SELECT COUNT(*) FROM configuration_secrets WHERE resource_id = ?");
+    $statement->execute([$argv[2]]);
+    if ((int) $statement->fetchColumn() !== 0) { fwrite(STDERR, "Mailbox credentials were not revoked.\n"); exit(1); }
+' "$DB_FILE" "$connection_id"
 
 echo "Configuration-ownership smoke passed: Shell grants, Webstream private-source/route-policy, schedule notification, and Mail resolution across two Spinners."

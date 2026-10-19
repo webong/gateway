@@ -28,6 +28,7 @@ return new class extends Migration
         Schema::create($tableName, function (Blueprint $table): void {
             $table->string('id')->primary();
             $table->json('drivers');
+            $table->string('session_id', 32)->nullable();
             $table->timestamp('heartbeat_at');
             $table->timestamps();
 

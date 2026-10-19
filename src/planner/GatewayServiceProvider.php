@@ -7,6 +7,8 @@ namespace Webong\Gateway;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
+use Webong\Gateway\Accounts\AccountStore;
+use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
 use Webong\Gateway\Contracts\AutomationCapability;
@@ -77,6 +79,7 @@ use Webong\Gateway\Reconciliation\Http\Controllers\InternalServerController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalTargetController;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Resources\Http\ConfigurationController;
+use Webong\Gateway\Resources\PlannerResourceStore;
 use Webong\Gateway\Resources\Http\ShellHookGrantController;
 use Webong\Gateway\Schedules\Http\InternalScheduleController;
 use Webong\Gateway\Schedules\Http\ScheduleController;
@@ -114,7 +117,8 @@ final class GatewayServiceProvider extends ServiceProvider
                 }
             }
 
-            return new MailboxConnectionStore($refresher, $this->app->make(EmailUpstreamCatalog::class));
+            return new MailboxConnectionStore($refresher, $this->app->make(EmailUpstreamCatalog::class),
+                $this->app->make(PlannerResourceStore::class), $this->app->make(AccountStore::class));
         });
         $this->app->bind(SrsReturnStore::class, fn (): SrsReturnStore => new SrsReturnStore(
             $this->app->make(EmailSrsPolicyStore::class), $this->app->make(EmailRegistry::class),
@@ -456,7 +460,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->delete('/webstream/routes/{policy}', [WebstreamRoutePolicyController::class, 'destroy']);
             $this->app['router']->post('/deliveries/{delivery}/retry', [DeliveryController::class, 'retry']);
             $this->app['router']->get('/email/domains', [EmailController::class, 'domains']);
-            $this->app['router']->post('/email/mailbox-accounts', [MailboxConnectionController::class, 'createAccount']);
+            $this->app['router']->post('/accounts', [AccountController::class, 'create']);
+            $this->app['router']->post('/email/mailbox-accounts', [AccountController::class, 'create']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'index']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'create']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'show']);

@@ -16,6 +16,7 @@ return new class extends Migration
             $table->longText('ciphertext');
             $table->unsignedBigInteger('version')->default(1);
             $table->timestamps();
+            $table->foreign('resource_id')->references('id')->on('configurations')->cascadeOnDelete();
         });
     }
 

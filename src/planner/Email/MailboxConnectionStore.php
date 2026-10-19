@@ -10,40 +10,27 @@ use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
 use stdClass;
+use Webong\Gateway\Accounts\AccountStore;
+use Webong\Gateway\Resources\PlannerResourceStore;
 
-/** Secrets are encrypted with Laravel's application key and never returned by resources. */
+/** Account-owned definitions are audited resources; live credentials and test results are not. */
 final readonly class MailboxConnectionStore
 {
-    public function __construct(private ?MailboxOAuthRefresher $refresher = null,
-        private ?EmailUpstreamCatalog $upstreams = null) {}
+    private const KIND = 'email.mailbox-connection';
 
-    public function createAccount(string $id): string
-    {
-        if (preg_match('/^[A-Za-z0-9._:-]{1,200}$/D', $id) !== 1) { throw new InvalidArgumentException('Invalid account ID.'); }
-        $token = bin2hex(random_bytes(32));
-        DB::table('mailbox_accounts')->insert(['id' => $id, 'token_hash' => hash('sha256', $token),
-            'created_at' => now('UTC'), 'updated_at' => now('UTC')]);
-
-        return $token;
-    }
-
-    public function authorized(string $account, string $token): bool
-    {
-        $row = DB::table('mailbox_accounts')->where('id', $account)->first();
-
-        return $row !== null && preg_match('/^[a-f0-9]{64}$/D', $token) === 1
-            && hash_equals($row->token_hash, hash('sha256', $token));
-    }
+    public function __construct(private ?MailboxOAuthRefresher $refresher,
+        private ?EmailUpstreamCatalog $upstreams, private PlannerResourceStore $resources,
+        private AccountStore $accounts) {}
 
     public function find(string $account, string $id): ?stdClass
     {
-        return DB::table('mailbox_connections')->where('account_id', $account)->where('id', $id)->first();
+        return $this->record($this->resources->findOwned(self::KIND, $id, $account));
     }
 
     /** @return list<stdClass> */
     public function all(string $account): array
     {
-        return DB::table('mailbox_connections')->where('account_id', $account)->orderBy('created_at')->get()->all();
+        return array_map($this->record(...), $this->resources->allOwned(self::KIND, $account));
     }
 
     /** @param array<string, string> $input
@@ -52,106 +39,205 @@ final readonly class MailboxConnectionStore
     public function create(string $account, array $input): array
     {
         $this->validate($input);
-        $id = (string) Str::uuid();
+        if (! $this->accounts->exists($account)) {
+            throw new InvalidArgumentException('Mailbox account does not exist.');
+        }
         $imapPassword = bin2hex(random_bytes(32));
         $smtpPassword = bin2hex(random_bytes(32));
-        $now = now('UTC');
-        DB::table('mailbox_connections')->insert([
-            'id' => $id, 'account_id' => $account, 'address' => strtolower($input['address']),
-            'imap_upstream_id' => $input['imap_upstream_id'], 'smtp_upstream_id' => $input['smtp_upstream_id'],
-            'imap_username' => $input['imap_username'], 'smtp_username' => $input['smtp_username'],
-            'imap_auth' => $input['imap_auth'], 'smtp_auth' => $input['smtp_auth'],
-            'imap_secret' => Crypt::encryptString($input['imap_secret']),
-            'smtp_secret' => Crypt::encryptString($input['smtp_secret']),
-            'imap_client_hash' => password_hash($imapPassword, PASSWORD_DEFAULT),
-            'smtp_client_hash' => password_hash($smtpPassword, PASSWORD_DEFAULT),
-            'enabled' => false, 'health' => 'untested', 'created_at' => $now, 'updated_at' => $now,
-        ]);
 
-        return ['record' => $this->find($account, $id), 'imap_password' => $imapPassword,
-            'smtp_password' => $smtpPassword];
+        return DB::transaction(function () use ($account, $input, $imapPassword, $smtpPassword): array {
+            $row = $this->resources->create(self::KIND, strtolower($input['address']), $this->document($input),
+                false, owner: $account);
+            $now = now('UTC');
+            DB::table('configuration_secrets')->insert([
+                'resource_id' => $row->id,
+                'ciphertext' => $this->encodeSecrets([
+                    'imap_secret' => $input['imap_secret'], 'smtp_secret' => $input['smtp_secret'],
+                    'imap_client_hash' => password_hash($imapPassword, PASSWORD_DEFAULT),
+                    'smtp_client_hash' => password_hash($smtpPassword, PASSWORD_DEFAULT),
+                ]),
+                'version' => 1, 'created_at' => $now, 'updated_at' => $now,
+            ]);
+            DB::table('resource_observations')->insert([
+                'resource_id' => $row->id, 'state' => 'untested', 'observed_revision' => null,
+                'observed_at' => null, 'created_at' => $now, 'updated_at' => $now,
+            ]);
+
+            return ['record' => $this->find($account, $row->id), 'imap_password' => $imapPassword,
+                'smtp_password' => $smtpPassword];
+        });
     }
 
     public function authenticate(string $id, string $password, string $side): ?stdClass
     {
         if (! in_array($side, ['imap', 'smtp'], true) || ! Str::isUuid($id)) { return null; }
-        $row = DB::table('mailbox_connections')->where('id', $id)->where('enabled', true)->first();
+        $row = $this->resources->findAny(self::KIND, $id);
+        $secrets = $row === null || ! $row->enabled ? null : $this->secrets($id);
 
-        return $row !== null && password_verify($password, $row->{$side.'_client_hash'}) ? $row : null;
+        return $secrets !== null && password_verify($password, $secrets[$side.'_client_hash'])
+            ? $this->record($row) : null;
     }
 
+    /** @return array<string, string>|null */
     public function resolve(string $id, string $side, bool $allowDisabled = false): ?array
     {
         if (! in_array($side, ['imap', 'smtp'], true) || ! Str::isUuid($id)) { return null; }
-        $query = DB::table('mailbox_connections')->where('id', $id);
-        if (! $allowDisabled) { $query->where('enabled', true); }
-        $row = $query->first();
-        if ($row === null) { return null; }
-        $secret = Crypt::decryptString($row->{$side.'_secret'});
-        if ($row->{$side.'_auth'} !== 'password') {
-            if (! in_array($row->{$side.'_auth'}, ['google', 'microsoft'], true) || $this->refresher === null) {
+        $row = $this->resources->findAny(self::KIND, $id);
+        if ($row === null || (! $allowDisabled && ! $row->enabled)) { return null; }
+        $secretRow = DB::table('configuration_secrets')->where('resource_id', $id)->first();
+        if ($secretRow === null) { return null; }
+        $secrets = $this->decodeSecrets($secretRow->ciphertext);
+        $secret = $secrets[$side.'_secret'];
+        $auth = $row->document[$side.'_auth'];
+        if ($auth !== 'password') {
+            if (! in_array($auth, ['google', 'microsoft'], true) || $this->refresher === null) {
                 throw new RuntimeException('Mailbox OAuth refresh is unavailable.');
             }
-            $tokens = $this->refresher->refresh($row->{$side.'_auth'}, $side, $secret);
+            $tokens = $this->refresher->refresh($auth, $side, $secret);
             $access = $tokens['access_token'] ?? null;
             if (! is_string($access) || $access === '' || strlen($access) > 4096 || preg_match('/[^\x20-\x7E]/', $access) === 1) {
                 throw new RuntimeException('Mailbox OAuth token is invalid.');
             }
             $rotated = $tokens['refresh_token'] ?? null;
             if (is_string($rotated) && $rotated !== '' && strlen($rotated) <= 8192) {
-                DB::table('mailbox_connections')->where('id', $id)->where("{$side}_secret", $row->{$side.'_secret'})
-                    ->update(["{$side}_secret" => Crypt::encryptString($rotated), 'updated_at' => now('UTC')]);
+                $this->rotateRefreshToken($id, $side, $secret, $rotated);
             }
             $secret = $access;
         }
 
-        return ['account_id' => $row->account_id, 'address' => $row->address,
-            'upstream_id' => $row->{$side.'_upstream_id'}, 'username' => $row->{$side.'_username'},
-            'secret' => $secret, 'mechanism' => $row->{$side.'_auth'} === 'password' ? 'PLAIN' : 'XOAUTH2'];
+        return ['account_id' => $row->owner, 'address' => $row->key,
+            'upstream_id' => $row->document[$side.'_upstream_id'], 'username' => $row->document[$side.'_username'],
+            'secret' => $secret, 'mechanism' => $auth === 'password' ? 'PLAIN' : 'XOAUTH2'];
     }
 
     public function update(string $account, string $id, bool $enabled): ?stdClass
     {
-        $row = $this->find($account, $id);
-        if ($row === null) { return null; }
-        if ($enabled && $row->health !== 'healthy') { throw new RuntimeException('Test both transports first.'); }
-        DB::table('mailbox_connections')->where('account_id', $account)->where('id', $id)
-            ->update(['enabled' => $enabled, 'updated_at' => now('UTC')]);
+        return DB::transaction(function () use ($account, $id, $enabled): ?stdClass {
+            $row = $this->resources->findOwned(self::KIND, $id, $account);
+            if ($row === null) { return null; }
+            $observation = DB::table('resource_observations')->where('resource_id', $id)->first();
+            if ($enabled && ($observation?->state !== 'healthy' || (int) $observation->observed_revision !== $row->revision)) {
+                throw new RuntimeException('Test both transports first.');
+            }
+            $updated = $this->resources->replace(self::KIND, $id, $row->key, $row->document,
+                $enabled, $row->revision, $account);
+            if ($observation?->observed_revision !== null) {
+                DB::table('resource_observations')->where('resource_id', $id)
+                    ->update(['observed_revision' => $updated->revision, 'updated_at' => now('UTC')]);
+            }
 
-        return $this->find($account, $id);
+            return $this->record($updated);
+        });
     }
 
     /** Replace upstream settings and secrets while disabled; re-test before re-enabling. */
     public function replace(string $account, string $id, array $input): ?stdClass
     {
         $this->validate($input);
-        if ($this->find($account, $id) === null) { return null; }
-        DB::table('mailbox_connections')->where('account_id', $account)->where('id', $id)->update([
-            'address' => strtolower($input['address']),
-            'imap_upstream_id' => $input['imap_upstream_id'], 'smtp_upstream_id' => $input['smtp_upstream_id'],
-            'imap_username' => $input['imap_username'], 'smtp_username' => $input['smtp_username'],
-            'imap_auth' => $input['imap_auth'], 'smtp_auth' => $input['smtp_auth'],
-            'imap_secret' => Crypt::encryptString($input['imap_secret']),
-            'smtp_secret' => Crypt::encryptString($input['smtp_secret']),
-            'enabled' => false, 'health' => 'untested', 'tested_at' => null, 'updated_at' => now('UTC'),
-        ]);
 
-        return $this->find($account, $id);
+        return DB::transaction(function () use ($account, $id, $input): ?stdClass {
+            $row = $this->resources->findOwned(self::KIND, $id, $account);
+            if ($row === null) { return null; }
+            $currentSecrets = $this->secrets($id);
+            if ($currentSecrets === null) { throw new RuntimeException('Mailbox credentials are unavailable.'); }
+            $updated = $this->resources->replace(self::KIND, $id, strtolower($input['address']),
+                $this->document($input), false, $row->revision, $account);
+            DB::table('configuration_secrets')->where('resource_id', $id)->increment('version', 1, [
+                'ciphertext' => $this->encodeSecrets([
+                    'imap_secret' => $input['imap_secret'], 'smtp_secret' => $input['smtp_secret'],
+                    'imap_client_hash' => $currentSecrets['imap_client_hash'],
+                    'smtp_client_hash' => $currentSecrets['smtp_client_hash'],
+                ]), 'updated_at' => now('UTC'),
+            ]);
+            DB::table('resource_observations')->where('resource_id', $id)->update([
+                'state' => 'untested', 'observed_revision' => null, 'observed_at' => null, 'updated_at' => now('UTC'),
+            ]);
+
+            return $this->record($updated);
+        });
     }
 
     public function markHealth(string $account, string $id, bool $healthy): ?stdClass
     {
-        if ($this->find($account, $id) === null) { return null; }
-        DB::table('mailbox_connections')->where('account_id', $account)->where('id', $id)
-            ->update(['health' => $healthy ? 'healthy' : 'unhealthy', 'tested_at' => now('UTC'),
-                'updated_at' => now('UTC')]);
+        return DB::transaction(function () use ($account, $id, $healthy): ?stdClass {
+            $row = $this->resources->findOwned(self::KIND, $id, $account);
+            if ($row === null) { return null; }
+            DB::table('resource_observations')->where('resource_id', $id)->update([
+                'state' => $healthy ? 'healthy' : 'unhealthy', 'observed_revision' => $row->revision,
+                'observed_at' => now('UTC'), 'updated_at' => now('UTC'),
+            ]);
 
-        return $this->find($account, $id);
+            return $this->record($row);
+        });
     }
 
     public function delete(string $account, string $id): bool
     {
-        return DB::table('mailbox_connections')->where('account_id', $account)->where('id', $id)->delete() === 1;
+        return DB::transaction(function () use ($account, $id): bool {
+            $row = $this->resources->findOwned(self::KIND, $id, $account);
+
+            return $row !== null && $this->resources->delete(self::KIND, $id, $row->revision, $account);
+        });
+    }
+
+    /** @param array<string, string> $input
+     * @return array<string, string>
+     */
+    private function document(array $input): array
+    {
+        return [
+            'imap_upstream_id' => $input['imap_upstream_id'], 'smtp_upstream_id' => $input['smtp_upstream_id'],
+            'imap_username' => $input['imap_username'], 'smtp_username' => $input['smtp_username'],
+            'imap_auth' => $input['imap_auth'], 'smtp_auth' => $input['smtp_auth'],
+        ];
+    }
+
+    private function record(?stdClass $resource): ?stdClass
+    {
+        if ($resource === null) { return null; }
+        $observation = DB::table('resource_observations')->where('resource_id', $resource->id)->first();
+
+        return (object) [
+            'id' => $resource->id, 'account_id' => $resource->owner, 'address' => $resource->key,
+            ...$resource->document, 'enabled' => $resource->enabled,
+            'health' => $observation?->state ?? 'untested', 'tested_at' => $observation?->observed_at,
+            'revision' => $resource->revision,
+        ];
+    }
+
+    /** @return array<string, string>|null */
+    private function secrets(string $id): ?array
+    {
+        $row = DB::table('configuration_secrets')->where('resource_id', $id)->first();
+
+        return $row === null ? null : $this->decodeSecrets($row->ciphertext);
+    }
+
+    /** @param array<string, string> $secrets */
+    private function encodeSecrets(array $secrets): string
+    {
+        return Crypt::encryptString(json_encode($secrets, JSON_THROW_ON_ERROR));
+    }
+
+    /** @return array<string, string> */
+    private function decodeSecrets(string $ciphertext): array
+    {
+        return json_decode(Crypt::decryptString($ciphertext), true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /** Merge side-specific rotations without overwriting a concurrent rotation or replacement. */
+    private function rotateRefreshToken(string $id, string $side, string $old, string $rotated): void
+    {
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $row = DB::table('configuration_secrets')->where('resource_id', $id)->first();
+            if ($row === null) { return; }
+            $secrets = $this->decodeSecrets($row->ciphertext);
+            if ($secrets[$side.'_secret'] !== $old) { return; }
+            $secrets[$side.'_secret'] = $rotated;
+            $updated = DB::table('configuration_secrets')->where('resource_id', $id)->where('version', $row->version)
+                ->increment('version', 1, ['ciphertext' => $this->encodeSecrets($secrets), 'updated_at' => now('UTC')]);
+            if ($updated === 1) { return; }
+        }
     }
 
     /** @param array<string, string> $input */

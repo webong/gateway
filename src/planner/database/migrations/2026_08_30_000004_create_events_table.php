@@ -28,6 +28,7 @@ return new class extends Migration
 
             $table->index(['endpoint_id', 'received_at']);
             $table->index(['endpoint_id', 'protocol', 'kind', 'received_at']);
+            $table->index('received_at', 'events_received_at_index');
         });
     }
 

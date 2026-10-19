@@ -31,6 +31,8 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->uuid('schedule_id');
             $table->timestamp('scheduled_for');
+            $table->string('kind')->default('cron');
+            $table->string('occurrence_key')->nullable();
             $table->string('status');
             $table->uuid('claim_token');
             $table->timestamp('lease_until');
@@ -43,7 +45,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->foreign('schedule_id')->references('id')->on('schedules')->cascadeOnDelete();
-            $table->unique(['schedule_id', 'scheduled_for']);
+            $table->unique(['schedule_id', 'occurrence_key']);
             $table->index(['status', 'lease_until']);
         });
     }

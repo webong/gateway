@@ -23,7 +23,7 @@ final class EmailSubmissionQuota
             return false;
         }
 
-        return $this->consumeBucket('email_submission_usage', 'identity_hash', hash('sha256', $identity), $limit, $messageBytes, $byteLimit);
+        return $this->consumeBucket('email.submission.account', hash('sha256', $identity), $limit, $messageBytes, $byteLimit);
     }
 
     /** Apply configured sender-domain caps across accounts, atomically with account caps. */
@@ -57,7 +57,7 @@ final class EmailSubmissionQuota
                     && ! $this->consume($identity, $accountLimit, $messageBytes, $accountByteLimit)) {
                     throw new EmailSubmissionLimitExceeded('Account submission quota exceeded.');
                 }
-                if (! $this->consumeBucket('email_domain_submission_usage', 'domain_hash', hash('sha256', $domain), $domainLimit, $messageBytes, $domainByteLimit)) {
+                if (! $this->consumeBucket('email.submission.domain', hash('sha256', $domain), $domainLimit, $messageBytes, $domainByteLimit)) {
                     throw new EmailSubmissionLimitExceeded('Sender domain submission quota exceeded.');
                 }
 
@@ -74,22 +74,19 @@ final class EmailSubmissionQuota
             throw new InvalidArgumentException('Email submission usage retention must be positive.');
         }
 
-        $accountRows = DB::table('email_submission_usage')
+        return DB::table('usage_counters')
+            ->whereIn('metric', ['email.submission.account', 'email.submission.domain'])
             ->where('day', '<', now('UTC')->subDays($retentionDays)->toDateString())
             ->delete();
-        $domainRows = DB::table('email_domain_submission_usage')
-            ->where('day', '<', now('UTC')->subDays($retentionDays)->toDateString())
-            ->delete();
-
-        return $accountRows + $domainRows;
     }
 
-    private function consumeBucket(string $table, string $hashColumn, string $hash, int $limit, int $messageBytes, int $byteLimit): bool
+    private function consumeBucket(string $metric, string $hash, int $limit, int $messageBytes, int $byteLimit): bool
     {
         $now = now('UTC');
         $day = $now->toDateString();
-        DB::table($table)->insertOrIgnore([
-            $hashColumn => $hash,
+        DB::table('usage_counters')->insertOrIgnore([
+            'metric' => $metric,
+            'subject_hash' => $hash,
             'day' => $day,
             'attempts' => 0,
             'bytes' => 0,
@@ -97,7 +94,7 @@ final class EmailSubmissionQuota
             'updated_at' => $now,
         ]);
 
-        $query = DB::table($table)->where($hashColumn, $hash)->where('day', $day);
+        $query = DB::table('usage_counters')->where('metric', $metric)->where('subject_hash', $hash)->where('day', $day);
         if ($limit > 0) {
             $query->where('attempts', '<', $limit);
         }

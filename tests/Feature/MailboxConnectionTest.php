@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
+use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\ConnectedIMAPAuthenticator;
 use Webong\Gateway\Email\ConnectedSMTPAuthenticator;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
@@ -37,17 +38,26 @@ function registerMailboxUpstreams(): void
 it('keeps mailbox credentials and control scoped to the owning account', function (): void {
     registerMailboxUpstreams();
     $store = app(MailboxConnectionStore::class);
-    $aToken = $store->createAccount('account-a');
-    $bToken = $store->createAccount('account-b');
+    $accounts = app(AccountStore::class);
+    $aToken = $accounts->create('account-a');
+    $bToken = $accounts->create('account-b');
     $created = $store->create('account-a', mailboxInput('a@example.test'));
+    $other = $store->create('account-b', mailboxInput('a@example.test'));
     $id = $created['record']->id;
 
-    expect($store->authorized('account-a', $aToken))->toBeTrue()
-        ->and($store->authorized('account-b', $aToken))->toBeFalse()
+    expect($accounts->authorized('account-a', $aToken))->toBeTrue()
+        ->and($accounts->authorized('account-b', $aToken))->toBeFalse()
+        ->and(DB::table('accounts')->where('id', 'account-a')->exists())->toBeTrue()
         ->and($store->find('account-b', $id))->toBeNull()
         ->and($store->delete('account-b', $id))->toBeFalse()
-        ->and(DB::table('mailbox_connections')->where('id', $id)->value('imap_secret'))->not->toContain('in-secret')
-        ->and(DB::table('mailbox_connections')->where('id', $id)->value('smtp_secret'))->not->toContain('out-secret');
+        ->and(DB::table('configurations')->where('id', $id)->value('owner'))->toBe('account-a')
+        ->and(DB::table('configurations')->where('id', $id)->value('document'))->not->toContain('in-secret', 'out-secret')
+        ->and(DB::table('configuration_revisions')->where('resource_id', $id)->value('document'))->not->toContain('in-secret', 'out-secret')
+        ->and(Crypt::decryptString(DB::table('configuration_revisions')->where('resource_id', $id)->value('document')))
+            ->not->toContain('in-secret', 'out-secret', 'imap_client_hash', 'smtp_client_hash')
+        ->and(DB::table('configuration_secrets')->where('resource_id', $id)->value('ciphertext'))->not->toContain('in-secret', 'out-secret');
+    expect($other['record']->id)->not->toBe($id)
+        ->and($store->find('account-b', $other['record']->id)?->address)->toBe('a@example.test');
 
     $store->markHealth('account-a', $id, true);
     $store->update('account-a', $id, true);
@@ -76,19 +86,26 @@ it('keeps mailbox credentials and control scoped to the owning account', functio
     expect($replaced->enabled)->toBeFalsy()->and($replaced->health)->toBe('untested')
         ->and($store->resolve($id, 'smtp'))->toBeNull()
         ->and($store->resolve($id, 'smtp', allowDisabled: true)['address'])->toBe('new@example.test')
-        ->and($store->authorized('account-b', $bToken))->toBeTrue();
+        ->and($accounts->authorized('account-b', $bToken))->toBeTrue();
+    expect(fn () => $store->update('account-a', $id, true))->toThrow(RuntimeException::class);
+    expect($store->delete('account-a', $id))->toBeTrue()
+        ->and(DB::table('configuration_secrets')->where('resource_id', $id)->exists())->toBeFalse()
+        ->and(DB::table('resource_observations')->where('resource_id', $id)->exists())->toBeFalse()
+        ->and($store->find('account-b', $other['record']->id))->not->toBeNull();
 });
 
 it('exposes an HTTPS-only account API without leaking provider secrets', function (): void {
     registerMailboxUpstreams();
-    $this->withToken('registry-secret')->postJson('/email/mailbox-accounts', ['id' => 'one'])->assertForbidden();
-    $one = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'one'])->assertCreated()->json();
+    $this->withToken('registry-secret')->postJson('/accounts', ['id' => 'one'])->assertForbidden();
+    $one = $this->withToken('registry-secret')->postJson('https://localhost/accounts', ['id' => 'one'])->assertCreated()->json();
     $two = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'two'])->assertCreated()->json();
     $created = $this->withToken($one['token'])->postJson('https://localhost/email/mailbox-accounts/one/connections', mailboxInput('a@example.test'))
         ->assertCreated()->json();
     $id = $created['connection']['id'];
     expect($created)->toHaveKeys(['imap_client_password', 'smtp_client_password'])
         ->and(json_encode($created))->not->toContain('in-secret', 'out-secret');
+    $this->withToken('registry-secret')
+        ->getJson('/configurations/email.mailbox-connection/'.$id.'/revisions')->assertNotFound();
     $this->withToken($two['token'])->getJson('https://localhost/email/mailbox-accounts/one/connections/'.$id)->assertUnauthorized();
     $this->withToken($two['token'])->getJson('https://localhost/email/mailbox-accounts/two/connections/'.$id)->assertNotFound();
     $this->withToken($one['token'])->getJson('https://localhost/email/mailbox-accounts/one/connections/'.$id)
@@ -113,8 +130,8 @@ it('refreshes Google and Microsoft tokens for the requested transport and stores
         && str_contains($request->body(), 'scope=https%3A%2F%2Foutlook.office.com%2FSMTP.Send'));
 
     registerMailboxUpstreams();
-    $store = new MailboxConnectionStore($refresher, app(EmailUpstreamCatalog::class));
-    $store->createAccount('oauth-account');
+    $store = new MailboxConnectionStore($refresher, app(EmailUpstreamCatalog::class), app(\Webong\Gateway\Resources\PlannerResourceStore::class), app(AccountStore::class));
+    app(AccountStore::class)->create('oauth-account');
     $input = mailboxInput('oauth@example.test');
     $input['imap_auth'] = 'google';
     $input['smtp_auth'] = 'microsoft';
@@ -123,8 +140,8 @@ it('refreshes Google and Microsoft tokens for the requested transport and stores
     $id = $store->create('oauth-account', $input)['record']->id;
     expect($store->resolve($id, 'imap', allowDisabled: true)['secret'])->toBe('google-access')
         ->and($store->resolve($id, 'smtp', allowDisabled: true)['secret'])->toBe('ms-access')
-        ->and(Crypt::decryptString(DB::table('mailbox_connections')->where('id', $id)->value('imap_secret')))->toBe('google-rotated')
-        ->and(Crypt::decryptString(DB::table('mailbox_connections')->where('id', $id)->value('smtp_secret')))->toBe('ms-rotated');
+        ->and(json_decode(Crypt::decryptString(DB::table('configuration_secrets')->where('resource_id', $id)->value('ciphertext')), true)['imap_secret'])->toBe('google-rotated')
+        ->and(json_decode(Crypt::decryptString(DB::table('configuration_secrets')->where('resource_id', $id)->value('ciphertext')), true)['smtp_secret'])->toBe('ms-rotated');
     Http::assertSent(fn ($request): bool => $request->url() === 'https://oauth2.googleapis.com/token'
         && str_contains($request->body(), 'refresh_token=google-refresh'));
 });

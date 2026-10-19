@@ -48,3 +48,19 @@ it('exposes only registered kind names and revision metadata through the authent
     $this->withToken('registry-secret')
         ->getJson('/configurations/arbitrary-kind/'.$source->id.'/revisions')->assertNotFound();
 });
+
+it('isolates owned resources with the same key across accounts', function (): void {
+    app(\Webong\Gateway\Accounts\AccountStore::class)->create('account-a');
+    app(\Webong\Gateway\Accounts\AccountStore::class)->create('account-b');
+    $store = app(PlannerResourceStore::class);
+    $alice = $store->create('email.mailbox-connection', 'support@example.test', ['imap_upstream_id' => 'imap-a'], false,
+        owner: 'account-a');
+    $bob = $store->create('email.mailbox-connection', 'support@example.test', ['imap_upstream_id' => 'imap-b'], false,
+        owner: 'account-b');
+
+    expect($alice->id)->not->toBe($bob->id)
+        ->and($store->findOwned('email.mailbox-connection', $alice->id, 'account-b'))->toBeNull()
+        ->and($store->findOwned('email.mailbox-connection', $alice->id, 'account-a')->id)->toBe($alice->id)
+        ->and($store->allOwned('email.mailbox-connection', 'account-a'))->toHaveCount(1)
+        ->and($store->byOwnedKey('email.mailbox-connection', 'account-b', 'support@example.test')->id)->toBe($bob->id);
+});

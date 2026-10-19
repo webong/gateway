@@ -17,7 +17,21 @@ final class PlannerResourceStore
     public function all(string $kind): array
     {
         return array_map($this->decode(...), DB::table('configurations')
-            ->where('kind', $kind)->orderBy('key')->get()->all());
+            ->where('kind', $kind)->whereNull('owner')->orderBy('key')->get()->all());
+    }
+
+    /** @return list<stdClass> */
+    public function allOwned(string $kind, string $owner): array
+    {
+        return array_map($this->decode(...), DB::table('configurations')
+            ->where('kind', $kind)->where('owner', $owner)->orderBy('created_at')->get()->all());
+    }
+
+    /** @return list<stdClass> */
+    public function children(string $kind, string $parentId): array
+    {
+        return array_map($this->decode(...), DB::table('configurations')
+            ->where('kind', $kind)->where('parent_id', $parentId)->whereNull('owner')->orderBy('key')->get()->all());
     }
 
     public function find(string $kind, string $id): ?stdClass
@@ -25,6 +39,23 @@ final class PlannerResourceStore
         if (! Str::isUuid($id)) {
             return null;
         }
+        $row = DB::table('configurations')->where('kind', $kind)->where('id', $id)->whereNull('owner')->first();
+
+        return $row === null ? null : $this->decode($row);
+    }
+
+    public function findOwned(string $kind, string $id, string $owner): ?stdClass
+    {
+        if (! Str::isUuid($id)) { return null; }
+        $row = DB::table('configurations')->where('kind', $kind)->where('id', $id)->where('owner', $owner)->first();
+
+        return $row === null ? null : $this->decode($row);
+    }
+
+    /** For trusted runtime resolution when the owner is learned from the resource. */
+    public function findAny(string $kind, string $id): ?stdClass
+    {
+        if (! Str::isUuid($id)) { return null; }
         $row = DB::table('configurations')->where('kind', $kind)->where('id', $id)->first();
 
         return $row === null ? null : $this->decode($row);
@@ -38,34 +69,50 @@ final class PlannerResourceStore
         return $row === null ? null : $this->decode($row);
     }
 
-    /** @param array<string, mixed> $document */
-    public function create(string $kind, string $key, array $document, bool $enabled = true): stdClass
+    public function byOwnedKey(string $kind, string $owner, string $key): ?stdClass
     {
-        return DB::transaction(function () use ($kind, $key, $document, $enabled): stdClass {
+        $row = DB::table('configurations')->where('kind', $kind)->where('owner', $owner)
+            ->where('key_hash', $this->keyHash($kind, $key, $owner))->first();
+
+        return $row === null ? null : $this->decode($row);
+    }
+
+    /** @param array<string, mixed> $document */
+    public function create(string $kind, string $key, array $document, bool $enabled = true,
+        ?string $parentId = null, ?string $owner = null): stdClass
+    {
+        if ($parentId !== null && ! Str::isUuid($parentId)) {
+            throw new InvalidArgumentException('Invalid Planner resource parent.');
+        }
+        if ($owner !== null && preg_match('/^[A-Za-z0-9._:-]{1,200}$/D', $owner) !== 1) {
+            throw new InvalidArgumentException('Invalid Planner resource owner.');
+        }
+        return DB::transaction(function () use ($kind, $key, $document, $enabled, $parentId, $owner): stdClass {
             $id = (string) Str::uuid();
             $now = now('UTC');
             $encoded = $this->encode($document);
-            $hash = $this->keyHash($kind, $key);
+            $hash = $this->keyHash($kind, $key, $owner);
             DB::table('configurations')->insert([
-                'id' => $id, 'kind' => $kind, 'key_hash' => $hash,
+                'id' => $id, 'kind' => $kind, 'parent_id' => $parentId, 'owner' => $owner, 'key_hash' => $hash,
                 'key' => $key, 'document' => $encoded, 'schema_version' => 1,
                 'enabled' => $enabled,
                 'revision' => 1, 'created_at' => $now, 'updated_at' => $now,
             ]);
             $this->record($id, $kind, $hash, 1, 'created', $encoded, $enabled, $now);
 
-            return $this->find($kind, $id);
+            return $owner === null ? $this->find($kind, $id) : $this->findOwned($kind, $id, $owner);
         });
     }
 
     /** @param array<string, mixed> $document */
-    public function replace(string $kind, string $id, string $key, array $document, bool $enabled, int $expectedRevision): ?stdClass
+    public function replace(string $kind, string $id, string $key, array $document, bool $enabled,
+        int $expectedRevision, ?string $owner = null): ?stdClass
     {
         if (! Str::isUuid($id)) {
             return null;
         }
-        return DB::transaction(function () use ($kind, $id, $key, $document, $enabled, $expectedRevision): ?stdClass {
-            $current = $this->find($kind, $id);
+        return DB::transaction(function () use ($kind, $id, $key, $document, $enabled, $expectedRevision, $owner): ?stdClass {
+            $current = $owner === null ? $this->find($kind, $id) : $this->findOwned($kind, $id, $owner);
             if ($current === null) {
                 return null;
             }
@@ -73,7 +120,7 @@ final class PlannerResourceStore
                 throw new StaleResource('Planner resource revision has changed.');
             }
             $encoded = $this->encode($document);
-            $hash = $this->keyHash($kind, $key);
+            $hash = $this->keyHash($kind, $key, $owner);
             $now = now('UTC');
             $updated = DB::table('configurations')->where('kind', $kind)->where('id', $id)
                 ->where('revision', $expectedRevision)->increment('revision', 1, [
@@ -85,17 +132,17 @@ final class PlannerResourceStore
             }
             $this->record($id, $kind, $hash, $expectedRevision + 1, 'replaced', $encoded, $enabled, $now);
 
-            return $this->find($kind, $id);
+            return $owner === null ? $this->find($kind, $id) : $this->findOwned($kind, $id, $owner);
         });
     }
 
-    public function delete(string $kind, string $id, int $expectedRevision): bool
+    public function delete(string $kind, string $id, int $expectedRevision, ?string $owner = null): bool
     {
         if (! Str::isUuid($id)) {
             return false;
         }
-        return DB::transaction(function () use ($kind, $id, $expectedRevision): bool {
-            $current = $this->find($kind, $id);
+        return DB::transaction(function () use ($kind, $id, $expectedRevision, $owner): bool {
+            $current = $owner === null ? $this->find($kind, $id) : $this->findOwned($kind, $id, $owner);
             if ($current === null) {
                 return false;
             }
@@ -107,7 +154,7 @@ final class PlannerResourceStore
             if ($deleted !== 1) {
                 throw new StaleResource('Planner resource revision has changed.');
             }
-            $this->record($id, $kind, $this->keyHash($kind, $current->key), $expectedRevision + 1,
+            $this->record($id, $kind, $this->keyHash($kind, $current->key, $owner), $expectedRevision + 1,
                 'deleted', $this->encode($current->document), $current->enabled, now('UTC'));
 
             return true;
@@ -135,14 +182,14 @@ final class PlannerResourceStore
         ]);
     }
 
-    private function keyHash(string $kind, string $key): string
+    private function keyHash(string $kind, string $key, ?string $owner = null): string
     {
         if (preg_match('/^[a-z][a-z0-9.-]{0,95}$/D', $kind) !== 1 ||
             $key === '' || strlen($key) > 4096) {
             throw new InvalidArgumentException('Invalid Planner resource identity.');
         }
 
-        return hash('sha256', $kind."\n".$key);
+        return hash('sha256', $kind."\n".($owner === null ? '' : $owner."\n").$key);
     }
 
     /** @param array<string, mixed> $document */

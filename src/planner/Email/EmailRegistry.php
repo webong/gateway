@@ -6,27 +6,28 @@ namespace Webong\Gateway\Email;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use stdClass;
+use Webong\Gateway\Resources\PlannerResourceStore;
 
 final readonly class EmailRegistry
 {
-    public function __construct(private TxtResolver $txt, private EmailRuntimePolicyStore $runtimePolicy) {}
+    public function __construct(private TxtResolver $txt, private EmailRuntimePolicyStore $runtimePolicy,
+        private PlannerResourceStore $resources) {}
 
     /** @return list<stdClass> */
     public function domains(): array
     {
-        return DB::table('email_domains')->orderBy('domain')->get()->all();
+        return array_map($this->domainRecord(...), $this->resources->all('email.domain'));
     }
 
     public function domain(string $id): ?stdClass
     {
-        return DB::table('email_domains')->where('id', $id)->first();
+        return $this->domainRecord($this->resources->find('email.domain', $id));
     }
 
     public function domainByName(string $name): ?stdClass
     {
-        return DB::table('email_domains')->where('domain', $name)->first();
+        return $this->domainRecord($this->resources->byKey('email.domain', $name));
     }
 
     public function requireActiveDomain(string $name): stdClass
@@ -45,18 +46,10 @@ final readonly class EmailRegistry
 
     public function createDomain(string $name): stdClass
     {
-        $now = now();
-        $id = (string) Str::uuid();
-        DB::table('email_domains')->insert([
-            'id' => $id,
-            'domain' => strtolower(rtrim($name, '.')),
-            'verification_token' => bin2hex(random_bytes(24)),
-            'enabled' => false,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        return $this->domain($id);
+        $name = strtolower(rtrim($name, '.'));
+        return $this->domainRecord($this->resources->create('email.domain', $name, [
+            'verification_token' => bin2hex(random_bytes(24)), 'verified_at' => null,
+        ], false));
     }
 
     public function verify(stdClass $domain): stdClass
@@ -65,12 +58,9 @@ final readonly class EmailRegistry
         $expected = 'gateway-verification='.$domain->verification_token;
         foreach ($this->txt->records($name) as $record) {
             if (hash_equals($expected, trim($record))) {
-                DB::table('email_domains')->where('id', $domain->id)->update([
-                    'verified_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-                return $this->domain($domain->id);
+                return $this->domainRecord($this->resources->replace('email.domain', $domain->id, $domain->domain,
+                    ['verification_token' => $domain->verification_token, 'verified_at' => now('UTC')->toIso8601String()],
+                    $domain->enabled, $domain->revision));
             }
         }
 
@@ -80,35 +70,38 @@ final readonly class EmailRegistry
     public function setEnabled(stdClass $domain, bool $enabled): stdClass
     {
         if ($enabled && ! $domain->enabled) {
-            $this->verify($domain);
+            $domain = $this->verify($domain);
         }
-        DB::table('email_domains')->where('id', $domain->id)->update([
-            'enabled' => $enabled,
-            'updated_at' => now(),
-        ]);
-
-        return $this->domain($domain->id);
+        return $this->domainRecord($this->resources->replace('email.domain', $domain->id, $domain->domain,
+            ['verification_token' => $domain->verification_token, 'verified_at' => $domain->verified_at],
+            $enabled, $domain->revision));
     }
 
     public function deleteDomain(stdClass $domain): void
     {
-        DB::table('email_domains')->where('id', $domain->id)->delete();
+        DB::transaction(function () use ($domain): void {
+            foreach ($this->aliases($domain) as $alias) {
+                $this->deleteAlias($alias);
+            }
+            $this->resources->delete('email.domain', $domain->id, $domain->revision);
+        });
     }
 
     /** @return list<stdClass> */
     public function aliases(stdClass $domain): array
     {
-        return DB::table('email_aliases')->where('domain_id', $domain->id)->orderBy('local_part')->get()->all();
+        return array_map($this->aliasRecord(...), $this->resources->children('email.alias', $domain->id));
     }
 
     public function alias(stdClass $domain, string $id): ?stdClass
     {
-        return DB::table('email_aliases')->where('domain_id', $domain->id)->where('id', $id)->first();
+        $alias = $this->resources->find('email.alias', $id);
+        return $alias !== null && $alias->parent_id === $domain->id ? $this->aliasRecord($alias) : null;
     }
 
     public function aliasByLocalPart(stdClass $domain, string $localPart): ?stdClass
     {
-        return DB::table('email_aliases')->where('domain_id', $domain->id)->where('local_part', $localPart)->first();
+        return $this->aliasRecord($this->resources->byKey('email.alias', $domain->id.'/'.$localPart));
     }
 
     /** A matching alias, including a paused one, reserves this address from catch-all hooks. */
@@ -133,39 +126,45 @@ final readonly class EmailRegistry
     /** @param list<string> $recipients */
     public function createAlias(stdClass $domain, string $localPart, array $recipients): stdClass
     {
-        $id = (string) Str::uuid();
-        $now = now();
-        DB::table('email_aliases')->insert([
-            'id' => $id,
-            'domain_id' => $domain->id,
-            'local_part' => strtolower($localPart),
-            'recipients' => json_encode(array_values($recipients), JSON_THROW_ON_ERROR),
-            'enabled' => true,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        return $this->alias($domain, $id);
+        $localPart = strtolower($localPart);
+        return $this->aliasRecord($this->resources->create('email.alias', $domain->id.'/'.$localPart,
+            ['recipients' => array_values($recipients)], true, $domain->id));
     }
 
     /** @param array{recipients?: list<string>, enabled?: bool} $attributes */
     public function updateAlias(stdClass $domain, stdClass $alias, array $attributes): stdClass
     {
-        $updates = ['updated_at' => now()];
-        if (array_key_exists('recipients', $attributes)) {
-            $updates['recipients'] = json_encode(array_values($attributes['recipients']), JSON_THROW_ON_ERROR);
-        }
-        if (array_key_exists('enabled', $attributes)) {
-            $updates['enabled'] = $attributes['enabled'];
-        }
-        DB::table('email_aliases')->where('id', $alias->id)->update($updates);
-
-        return $this->alias($domain, $alias->id);
+        $recipients = array_key_exists('recipients', $attributes) ? array_values($attributes['recipients'])
+            : json_decode($alias->recipients, true, 512, JSON_THROW_ON_ERROR);
+        return $this->aliasRecord($this->resources->replace('email.alias', $alias->id,
+            $domain->id.'/'.$alias->local_part, ['recipients' => $recipients],
+            $attributes['enabled'] ?? $alias->enabled, $alias->revision));
     }
 
     public function deleteAlias(stdClass $alias): void
     {
-        DB::table('email_aliases')->where('id', $alias->id)->delete();
+        $this->resources->delete('email.alias', $alias->id, $alias->revision);
+    }
+
+    private function domainRecord(?stdClass $resource): ?stdClass
+    {
+        if ($resource === null) { return null; }
+        return (object) [
+            'id' => $resource->id, 'domain' => $resource->key, 'enabled' => $resource->enabled,
+            'verification_token' => $resource->document['verification_token'],
+            'verified_at' => $resource->document['verified_at'], 'revision' => $resource->revision,
+        ];
+    }
+
+    private function aliasRecord(?stdClass $resource): ?stdClass
+    {
+        if ($resource === null) { return null; }
+        return (object) [
+            'id' => $resource->id, 'domain_id' => $resource->parent_id,
+            'local_part' => substr($resource->key, strlen($resource->parent_id) + 1),
+            'recipients' => json_encode($resource->document['recipients'], JSON_THROW_ON_ERROR),
+            'enabled' => $resource->enabled, 'revision' => $resource->revision,
+        ];
     }
 
     /**

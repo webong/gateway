@@ -62,7 +62,7 @@ it('blocks new HTTP submissions to an operator-suppressed recipient without char
 
     $headers = ['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'suppressed-new'];
     $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertUnprocessable();
-    expect(DB::table('email_submission_usage')->count())->toBe(0)
+    expect(DB::table('usage_counters')->where('metric', 'email.submission.account')->count())->toBe(0)
         ->and(DB::table('email_http_submissions')->count())->toBe(0);
     Http::assertNothingSent();
 
@@ -130,7 +130,7 @@ it('authenticates, applies the shared quota, and hands message bytes to a privat
         && $request['mail_from'] === 'alice@example.test'
         && $request['message'] === emailSubmissionBody()['message_base64']
         && ! str_contains($request->body(), 'secret'));
-    expect(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-alice'))->value('attempts'))->toBe(1);
+    expect(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-alice'))->value('attempts'))->toBe(1);
 
     $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'email-1'])
         ->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertAccepted()->assertJsonPath('id', $id);
@@ -174,7 +174,7 @@ it('pins an uncertain submission to the same receipt and node without charging q
         ->assertJsonPath('id', $receipts[0]);
     expect($receipts)->toHaveCount(2)->and($receipts[0])->toBe($receipts[1])
         ->and($urls[0])->toBe($urls[1])
-        ->and(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-alice'))->value('attempts'))->toBe(1);
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-alice'))->value('attempts'))->toBe(1);
 });
 
 it('replays an idempotent HTTP submission across shared-queue admin origins', function (): void {
@@ -221,8 +221,8 @@ it('shares the sender-domain quota across HTTP accounts without charging a rejec
     $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'domain-alice'])
         ->postJson('https://localhost/email/submissions', emailSubmissionBody())->assertAccepted()->assertJsonPath('id', $first);
 
-    expect(DB::table('email_submission_usage')->where('identity_hash', hash('sha256', 'account-bob'))->exists())->toBeFalse()
-        ->and(DB::table('email_domain_submission_usage')->where('domain_hash', hash('sha256', 'example.test'))->value('attempts'))->toBe(1);
+    expect(DB::table('usage_counters')->where('metric', 'email.submission.account')->where('subject_hash', hash('sha256', 'account-bob'))->exists())->toBeFalse()
+        ->and(DB::table('usage_counters')->where('metric', 'email.submission.domain')->where('subject_hash', hash('sha256', 'example.test'))->value('attempts'))->toBe(1);
     Http::assertSentCount(1);
 });
 

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Tests\Fixtures;
 
-use Illuminate\Support\Facades\DB;
 use Webong\Gateway\Email\TxtResolver;
+use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Test-only DNS fixture for the local Email integration smoke. */
 final class EmailSmokeTxtResolver implements TxtResolver
@@ -22,8 +22,8 @@ final class EmailSmokeTxtResolver implements TxtResolver
         if (! str_starts_with($name, $prefix)) {
             return [];
         }
-        $row = DB::table('email_domains')->where('domain', substr($name, strlen($prefix)))->first();
+        $row = app(PlannerResourceStore::class)->byKey('email.domain', substr($name, strlen($prefix)));
 
-        return $row === null ? [] : ['gateway-verification='.$row->verification_token];
+        return $row === null ? [] : ['gateway-verification='.$row->document['verification_token']];
     }
 }

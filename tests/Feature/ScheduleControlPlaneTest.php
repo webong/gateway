@@ -182,7 +182,7 @@ it('rejects unauthenticated and malformed manual run requests', function (): voi
     expect(DB::table('schedule_runs')->count())->toBe(0);
 });
 
-it('backfills cron occurrence identities when upgrading an existing run table', function (): void {
+it('records cron occurrence identities in the consolidated run table', function (): void {
     $id = $this->withToken('registry-secret')->postJson('/schedules', [
         'name' => 'Existing cron', 'cron' => '* * * * *',
         'language' => 'test-script', 'source' => 'run()',
@@ -191,10 +191,6 @@ it('backfills cron occurrence identities when upgrading an existing run table', 
     $claim = $this->withHeader('X-Gateway-Internal', 'internal-secret')
         ->postJson('/_internal/gateway/schedules/claim', ['automation_languages' => ['test-script']])
         ->assertOk()->json('data.0');
-
-    $migration = require dirname(__DIR__, 2).'/src/planner/database/migrations/2026_09_28_000009_add_manual_schedule_runs.php';
-    $migration->down();
-    $migration->up();
 
     expect(DB::table('schedule_runs')->where('id', $claim['id'])->value('kind'))->toBe('cron')
         ->and(DB::table('schedule_runs')->where('id', $claim['id'])->value('occurrence_key'))

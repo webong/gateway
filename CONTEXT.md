@@ -21,6 +21,10 @@ _Avoid_: environment setting, arbitrary config key
 The contract that gives a Planner Resource its meaning and validation rules.
 _Avoid_: database table type
 
+**Operational Record**:
+A record created by Gateway while handling traffic or running work, such as a delivery, execution, lease, receipt, or usage counter. It is observed activity, not operator-managed desired state.
+_Avoid_: Planner Resource
+
 **Router**:
 The bundled service containing both Spinner and Planner behind one public listener.
 _Avoid_: Standalone Gateway, FrankenPHP image
@@ -52,6 +56,12 @@ _Avoid_: SSE as the product-area name
 **Email**:
 The Gateway product area for mail ingress, routing, and delivery; mailbox storage belongs to an external system.
 _Avoid_: SMTP as the product-area name
+
+**Account**:
+An authenticated principal that owns Planner resources across product areas. It is not an external mailbox, message store, or a resource definition. A service must authorize access to each resource kind explicitly; account ownership alone does not grant cross-service access.
+
+**Mailbox Connection**:
+An account-owned Planner Resource describing the approved IMAP and SMTP transport path for an external mailbox. Its live credentials and observed health are separate from its desired state.
 
 **DNS**:
 The Gateway product area for authoritative name-query ingress and routing.

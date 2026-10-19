@@ -10,15 +10,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('events', function (Blueprint $table): void {
-            $table->index('received_at', 'events_received_at_index');
+        Schema::create('accounts', function (Blueprint $table): void {
+            $table->string('id', 200)->primary();
+            $table->string('token_hash', 64);
+            $table->timestamps();
         });
     }
 
     public function down(): void
     {
-        Schema::table('events', function (Blueprint $table): void {
-            $table->dropIndex('events_received_at_index');
-        });
+        Schema::dropIfExists('accounts');
     }
 };
