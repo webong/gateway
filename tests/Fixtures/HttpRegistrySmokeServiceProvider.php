@@ -31,7 +31,6 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
             'gateway.mutations.lock_store' => 'array',
         ];
         foreach ([
-            'gateway.email.upstream_allowed_hosts' => 'GATEWAY_EMAIL_UPSTREAM_ALLOWED_HOSTS',
             'gateway.email.hosted_allowed_hosts' => 'GATEWAY_EMAIL_HOSTED_ALLOWED_HOSTS',
         ] as $key => $variable) {
             $value = getenv($variable);

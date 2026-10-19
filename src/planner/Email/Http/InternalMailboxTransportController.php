@@ -32,6 +32,7 @@ final readonly class InternalMailboxTransportController
             'address' => $resolved['address'],
             'upstream_address' => $upstream['address'], 'upstream_server_name' => $upstream['server_name'],
             'upstream_tls_mode' => $upstream['tls_mode'],
+            'upstream_network_scope' => $upstream['network_scope'] ?? 'public',
         ])->header('Cache-Control', 'no-store');
     }
 }

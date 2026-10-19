@@ -66,9 +66,6 @@ return [
         // Optional deployment-owned POP3 credential authority. It returns a
         // registered upstream ID, never a client-selected network address.
         'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedIMAPAuthenticator::class),
-        // Deployment ceiling, supplied by the host application or mounted config;
-        // Planner resources may only select these exact upstream hosts.
-        'upstream_allowed_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('GATEWAY_MAIL_ALLOWED_HOSTS', ''))))),
         'hosted_allowed_hosts' => [],
     ],
 

@@ -4,11 +4,10 @@ declare(strict_types=1);
 
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 
-it('stores typed upstreams in shared configurations and enforces the deployed host ceiling', function (): void {
-    config()->set('gateway.email.upstream_allowed_hosts', ['imap.provider.test', 'smtp.provider.test']);
+it('stores typed upstreams and their network scope without a deployed host list', function (): void {
     $this->postJson('/email/upstreams', [])->assertUnauthorized();
     $this->withToken('registry-secret')->postJson('/email/upstreams', [
-        'protocol' => 'imap', 'name' => 'primary', 'address' => 'other.test:993',
+        'protocol' => 'imap', 'name' => 'primary', 'address' => 'other.test:0',
         'server_name' => 'other.test',
     ])->assertUnprocessable();
     $created = $this->withToken('registry-secret')->postJson('/email/upstreams', [
@@ -16,7 +15,12 @@ it('stores typed upstreams in shared configurations and enforces the deployed ho
         'server_name' => 'imap.provider.test',
     ])->assertCreated();
     $catalog = app(EmailUpstreamCatalog::class);
-    expect($catalog->active('imap', 'primary')['address'])->toBe('imap.provider.test:993');
+    expect($catalog->active('imap', 'primary')['address'])->toBe('imap.provider.test:993')
+        ->and($catalog->active('imap', 'primary')['network_scope'])->toBe('public');
+    $this->withToken('registry-secret')->postJson('/email/upstreams', [
+        'protocol' => 'smtp', 'name' => 'internal', 'address' => 'mail.internal:465',
+        'server_name' => 'mail.internal', 'tls_mode' => 'implicit', 'network_scope' => 'private',
+    ])->assertCreated()->assertJsonPath('network_scope', 'private');
     $this->withToken('registry-secret')->postJson('/email/upstreams', [
         'protocol' => 'imap', 'name' => 'primary', 'address' => 'imap.provider.test:993',
         'server_name' => 'imap.provider.test',

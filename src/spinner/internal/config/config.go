@@ -41,7 +41,6 @@ type Config struct {
 	POP3TLSCertFile            string
 	POP3TLSKeyFile             string
 	POP3Upstreams              map[string]POP3UpstreamSpec
-	POP3AllowedUpstreamHosts   []string
 	POP3MaxConnections         int
 	POP3AuthPerMinute          int
 	POP3AuthBurst              int
@@ -53,7 +52,6 @@ type Config struct {
 	IMAPTLSCertFile            string
 	IMAPTLSKeyFile             string
 	IMAPUpstreams              map[string]IMAPUpstreamSpec
-	IMAPAllowedUpstreamHosts   []string
 	IMAPMaxConnections         int
 	IMAPAuthPerMinute          int
 	IMAPAuthBurst              int
@@ -90,7 +88,6 @@ type Config struct {
 	SMTPRelayTLSMode           string
 	SMTPRelayTimeout           time.Duration
 	MailboxSMTPResolverURL     string
-	MailboxSMTPAllowedHosts    []string
 	HostedMailResolverURL      string
 	HostedMailAllowedHosts     []string
 	EmailDKIMResolverURL       string
@@ -257,7 +254,6 @@ func loadConfig(runtime string) (*Config, error) {
 		POP3Hostname:               getEnv("GATEWAY_POP3_HOSTNAME", "gateway.local"),
 		POP3TLSCertFile:            getEnv("GATEWAY_POP3_TLS_CERT_FILE", ""),
 		POP3TLSKeyFile:             getEnv("GATEWAY_POP3_TLS_KEY_FILE", ""),
-		POP3AllowedUpstreamHosts:   getEnvList("GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS"),
 		POP3MaxConnections:         getEnvInt("GATEWAY_POP3_MAX_CONNECTIONS", 1000),
 		POP3AuthPerMinute:          getEnvInt("GATEWAY_POP3_AUTH_PER_MINUTE", 30),
 		POP3AuthBurst:              getEnvInt("GATEWAY_POP3_AUTH_BURST", 5),
@@ -268,7 +264,6 @@ func loadConfig(runtime string) (*Config, error) {
 		IMAPHostname:               getEnv("GATEWAY_IMAP_HOSTNAME", "gateway.local"),
 		IMAPTLSCertFile:            getEnv("GATEWAY_IMAP_TLS_CERT_FILE", ""),
 		IMAPTLSKeyFile:             getEnv("GATEWAY_IMAP_TLS_KEY_FILE", ""),
-		IMAPAllowedUpstreamHosts:   getEnvList("GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS"),
 		IMAPMaxConnections:         getEnvInt("GATEWAY_IMAP_MAX_CONNECTIONS", 1000),
 		IMAPAuthPerMinute:          getEnvInt("GATEWAY_IMAP_AUTH_PER_MINUTE", 30),
 		IMAPAuthBurst:              getEnvInt("GATEWAY_IMAP_AUTH_BURST", 5),
@@ -305,7 +300,6 @@ func loadConfig(runtime string) (*Config, error) {
 		SMTPRelayTLSMode:           strings.ToLower(getEnv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")),
 		SMTPRelayTimeout:           getEnvDuration("GATEWAY_SMTP_RELAY_TIMEOUT", 30*time.Second),
 		MailboxSMTPResolverURL:     getEnv("GATEWAY_MAILBOX_SMTP_RESOLVER_URL", ""),
-		MailboxSMTPAllowedHosts:    getEnvList("GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS"),
 		HostedMailResolverURL:      getEnv("GATEWAY_HOSTED_MAIL_RESOLVER_URL", ""),
 		HostedMailAllowedHosts:     getEnvList("GATEWAY_HOSTED_MAIL_ALLOWED_HOSTS"),
 		EmailDKIMResolverURL:       getEnv("GATEWAY_EMAIL_DKIM_RESOLVER_URL", ""),
@@ -369,16 +363,16 @@ func loadConfig(runtime string) (*Config, error) {
 		return nil, fmt.Errorf("GATEWAY_SMTP_MAX_CONNECTIONS must be positive")
 	}
 	if config.POP3Address != "" {
-		if config.POP3TLSCertFile == "" || config.POP3TLSKeyFile == "" || len(config.POP3AllowedUpstreamHosts) == 0 {
-			return nil, fmt.Errorf("GATEWAY_POP3_ADDR requires a TLS certificate, private key, and deployed allowed hosts")
+		if config.POP3TLSCertFile == "" || config.POP3TLSKeyFile == "" {
+			return nil, fmt.Errorf("GATEWAY_POP3_ADDR requires a TLS certificate and private key")
 		}
 		if config.POP3MaxConnections < 1 || config.POP3AuthPerMinute < 1 || config.POP3AuthBurst < 1 || config.POP3IdleTimeout < 10*time.Minute || config.POP3PlannerTimeout <= 0 || config.POP3UpstreamTimeout <= 0 {
 			return nil, fmt.Errorf("invalid POP3 connection or timeout limits")
 		}
 	}
 	if config.IMAPAddress != "" {
-		if config.IMAPTLSCertFile == "" || config.IMAPTLSKeyFile == "" || len(config.IMAPAllowedUpstreamHosts) == 0 {
-			return nil, fmt.Errorf("GATEWAY_IMAP_ADDR requires a TLS certificate, private key, and deployed allowed hosts")
+		if config.IMAPTLSCertFile == "" || config.IMAPTLSKeyFile == "" {
+			return nil, fmt.Errorf("GATEWAY_IMAP_ADDR requires a TLS certificate and private key")
 		}
 		if config.IMAPMaxConnections < 1 || config.IMAPAuthPerMinute < 1 || config.IMAPAuthBurst < 1 || config.IMAPIdleTimeout < 10*time.Minute || config.IMAPPlannerTimeout <= 0 || config.IMAPUpstreamTimeout <= 0 {
 			return nil, fmt.Errorf("invalid IMAP connection or timeout limits")
@@ -419,9 +413,6 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.SMTPRelayAddress != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("GATEWAY_DELIVERY_SPOOL_PATH or GATEWAY_DELIVERY_DATABASE_URL is required when GATEWAY_SMTP_RELAY_ADDR is set")
-	}
-	if config.MailboxSMTPResolverURL != "" && len(config.MailboxSMTPAllowedHosts) == 0 {
-		return nil, fmt.Errorf("mailbox SMTP requires deployed allowed hosts")
 	}
 	if config.MailboxSMTPResolverURL != "" && config.InternalToken == "" {
 		return nil, fmt.Errorf("mailbox SMTP requires GATEWAY_INTERNAL_TOKEN")

@@ -284,14 +284,17 @@ request DELETE "$planner/schedules/notification-destination" -H "$auth" -H "If-M
 #    per delivery attempt: creation, rotation, revocation, and provider health.
 # ---------------------------------------------------------------------------
 request POST "$planner/email/upstreams" -H "$auth" -H 'Content-Type: application/json' \
-    -d '{"protocol":"imap","name":"mail","address":"127.0.0.1:1","server_name":"127.0.0.1"}'
+    -d '{"protocol":"imap","name":"mail","address":"127.0.0.1:1","server_name":"127.0.0.1","network_scope":"private"}'
 [[ "$CODE" == "201" ]] || fail "IMAP upstream creation failed: $CODE $(cat "$RESP_BODY")"
 request POST "$planner/email/upstreams" -H "$auth" -H 'Content-Type: application/json' \
-    -d '{"protocol":"smtp","name":"mail","address":"127.0.0.1:1","server_name":"127.0.0.1","tls_mode":"starttls"}'
+    -d '{"protocol":"smtp","name":"mail","address":"127.0.0.1:1","server_name":"127.0.0.1","tls_mode":"starttls","network_scope":"private"}'
 [[ "$CODE" == "201" ]] || fail "SMTP upstream creation failed: $CODE $(cat "$RESP_BODY")"
 request POST "$planner/email/upstreams" -H "$auth" -H 'Content-Type: application/json' \
-    -d '{"protocol":"imap","name":"evil","address":"evil.test:143","server_name":"evil.test"}'
-[[ "$CODE" == "422" ]] || fail "Email upstream outside the deployed ceiling was accepted: $CODE"
+    -d '{"protocol":"imap","name":"other","address":"other.test:993","server_name":"other.test"}'
+[[ "$CODE" == "201" ]] || fail "Planner rejected a new public mail host without a deployment change: $CODE"
+request POST "$planner/email/upstreams" -H "$auth" -H 'Content-Type: application/json' \
+    -d '{"protocol":"imap","name":"bad","address":"other.test:0","server_name":"other.test"}'
+[[ "$CODE" == "422" ]] || fail "Planner accepted an invalid mail endpoint: $CODE"
 
 pem1_file="$TEMP_DIR/dkim-1.pem"
 pem2_file="$TEMP_DIR/dkim-2.pem"

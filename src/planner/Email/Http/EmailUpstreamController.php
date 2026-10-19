@@ -47,7 +47,7 @@ final readonly class EmailUpstreamController
         try {
             $row = $this->upstreams->create($request->json()->all());
         } catch (InvalidArgumentException) {
-            return response()->json(['message' => 'Invalid Email upstream or host is not deployed.'], 422);
+            return response()->json(['message' => 'Invalid Email upstream.'], 422);
         } catch (QueryException) {
             return response()->json(['message' => 'Email upstream already exists.'], 409);
         }
@@ -67,7 +67,7 @@ final readonly class EmailUpstreamController
         try {
             $row = $this->upstreams->replace($upstream, $request->json()->all(), $revision);
         } catch (InvalidArgumentException) {
-            return response()->json(['message' => 'Invalid Email upstream or host is not deployed.'], 422);
+            return response()->json(['message' => 'Invalid Email upstream.'], 422);
         } catch (StaleResource) {
             return response()->json(['message' => 'Email upstream has changed.'], 412);
         }

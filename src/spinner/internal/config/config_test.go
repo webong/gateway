@@ -38,21 +38,17 @@ func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRequiresExplicitPOP3TLSAndAllowedHosts(t *testing.T) {
+func TestLoadConfigRequiresExplicitPOP3TLS(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_POP3_ADDR", ":995")
 	if _, err := LoadConfig(); err == nil {
-		t.Fatal("expected POP3 configuration to fail closed without TLS and upstreams")
+		t.Fatal("expected POP3 configuration to fail closed without TLS")
 	}
 	t.Setenv("GATEWAY_POP3_TLS_CERT_FILE", "/cert.pem")
 	t.Setenv("GATEWAY_POP3_TLS_KEY_FILE", "/key.pem")
-	t.Setenv("GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS", "pop.internal")
-	settings, err := LoadConfig()
+	_, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(settings.POP3AllowedUpstreamHosts) != 1 || settings.POP3AllowedUpstreamHosts[0] != "pop.internal" {
-		t.Fatalf("POP3 allowed hosts = %+v", settings.POP3AllowedUpstreamHosts)
 	}
 	t.Setenv("GATEWAY_POP3_IDLE_TIMEOUT", "1m")
 	if _, err := LoadConfig(); err == nil {
@@ -65,21 +61,17 @@ func TestLoadConfigRequiresExplicitPOP3TLSAndAllowedHosts(t *testing.T) {
 	}
 }
 
-func TestLoadConfigRequiresExplicitIMAPTLSAndAllowedHosts(t *testing.T) {
+func TestLoadConfigRequiresExplicitIMAPTLS(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_IMAP_ADDR", ":993")
 	if _, err := LoadConfig(); err == nil {
-		t.Fatal("expected IMAP to fail closed without TLS and upstreams")
+		t.Fatal("expected IMAP to fail closed without TLS")
 	}
 	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", "/cert.pem")
 	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", "/key.pem")
-	t.Setenv("GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS", "imap.internal")
-	settings, err := LoadConfig()
+	_, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(settings.IMAPAllowedUpstreamHosts) != 1 || settings.IMAPAllowedUpstreamHosts[0] != "imap.internal" {
-		t.Fatalf("IMAP allowed hosts = %+v", settings.IMAPAllowedUpstreamHosts)
 	}
 	t.Setenv("GATEWAY_IMAP_AUTH_BURST", "-1")
 	if _, err := LoadConfig(); err == nil {
@@ -315,13 +307,11 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Setenv("GATEWAY_DNS_NAMESERVERS", "")
 	t.Setenv("GATEWAY_SMTP_RELAY_ADDR", "")
 	t.Setenv("GATEWAY_POP3_ADDR", "")
-	t.Setenv("GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS", "")
 	t.Setenv("GATEWAY_POP3_TLS_CERT_FILE", "")
 	t.Setenv("GATEWAY_POP3_TLS_KEY_FILE", "")
 	t.Setenv("GATEWAY_POP3_AUTH_PER_MINUTE", "")
 	t.Setenv("GATEWAY_POP3_AUTH_BURST", "")
 	t.Setenv("GATEWAY_IMAP_ADDR", "")
-	t.Setenv("GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS", "")
 	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", "")
 	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", "")
 	t.Setenv("GATEWAY_IMAP_AUTH_PER_MINUTE", "")

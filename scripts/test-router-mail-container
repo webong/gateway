@@ -42,7 +42,6 @@ docker run -d --name "$MAILBOX" --network "$NETWORK" --network-alias mailbox \
     --mount "type=bind,source=$TEMP_DIR,target=/certs,readonly" \
     dovecot/dovecot:latest-dev >/dev/null
 docker run -d --name "$GATEWAY" --read-only --tmpfs /tmp --network "$NETWORK" --network-alias gateway \
-    -e GATEWAY_MAIL_ALLOWED_HOSTS=mailbox \
     -e GATEWAY_ROUTER_TLS_NAME=gateway \
     -e GATEWAY_PUBLIC_URL=https://gateway:8443 \
     -e SSL_CERT_FILE=/certs/server.crt \

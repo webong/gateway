@@ -38,6 +38,9 @@ type Config struct {
 	TLSMode    TLSMode
 	TLSConfig  *tls.Config
 	Timeout    time.Duration
+	// NetworkScope is set only for Planner-managed endpoints. Empty retains
+	// the legacy deployment-configured relay dial path.
+	NetworkScope string
 }
 
 // Message is one SMTP envelope and its unchanged RFC 5322 payload.
@@ -115,8 +118,13 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 		return errors.New("outbound SMTP message data is required")
 	}
 
-	dialer := &net.Dialer{Timeout: s.config.Timeout}
-	connection, err := dialer.DialContext(ctx, "tcp", s.config.Address)
+	var connection net.Conn
+	var err error
+	if s.config.NetworkScope != "" {
+		connection, err = bridge.DialMailUpstream(ctx, s.config.Address, s.config.NetworkScope, s.config.Timeout)
+	} else {
+		connection, err = (&net.Dialer{Timeout: s.config.Timeout}).DialContext(ctx, "tcp", s.config.Address)
+	}
 	if err != nil {
 		return fmt.Errorf("connect to outbound SMTP relay: %w", err)
 	}

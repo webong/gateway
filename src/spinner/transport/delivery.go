@@ -43,7 +43,7 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 		if err != nil {
 			return nil, err
 		}
-		adapter, err := smtpout.NewManagedMailboxAdapter(resolver, settings.MailboxSMTPAllowedHosts, settings.SMTPRelayTimeout)
+		adapter, err := smtpout.NewManagedMailboxAdapter(resolver, settings.SMTPRelayTimeout)
 		if err != nil {
 			return nil, err
 		}

@@ -77,14 +77,15 @@ on an external IMAP/SMTP provider. Run the Planner migrations, which create
 `accounts`, `configurations`, `configuration_secrets`, and
 `resource_observations`.
 Connection definitions are account-owned `email.mailbox-connection` resources;
-live credentials and health observations are stored separately. Configure exact
-upstream hosts as deployment ceilings in Planner's
-`gateway.email.upstream_allowed_hosts` and Spinner's
-`GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS` and
-`GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS` (or the matching Caddy options). Then
-create `POST /email/upstreams` resources for each IMAP and SMTP ID with
-`protocol`, `name`, `address`, and `server_name`; SMTP also requires
-`tls_mode` (`implicit` or `starttls`). Set
+live credentials and health observations are stored separately. Create
+`POST /email/upstreams` resources for each IMAP and SMTP ID with `protocol`,
+`name`, `address`, and `server_name`; SMTP also requires `tls_mode`
+(`implicit` or `starttls`). `network_scope` defaults to `public`: Spinner
+resolves the hostname, rejects private and special-purpose IPs, and dials a
+checked IP without a second DNS lookup. An operator may set `network_scope`
+to `private` for an intentionally internal mail server; loopback and
+link-local addresses remain blocked. No exact-host environment list is
+required. Set
 `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` to
 `Webong\Gateway\Email\ConnectedIMAPAuthenticator` and
 `GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR` to
@@ -93,8 +94,8 @@ HTTPS submission listeners, create `/email/runtime-policy` with
 `connected_smtp_enabled: true`,
 and give Spinner durable delivery storage, `GATEWAY_INTERNAL_TOKEN`,
 `GATEWAY_MAILBOX_SMTP_RESOLVER_URL` pointing to Planner's private origin, and
-a private delivery admin listener. The Caddy SMTP app supports equivalent
-`mailbox_resolver_url` and `mailbox_allowed_hosts` settings.
+a private delivery admin listener. The Caddy SMTP app supports the equivalent
+`mailbox_resolver_url` setting.
 
 An operator creates an account with `POST /accounts` using the
 registry token and `{"id":"customer-id"}`. Mail currently uses the returned
@@ -544,8 +545,7 @@ calling Planner. Each protocol defaults to 30 attempts/minute with a burst of
 policy.
 
 Set `GATEWAY_POP3_ADDR=:995`, `GATEWAY_POP3_HOSTNAME`,
-`GATEWAY_POP3_TLS_CERT_FILE`, `GATEWAY_POP3_TLS_KEY_FILE`, and
-`GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS` (an exact-host deployment ceiling).
+`GATEWAY_POP3_TLS_CERT_FILE`, and `GATEWAY_POP3_TLS_KEY_FILE`.
 Create a `POST /email/upstreams` resource for each POP3 ID.
 The address must point to an operator-trusted POP3 server with a certificate
 valid for `server_name`; Spinner verifies it against the host trust store.
@@ -560,8 +560,7 @@ Optional limits are `GATEWAY_POP3_MAX_CONNECTIONS`,
 `GATEWAY_POP3_PLANNER_TIMEOUT`, and `GATEWAY_POP3_UPSTREAM_TIMEOUT`.
 
 For IMAP set `GATEWAY_IMAP_ADDR=:993`, `GATEWAY_IMAP_HOSTNAME`,
-`GATEWAY_IMAP_TLS_CERT_FILE`, `GATEWAY_IMAP_TLS_KEY_FILE`, and
-`GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS`, then create IMAP upstream resources
+`GATEWAY_IMAP_TLS_CERT_FILE`, and `GATEWAY_IMAP_TLS_KEY_FILE`, then create IMAP upstream resources
 pointing to native implicit-TLS IMAP servers. Optional
 limits are `GATEWAY_IMAP_MAX_CONNECTIONS`, `GATEWAY_IMAP_AUTH_PER_MINUTE`,
 `GATEWAY_IMAP_AUTH_BURST`, `GATEWAY_IMAP_IDLE_TIMEOUT` (minimum ten minutes),
@@ -571,7 +570,7 @@ The custom FrankenPHP/Caddy build also registers `gateway.pop3` and
 `gateway.imap` sibling TCP apps. They use the same TLS-only POP3/IMAP servers
 and private HTTP Planner bridge as standalone Spinner. Configure either app
 in the Caddy global block with `listen`, `planner_url`, `internal_token`,
-`tls_cert_file`, `tls_key_file`, and `allowed_upstream_hosts`. For example:
+`tls_cert_file` and `tls_key_file`. For example:
 
 ```caddyfile
 {
@@ -581,7 +580,6 @@ in the Caddy global block with `listen`, `planner_url`, `internal_token`,
         internal_token {$GATEWAY_INTERNAL_TOKEN}
         tls_cert_file /etc/gateway/mail.crt
         tls_key_file /etc/gateway/mail.key
-        allowed_upstream_hosts pop.internal
     }
     gateway_imap {
         listen :993
@@ -589,7 +587,6 @@ in the Caddy global block with `listen`, `planner_url`, `internal_token`,
         internal_token {$GATEWAY_INTERNAL_TOKEN}
         tls_cert_file /etc/gateway/mail.crt
         tls_key_file /etc/gateway/mail.key
-        allowed_upstream_hosts imap.internal
     }
 }
 ```

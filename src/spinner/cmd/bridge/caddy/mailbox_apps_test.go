@@ -43,7 +43,6 @@ func TestMailboxAppsParseCaddyfileAllowedHosts(t *testing.T) {
 	tls_cert_file /etc/gateway/mail.crt
 	tls_key_file /etc/gateway/mail.key
 	upstream_ca_file /etc/gateway/upstream-ca.crt
-	allowed_upstream_hosts mail.internal
 	max_connections 25
 	auth_per_minute 12
 	auth_burst 3
@@ -63,7 +62,7 @@ func TestMailboxAppsParseCaddyfileAllowedHosts(t *testing.T) {
 			if err := json.Unmarshal(result.Value, &config); err != nil {
 				t.Fatal(err)
 			}
-			if config.Listen != "127.0.0.1:1995" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "private-token" || config.UpstreamCAFile != "/etc/gateway/upstream-ca.crt" || len(config.AllowedUpstreamHosts) != 1 || config.AllowedUpstreamHosts[0] != "mail.internal" || config.MaxConnections != 25 || time.Duration(config.IdleTimeout) != 20*time.Minute {
+			if config.Listen != "127.0.0.1:1995" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "private-token" || config.UpstreamCAFile != "/etc/gateway/upstream-ca.crt" || config.MaxConnections != 25 || time.Duration(config.IdleTimeout) != 20*time.Minute {
 				t.Fatalf("unexpected mailbox app: %+v", config)
 			}
 			_, err = test.parse(caddyfile.NewTestDispenser(test.name+` {
@@ -81,7 +80,6 @@ func TestMailboxAppsProvisionTLSOnlyServers(t *testing.T) {
 	options := MailboxAppOptions{
 		PlannerURL: "http://127.0.0.1:8081", InternalToken: "private-token",
 		TLSCertFile: certFile, TLSKeyFile: keyFile,
-		AllowedUpstreamHosts: []string{"mail.internal"},
 	}
 	pop := &POP3App{MailboxAppOptions: options}
 	if err := pop.Provision(caddy.Context{}); err != nil {
@@ -97,14 +95,9 @@ func TestMailboxAppsProvisionTLSOnlyServers(t *testing.T) {
 	if _, ok := imapApp.server.(*imap.Server); !ok || imapApp.Listen != ":993" {
 		t.Fatalf("IMAP Caddy app did not provision the existing TLS server: %+v", imapApp)
 	}
-	missingTLS := &POP3App{MailboxAppOptions: MailboxAppOptions{PlannerURL: options.PlannerURL, InternalToken: options.InternalToken, AllowedUpstreamHosts: options.AllowedUpstreamHosts}}
+	missingTLS := &POP3App{MailboxAppOptions: MailboxAppOptions{PlannerURL: options.PlannerURL, InternalToken: options.InternalToken}}
 	if err := missingTLS.Provision(caddy.Context{}); err == nil {
 		t.Fatal("POP3 app accepted configuration without TLS")
-	}
-	invalidUpstream := &IMAPApp{MailboxAppOptions: options}
-	invalidUpstream.AllowedUpstreamHosts = nil
-	if err := invalidUpstream.Provision(caddy.Context{}); err == nil {
-		t.Fatal("IMAP app accepted missing deployed allowed hosts")
 	}
 	invalidCA := &POP3App{MailboxAppOptions: options}
 	invalidCA.UpstreamCAFile = keyFile
@@ -166,7 +159,6 @@ func TestMailboxCaddyAppsServeImplicitTLSGreetings(t *testing.T) {
 			options := MailboxAppOptions{
 				Listen: "127.0.0.1:0", PlannerURL: "http://127.0.0.1:8081", InternalToken: "private-token",
 				TLSCertFile: certFile, TLSKeyFile: keyFile,
-				AllowedUpstreamHosts: []string{"mail.internal"},
 			}
 			var app interface {
 				Provision(caddy.Context) error

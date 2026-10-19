@@ -809,16 +809,16 @@ bidirectional sessions.
   Spinner or the bundled Router; see [mail forwarding](docs/mail-forwarding.md)
 - `GATEWAY_POP3_TLS_CERT_FILE`, `GATEWAY_POP3_TLS_KEY_FILE` - required PEM
   certificate and key for POP3 client connections
-- `GATEWAY_POP3_ALLOWED_UPSTREAM_HOSTS` - exact deployment host ceiling;
-  POP3 endpoint IDs and addresses are managed through `/email/upstreams`
+- POP3 endpoint IDs, addresses, and network scope are managed through
+  `/email/upstreams`; no exact-host environment list is required
 - `GATEWAY_POP3_AUTH_PER_MINUTE`, `GATEWAY_POP3_AUTH_BURST` - per-socket-peer
   password-attempt limit local to each Spinner process (defaults `30` and `5`)
 - `GATEWAY_IMAP_ADDR` - enables the implicit-TLS IMAP upstream proxy; see
   [mail forwarding](docs/mail-forwarding.md)
 - `GATEWAY_IMAP_TLS_CERT_FILE`, `GATEWAY_IMAP_TLS_KEY_FILE` - required IMAP
   listener certificate and key
-- `GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS` - exact deployment host ceiling;
-  IMAP endpoint IDs and addresses are managed through `/email/upstreams`
+- IMAP endpoint IDs, addresses, and network scope are managed through
+  `/email/upstreams`; no exact-host environment list is required
 - `GATEWAY_IMAP_AUTH_PER_MINUTE`, `GATEWAY_IMAP_AUTH_BURST` - per-socket-peer
   password-attempt limit local to each Spinner process (defaults `30` and `5`)
 - `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` - Planner-owned mailbox credential

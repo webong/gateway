@@ -17,6 +17,7 @@ final readonly class MailboxAccessGrant
         public string $upstreamAuthMechanism = 'LOGIN',
         public string $upstreamAddress = '',
         public string $upstreamServerName = '',
+        public string $upstreamNetworkScope = 'public',
     ) {
         if ($identity === '' || strlen($identity) > 255 || trim($identity) !== $identity
             || preg_match('/[\x00-\x1F\x7F]/', $identity) === 1) {
@@ -39,6 +40,9 @@ final readonly class MailboxAccessGrant
         }
         if (($upstreamAddress === '') !== ($upstreamServerName === '')) {
             throw new InvalidArgumentException('Mailbox upstream endpoint is incomplete.');
+        }
+        if (! in_array($upstreamNetworkScope, ['public', 'private'], true)) {
+            throw new InvalidArgumentException('Mailbox upstream network scope is invalid.');
         }
     }
 }

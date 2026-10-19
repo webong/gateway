@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -34,23 +33,23 @@ type mailboxServer interface {
 }
 
 // MailboxAppOptions are shared by the POP3 and IMAP Caddy apps. The listener
-// is TLS-only; Planner selects an endpoint within deployed allowed hosts.
+// is TLS-only; Planner selects the endpoint and its network scope.
 type MailboxAppOptions struct {
-	Listen               string         `json:"listen,omitempty"`
-	PlannerURL           string         `json:"planner_url,omitempty"`
-	InternalToken        string         `json:"internal_token,omitempty"`
-	Hostname             string         `json:"hostname,omitempty"`
-	TLSCertFile          string         `json:"tls_cert_file,omitempty"`
-	TLSKeyFile           string         `json:"tls_key_file,omitempty"`
-	UpstreamCAFile       string         `json:"upstream_ca_file,omitempty"`
-	AllowedUpstreamHosts []string       `json:"allowed_upstream_hosts,omitempty"`
-	MaxConnections       int            `json:"max_connections,omitempty"`
-	AuthPerMinute        int            `json:"auth_per_minute,omitempty"`
-	AuthBurst            int            `json:"auth_burst,omitempty"`
-	IdleTimeout          caddy.Duration `json:"idle_timeout,omitempty"`
-	PlannerTimeout       caddy.Duration `json:"planner_timeout,omitempty"`
-	UpstreamTimeout      caddy.Duration `json:"upstream_timeout,omitempty"`
-	MaxBodySize          int64          `json:"max_body_size,omitempty"`
+	Listen              string         `json:"listen,omitempty"`
+	PlannerURL          string         `json:"planner_url,omitempty"`
+	InternalToken       string         `json:"internal_token,omitempty"`
+	Hostname            string         `json:"hostname,omitempty"`
+	TLSCertFile         string         `json:"tls_cert_file,omitempty"`
+	TLSKeyFile          string         `json:"tls_key_file,omitempty"`
+	UpstreamCAFile      string         `json:"upstream_ca_file,omitempty"`
+	MaxConnections      int            `json:"max_connections,omitempty"`
+	AuthPerMinute       int            `json:"auth_per_minute,omitempty"`
+	AuthBurst           int            `json:"auth_burst,omitempty"`
+	IdleTimeout         caddy.Duration `json:"idle_timeout,omitempty"`
+	PlannerTimeout      caddy.Duration `json:"planner_timeout,omitempty"`
+	UpstreamTimeout     caddy.Duration `json:"upstream_timeout,omitempty"`
+	MaxBodySize         int64          `json:"max_body_size,omitempty"`
+	dialManagedUpstream bridge.MailTLSDialer
 
 	server   mailboxServer
 	listener net.Listener
@@ -76,8 +75,8 @@ func (app *IMAPApp) Stop() error                     { return app.MailboxAppOpti
 
 func (app *MailboxAppOptions) provision(kind string) error {
 	app.applyDefaults(kind)
-	if app.InternalToken == "" || app.PlannerURL == "" || app.Listen == "" || app.TLSCertFile == "" || app.TLSKeyFile == "" || len(app.AllowedUpstreamHosts) == 0 {
-		return fmt.Errorf("gateway.%s requires a listener, private Planner URL, internal token, TLS certificate and deployed allowed hosts", kind)
+	if app.InternalToken == "" || app.PlannerURL == "" || app.Listen == "" || app.TLSCertFile == "" || app.TLSKeyFile == "" {
+		return fmt.Errorf("gateway.%s requires a listener, private Planner URL, internal token, and TLS certificate", kind)
 	}
 	if app.MaxConnections < 1 || app.AuthPerMinute < 1 || app.AuthBurst < 1 || app.IdleTimeout < caddy.Duration(10*time.Minute) || app.PlannerTimeout < 1 || app.UpstreamTimeout < 1 || app.MaxBodySize < 1 {
 		return fmt.Errorf("gateway.%s connection, authentication or timeout limits are invalid", kind)
@@ -103,8 +102,9 @@ func (app *MailboxAppOptions) provision(kind string) error {
 			return err
 		}
 		app.server, err = pop3.NewServer(pop3.Config{
-			Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, AllowedUpstreamHosts: app.AllowedUpstreamHosts, UpstreamRootCAs: upstreamRoots,
-			MaxConnections: app.MaxConnections, AuthPerMinute: app.AuthPerMinute, AuthBurst: app.AuthBurst,
+			Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, UpstreamRootCAs: upstreamRoots,
+			DialManagedUpstream: app.dialManagedUpstream,
+			MaxConnections:      app.MaxConnections, AuthPerMinute: app.AuthPerMinute, AuthBurst: app.AuthBurst,
 			IdleTimeout: time.Duration(app.IdleTimeout), PlannerTimeout: time.Duration(app.PlannerTimeout), UpstreamTimeout: time.Duration(app.UpstreamTimeout),
 		}, planner)
 		return err
@@ -114,8 +114,9 @@ func (app *MailboxAppOptions) provision(kind string) error {
 		return err
 	}
 	app.server, err = imap.NewServer(imap.Config{
-		Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, AllowedUpstreamHosts: app.AllowedUpstreamHosts, UpstreamRootCAs: upstreamRoots,
-		MaxConnections: app.MaxConnections, AuthPerMinute: app.AuthPerMinute, AuthBurst: app.AuthBurst,
+		Address: app.Listen, Hostname: app.Hostname, TLSConfig: tlsConfig, UpstreamRootCAs: upstreamRoots,
+		DialManagedUpstream: app.dialManagedUpstream,
+		MaxConnections:      app.MaxConnections, AuthPerMinute: app.AuthPerMinute, AuthBurst: app.AuthBurst,
 		IdleTimeout: time.Duration(app.IdleTimeout), PlannerTimeout: time.Duration(app.PlannerTimeout), UpstreamTimeout: time.Duration(app.UpstreamTimeout),
 	}, planner)
 	return err
@@ -208,7 +209,7 @@ func parseMailboxApp(d *caddyfile.Dispenser, kind string) (any, error) {
 	d.Next()
 	for nesting := d.Nesting(); d.NextBlock(nesting); {
 		switch d.Val() {
-		case "listen", "planner_url", "internal_token", "hostname", "tls_cert_file", "tls_key_file", "upstream_ca_file", "allowed_upstream_hosts":
+		case "listen", "planner_url", "internal_token", "hostname", "tls_cert_file", "tls_key_file", "upstream_ca_file":
 			option := d.Val()
 			value, err := stringArg(d)
 			if err != nil {
@@ -229,8 +230,6 @@ func parseMailboxApp(d *caddyfile.Dispenser, kind string) (any, error) {
 				app.TLSKeyFile = value
 			case "upstream_ca_file":
 				app.UpstreamCAFile = value
-			case "allowed_upstream_hosts":
-				app.AllowedUpstreamHosts = strings.Split(value, ",")
 			}
 		case "max_connections", "auth_per_minute", "auth_burst":
 			option := d.Val()

@@ -35,6 +35,7 @@ WORKDIR /gateway
 ENV GATEWAY_ROUTER_DATA_DIR=/data \
     GATEWAY_ROUTER_LISTEN=127.0.0.1:8080 \
     GATEWAY_ROUTER_TLS_LISTEN=:8443 \
+    GATEWAY_IMAP_ADDR=:993 \
     GATEWAY_ROUTER_ROADRUNNER_BIN=/usr/local/bin/gateway-router-roadrunner
 RUN mkdir -p /data/cache /data/storage/framework/cache/data \
         /data/storage/framework/sessions /data/storage/framework/views \

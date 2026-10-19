@@ -43,7 +43,6 @@ func TestBundledMailboxSMTPEnablesPrivateEmailSubmission(t *testing.T) {
 	t.Setenv("GATEWAY_DELIVERY_SPOOL_PATH", t.TempDir())
 	t.Setenv("GATEWAY_DELIVERY_ADMIN_ADDR", "127.0.0.1:5052")
 	t.Setenv("GATEWAY_MAILBOX_SMTP_RESOLVER_URL", "http://127.0.0.1:5053")
-	t.Setenv("GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS", "mail.example.test")
 	spinner, err := NewRouterFromEnvironment()
 	if err != nil {
 		t.Fatal(err)
@@ -51,9 +50,9 @@ func TestBundledMailboxSMTPEnablesPrivateEmailSubmission(t *testing.T) {
 	t.Cleanup(spinner.Close)
 	input := map[string]any{
 		"receipt_id": "11111111111111111111111111111111",
-		"mail_from": "alice@example.test", "authorized_senders": []string{"alice@example.test"},
-		"recipients": []string{"bob@example.test"},
-		"message": []byte("From: alice@example.test\r\nTo: bob@example.test\r\n\r\nhello"),
+		"mail_from":  "alice@example.test", "authorized_senders": []string{"alice@example.test"},
+		"recipients":            []string{"bob@example.test"},
+		"message":               []byte("From: alice@example.test\r\nTo: bob@example.test\r\n\r\nhello"),
 		"mailbox_connection_id": "11111111-1111-4111-8111-111111111111",
 	}
 	body, err := json.Marshal(input)

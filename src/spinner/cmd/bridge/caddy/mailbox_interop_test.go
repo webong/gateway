@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -76,7 +77,9 @@ func TestExternalMailboxCaddyInteroperability(t *testing.T) {
 			options := MailboxAppOptions{
 				Listen: "127.0.0.1:0", PlannerURL: planner.URL, InternalToken: internalToken,
 				Hostname: "localhost", TLSCertFile: certFile, TLSKeyFile: keyFile, UpstreamCAFile: upstreamCA,
-				AllowedUpstreamHosts: []string{"127.0.0.1"},
+				dialManagedUpstream: func(ctx context.Context, address, serverName, _ string, timeout time.Duration, roots *x509.CertPool) (net.Conn, error) {
+					return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: timeout}, Config: &tls.Config{ServerName: serverName, RootCAs: roots, MinVersion: tls.VersionTLS12}}).DialContext(ctx, "tcp", address)
+				},
 			}
 			var app interface {
 				Provision(caddy.Context) error

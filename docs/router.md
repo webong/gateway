@@ -265,14 +265,14 @@ mail credentials. The management credential is generated in the private
 `/data/gateway.env` file; retrieve it with the management CLI or provision a
 private credentials file before startup.
 
-For Planner-managed customer mailboxes, set the deployment safety ceiling
-`GATEWAY_MAIL_ALLOWED_HOSTS` to the exact TLS mail hosts the Router may reach.
-The bundle then enables TLS IMAP on 993 and a loopback-only SMTP credential
-resolver. Upstreams, accounts, mailbox connections, runtime policy, and
-enablement are Planner resources managed by API, not environment variables.
-The current exact-host ceiling means a new, previously unapproved provider host
-still needs an operator configuration change; it is not yet arbitrary-host
-self-service. Do not expose loopback ports 5052 or 5053. The private SMTP
+For Planner-managed customer mailboxes, the bundle enables TLS IMAP on 993 and
+a loopback-only SMTP credential resolver. Upstreams, accounts, mailbox
+connections, runtime policy, and enablement are Planner resources managed by
+API. An upstream's `network_scope` defaults to `public`; Spinner checks DNS
+answers and pins the permitted IP at dial time. `private` must be selected
+explicitly by an operator for an internal mail server. Loopback and link-local
+addresses remain blocked. No exact-host environment list is needed. Do not
+expose loopback ports 5052 or 5053. The private SMTP
 resolver endpoint is available only on 5053 and still checks the internal
 token; public HTTPS returns 404 for `/_internal` routes.
 

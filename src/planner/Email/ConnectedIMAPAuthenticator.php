@@ -23,6 +23,6 @@ final readonly class ConnectedIMAPAuthenticator implements MailboxAuthenticator
         return new MailboxAccessGrant($record->account_id.':'.$record->id,
             $resolved['upstream_id'], $resolved['username'], $resolved['secret'],
             $resolved['mechanism'] === 'XOAUTH2' ? 'XOAUTH2' : 'LOGIN',
-            $upstream['address'], $upstream['server_name']);
+            $upstream['address'], $upstream['server_name'], $upstream['network_scope'] ?? 'public');
     }
 }

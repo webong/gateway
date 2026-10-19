@@ -14,14 +14,15 @@ import (
 
 // MailboxCredential is resolved at delivery time and must not enter a spool.
 type MailboxCredential struct {
-	UpstreamID         string `json:"upstream_id"`
-	Username           string `json:"username"`
-	Secret             string `json:"secret"`
-	Mechanism          string `json:"mechanism"`
-	Address            string `json:"address"`
-	UpstreamAddress    string `json:"upstream_address"`
-	UpstreamServerName string `json:"upstream_server_name"`
-	UpstreamTLSMode    string `json:"upstream_tls_mode"`
+	UpstreamID           string `json:"upstream_id"`
+	Username             string `json:"username"`
+	Secret               string `json:"secret"`
+	Mechanism            string `json:"mechanism"`
+	Address              string `json:"address"`
+	UpstreamAddress      string `json:"upstream_address"`
+	UpstreamServerName   string `json:"upstream_server_name"`
+	UpstreamTLSMode      string `json:"upstream_tls_mode"`
+	UpstreamNetworkScope string `json:"upstream_network_scope"`
 }
 
 type MailboxCredentialResolver interface {
@@ -29,24 +30,18 @@ type MailboxCredentialResolver interface {
 }
 
 type MailboxAdapter struct {
-	resolver     MailboxCredentialResolver
-	upstreams    map[string]Config
-	allowedHosts []string
-	timeout      time.Duration
+	resolver  MailboxCredentialResolver
+	upstreams map[string]Config
+	timeout   time.Duration
 }
 
 // NewManagedMailboxAdapter resolves the current transport and credentials for
-// each attempt. The exact host list is a deployment ceiling, not a route map.
-func NewManagedMailboxAdapter(resolver MailboxCredentialResolver, allowedHosts []string, timeout time.Duration) (*MailboxAdapter, error) {
-	if resolver == nil || len(allowedHosts) == 0 || timeout <= 0 {
-		return nil, errors.New("managed mailbox SMTP requires a resolver and deployed allowed hosts")
+// each attempt. Planner selects the endpoint; the dial policy checks its IP.
+func NewManagedMailboxAdapter(resolver MailboxCredentialResolver, timeout time.Duration) (*MailboxAdapter, error) {
+	if resolver == nil || timeout <= 0 {
+		return nil, errors.New("managed mailbox SMTP requires a resolver and positive timeout")
 	}
-	for _, host := range allowedHosts {
-		if host == "" || host != strings.ToLower(host) || strings.ContainsAny(host, ":/ \t\r\n") {
-			return nil, errors.New("invalid managed mailbox SMTP allowed host")
-		}
-	}
-	return &MailboxAdapter{resolver: resolver, allowedHosts: append([]string(nil), allowedHosts...), timeout: timeout}, nil
+	return &MailboxAdapter{resolver: resolver, timeout: timeout}, nil
 }
 
 func NewMailboxAdapter(resolver MailboxCredentialResolver, upstreams map[string]Config) (*MailboxAdapter, error) {
@@ -85,13 +80,17 @@ func (a *MailboxAdapter) DeliverGateway(ctx context.Context, delivery bridge.Gat
 		return errors.New("mailbox SMTP credential lookup is unavailable")
 	}
 	config, ok := a.upstreams[credential.UpstreamID]
-	if len(a.allowedHosts) > 0 {
-		if !bridge.ApprovedMailUpstream(credential.UpstreamAddress, credential.UpstreamServerName, a.allowedHosts) ||
+	if a.timeout > 0 {
+		scope := credential.UpstreamNetworkScope
+		if scope == "" {
+			scope = "public"
+		}
+		if !bridge.ValidMailUpstream(credential.UpstreamAddress, credential.UpstreamServerName, scope) ||
 			(credential.UpstreamTLSMode != string(TLSImplicit) && credential.UpstreamTLSMode != string(TLSStartTLS)) {
-			return fmt.Errorf("%w: mailbox upstream is not deployed", bridge.ErrPermanentDelivery)
+			return fmt.Errorf("%w: mailbox upstream is invalid", bridge.ErrPermanentDelivery)
 		}
 		config = Config{Address: credential.UpstreamAddress, ServerName: credential.UpstreamServerName,
-			TLSMode: TLSMode(credential.UpstreamTLSMode), Timeout: a.timeout}
+			TLSMode: TLSMode(credential.UpstreamTLSMode), Timeout: a.timeout, NetworkScope: scope}
 		ok = true
 	}
 	if !ok || credential.Address == "" || !strings.EqualFold(credential.Address, delivery.Attributes["mail_from"]) {

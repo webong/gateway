@@ -29,18 +29,18 @@ type Upstream struct {
 }
 
 type Config struct {
-	Address              string
-	Hostname             string
-	TLSConfig            *tls.Config
-	Upstreams            map[string]Upstream
-	AllowedUpstreamHosts []string
-	UpstreamRootCAs      *x509.CertPool
-	MaxConnections       int
-	AuthPerMinute        int
-	AuthBurst            int
-	IdleTimeout          time.Duration
-	PlannerTimeout       time.Duration
-	UpstreamTimeout      time.Duration
+	Address             string
+	Hostname            string
+	TLSConfig           *tls.Config
+	Upstreams           map[string]Upstream
+	UpstreamRootCAs     *x509.CertPool
+	DialManagedUpstream bridge.MailTLSDialer
+	MaxConnections      int
+	AuthPerMinute       int
+	AuthBurst           int
+	IdleTimeout         time.Duration
+	PlannerTimeout      time.Duration
+	UpstreamTimeout     time.Duration
 }
 
 type Server struct {
@@ -92,11 +92,11 @@ func NewServer(config Config, planner bridge.ProtocolPlanner) (*Server, error) {
 	if config.UpstreamTimeout == 0 {
 		config.UpstreamTimeout = 10 * time.Second
 	}
+	if config.DialManagedUpstream == nil {
+		config.DialManagedUpstream = bridge.DialTLSMailUpstream
+	}
 	if config.MaxConnections < 1 || config.AuthPerMinute < 1 || config.AuthBurst < 1 || config.IdleTimeout < 10*time.Minute || config.PlannerTimeout < 1 || config.UpstreamTimeout < 1 {
 		return nil, errors.New("POP3 connection and timeout limits are invalid")
-	}
-	if len(config.Upstreams) == 0 && len(config.AllowedUpstreamHosts) == 0 {
-		return nil, errors.New("POP3 requires at least one registered mailbox upstream")
 	}
 	for id, upstream := range config.Upstreams {
 		if !validUpstreamID(id) || upstream.Address == "" || upstream.ServerName == "" {
@@ -307,11 +307,12 @@ func (s *Server) handle(connection net.Conn) {
 }
 
 type mailboxGrant struct {
-	identity string
-	upstream Upstream
-	username string
-	password string
-	id       string
+	identity     string
+	upstream     Upstream
+	username     string
+	password     string
+	id           string
+	networkScope string
 }
 
 func (s *Server) authenticate(sessionID, remoteAddr, username, password string) (*mailboxGrant, error) {
@@ -332,10 +333,15 @@ func (s *Server) authenticate(sessionID, remoteAddr, username, password string) 
 	upstream, ok := s.config.Upstreams[id]
 	if address := decision.Metadata["upstream_address"]; address != "" {
 		name := decision.Metadata["upstream_server_name"]
-		if !bridge.ApprovedMailUpstream(address, name, s.config.AllowedUpstreamHosts) {
-			return nil, errors.New("POP3 upstream is outside the deployed host ceiling")
+		scope := decision.Metadata["upstream_network_scope"]
+		if scope == "" {
+			scope = "public"
+		}
+		if !bridge.ValidMailUpstream(address, name, scope) {
+			return nil, errors.New("POP3 upstream is invalid")
 		}
 		upstream, ok = Upstream{Address: address, ServerName: name}, true
+		decision.Metadata["upstream_network_scope"] = scope
 	}
 	identity := decision.Metadata["identity"]
 	upstreamUsername := decision.Metadata["upstream_username"]
@@ -343,16 +349,24 @@ func (s *Server) authenticate(sessionID, remoteAddr, username, password string) 
 	if !ok || identity == "" || !validUsername(upstreamUsername) || !validCredential(upstreamPassword) || len(upstreamUsername) > 248 || len(upstreamPassword) > 248 {
 		return nil, errors.New("POP3 authentication decision has invalid upstream credentials")
 	}
-	return &mailboxGrant{identity: identity, upstream: upstream, username: upstreamUsername, password: upstreamPassword, id: id}, nil
+	return &mailboxGrant{identity: identity, upstream: upstream, username: upstreamUsername, password: upstreamPassword, id: id,
+		networkScope: decision.Metadata["upstream_network_scope"]}, nil
 }
 
 func (s *Server) connectUpstream(grant *mailboxGrant) (net.Conn, *bufio.Reader, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.UpstreamTimeout)
 	defer cancel()
-	connection, err := (&tls.Dialer{
-		NetDialer: &net.Dialer{Timeout: s.config.UpstreamTimeout},
-		Config:    &tls.Config{ServerName: grant.upstream.ServerName, RootCAs: s.config.UpstreamRootCAs, MinVersion: tls.VersionTLS12},
-	}).DialContext(ctx, "tcp", grant.upstream.Address)
+	var connection net.Conn
+	var err error
+	if grant.networkScope != "" {
+		connection, err = s.config.DialManagedUpstream(ctx, grant.upstream.Address, grant.upstream.ServerName,
+			grant.networkScope, s.config.UpstreamTimeout, s.config.UpstreamRootCAs)
+	} else {
+		connection, err = (&tls.Dialer{
+			NetDialer: &net.Dialer{Timeout: s.config.UpstreamTimeout},
+			Config:    &tls.Config{ServerName: grant.upstream.ServerName, RootCAs: s.config.UpstreamRootCAs, MinVersion: tls.VersionTLS12},
+		}).DialContext(ctx, "tcp", grant.upstream.Address)
+	}
 	if err != nil {
 		return nil, nil, err
 	}

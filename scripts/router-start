@@ -107,12 +107,9 @@ export GATEWAY_ROUTER_LISTEN=${GATEWAY_ROUTER_LISTEN:-:8080}
 # bind it to a trusted private interface; the default is local to the Router.
 export GATEWAY_ROUTER_CONTROL_LISTEN=${GATEWAY_ROUTER_CONTROL_LISTEN:-127.0.0.1:5053}
 
-# A bundled Router owns its private mailbox resolver. A single deployment
-# ceiling is shared by Planner validation, IMAP ingress, and queued SMTP sends;
-# connection choices and credentials remain Planner resources.
-if [ -n "${GATEWAY_MAIL_ALLOWED_HOSTS:-}" ]; then
-    export GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS=${GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS:-$GATEWAY_MAIL_ALLOWED_HOSTS}
-    export GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS=${GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS:-$GATEWAY_MAIL_ALLOWED_HOSTS}
+# Planner owns mailbox upstream hosts and network scope. Spinner resolves
+# credentials privately and enforces the scope against DNS results when dialing.
+if [ "$RUNTIME" = roadrunner ]; then
     export GATEWAY_MAILBOX_SMTP_RESOLVER_URL=${GATEWAY_MAILBOX_SMTP_RESOLVER_URL:-http://127.0.0.1:5053}
 fi
 
@@ -146,9 +143,6 @@ if [ -n "${GATEWAY_ROUTER_TLS_LISTEN:-}" ]; then
     fi
     export GATEWAY_IMAP_TLS_CERT_FILE=${GATEWAY_IMAP_TLS_CERT_FILE:-$GATEWAY_ROUTER_TLS_CERT_FILE}
     export GATEWAY_IMAP_TLS_KEY_FILE=${GATEWAY_IMAP_TLS_KEY_FILE:-$GATEWAY_ROUTER_TLS_KEY_FILE}
-    if [ -n "${GATEWAY_MAIL_ALLOWED_HOSTS:-}" ]; then
-        export GATEWAY_IMAP_ADDR=${GATEWAY_IMAP_ADDR:-:993}
-    fi
 fi
 if [ "$RUNTIME" = frankenphp ]; then
     case "$GATEWAY_ROUTER_CONTROL_LISTEN" in
@@ -232,7 +226,7 @@ php -r '
     foreach (["APP_BASE_PATH" => $octane, "COMPOSER_VENDOR_DIR" => dirname($app)."/vendor", "LARAVEL_OCTANE" => "1"] as $key => $value) {
         $config .= "    ".$key.": ".$quote($value)."\n";
     }
-    foreach (["APP_ENV", "APP_KEY", "DB_CONNECTION", "DB_URL", "DB_DATABASE", "SESSION_DRIVER", "GATEWAY_ROUTER_DATA_DIR", "LARAVEL_STORAGE_PATH", "APP_SERVICES_CACHE", "APP_PACKAGES_CACHE", "APP_CONFIG_CACHE", "APP_ROUTES_CACHE", "APP_EVENTS_CACHE", "GATEWAY_PATH_RESOLVER", "GATEWAY_INTERNAL_TOKEN", "REGISTRY_TOKEN", "GATEWAY_PUBLIC_URL", "GATEWAY_MAIL_ALLOWED_HOSTS", "GATEWAY_DELIVERY_ADMIN_URL", "GATEWAY_DELIVERY_ADMIN_NODES", "GATEWAY_DELIVERY_ADMIN_SHARED_URLS", "GATEWAY_DELIVERY_ADMIN_DISCOVERY_ENABLED", "GATEWAY_CACHE_STORE", "GATEWAY_MUTATION_LOCK_STORE"] as $key) {
+    foreach (["APP_ENV", "APP_KEY", "DB_CONNECTION", "DB_URL", "DB_DATABASE", "SESSION_DRIVER", "GATEWAY_ROUTER_DATA_DIR", "LARAVEL_STORAGE_PATH", "APP_SERVICES_CACHE", "APP_PACKAGES_CACHE", "APP_CONFIG_CACHE", "APP_ROUTES_CACHE", "APP_EVENTS_CACHE", "GATEWAY_PATH_RESOLVER", "GATEWAY_INTERNAL_TOKEN", "REGISTRY_TOKEN", "GATEWAY_PUBLIC_URL", "GATEWAY_DELIVERY_ADMIN_URL", "GATEWAY_DELIVERY_ADMIN_NODES", "GATEWAY_DELIVERY_ADMIN_SHARED_URLS", "GATEWAY_DELIVERY_ADMIN_DISCOVERY_ENABLED", "GATEWAY_CACHE_STORE", "GATEWAY_MUTATION_LOCK_STORE"] as $key) {
         $value = getenv($key);
         if ($value !== false && $value !== "") {
             $config .= "    ".$key.": ".$quote($value)."\n";

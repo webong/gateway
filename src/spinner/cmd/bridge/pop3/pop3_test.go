@@ -108,14 +108,16 @@ func TestTLSProxyAuthenticatesAndStreamsExternalMailbox(t *testing.T) {
 				t.Errorf("unexpected client credentials")
 			}
 			decision.Metadata = map[string]string{"identity": "account-1", "upstream_id": "primary", "upstream_username": "upstream-alice", "upstream_password": "upstream-secret",
-				"upstream_address": upstreamListener.Addr().String(), "upstream_server_name": "localhost"}
+				"upstream_address": upstreamListener.Addr().String(), "upstream_server_name": "localhost", "upstream_network_scope": "private"}
 		}
 		return decision, nil
 	})
 	server, err := NewServer(Config{
 		Address: "127.0.0.1:0", Hostname: "localhost", TLSConfig: tlsConfig,
-		AllowedUpstreamHosts: []string{"127.0.0.1"},
-		UpstreamRootCAs:      roots,
+		UpstreamRootCAs: roots,
+		DialManagedUpstream: func(ctx context.Context, address, serverName, _ string, timeout time.Duration, roots *x509.CertPool) (net.Conn, error) {
+			return (&tls.Dialer{NetDialer: &net.Dialer{Timeout: timeout}, Config: &tls.Config{ServerName: serverName, RootCAs: roots, MinVersion: tls.VersionTLS12}}).DialContext(ctx, "tcp", address)
+		},
 	}, planner)
 	if err != nil {
 		t.Fatal(err)
@@ -197,14 +199,19 @@ func TestRejectsUnregisteredUpstreamBeforeDial(t *testing.T) {
 	expectLine(t, reader, "-ERR mailbox service unavailable")
 }
 
-func TestServerRequiresTLSAndRegisteredUpstreams(t *testing.T) {
+func TestServerRequiresTLSAndValidStaticUpstreams(t *testing.T) {
 	tlsConfig, _ := testTLS(t)
-	for _, config := range []Config{{Address: "127.0.0.1:995"}, {Address: "127.0.0.1:995", TLSConfig: tlsConfig},
+	for _, config := range []Config{{Address: "127.0.0.1:995"},
 		{Address: "127.0.0.1:995", TLSConfig: tlsConfig, Upstreams: map[string]Upstream{"bad": {Address: "example.test:995"}}}} {
 		if _, err := NewServer(config, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
 			return bridge.GatewayDecision{}, nil
 		})); err == nil {
 			t.Fatal("invalid POP3 configuration was accepted")
 		}
+	}
+	if _, err := NewServer(Config{Address: "127.0.0.1:995", TLSConfig: tlsConfig}, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{}, nil
+	})); err != nil {
+		t.Fatalf("Planner-managed POP3 listener required a deployment upstream: %v", err)
 	}
 }

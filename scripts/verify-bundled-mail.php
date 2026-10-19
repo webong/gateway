@@ -106,7 +106,7 @@ if (($policy['connected_smtp_enabled'] ?? null) !== true || ($policy['http_submi
 foreach (['imap' => $imapPort, 'smtp' => $smtpPort] as $protocol => $port) {
     [$status] = gatewayRequest('POST', '/email/upstreams', $operator, [
         'protocol' => $protocol, 'name' => $protocol.'-'.$suffix,
-        'address' => $host.':'.$port, 'server_name' => $host,
+        'address' => $host.':'.$port, 'server_name' => $host, 'network_scope' => 'private',
         ...($protocol === 'smtp' ? ['tls_mode' => 'implicit'] : []),
     ]);
     expectStatus($status, 201, "Planner {$protocol} upstream");

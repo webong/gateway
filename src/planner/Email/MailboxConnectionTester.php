@@ -79,14 +79,31 @@ final readonly class MailboxConnectionTester
     {
         $address = $upstream['address'] ?? null;
         $name = $upstream['server_name'] ?? null;
-        if (! is_string($address) || ! is_string($name) || $address === '' || $name === '') { return false; }
+        $scope = $upstream['network_scope'] ?? 'public';
+        if (! is_string($address) || ! is_string($name) || $address === '' || $name === '' ||
+            ! in_array($scope, ['public', 'private'], true)) { return false; }
+        $parts = parse_url('tcp://'.$address);
+        if (! is_array($parts) || ! is_string($parts['host'] ?? null) || ! is_int($parts['port'] ?? null)) { return false; }
+        $host = $parts['host'];
+        $ips = filter_var($host, FILTER_VALIDATE_IP) !== false ? [$host] : (@gethostbynamel($host) ?: []);
+        foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $record) {
+            if (is_string($record['ipv6'] ?? null)) { $ips[] = $record['ipv6']; }
+        }
         $context = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true,
             'peer_name' => $name, 'SNI_enabled' => true, 'crypto_method' => STREAM_CRYPTO_METHOD_TLS_CLIENT]]);
-        $stream = @stream_socket_client(($implicitTLS ? 'tls://' : 'tcp://').$address, $errno, $error, 5,
-            STREAM_CLIENT_CONNECT, $context);
-        if ($stream !== false) { stream_set_timeout($stream, 5); }
-
-        return $stream;
+        foreach (array_slice(array_unique($ips), 0, 8) as $ip) {
+            if (! MailNetworkPolicy::permits($ip, $scope)) { continue; }
+            $endpoint = str_contains($ip, ':') ? '['.$ip.']:'.$parts['port'] : $ip.':'.$parts['port'];
+            $stream = @stream_socket_client('tcp://'.$endpoint, $errno, $error, 5, STREAM_CLIENT_CONNECT, $context);
+            if ($stream === false) { continue; }
+            stream_set_timeout($stream, 5);
+            if ($implicitTLS && @stream_socket_enable_crypto($stream, true, STREAM_CRYPTO_METHOD_TLS_CLIENT) !== true) {
+                fclose($stream);
+                continue;
+            }
+            return $stream;
+        }
+        return false;
     }
 
     private function line(mixed $stream): string

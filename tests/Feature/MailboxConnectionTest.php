@@ -27,7 +27,6 @@ function mailboxInput(string $address): array
 
 function registerMailboxUpstreams(): void
 {
-    config()->set('gateway.email.upstream_allowed_hosts', ['imap.test', 'smtp.test']);
     $catalog = app(EmailUpstreamCatalog::class);
     $catalog->create(['protocol' => 'imap', 'name' => 'imap-a',
         'address' => 'imap.test:993', 'server_name' => 'imap.test']);

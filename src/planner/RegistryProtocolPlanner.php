@@ -103,6 +103,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                     ...($grant->upstreamAddress !== '' ? [
                         'upstream_address' => $grant->upstreamAddress,
                         'upstream_server_name' => $grant->upstreamServerName,
+                        'upstream_network_scope' => $grant->upstreamNetworkScope,
                     ] : []),
                 ],
             );
