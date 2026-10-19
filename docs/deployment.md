@@ -1,7 +1,15 @@
 # Deploying Gateway
 
-Deploy Spinner as a public Go router plus a private PHP Planner. For the
-combined RoadRunner or FrankenPHP distribution, see [Gateway Router](router.md).
+For a single-service deployment such as Zorvia's Mail integration, use the
+[bundled RoadRunner Router](router.md#roadrunner-docker-image): one image with
+Spinner and Planner, one private `/data` volume, HTTPS on 8443, and TLS IMAP on
+993 when `GATEWAY_MAIL_ALLOWED_HOSTS` is set. Planner APIs own the mailbox
+connections and policies. No separate PHP Planner or PostgreSQL service is
+needed for a single local replica. Do not point this deployment at the
+Go-only `webong/gateway:sha-545d432` image.
+
+The split deployment below remains available when Spinner and Planner need to
+scale independently:
 
 ```text
 Internet -> TLS terminator -> Spinner (Go) -> private network -> Planner (PHP)

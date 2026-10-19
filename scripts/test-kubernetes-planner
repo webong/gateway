@@ -525,10 +525,19 @@ if [[ "$WITH_EMAIL" == true ]]; then
     # The disposable .test domain has no public TXT owner. Seed only this
     # temporary database to test SMTP transport; the fixture smoke separately
     # covers TXT verification and this is not a public-domain proof.
-    EMAIL_SEED_RESULT=$(kubectl -n "$NAMESPACE" exec deployment/postgres -- \
-        psql -U postgres -d gateway -Atc \
-        "UPDATE email_domains SET verified_at=now(), enabled=true WHERE id='$EMAIL_DOMAIN_ID'")
-    if [[ "$EMAIL_SEED_RESULT" != 'UPDATE 1' ]]; then
+    EMAIL_SEED_RESULT=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
+        env "EMAIL_DOMAIN_ID=$EMAIL_DOMAIN_ID" php -r '
+            $app = require "/gateway/app/bootstrap/app.php";
+            $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            $store = $app->make(\Webong\Gateway\Resources\PlannerResourceStore::class);
+            $resource = $store->find("email.domain", getenv("EMAIL_DOMAIN_ID"));
+            if ($resource === null) { exit(1); }
+            $store->replace("email.domain", $resource->id, $resource->key,
+                [...$resource->document, "verified_at" => now("UTC")->toIso8601String()],
+                true, $resource->revision);
+            echo "SEEDED";
+        ')
+    if [[ "$EMAIL_SEED_RESULT" != 'SEEDED' ]]; then
         echo "Could not seed the disposable Email domain: $EMAIL_SEED_RESULT" >&2
         exit 1
     fi

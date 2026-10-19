@@ -33,15 +33,17 @@ COPY --from=router-builder /tmp/gateway-router-roadrunner /usr/local/bin/gateway
 COPY --from=planner-builder /src/gateway /gateway
 WORKDIR /gateway
 ENV GATEWAY_ROUTER_DATA_DIR=/data \
-    GATEWAY_ROUTER_LISTEN=:8080 \
+    GATEWAY_ROUTER_LISTEN=127.0.0.1:8080 \
+    GATEWAY_ROUTER_TLS_LISTEN=:8443 \
     GATEWAY_ROUTER_ROADRUNNER_BIN=/usr/local/bin/gateway-router-roadrunner
 RUN mkdir -p /data/cache /data/storage/framework/cache/data \
         /data/storage/framework/sessions /data/storage/framework/views \
+    && command -v openssl \
     && chown -R www-data:www-data /data \
     && printf 'variables_order=EGPCS\n' > /usr/local/etc/php/conf.d/roadrunner.ini \
     && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-start /gateway/scripts/router-artisan
 VOLUME /data
-EXPOSE 8080/tcp
+EXPOSE 8443/tcp 993/tcp
 USER www-data
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1

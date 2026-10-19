@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMAGE=${1:-gateway-router:roadrunner-local}
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+SUFFIX="$$-$RANDOM"
+NETWORK="gateway-mail-smoke-$SUFFIX"
+VOLUME="gateway-mail-smoke-$SUFFIX-data"
+GATEWAY="gateway-mail-smoke-$SUFFIX"
+MAILBOX="gateway-mailbox-smoke-$SUFFIX"
+SINK="gateway-relay-smoke-$SUFFIX"
+RELAY_IMAGE=${GATEWAY_MAIL_SMOKE_RELAY_IMAGE:-gateway-email-relay-smoke:local}
+TEMP_DIR=$(mktemp -d)
+cleanup() {
+    status=$?
+    if [[ $status -ne 0 && ${GATEWAY_MAIL_SMOKE_KEEP_ON_FAILURE:-0} == 1 ]]; then
+        echo "Disposable Mail smoke retained: gateway=$GATEWAY mailbox=$MAILBOX sink=$SINK network=$NETWORK volume=$VOLUME certs=$TEMP_DIR" >&2
+        return
+    fi
+    docker rm -f "$GATEWAY" "$MAILBOX" "$SINK" >/dev/null 2>&1 || true
+    docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+    docker network rm "$NETWORK" >/dev/null 2>&1 || true
+    rm -f "$TEMP_DIR/server.crt" "$TEMP_DIR/server.key"
+    rmdir "$TEMP_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+    -subj '/CN=mailbox' -addext 'subjectAltName=DNS:mailbox' \
+    -keyout "$TEMP_DIR/server.key" -out "$TEMP_DIR/server.crt" >/dev/null 2>&1
+chmod 644 "$TEMP_DIR/server.crt"
+docker network create "$NETWORK" >/dev/null
+docker volume create "$VOLUME" >/dev/null
+if ! docker image inspect "$RELAY_IMAGE" >/dev/null 2>&1; then
+    docker build -q -f "$ROOT/infra/docker/email-relay-fixture.Dockerfile" -t "$RELAY_IMAGE" "$ROOT" >/dev/null
+fi
+docker run -d --name "$SINK" --network "$NETWORK" --network-alias relay \
+    "$RELAY_IMAGE" -addr 0.0.0.0:1025 -output /tmp/accepted.jsonl >/dev/null
+docker run -d --name "$MAILBOX" --network "$NETWORK" --network-alias mailbox \
+    -e 'USER_PASSWORD={PLAIN}mailbox-smoke-pass' \
+    --mount "type=bind,source=$ROOT/infra/docker/dovecot-bundled-mail-test.conf,target=/etc/dovecot/conf.d/zz-gateway-test.conf,readonly" \
+    --mount "type=bind,source=$TEMP_DIR,target=/certs,readonly" \
+    dovecot/dovecot:latest-dev >/dev/null
+docker run -d --name "$GATEWAY" --read-only --tmpfs /tmp --network "$NETWORK" --network-alias gateway \
+    -e GATEWAY_MAIL_ALLOWED_HOSTS=mailbox \
+    -e GATEWAY_ROUTER_TLS_NAME=gateway \
+    -e GATEWAY_PUBLIC_URL=https://gateway:8443 \
+    -e SSL_CERT_FILE=/certs/server.crt \
+    --mount "type=volume,source=$VOLUME,target=/data" \
+    --mount "type=bind,source=$TEMP_DIR,target=/certs,readonly" \
+    "$IMAGE" >/dev/null
+
+for ((attempt=0; attempt<60; attempt++)); do
+    if [[ $(docker inspect -f '{{.State.Running}}' "$GATEWAY") != true ]] ||
+        [[ $(docker inspect -f '{{.State.Running}}' "$MAILBOX") != true ]]; then
+        docker logs "$GATEWAY" >&2 || true
+        docker logs "$MAILBOX" >&2 || true
+        exit 1
+    fi
+    if [[ $(docker inspect -f '{{.State.Health.Status}}' "$GATEWAY") == healthy ]] &&
+        docker exec "$GATEWAY" php -r '$s=@stream_socket_client("tls://mailbox:31993",$e,$m,2,STREAM_CLIENT_CONNECT,stream_context_create(["ssl"=>["verify_peer"=>true,"verify_peer_name"=>true,"peer_name"=>"mailbox"]])); if (!$s) exit(1); fclose($s);' >/dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+if [[ $(docker inspect -f '{{.State.Health.Status}}' "$GATEWAY") != healthy ]]; then
+    docker logs "$GATEWAY" >&2
+    exit 1
+fi
+
+docker exec -i -e GATEWAY_TEST_MAILBOX_PASSWORD=mailbox-smoke-pass \
+    -e GATEWAY_TEST_MAILBOX_HOST=mailbox "$GATEWAY" \
+    php < "$ROOT/scripts/verify-bundled-mail.php"
+docker exec "$SINK" sh -c 'test "$(wc -l </tmp/accepted.jsonl)" -eq 2'

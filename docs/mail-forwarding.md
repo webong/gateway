@@ -73,8 +73,11 @@ These are local implementation contracts, not evidence of compatibility with
 real Google/Microsoft mailboxes or a production MX/relay deployment.
 
 Mailbox connections are a separate opt-in path for customers whose mail lives
-on an external IMAP/SMTP provider. Run the `mailbox_accounts`,
-`mailbox_connections`, and shared `configurations` migrations. Configure exact
+on an external IMAP/SMTP provider. Run the Planner migrations, which create
+`accounts`, `configurations`, `configuration_secrets`, and
+`resource_observations`.
+Connection definitions are account-owned `email.mailbox-connection` resources;
+live credentials and health observations are stored separately. Configure exact
 upstream hosts as deployment ceilings in Planner's
 `gateway.email.upstream_allowed_hosts` and Spinner's
 `GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS` and
@@ -93,9 +96,10 @@ and give Spinner durable delivery storage, `GATEWAY_INTERNAL_TOKEN`,
 a private delivery admin listener. The Caddy SMTP app supports equivalent
 `mailbox_resolver_url` and `mailbox_allowed_hosts` settings.
 
-An operator creates an account with `POST /email/mailbox-accounts` using the
-registry token and `{"id":"customer-id"}`. The returned account bearer token
-manages only `/email/mailbox-accounts/{account}/connections`. Create with an
+An operator creates an account with `POST /accounts` using the
+registry token and `{"id":"customer-id"}`. Mail currently uses the returned
+account bearer token at `/email/mailbox-accounts/{account}/connections`; other
+resource kinds must authorize access explicitly. Create a connection with an
 email `address`, separate `imap_upstream_id` and `smtp_upstream_id`, separate
 usernames and secrets, and each side's `auth` (`password`, `google`, or
 `microsoft`). The create response returns one-time IMAP and SMTP client
@@ -205,8 +209,9 @@ routes, multiple recipients, pause/delete behavior, and an API. Keep these
 records distinct from HTTP WebProxy destinations even if they reuse shared
 endpoint and event infrastructure.
 
-The first Planner-owned control-plane slice now stores `email_domains` and
-`email_aliases`. The `REGISTRY_TOKEN`-authenticated `/email/domains` API creates
+The Planner-owned control plane stores Email domains and aliases as typed,
+versioned `email.domain` and `email.alias` resources in `configurations`. The
+`REGISTRY_TOKEN`-authenticated `/email/domains` API creates
 a disabled domain and returns a TXT challenge at
 `_gateway-verify.<domain>`. `POST /email/domains/{id}/verify` checks that
 record on every call; enabling a disabled domain rechecks live TXT ownership

@@ -48,7 +48,7 @@ return [
         'provider_route_resolver' => env('GATEWAY_EMAIL_PROVIDER_ROUTE_RESOLVER'),
         // Exact operator-approved upstream IDs. Customer input selects IDs,
         // never raw network addresses.
-        'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER'),
+        'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER', \Webong\Gateway\Email\ProviderMailboxOAuthRefresher::class),
         'oauth' => [
             'google' => ['client_id' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_ID'),
                 'client_secret' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET')],
@@ -62,13 +62,13 @@ return [
         // Optional deployment-owned SMTP AUTH authority. It verifies the
         // credential and returns exact sender grants; registry routes never
         // receive AUTH passwords.
-        'submission_authenticator' => env('GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR'),
+        'submission_authenticator' => env('GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedSMTPAuthenticator::class),
         // Optional deployment-owned POP3 credential authority. It returns a
         // registered upstream ID, never a client-selected network address.
-        'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR'),
+        'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedIMAPAuthenticator::class),
         // Deployment ceiling, supplied by the host application or mounted config;
         // Planner resources may only select these exact upstream hosts.
-        'upstream_allowed_hosts' => [],
+        'upstream_allowed_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('GATEWAY_MAIL_ALLOWED_HOSTS', ''))))),
         'hosted_allowed_hosts' => [],
     ],
 

@@ -106,6 +106,50 @@ export GATEWAY_ROUTER_LISTEN=${GATEWAY_ROUTER_LISTEN:-:8080}
 # Provisioning workers can reach this listener only when operators explicitly
 # bind it to a trusted private interface; the default is local to the Router.
 export GATEWAY_ROUTER_CONTROL_LISTEN=${GATEWAY_ROUTER_CONTROL_LISTEN:-127.0.0.1:5053}
+
+# A bundled Router owns its private mailbox resolver. A single deployment
+# ceiling is shared by Planner validation, IMAP ingress, and queued SMTP sends;
+# connection choices and credentials remain Planner resources.
+if [ -n "${GATEWAY_MAIL_ALLOWED_HOSTS:-}" ]; then
+    export GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS=${GATEWAY_IMAP_ALLOWED_UPSTREAM_HOSTS:-$GATEWAY_MAIL_ALLOWED_HOSTS}
+    export GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS=${GATEWAY_MAILBOX_SMTP_ALLOWED_HOSTS:-$GATEWAY_MAIL_ALLOWED_HOSTS}
+    export GATEWAY_MAILBOX_SMTP_RESOLVER_URL=${GATEWAY_MAILBOX_SMTP_RESOLVER_URL:-http://127.0.0.1:5053}
+fi
+
+if [ -n "${GATEWAY_ROUTER_TLS_LISTEN:-}" ]; then
+    TLS_NAME=${GATEWAY_ROUTER_TLS_NAME:-gateway}
+    if ! php -r 'exit(preg_match("/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/D", $argv[1]) === 1 ? 0 : 1);' "$TLS_NAME"; then
+        echo 'GATEWAY_ROUTER_TLS_NAME must be a DNS hostname.' >&2
+        exit 1
+    fi
+    if [ -n "${GATEWAY_ROUTER_TLS_CERT_FILE:-}" ] || [ -n "${GATEWAY_ROUTER_TLS_KEY_FILE:-}" ]; then
+        if [ -z "${GATEWAY_ROUTER_TLS_CERT_FILE:-}" ] || [ -z "${GATEWAY_ROUTER_TLS_KEY_FILE:-}" ] ||
+            [ ! -r "$GATEWAY_ROUTER_TLS_CERT_FILE" ] || [ ! -r "$GATEWAY_ROUTER_TLS_KEY_FILE" ]; then
+            echo 'Both mounted Router TLS certificate and key must be readable.' >&2
+            exit 1
+        fi
+    else
+        mkdir -p "$DATA_DIR/tls"
+        export GATEWAY_ROUTER_TLS_CERT_FILE="$DATA_DIR/tls/server.crt"
+        export GATEWAY_ROUTER_TLS_KEY_FILE="$DATA_DIR/tls/server.key"
+        if [ ! -f "$GATEWAY_ROUTER_TLS_CERT_FILE" ] && [ ! -f "$GATEWAY_ROUTER_TLS_KEY_FILE" ]; then
+            umask 077
+            openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 365 \
+                -subj "/CN=$TLS_NAME" \
+                -addext "subjectAltName=DNS:$TLS_NAME,DNS:localhost,IP:127.0.0.1" \
+                -keyout "$GATEWAY_ROUTER_TLS_KEY_FILE" -out "$GATEWAY_ROUTER_TLS_CERT_FILE" >/dev/null 2>&1
+        fi
+        if [ ! -r "$GATEWAY_ROUTER_TLS_CERT_FILE" ] || [ ! -r "$GATEWAY_ROUTER_TLS_KEY_FILE" ]; then
+            echo 'Persisted Router TLS certificate or key is missing; restore both from backup.' >&2
+            exit 1
+        fi
+    fi
+    export GATEWAY_IMAP_TLS_CERT_FILE=${GATEWAY_IMAP_TLS_CERT_FILE:-$GATEWAY_ROUTER_TLS_CERT_FILE}
+    export GATEWAY_IMAP_TLS_KEY_FILE=${GATEWAY_IMAP_TLS_KEY_FILE:-$GATEWAY_ROUTER_TLS_KEY_FILE}
+    if [ -n "${GATEWAY_MAIL_ALLOWED_HOSTS:-}" ]; then
+        export GATEWAY_IMAP_ADDR=${GATEWAY_IMAP_ADDR:-:993}
+    fi
+fi
 if [ "$RUNTIME" = frankenphp ]; then
     case "$GATEWAY_ROUTER_CONTROL_LISTEN" in
         *:*)
@@ -188,7 +232,7 @@ php -r '
     foreach (["APP_BASE_PATH" => $octane, "COMPOSER_VENDOR_DIR" => dirname($app)."/vendor", "LARAVEL_OCTANE" => "1"] as $key => $value) {
         $config .= "    ".$key.": ".$quote($value)."\n";
     }
-    foreach (["APP_ENV", "APP_KEY", "DB_CONNECTION", "DB_URL", "DB_DATABASE", "SESSION_DRIVER", "GATEWAY_ROUTER_DATA_DIR", "LARAVEL_STORAGE_PATH", "APP_SERVICES_CACHE", "APP_PACKAGES_CACHE", "APP_CONFIG_CACHE", "APP_ROUTES_CACHE", "APP_EVENTS_CACHE", "GATEWAY_PATH_RESOLVER", "GATEWAY_INTERNAL_TOKEN", "REGISTRY_TOKEN", "GATEWAY_PUBLIC_URL", "GATEWAY_DELIVERY_ADMIN_URL", "GATEWAY_DELIVERY_ADMIN_NODES", "GATEWAY_DELIVERY_ADMIN_SHARED_URLS", "GATEWAY_DELIVERY_ADMIN_DISCOVERY_ENABLED", "GATEWAY_CACHE_STORE", "GATEWAY_MUTATION_LOCK_STORE"] as $key) {
+    foreach (["APP_ENV", "APP_KEY", "DB_CONNECTION", "DB_URL", "DB_DATABASE", "SESSION_DRIVER", "GATEWAY_ROUTER_DATA_DIR", "LARAVEL_STORAGE_PATH", "APP_SERVICES_CACHE", "APP_PACKAGES_CACHE", "APP_CONFIG_CACHE", "APP_ROUTES_CACHE", "APP_EVENTS_CACHE", "GATEWAY_PATH_RESOLVER", "GATEWAY_INTERNAL_TOKEN", "REGISTRY_TOKEN", "GATEWAY_PUBLIC_URL", "GATEWAY_MAIL_ALLOWED_HOSTS", "GATEWAY_DELIVERY_ADMIN_URL", "GATEWAY_DELIVERY_ADMIN_NODES", "GATEWAY_DELIVERY_ADMIN_SHARED_URLS", "GATEWAY_DELIVERY_ADMIN_DISCOVERY_ENABLED", "GATEWAY_CACHE_STORE", "GATEWAY_MUTATION_LOCK_STORE"] as $key) {
         $value = getenv($key);
         if ($value !== false && $value !== "") {
             $config .= "    ".$key.": ".$quote($value)."\n";
@@ -200,7 +244,13 @@ php -r '
         fwrite(STDERR, "GATEWAY_ROUTER_PHP_WORKERS must be positive.\n");
         exit(1);
     }
-    $config .= "http:\n  address: ".$quote($listen)."\n  middleware: [\"gateway\", \"gzip\"]\n  max_request_size: 10\n  pool:\n    num_workers: ".$workers."\nlogs:\n  level: \"info\"\n";
+    $config .= "http:\n  address: ".$quote($listen)."\n";
+    if (($tlsListen = getenv("GATEWAY_ROUTER_TLS_LISTEN")) !== false && $tlsListen !== "") {
+        $config .= "  ssl:\n    address: ".$quote($tlsListen)."\n    redirect: false\n".
+            "    cert: ".$quote(getenv("GATEWAY_ROUTER_TLS_CERT_FILE"))."\n".
+            "    key: ".$quote(getenv("GATEWAY_ROUTER_TLS_KEY_FILE"))."\n";
+    }
+    $config .= "  middleware: [\"gateway\", \"gzip\"]\n  max_request_size: 10\n  pool:\n    num_workers: ".$workers."\nlogs:\n  level: \"info\"\n";
     file_put_contents($argv[1], $config);
 ' "$CONFIG_PATH"
 

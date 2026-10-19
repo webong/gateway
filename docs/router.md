@@ -241,15 +241,50 @@ smoke, but not a single-image managed-route deployment check.
 
 The alternative image packages `ext/roadrunner/cmd/router`, ordinary PHP CLI
 workers, and the same Planner host. It does not use FrankenPHP, ZTS, or a
-separate Planner service. It runs as `www-data`, listens on port 8080, and
-persists credentials, SQLite, storage, and generated worker configuration in `/data`.
+separate Planner service. It runs as `www-data`; RoadRunner serves HTTPS on
+8443 and keeps its HTTP health listener on container loopback. It persists
+credentials, SQLite, delivery spool, storage, generated worker configuration,
+and its local TLS certificate in `/data`.
 
 ```sh
 docker build -f infra/docker/RoadRunner.router.Dockerfile -t gateway-router:roadrunner-local .
-docker run -d --name gateway-router -p 8080:8080 \
+docker run -d --name gateway-router -p 8443:8443 \
   -v gateway-router-data:/data gateway-router:roadrunner-local
 docker exec gateway-router /gateway/scripts/gateway-router artisan gateway:endpoint orders
 ```
+
+On first start the container creates a self-signed certificate for
+`GATEWAY_ROUTER_TLS_NAME` (default `gateway`) and `localhost`, stored with the
+database in `/data/tls`. This is for local testing; mount a trusted certificate
+and key with `GATEWAY_ROUTER_TLS_CERT_FILE` and `GATEWAY_ROUTER_TLS_KEY_FILE` for
+deployed use. The same certificate is used for TLS IMAP unless separate IMAP
+certificate paths are supplied. Copy only `/data/tls/server.crt` to local
+clients that need to trust the generated certificate; never mount the entire
+`/data` volume into a consuming application, because it holds Planner keys and
+mail credentials. The management credential is generated in the private
+`/data/gateway.env` file; retrieve it with the management CLI or provision a
+private credentials file before startup.
+
+For Planner-managed customer mailboxes, set the deployment safety ceiling
+`GATEWAY_MAIL_ALLOWED_HOSTS` to the exact TLS mail hosts the Router may reach.
+The bundle then enables TLS IMAP on 993 and a loopback-only SMTP credential
+resolver. Upstreams, accounts, mailbox connections, runtime policy, and
+enablement are Planner resources managed by API, not environment variables.
+The current exact-host ceiling means a new, previously unapproved provider host
+still needs an operator configuration change; it is not yet arbitrary-host
+self-service. Do not expose loopback ports 5052 or 5053. The private SMTP
+resolver endpoint is available only on 5053 and still checks the internal
+token; public HTTPS returns 404 for `/_internal` routes.
+
+`bash scripts/test-router-mail-container gateway-router:roadrunner-local`
+starts one disposable Router plus a test-only Dovecot mailbox and an SMTP
+relay fixture. The relay must advertise 8BITMIME; the Mailpit image used in
+the earlier local test did not, and Dovecot rejected `BODY=8BITMIME` when its
+backend lacked support.
+It verifies two isolated Planner connections, TLS IMAP login, private SMTP
+credential lookup, HTTPS submission, idempotency, and delivered receipts. It
+does not prove compatibility with a real mailbox provider or public-domain
+mail delivery.
 
 Choose either Router image for a deployment; do not run both against the same
 SQLite volume concurrently. The existing single-replica Kubernetes Router

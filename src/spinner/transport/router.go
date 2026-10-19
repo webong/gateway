@@ -66,15 +66,19 @@ func NewRouterFromEnvironment() (*Router, error) {
 	var adminServer *http.Server
 	if settings.DeliveryAdminAddress != "" {
 		var options []deliveryadmin.HandlerOption
-		if settings.SMTPRelayAddress != "" {
-			adapter, adapterErr := NewSMTPAdapter(settings)
-			if adapterErr != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				_ = deliveryQueue.Close(ctx)
-				cancel()
-				workerPool.Shutdown()
-				forwarder.CloseIdleConnections()
-				return nil, adapterErr
+		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" {
+			var checker interface{ CheckSigningDomain(string) error }
+			if settings.SMTPRelayAddress != "" {
+				adapter, adapterErr := NewSMTPAdapter(settings)
+				if adapterErr != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+					_ = deliveryQueue.Close(ctx)
+					cancel()
+					workerPool.Shutdown()
+					forwarder.CloseIdleConnections()
+					return nil, adapterErr
+				}
+				checker = adapter
 			}
 			scanner, _, protectionErr := NewEmailProtection(settings)
 			if protectionErr != nil {
@@ -85,7 +89,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 				forwarder.CloseIdleConnections()
 				return nil, protectionErr
 			}
-			options = append(options, deliveryadmin.WithEmailSubmission(deliveryQueue, adapter, scanner, settings.SMTPMaxMessageSize, []byte(settings.InternalToken), settings.EmailDSNDomain != ""))
+			options = append(options, deliveryadmin.WithEmailSubmission(deliveryQueue, checker, scanner, settings.SMTPMaxMessageSize, []byte(settings.InternalToken), settings.EmailDSNDomain != ""))
 		}
 		handler, err := deliveryadmin.NewHandler(deliveryQueue, settings.InternalToken, options...)
 		if err != nil {

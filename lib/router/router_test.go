@@ -139,6 +139,9 @@ func TestProvisioningControlOnlyForwardsProvisioningRoutes(t *testing.T) {
 		want int
 	}{
 		{path: "/_internal/provisioning/targets/target-1", want: http.StatusOK},
+		{path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp", want: http.StatusOK},
+		{path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/imap", want: http.StatusNotFound},
+		{path: "/_internal/gateway/mailbox-connections/not-a-uuid/smtp", want: http.StatusNotFound},
 		{path: "/_internal/provisioning2/targets/target-1", want: http.StatusNotFound},
 		{path: "/_internal/gateway/plan", want: http.StatusNotFound},
 		{path: "/registry/endpoints", want: http.StatusNotFound},
@@ -156,6 +159,12 @@ func TestProvisioningControlOnlyForwardsProvisioningRoutes(t *testing.T) {
 	control.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/_internal/provisioning/targets/target-1", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("Planner authentication was bypassed: %d", response.Code)
+	}
+	response = httptest.NewRecorder()
+	control.ServeHTTP(response, httptest.NewRequest(http.MethodPost,
+		"/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("private mailbox credential endpoint accepted POST: %d", response.Code)
 	}
 }
 
