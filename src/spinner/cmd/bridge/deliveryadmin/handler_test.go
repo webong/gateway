@@ -69,6 +69,10 @@ type fakeEmailQueue struct {
 	accepted int
 }
 
+type unavailableSMTPQueue struct{ *fakeEmailQueue }
+
+func (*unavailableSMTPQueue) SupportsAdapter(string) bool { return false }
+
 type fakeSubmissionScanner struct{ infected bool }
 
 func (scanner fakeSubmissionScanner) Scan(context.Context, []byte) (smtp.ScanVerdict, error) {
@@ -274,6 +278,28 @@ func TestPrivateEmailSubmissionRequiresTokenAndAuthorizedAuthor(t *testing.T) {
 	encoded, _ = json.Marshal(input)
 	if response := submit("private-token", encoded); response.Code != http.StatusUnprocessableEntity || spool.accepted != 1 {
 		t.Fatalf("spoofed author reached spool: %d", response.Code)
+	}
+}
+
+func TestPrivateEmailSubmissionRequiresGatewayOutboundAdapter(t *testing.T) {
+	spool := &unavailableSMTPQueue{fakeEmailQueue: &fakeEmailQueue{}}
+	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("private-loop-key"), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"receipt_id": deliveryID, "mail_from": "alice@example.test",
+		"authorized_senders": []string{"alice@example.test"},
+		"recipients":         []string{"bob@example.test"},
+		"message":            []byte("From: alice@example.test\r\n\r\nhello"),
+	})
+	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer private-token")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || spool.accepted != 0 {
+		t.Fatalf("submission without an outbound adapter was accepted: %d %s", response.Code, response.Body.String())
 	}
 }
 

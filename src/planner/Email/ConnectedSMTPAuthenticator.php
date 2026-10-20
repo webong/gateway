@@ -8,12 +8,18 @@ use Webong\Gateway\Protocol\GatewayEvent;
 
 final readonly class ConnectedSMTPAuthenticator implements EmailSubmissionAuthenticator
 {
-    public function __construct(private MailboxConnectionStore $connections) {}
+    public function __construct(private MailboxConnectionStore $connections, private ManagedSendingStore $managed) {}
 
     public function authorize(GatewayEvent $event): ?EmailSubmissionGrant
     {
         if ($event->protocol->value !== 'smtp') { return null; }
-        $record = $this->connections->authenticate($event->attributes['username'] ?? '', $event->attributes['password'] ?? '', 'smtp');
+        $username = $event->attributes['username'] ?? '';
+        $password = $event->attributes['password'] ?? '';
+        $sender = $this->managed->authenticate($username, $password);
+        if ($sender !== null) {
+            return new EmailSubmissionGrant($sender->owner.':'.$sender->id, [$sender->key]);
+        }
+        $record = $this->connections->authenticate($username, $password, 'smtp');
 
         return $record === null ? null : new EmailSubmissionGrant(
             $record->account_id.':'.$record->id, [$record->address], connectionId: $record->id);

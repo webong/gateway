@@ -115,7 +115,36 @@ uses disposable loopback fixtures; it does not prove cross-container or
 public-network reachability. The hard ceiling is a bootstrap safety limit,
 not a customer-configurable mail route.
 
-For sending without IMAP, use `POST .../sending-connections` with `address`,
+For Gateway-managed sending, create an account-scoped domain with
+`POST .../sending-domains` and `{"domain":"acme.example"}`. Publish the
+returned `records.txt` ownership challenge, then call
+`POST .../sending-domains/{id}/verify`. This is independent of receiving:
+it does not require an MX change or an external SMTP provider. If the same
+account creates both a receiving and a sending domain for the same name,
+the later resource reuses the existing ownership TXT value; each is still
+verified separately. Another account receives a distinct
+challenge, and an unverified claim does not reserve the name. The domain
+response reports ownership separately from SPF and DKIM; the latter are
+`not_checked` because Gateway does not yet know the operator's chosen egress
+IP, relay, or signing selector. Verification alone
+does not prove deliverability or sender reputation.
+
+Create `POST .../sending-routes` with a verified `domain_id` and `local_part`.
+The exact sender address is owned by that account. The response returns the
+route UUID as `smtp_client_username` and a one-time
+`smtp_client_password`; `GET` never returns the password. Use those
+credentials with HTTPS `/email/submissions` (Basic auth plus
+`Idempotency-Key`) or TLS-gated SMTP AUTH. Gateway's existing durable
+outbound queue and operator-configured relay handle delivery; a missing
+outbound adapter yields a service-unavailable response rather than an
+accepted receipt. `PATCH .../sending-routes/{id}` enables or disables a
+route, `POST .../{id}/rotate` changes the password, and deletion revokes it.
+The operator must configure a relay, SPF, DKIM, TLS, abuse limits, and
+public reachability before treating this as a production sending service.
+No Cloudflare or Resend credential is part of this account-facing contract.
+
+For sending through a customer's existing external SMTP provider instead,
+use `POST .../sending-connections` with `address`,
 `smtp_upstream_id`, `smtp_username`, `smtp_auth`, and `smtp_secret`. The SMTP
 upstream itself is an operator-managed `/email/upstreams` resource. The create
 response gives a one-time `smtp_client_password`; the connection UUID is the
@@ -231,6 +260,23 @@ settings, disables the connection, and requires another test. `DELETE` removes
 it. Management requires HTTPS. Secrets are encrypted at rest and omitted from
 read responses. Each queued SMTP message stores only the connection UUID;
 the worker fetches current credentials and approved routing at delivery time.
+
+For receive-only access to a customer's existing mailbox, use
+`POST /email/mailbox-accounts/{account}/imap-connections` instead. The exact
+create body is `address`, `imap_upstream_id`, `imap_username`, `imap_auth`,
+and `imap_secret`; no SMTP upstream or SMTP secret is accepted. The response
+contains `connection` (`id`, `account_id`, `mode: "imap"`, `address`, IMAP
+settings, `enabled: false`, `health: "untested"`) and a one-time
+`imap_client_password`. The UUID is the client IMAP username. `GET` never
+returns either secret. `POST .../{id}/test` probes only IMAP, and
+`PATCH .../{id}` with `{"enabled":true}` requires a healthy IMAP observation.
+`PUT` replaces the IMAP settings and disables the connection; `POST
+.../{id}/rotate` replaces only the client password. This mode has no SMTP
+client password, cannot authenticate to SMTP or HTTPS submission, and cannot
+resolve an outbound SMTP transport. The existing combined `/connections`
+and SMTP-only `/sending-connections` remain unchanged. Pair IMAP-only receive
+with a separate Gateway `/sending-routes` identity to send replies without
+using the mailbox provider's SMTP service.
 
 For OAuth, set `GATEWAY_EMAIL_OAUTH_REFRESHER` to
 `Webong\Gateway\Email\ProviderMailboxOAuthRefresher` and configure the matching
@@ -810,8 +856,9 @@ processes is unsupported. A future distributed adapter can implement the same
 
 Gateway's bundled Router can poll an external IMAP mailbox without Zorvia
 running its own IMAP worker. First create, test, and enable an account-owned
-mailbox connection. Then `PUT` over HTTPS with that account's bearer token to
-`/email/mailbox-accounts/{account}/connections/{connection}/polling`:
+combined or IMAP-only connection. Then `PUT` over HTTPS with that account's
+bearer token to `/email/mailbox-accounts/{account}/connections/{connection}/polling`
+or `/email/mailbox-accounts/{account}/imap-connections/{connection}/polling`:
 
 ```json
 {

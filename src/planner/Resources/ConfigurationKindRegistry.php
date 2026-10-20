@@ -14,7 +14,8 @@ final class ConfigurationKindRegistry
             'schedule.notification', 'shell.hook-grant', 'shell.ssh-execution', 'email.submission-policy',
             'email.runtime-policy', 'email.srs-policy', 'email.upstream',
             'email.hosted-adapter', 'email.hosted-route', 'email.dkim-key', 'email.domain', 'email.alias',
-            'email.receiving-domain', 'email.receiving-route', 'email.receiving-settings'];
+            'email.receiving-domain', 'email.receiving-route', 'email.receiving-settings',
+            'email.sending-domain', 'email.sending-route'];
     }
 
     public function contains(string $kind): bool

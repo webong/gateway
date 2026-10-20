@@ -34,7 +34,7 @@ final readonly class MailboxConnectionStore
     }
 
     /** @param array<string, string> $input
-     * @return array{record: stdClass, imap_password: string, smtp_password: string}
+     * @return array{record: stdClass, imap_password: ?string, smtp_password: ?string}
      */
     public function create(string $account, array $input): array
     {
@@ -47,6 +47,13 @@ final readonly class MailboxConnectionStore
     {
         $this->validateSending($input);
         return $this->createRecord($account, $input, 'sending');
+    }
+
+    /** IMAP-only account connection; it never grants SMTP submission. */
+    public function createImap(string $account, array $input): array
+    {
+        $this->validateImap($input);
+        return $this->createRecord($account, $input, 'imap');
     }
 
     private function validateSending(array $input): void
@@ -66,24 +73,41 @@ final readonly class MailboxConnectionStore
         }
     }
 
+    private function validateImap(array $input): void
+    {
+        $keys = ['address', 'imap_upstream_id', 'imap_username', 'imap_auth', 'imap_secret'];
+        $provided = array_keys($input);
+        sort($keys);
+        sort($provided);
+        if ($provided !== $keys || count(array_filter($input, 'is_string')) !== 5
+            || ! filter_var($input['address'], FILTER_VALIDATE_EMAIL)
+            || strlen($input['address']) > 320 || $this->upstreams?->active('imap', $input['imap_upstream_id']) === null
+            || ! in_array($input['imap_auth'], ['password', 'google', 'microsoft'], true)
+            || $input['imap_username'] === '' || strlen($input['imap_username']) > 320
+            || preg_match('/[\x00-\x1F\x7F]/', $input['imap_username']) === 1
+            || $input['imap_secret'] === '' || strlen($input['imap_secret']) > 8192) {
+            throw new InvalidArgumentException('IMAP connection is invalid.');
+        }
+    }
+
     private function createRecord(string $account, array $input, string $mode): array
     {
         if (! $this->accounts->exists($account)) {
             throw new InvalidArgumentException('Mailbox account does not exist.');
         }
-        $imapPassword = $mode === 'mailbox' ? bin2hex(random_bytes(32)) : null;
-        $smtpPassword = bin2hex(random_bytes(32));
+        $imapPassword = $mode !== 'sending' ? bin2hex(random_bytes(32)) : null;
+        $smtpPassword = $mode !== 'imap' ? bin2hex(random_bytes(32)) : null;
 
         return DB::transaction(function () use ($account, $input, $mode, $imapPassword, $smtpPassword): array {
-            $row = $this->resources->create(self::KIND, strtolower($input['address']), $this->document($input, $mode),
+            $row = $this->resources->create(self::KIND, $this->resourceKey($input['address'], $mode), $this->document($input, $mode),
                 false, owner: $account);
             $now = now('UTC');
             DB::table('configuration_secrets')->insert([
                 'resource_id' => $row->id,
                 'ciphertext' => $this->encodeSecrets([
-                    'imap_secret' => $input['imap_secret'] ?? null, 'smtp_secret' => $input['smtp_secret'],
+                    'imap_secret' => $input['imap_secret'] ?? null, 'smtp_secret' => $input['smtp_secret'] ?? null,
                     'imap_client_hash' => $imapPassword !== null ? password_hash($imapPassword, PASSWORD_DEFAULT) : null,
-                    'smtp_client_hash' => password_hash($smtpPassword, PASSWORD_DEFAULT),
+                    'smtp_client_hash' => $smtpPassword !== null ? password_hash($smtpPassword, PASSWORD_DEFAULT) : null,
                 ]),
                 'version' => 1, 'created_at' => $now, 'updated_at' => $now,
             ]);
@@ -101,7 +125,9 @@ final readonly class MailboxConnectionStore
     {
         if (! in_array($side, ['imap', 'smtp'], true) || ! Str::isUuid($id)) { return null; }
         $row = $this->resources->findAny(self::KIND, $id);
-        $secrets = $row === null || ! $row->enabled ? null : $this->secrets($id);
+        $mode = $row?->document['mode'] ?? 'mailbox';
+        $secrets = $row === null || ! $row->enabled || ($side === 'smtp' && $mode === 'imap')
+            || ($side === 'imap' && $mode === 'sending') ? null : $this->secrets($id);
 
         return $secrets !== null && is_string($secrets[$side.'_client_hash'] ?? null)
             && password_verify($password, $secrets[$side.'_client_hash'])
@@ -114,7 +140,8 @@ final readonly class MailboxConnectionStore
         if (! in_array($side, ['imap', 'smtp'], true) || ! Str::isUuid($id)) { return null; }
         $row = $this->resources->findAny(self::KIND, $id);
         if ($row === null || (! $allowDisabled && ! $row->enabled)) { return null; }
-        if ($side === 'imap' && ($row->document['mode'] ?? 'mailbox') === 'sending') { return null; }
+        if (($side === 'imap' && ($row->document['mode'] ?? 'mailbox') === 'sending')
+            || ($side === 'smtp' && ($row->document['mode'] ?? 'mailbox') === 'imap')) { return null; }
         $secretRow = DB::table('configuration_secrets')->where('resource_id', $id)->first();
         if ($secretRow === null) { return null; }
         $secrets = $this->decodeSecrets($secretRow->ciphertext);
@@ -136,7 +163,7 @@ final readonly class MailboxConnectionStore
             $secret = $access;
         }
 
-        return ['account_id' => $row->owner, 'address' => $row->key,
+        return ['account_id' => $row->owner, 'address' => $row->document['address'] ?? $row->key,
             'mode' => $row->document['mode'] ?? 'mailbox',
             'upstream_id' => $row->document[$side.'_upstream_id'], 'username' => $row->document[$side.'_username'],
             'secret' => $secret, 'mechanism' => $auth === 'password' ? 'PLAIN' : 'XOAUTH2'];
@@ -175,6 +202,12 @@ final readonly class MailboxConnectionStore
         return $this->replaceRecord($account, $id, $input, 'sending');
     }
 
+    public function replaceImap(string $account, string $id, array $input): ?stdClass
+    {
+        $this->validateImap($input);
+        return $this->replaceRecord($account, $id, $input, 'imap');
+    }
+
     private function replaceRecord(string $account, string $id, array $input, string $mode): ?stdClass
     {
         return DB::transaction(function () use ($account, $id, $input, $mode): ?stdClass {
@@ -182,11 +215,11 @@ final readonly class MailboxConnectionStore
             if ($row === null || ($row->document['mode'] ?? 'mailbox') !== $mode) { return null; }
             $currentSecrets = $this->secrets($id);
             if ($currentSecrets === null) { throw new RuntimeException('Mailbox credentials are unavailable.'); }
-            $updated = $this->resources->replace(self::KIND, $id, strtolower($input['address']),
+            $updated = $this->resources->replace(self::KIND, $id, $this->resourceKey($input['address'], $mode),
                 $this->document($input, $mode), false, $row->revision, $account);
             DB::table('configuration_secrets')->where('resource_id', $id)->increment('version', 1, [
                 'ciphertext' => $this->encodeSecrets([
-                    'imap_secret' => $input['imap_secret'] ?? null, 'smtp_secret' => $input['smtp_secret'],
+                    'imap_secret' => $input['imap_secret'] ?? null, 'smtp_secret' => $input['smtp_secret'] ?? null,
                     'imap_client_hash' => $currentSecrets['imap_client_hash'],
                     'smtp_client_hash' => $currentSecrets['smtp_client_hash'],
                 ]), 'updated_at' => now('UTC'),
@@ -208,6 +241,22 @@ final readonly class MailboxConnectionStore
             if ($secrets === null) { throw new RuntimeException('Sending credentials are unavailable.'); }
             $password = bin2hex(random_bytes(32));
             $secrets['smtp_client_hash'] = password_hash($password, PASSWORD_DEFAULT);
+            DB::table('configuration_secrets')->where('resource_id', $id)->increment('version', 1, [
+                'ciphertext' => $this->encodeSecrets($secrets), 'updated_at' => now('UTC'),
+            ]);
+            return $password;
+        });
+    }
+
+    public function rotateIMAPClientPassword(string $account, string $id): ?string
+    {
+        return DB::transaction(function () use ($account, $id): ?string {
+            $row = $this->resources->findOwned(self::KIND, $id, $account);
+            if ($row === null || ($row->document['mode'] ?? 'mailbox') !== 'imap') { return null; }
+            $secrets = $this->secrets($id);
+            if ($secrets === null) { throw new RuntimeException('IMAP credentials are unavailable.'); }
+            $password = bin2hex(random_bytes(32));
+            $secrets['imap_client_hash'] = password_hash($password, PASSWORD_DEFAULT);
             DB::table('configuration_secrets')->where('resource_id', $id)->increment('version', 1, [
                 'ciphertext' => $this->encodeSecrets($secrets), 'updated_at' => now('UTC'),
             ]);
@@ -245,9 +294,10 @@ final readonly class MailboxConnectionStore
     {
         return [
             'mode' => $mode,
-            'imap_upstream_id' => $input['imap_upstream_id'] ?? null, 'smtp_upstream_id' => $input['smtp_upstream_id'],
-            'imap_username' => $input['imap_username'] ?? null, 'smtp_username' => $input['smtp_username'],
-            'imap_auth' => $input['imap_auth'] ?? null, 'smtp_auth' => $input['smtp_auth'],
+            ...($mode === 'imap' ? ['address' => strtolower($input['address'])] : []),
+            'imap_upstream_id' => $input['imap_upstream_id'] ?? null, 'smtp_upstream_id' => $input['smtp_upstream_id'] ?? null,
+            'imap_username' => $input['imap_username'] ?? null, 'smtp_username' => $input['smtp_username'] ?? null,
+            'imap_auth' => $input['imap_auth'] ?? null, 'smtp_auth' => $input['smtp_auth'] ?? null,
         ];
     }
 
@@ -257,7 +307,7 @@ final readonly class MailboxConnectionStore
         $observation = DB::table('resource_observations')->where('resource_id', $resource->id)->first();
 
         return (object) [
-            'id' => $resource->id, 'account_id' => $resource->owner, 'address' => $resource->key,
+            'id' => $resource->id, 'account_id' => $resource->owner, 'address' => $resource->document['address'] ?? $resource->key,
             'mode' => $resource->document['mode'] ?? 'mailbox', ...$resource->document, 'enabled' => $resource->enabled,
             'health' => $observation?->state ?? 'untested', 'tested_at' => $observation?->observed_at,
             'revision' => $resource->revision,
@@ -270,6 +320,12 @@ final readonly class MailboxConnectionStore
         $row = DB::table('configuration_secrets')->where('resource_id', $id)->first();
 
         return $row === null ? null : $this->decodeSecrets($row->ciphertext);
+    }
+
+    private function resourceKey(string $address, string $mode): string
+    {
+        $address = strtolower($address);
+        return $mode === 'imap' ? 'imap:'.$address : $address;
     }
 
     /** @param array<string, string> $secrets */

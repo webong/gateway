@@ -293,6 +293,9 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 			writeError(writer, http.StatusServiceUnavailable, "Mailbox SMTP transport is unavailable.")
 			return
 		}
+	} else if supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool }); ok && !supported.SupportsAdapter("smtp") {
+		writeError(writer, http.StatusServiceUnavailable, "Gateway outbound SMTP transport is unavailable.")
+		return
 	}
 	if handler.email.failureNotices {
 		attributes[bridge.FailureNoticeToAttribute] = input.MailFrom

@@ -16,6 +16,7 @@ final readonly class MailboxConnectionTester
     {
         $imap = $this->connections->resolve($id, 'imap', allowDisabled: true);
         $smtp = $this->connections->resolve($id, 'smtp', allowDisabled: true);
+        if (($imap['mode'] ?? null) === 'imap') { return $this->testIMAP($imap); }
         if ($smtp === null) { return false; }
         if (($smtp['mode'] ?? 'mailbox') === 'sending') { return $this->testSMTP($smtp); }
         if ($imap === null) { return false; }

@@ -88,9 +88,17 @@ final readonly class AccountReceivingStore
         }
         // Pending claims are account-scoped. Only a successful TXT check may
         // acquire the globally unique domain key used by SMTP routing.
+        $token = null;
+        foreach ($this->resources->all('email.sending-domain') as $senderDomain) {
+            if (($senderDomain->document['account_id'] ?? null) === $account
+                && ($senderDomain->document['name'] ?? null) === $name) {
+                $token = $senderDomain->document['verification_token'];
+                break;
+            }
+        }
         return $this->resources->create(self::DOMAIN, 'pending:'.$account.':'.$name, [
             'account_id' => $account, 'name' => $name,
-            'verification_token' => bin2hex(random_bytes(24)),
+            'verification_token' => $token ?? bin2hex(random_bytes(24)),
             'verified_at' => null,
         ], false);
     }

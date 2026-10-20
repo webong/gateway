@@ -281,9 +281,13 @@ starts one disposable Router plus a test-only Dovecot mailbox and an SMTP
 relay fixture. The relay must advertise 8BITMIME; the Mailpit image used in
 the earlier local test did not, and Dovecot rejected `BODY=8BITMIME` when its
 backend lacked support.
-It verifies two isolated Planner connections, TLS IMAP login, private SMTP
-credential lookup, HTTPS submission, idempotency, and delivered receipts. It
-does not prove compatibility with a real mailbox provider or public-domain
+It verifies two isolated combined Planner connections, one IMAP-only
+connection with no SMTP grant, a pending Gateway-managed sending domain,
+TLS IMAP login, private SMTP credential lookup, HTTPS submission, idempotency,
+and delivered receipts. Pass the local FrankenPHP-library image tag instead
+to test that bundle. DNS ownership verification and managed sending require
+a controlled TXT record and configured outbound relay; this smoke does not
+prove those, compatibility with a real mailbox provider, or public-domain
 mail delivery.
 
 Choose either Router image for a deployment; do not run both against the same

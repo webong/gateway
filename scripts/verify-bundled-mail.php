@@ -152,6 +152,52 @@ foreach (['alpha', 'beta'] as $label) {
     $connections[] = compact('accountId', 'accountToken', 'id', 'smtpPassword', 'address');
 }
 
+$imapAccountId = 'bundle-imap-'.$suffix;
+[$status, $imapAccount] = gatewayRequest('POST', '/accounts', $operator, ['id' => $imapAccountId]);
+expectStatus($status, 201, 'IMAP-only account');
+$imapHeaders = ['Authorization: Bearer '.$imapAccount['token']];
+$imapBase = "/email/mailbox-accounts/{$imapAccountId}";
+$imapAddress = 'imap-'.$suffix.'@example.test';
+[$status, $imapCreated] = gatewayRequest('POST', $imapBase.'/imap-connections', $imapHeaders, [
+    'address' => $imapAddress, 'imap_upstream_id' => 'imap-'.$suffix,
+    'imap_username' => $imapAddress, 'imap_secret' => $password, 'imap_auth' => 'password',
+]);
+expectStatus($status, 201, 'IMAP-only connection');
+$imapId = $imapCreated['connection']['id'] ?? null;
+$imapClientPassword = $imapCreated['imap_client_password'] ?? null;
+if (! is_string($imapId) || ! is_string($imapClientPassword) ||
+    ($imapCreated['connection']['mode'] ?? null) !== 'imap' || isset($imapCreated['smtp_client_password'])) {
+    throw new RuntimeException('IMAP-only connection exposed an invalid contract.');
+}
+[$status, $imapHealth] = gatewayRequest('POST', $imapBase.'/imap-connections/'.$imapId.'/test', $imapHeaders);
+expectStatus($status, 200, 'IMAP-only provider probe');
+if (($imapHealth['health'] ?? null) !== 'healthy') { throw new RuntimeException('IMAP-only probe failed.'); }
+[$status] = gatewayRequest('PATCH', $imapBase.'/imap-connections/'.$imapId, $imapHeaders, ['enabled' => true]);
+expectStatus($status, 200, 'IMAP-only enablement');
+$socket = loginToGatewayIMAP($imapId, $imapClientPassword);
+fwrite($socket, "a2 LOGOUT\r\n");
+fclose($socket);
+[$status] = gatewayRequest('GET', "/_internal/gateway/mailbox-connections/{$imapId}/smtp",
+    ['X-Gateway-Internal: '.$tokens['GATEWAY_INTERNAL_TOKEN']], null, 'http://127.0.0.1:5053');
+expectStatus($status, 404, 'IMAP-only SMTP credential isolation');
+[$status] = gatewayRequest('POST', '/email/submissions', [
+    'Authorization: Basic '.base64_encode($imapId.':'.$imapClientPassword),
+    'Idempotency-Key: imap-only-'.$suffix,
+], ['mail_from' => $imapAddress, 'recipients' => ['recipient@example.test'],
+    'message_base64' => base64_encode("From: {$imapAddress}\r\n\r\nHello.\r\n")]);
+expectStatus($status, 401, 'IMAP-only submission denial');
+
+[$status, $sendingDomain] = gatewayRequest('POST', $imapBase.'/sending-domains', $imapHeaders,
+    ['domain' => 'sending-'.$suffix.'.example.test']);
+expectStatus($status, 201, 'managed sending-domain creation');
+if (($sendingDomain['dns_status']['ownership'] ?? null) !== 'pending' ||
+    ! is_string($sendingDomain['records']['txt']['value'] ?? null)) {
+    throw new RuntimeException('Managed sending domain did not return its ownership challenge.');
+}
+[$status] = gatewayRequest('POST', $imapBase.'/sending-routes', $imapHeaders,
+    ['domain_id' => $sendingDomain['id'], 'local_part' => 'support']);
+expectStatus($status, 409, 'unverified managed sending denial');
+
 [$status] = gatewayRequest('GET', "/email/mailbox-accounts/{$connections[1]['accountId']}/connections/{$connections[1]['id']}",
     ['Authorization: Bearer '.$connections[0]['accountToken']]);
 expectStatus($status, 401, 'cross-account credential isolation');
@@ -185,4 +231,4 @@ foreach ($connections as $index => $connection) {
     }
 }
 
-echo "Bundled Mail: two isolated Planner connections, TLS IMAP, private SMTP lookup, HTTPS submission, idempotency, and delivered receipts passed.\n";
+echo "Bundled Mail: isolated Planner connections, IMAP-only retrieval and SMTP denial, pending managed sending, TLS IMAP, HTTPS submission, idempotency, and delivered receipts passed.\n";

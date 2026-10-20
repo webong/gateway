@@ -44,7 +44,7 @@ final readonly class MailboxPollStore
             throw new InvalidArgumentException('Invalid mailbox poll configuration.');
         }
         $mailbox = $this->connections->find($account, $connection);
-        if ($mailbox === null || $mailbox->mode !== 'mailbox') { return null; }
+        if ($mailbox === null || ! in_array($mailbox->mode, ['mailbox', 'imap'], true)) { return null; }
         if ($input['enabled'] && ! $mailbox->enabled) {
             throw new InvalidArgumentException('Test and enable the mailbox connection first.');
         }
@@ -81,7 +81,7 @@ final readonly class MailboxPollStore
             $poll = $this->resources->findAny(self::KIND, $id);
             if ($poll === null || ! $poll->enabled || $poll->owner === null) { return null; }
             $mailbox = $this->connections->find($poll->owner, $poll->document['connection_id']);
-            if ($mailbox === null || ! $mailbox->enabled || $mailbox->mode !== 'mailbox') { return null; }
+            if ($mailbox === null || ! $mailbox->enabled || ! in_array($mailbox->mode, ['mailbox', 'imap'], true)) { return null; }
             $checkpoint = DB::table('resource_checkpoints')->where('resource_id', $id)->lockForUpdate()->first();
             if ($checkpoint === null || ($checkpoint->lease_until !== null && $checkpoint->lease_until > now('UTC'))) {
                 return null;
