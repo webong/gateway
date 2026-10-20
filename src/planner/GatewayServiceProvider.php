@@ -539,6 +539,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/dns/zones', [DnsZoneController::class, 'index'])->name('dns.zones.index');
             $this->app['router']->post('/dns/zones', [DnsZoneController::class, 'store'])->name('dns.zones.store');
             $this->app['router']->get('/dns/zones/{zone}', [DnsZoneController::class, 'show'])->name('dns.zones.show');
+            $this->app['router']->put('/dns/zones/{zone}/records', [DnsZoneController::class, 'replaceRecords'])->name('dns.zones.records');
             $this->app['router']->post('/dns/zones/{zone}/provision', [DnsZoneController::class, 'provision'])->name('dns.zones.provision');
             $this->app['router']->delete('/dns/zones/{zone}', [DnsZoneController::class, 'destroy'])->name('dns.zones.destroy');
             $this->app['router']->get('/dns/hooks', [DnsHookController::class, 'index'])->name('dns.hooks.index');

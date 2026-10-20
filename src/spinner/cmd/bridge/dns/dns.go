@@ -55,10 +55,19 @@ type Config struct {
 
 // Zone is one delegated authoritative namespace served by this listener.
 type Zone struct {
-	Name        string   `json:"name"`
-	Nameservers []string `json:"nameservers"`
-	SOAEmail    string   `json:"soa_email,omitempty"`
-	TTL         uint32   `json:"ttl,omitempty"`
+	Name        string       `json:"name"`
+	Nameservers []string     `json:"nameservers"`
+	SOAEmail    string       `json:"soa_email,omitempty"`
+	TTL         uint32       `json:"ttl,omitempty"`
+	Records     []ZoneRecord `json:"records,omitempty"`
+}
+
+// ZoneRecord is an operator-managed exact DNS answer, not a dynamic hook.
+type ZoneRecord struct {
+	Name       string  `json:"name"`
+	Type       string  `json:"type"`
+	Value      string  `json:"value"`
+	Preference *uint16 `json:"preference,omitempty"`
 }
 
 type Executor interface {
@@ -277,13 +286,30 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 		s.writeResponse(writer, request, response)
 		return
 	}
-	if queryName == zone.Name {
+	if queryName == zone.Name && (question.Qtype == mdns.TypeNS || question.Qtype == mdns.TypeSOA) {
 		s.answerAuthority(response, question, *zone)
 		s.writeResponse(writer, request, response)
 		return
 	}
 	if question.Qtype == mdns.TypeANY {
 		response.Rcode = mdns.RcodeRefused
+		s.writeResponse(writer, request, response)
+		return
+	}
+	if records, exists := zoneRecords(*zone, queryName); exists {
+		payload, err := json.Marshal(answerItems(records))
+		if err != nil {
+			response.Rcode = mdns.RcodeServerFailure
+		} else if response.Answer, err = parseAnswers(question, payload, zone.TTL, s.config.MaxResponseRecords); err != nil {
+			response.Rcode = mdns.RcodeServerFailure
+		} else if len(response.Answer) == 0 {
+			s.addSOA(response, *zone)
+		}
+		s.writeResponse(writer, request, response)
+		return
+	}
+	if queryName == zone.Name {
+		s.addSOA(response, *zone)
 		s.writeResponse(writer, request, response)
 		return
 	}
@@ -587,6 +613,7 @@ func normalizeZones(zones []Zone, defaultTTL uint32) ([]Zone, error) {
 	for index := range normalized {
 		zone := &normalized[index]
 		zone.Nameservers = append([]string(nil), zone.Nameservers...)
+		zone.Records = append([]ZoneRecord(nil), zone.Records...)
 		if zone.TTL == 0 {
 			zone.TTL = defaultTTL
 		}
@@ -607,6 +634,36 @@ func normalizeZones(zones []Zone, defaultTTL uint32) ([]Zone, error) {
 				return nil, fmt.Errorf("invalid DNS nameserver %q", zone.Nameservers[nameserver])
 			}
 		}
+		if len(zone.Records) > 256 {
+			return nil, fmt.Errorf("too many DNS records for %s", zone.Name)
+		}
+		byName := make(map[string][]ZoneRecord)
+		for recordIndex := range zone.Records {
+			record := &zone.Records[recordIndex]
+			record.Name = canonicalName(record.Name)
+			record.Type = strings.ToUpper(record.Type)
+			if !validRecordOwner(record.Name) || !mdns.IsSubDomain(zone.Name, record.Name) {
+				return nil, fmt.Errorf("invalid DNS record owner %q", record.Name)
+			}
+			byName[record.Name] = append(byName[record.Name], *record)
+		}
+		for name, records := range byName {
+			if name == zone.Name {
+				for _, record := range records {
+					if record.Type == "CNAME" {
+						return nil, fmt.Errorf("DNS zone apex %s cannot be a CNAME", name)
+					}
+				}
+			}
+			payload, err := json.Marshal(answerItems(records))
+			if err != nil {
+				return nil, err
+			}
+			question := mdns.Question{Name: name, Qtype: mdns.TypeMX, Qclass: mdns.ClassINET}
+			if _, err := parseAnswers(question, payload, zone.TTL, defaultMaxResponseItems); err != nil {
+				return nil, fmt.Errorf("invalid DNS records at %s: %w", name, err)
+			}
+		}
 		if zone.SOAEmail == "" {
 			zone.SOAEmail = "hostmaster." + zone.Name
 		}
@@ -616,6 +673,45 @@ func normalizeZones(zones []Zone, defaultTTL uint32) ([]Zone, error) {
 		}
 	}
 	return normalized, nil
+}
+
+func zoneRecords(zone Zone, owner string) ([]ZoneRecord, bool) {
+	var records []ZoneRecord
+	for _, record := range zone.Records {
+		if record.Name == owner {
+			records = append(records, record)
+		}
+	}
+	return records, len(records) > 0
+}
+
+func answerItems(records []ZoneRecord) []answer {
+	items := make([]answer, 0, len(records))
+	for _, record := range records {
+		items = append(items, answer{Type: record.Type, Value: record.Value, Preference: record.Preference})
+	}
+	return items
+}
+
+func validRecordOwner(name string) bool {
+	if len(name) > 254 || !strings.HasSuffix(name, ".") {
+		return false
+	}
+	labels := mdns.SplitDomainName(name)
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for _, r := range label {
+			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *Server) answerAuthority(response *mdns.Msg, question mdns.Question, zone Zone) {

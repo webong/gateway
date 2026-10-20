@@ -20,6 +20,7 @@ final class DnsZoneResources
             'nameservers' => $gateway['nameservers'] ?? [],
             'soa_email' => $gateway['soa_email'] ?? null,
             'ttl' => (int) ($gateway['ttl'] ?? 0),
+            'records' => $gateway['records'] ?? [],
             'provider' => $gateway['provider'] ?? 'manual',
             'status' => $gateway['status'] ?? 'active',
             'active' => (bool) $zone->is_active,

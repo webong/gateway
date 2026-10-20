@@ -120,6 +120,26 @@ final readonly class DnsZoneController
             : response()->json(DnsZoneResources::endpoint($model));
     }
 
+    public function replaceRecords(Request $request, string $zone): JsonResponse
+    {
+        if (($authorization = $this->authenticator->authorize($request)) !== null) {
+            return $authorization;
+        }
+        $model = $this->zones->find($zone);
+        if ($model === null) {
+            return response()->json(['message' => 'DNS zone not found.'], Response::HTTP_NOT_FOUND);
+        }
+        $input = $request->json()->all();
+        if (array_keys($input) !== ['records'] || ! is_array($input['records'])) {
+            return $this->invalid(['records' => ['Provide the complete DNS record list.']]);
+        }
+        try { $updated = $this->zones->replaceRecords($model, $input['records']); }
+        catch (InvalidArgumentException $exception) {
+            return $this->invalid(['records' => [$exception->getMessage()]]);
+        }
+        return response()->json(DnsZoneResources::endpoint($updated));
+    }
+
     public function provision(Request $request, string $zone): JsonResponse
     {
         if (($authorization = $this->authenticator->authorize($request)) !== null) {

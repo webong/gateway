@@ -27,6 +27,7 @@ type checkConfig struct {
 	probe         string
 	negativeProbe string
 	probeType     uint16
+	expectedMX    []string
 	allowPrivate  bool
 }
 
@@ -43,6 +44,7 @@ func main() {
 	probe := flag.String("probe", "", "registered hook query name (answer or NODATA)")
 	negativeProbe := flag.String("negative-probe", "", "known unregistered hook query name inside the same zone")
 	probeType := flag.String("probe-type", "TXT", "record type expected from the hook query")
+	expectMX := flag.String("expect-mx", "", "comma-separated exact apex MX answers as priority:exchange")
 	timeout := flag.Duration("timeout", 15*time.Second, "total verification deadline")
 	allowPrivate := flag.Bool("allow-private", false, "allow private and loopback IPs for local tests only")
 	flag.Parse()
@@ -55,14 +57,18 @@ func main() {
 	}
 	config := checkConfig{
 		zone: *zone, parent: *parent, parentZone: *parentZone, resolver: *resolver, nodes: splitList(*nodes), nameservers: splitList(*nameservers),
-		probe: *probe, negativeProbe: *negativeProbe, probeType: recordType, allowPrivate: *allowPrivate,
+		probe: *probe, negativeProbe: *negativeProbe, probeType: recordType, expectedMX: splitList(*expectMX), allowPrivate: *allowPrivate,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	if err := verify(ctx, config, exchangeDNS, lookupNameserverIPs); err != nil {
 		fail(err)
 	}
-	fmt.Printf("Parent delegation, nameserver addresses, authoritative UDP/TCP nodes, SOA consistency, and registered/unregistered hook checks passed for %s\n", canonical(*zone))
+	mxNote := ""
+	if len(config.expectedMX) > 0 {
+		mxNote = ", exact apex MX"
+	}
+	fmt.Printf("Parent delegation, nameserver addresses, authoritative UDP/TCP nodes, SOA consistency%s, and registered/unregistered name checks passed for %s\n", mxNote, canonical(*zone))
 }
 
 func verify(ctx context.Context, config checkConfig, exchange exchanger, lookup addressLookup) error {
@@ -84,6 +90,10 @@ func verify(ctx context.Context, config checkConfig, exchange exchanger, lookup 
 	}
 	if config.probeType == 0 || config.probeType == dns.TypeANY || config.probeType == dns.TypeNS || config.probeType == dns.TypeSOA {
 		return errors.New("provide a supported hook probe record type")
+	}
+	wantMX, err := normalizedExpectedMX(config.expectedMX)
+	if err != nil {
+		return err
 	}
 	parent, err := serverAddress(config.parent, config.allowPrivate)
 	if err != nil {
@@ -185,6 +195,15 @@ func verify(ctx context.Context, config checkConfig, exchange exchanger, lookup 
 			} else if soa != expectedSOA {
 				return fmt.Errorf("%s %s SOA differs from the first authoritative answer", node, network)
 			}
+			if len(wantMX) > 0 {
+				mxReply, err := exchange(ctx, node, network, zone, dns.TypeMX)
+				if err != nil {
+					return fmt.Errorf("%s %s MX query: %w", node, network, err)
+				}
+				if !authoritative(mxReply) || !slices.Equal(mxValues(mxReply.Answer, zone), wantMX) {
+					return fmt.Errorf("%s does not answer the expected authoritative apex MX records over %s", node, network)
+				}
+			}
 			probeReply, err := exchange(ctx, node, network, probe, config.probeType)
 			if err != nil {
 				return fmt.Errorf("%s %s hook query: %w", node, network, err)
@@ -202,6 +221,32 @@ func verify(ctx context.Context, config checkConfig, exchange exchanger, lookup 
 		}
 	}
 	return nil
+}
+
+func normalizedExpectedMX(entries []string) ([]string, error) {
+	result := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		priority, host, ok := strings.Cut(entry, ":")
+		number, err := strconv.ParseUint(priority, 10, 16)
+		name := canonical(host)
+		if !ok || err != nil || (name != "." && !validDomain(name)) {
+			return nil, fmt.Errorf("invalid expected MX %q; use priority:exchange", entry)
+		}
+		result = append(result, fmt.Sprintf("%d %s", number, name))
+	}
+	slices.Sort(result)
+	return result, nil
+}
+
+func mxValues(records []dns.RR, zone string) []string {
+	result := []string{}
+	for _, record := range records {
+		if mx, ok := record.(*dns.MX); ok && canonical(mx.Hdr.Name) == zone {
+			result = append(result, fmt.Sprintf("%d %s", mx.Preference, canonical(mx.Mx)))
+		}
+	}
+	slices.Sort(result)
+	return result
 }
 
 func exchangeDNS(ctx context.Context, server, network, name string, recordType uint16) (*dns.Msg, error) {

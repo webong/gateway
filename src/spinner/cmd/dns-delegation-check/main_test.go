@@ -16,6 +16,7 @@ func TestVerify(t *testing.T) {
 		nodes:       []string{"127.0.0.1:5301", "127.0.0.1:5302"},
 		nameservers: []string{"ns1.example.net", "ns2.example.net"},
 		probe:       "hello.hooks.example.com", negativeProbe: "hello.unknown.hooks.example.com", probeType: dns.TypeTXT, allowPrivate: true,
+		expectedMX: []string{"10:route1.mx.cloudflare.net"},
 	}
 	base := func(_ context.Context, server, network, name string, recordType uint16) (*dns.Msg, error) {
 		message := &dns.Msg{MsgHdr: dns.MsgHdr{Response: true, Rcode: dns.RcodeSuccess}}
@@ -32,6 +33,8 @@ func TestVerify(t *testing.T) {
 			}
 		case recordType == dns.TypeSOA:
 			message.Answer = []dns.RR{mustRR(t, "hooks.example.com. 300 IN SOA ns1.example.net. hostmaster.example.net. 1 3600 600 86400 300")}
+		case recordType == dns.TypeMX:
+			message.Answer = []dns.RR{mustRR(t, "hooks.example.com. 300 IN MX 10 route1.mx.cloudflare.net.")}
 		case recordType == dns.TypeTXT:
 			if name == "hello.unknown.hooks.example.com." {
 				message.Rcode = dns.RcodeNameError
@@ -115,6 +118,11 @@ func TestVerify(t *testing.T) {
 				m.Answer = []dns.RR{mustRR(t, "hooks.example.com. 300 IN SOA ns1.example.net. hostmaster.example.net. 2 3600 600 86400 300")}
 			}
 		}, "SOA differs"},
+		{"wrong apex MX", func(m *dns.Msg, server, network, _ string, typ uint16) {
+			if server == "127.0.0.1:5302" && network == "tcp" && typ == dns.TypeMX {
+				m.Answer = []dns.RR{mustRR(t, "hooks.example.com. 300 IN MX 20 other.mx.cloudflare.net.")}
+			}
+		}, "apex MX"},
 		{"missing hook", func(m *dns.Msg, server, network, _ string, typ uint16) {
 			if server == "127.0.0.1:5302" && network == "tcp" && typ == dns.TypeTXT {
 				m.Answer = nil

@@ -123,6 +123,15 @@ for _ in $(seq 1 50); do
     sleep 0.1
 done
 [[ "$primary_zone" == $'ns1.example.net.\nns2.example.net.' && "$peer_zone" == $'ns1.example.net.\nns2.example.net.' ]]
+curl -fsS -X PUT "$planner/dns/zones/first.example.test/records" -H "$auth" -H 'Content-Type: application/json' \
+    -d '{"records":[{"name":"first.example.test","type":"MX","value":"route1.mx.cloudflare.net","preference":10}]}' >/dev/null
+for _ in $(seq 1 50); do
+    primary_mx="$(dig @127.0.0.1 -p "$DNS_PORT" +time=1 +tries=1 +short first.example.test MX 2>/dev/null)"
+    peer_mx="$(dig +tcp @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=1 +short first.example.test MX 2>/dev/null)"
+    if [[ "$primary_mx" == '10 route1.mx.cloudflare.net.' && "$peer_mx" == "$primary_mx" ]]; then break; fi
+    sleep 0.1
+done
+[[ "$primary_mx" == '10 route1.mx.cloudflare.net.' && "$peer_mx" == "$primary_mx" ]]
 first="$(curl -fsS -X POST "$planner/dns/hooks" -H "$auth" -H 'Content-Type: application/json' -d '{"external_id":"smoke","zone":"first.example.test"}')"
 second="$(curl -fsS -X POST "$planner/dns/hooks" -H "$auth" -H 'Content-Type: application/json' -d '{"external_id":"smoke","zone":"second.example.test"}')"
 first_id="$(printf '%s' "$first" | php -r '$v=json_decode(stream_get_contents(STDIN),true); echo $v["id"] ?? "";')"
@@ -166,7 +175,7 @@ peer_nameservers="$(dig +tcp @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +short 
     -nameservers ns1.example.net,ns2.example.net \
     -probe "hello.$first_token.first.example.test" \
     -negative-probe hello.unregistered.first.example.test \
-    -probe-type TXT -allow-private -timeout 20s
+    -probe-type TXT -expect-mx 10:route1.mx.cloudflare.net -allow-private -timeout 20s
 
 kill "$GO_PID"
 wait "$GO_PID" 2>/dev/null || true
@@ -177,6 +186,8 @@ failover_second="$(dig +tcp @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +noall +
 [[ "$failover_second" == *'status: NOERROR'* && "$failover_second" == *'second.example.test.'* ]]
 survivor_nameservers="$(dig @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +short first.example.test NS | LC_ALL=C sort)"
 [[ "$survivor_nameservers" == "$expected_nameservers" ]]
+survivor_mx="$(dig @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +short first.example.test MX)"
+[[ "$survivor_mx" == '10 route1.mx.cloudflare.net.' ]]
 
 # A restarted node is a cold process: it must reload the Planner-owned zone
 # snapshot before serving, rather than depending on its previous in-memory copy.
@@ -193,6 +204,8 @@ for _ in $(seq 1 50); do
     sleep 0.1
 done
 [[ "$reloaded_nameservers" == "$expected_nameservers" ]]
+reloaded_mx="$(dig +tcp @127.0.0.1 -p "$DNS_PORT" +time=1 +tries=2 +short first.example.test MX)"
+[[ "$reloaded_mx" == '10 route1.mx.cloudflare.net.' ]]
 
 curl -fsS "$planner/dns/hooks/$first_id/events" -H "$auth" | php -r '
     $events = json_decode(stream_get_contents(STDIN), true)["data"] ?? [];
@@ -203,4 +216,4 @@ curl -fsS "$planner/dns/hooks/$second_id/events" -H "$auth" | php -r '
     if (count($events) !== 3) exit(1);
 '
 
-echo 'DNS API-provisioned two-zone, two-Spinner live reload and UDP/TCP failover integration smoke passed.'
+echo 'DNS API-provisioned zones and MX records, two-Spinner live reload and UDP/TCP failover integration smoke passed.'

@@ -20,6 +20,46 @@ The old zone, zones, nameserver, SOA, and TTL env settings are no longer read;
 There is no production installation to migrate; configure a fresh local
 deployment through Planner before testing delegated DNS.
 
+The operator may then replace the zone's complete static answer set through
+`PUT /dns/zones/{zone}/records` with `{"records":[...]}`. It accepts exact
+owners inside the zone and `A`, `AAAA`, `CNAME`, `MX`, and `TXT` records;
+Gateway manages the zone's `NS` and `SOA` itself. For example, to have
+Gateway answer the MX query for `support@sosongo.com`, the zone would need
+an apex record such as:
+
+```json
+{"records":[{"name":"sosongo.com","type":"MX","value":"route1.mx.cloudflare.net","preference":10}]}
+```
+
+The real MX targets and priorities must come from the receiving provider's
+current configuration. Include every other needed record (website addresses,
+SPF, DKIM, DMARC, verification, sending-provider records) before moving a
+whole zone's authority. A `PUT` is a complete replacement, not a patch.
+Planner snapshots propagate to Spinner without a restart; invalid snapshots
+leave the previous answer set active. Static records answer exact names before
+dynamic token-based DNS hooks, and a present name without a requested record
+type returns NODATA rather than NXDOMAIN.
+
+There are two operator choices. Delegate a subdomain such as
+`mail.sosongo.com` from the Cloudflare-hosted parent to Gateway; then Gateway
+can answer that subdomain's MX, but the mail address is
+`support@mail.sosongo.com`. To make Gateway answer the MX for
+`support@sosongo.com`, the registrar must delegate the entire `sosongo.com`
+zone to Gateway's public nameservers. An NS record on `mail.sosongo.com`
+cannot move the parent apex MX lookup. Do not change the registrar or parent
+NS records until two independently reachable Gateway DNS nodes answer the
+complete zone correctly over public UDP and TCP port 53 and the DNS records
+have been audited. Cloudflare Tunnel's HTTPS path does not expose DNS on
+port 53. This repository supplies the authoritative server and verification
+checker, not public hosts or an automatic registrar cutover.
+This is a DNS capability, not a promise that every mail provider supports
+external authoritative DNS. In particular, Cloudflare's Email Routing setup
+currently requires Cloudflare DNS for the routed domain. Keep `sosongo.com`
+on Cloudflare for the planned Cloudflare Email Worker test; moving its apex
+authority to Gateway would require a different receiving arrangement or
+provider-confirmed compatibility. The static Cloudflare MX values above are
+illustrative only and must not be used as a cutover plan by themselves.
+
 Publish the nameserver address records, then delegate `hooks.example.com` to
 both nameserver names at its parent zone. If a nameserver name is inside the
 delegated zone, arrange the required parent-side glue as well. Use distinct
@@ -45,7 +85,8 @@ go run -mod=mod ./src/spinner/cmd/dns-delegation-check \
   -nameservers ns1.example.net,ns2.example.net \
   -probe hello.REGISTERED_TOKEN.hooks.example.com \
   -negative-probe hello.UNREGISTERED_TOKEN.hooks.example.com \
-  -probe-type TXT
+  -probe-type TXT \
+  -expect-mx 10:route1.mx.cloudflare.net
 ```
 
 This read-only check requires numeric public server IPs. The `-nodes` and
@@ -57,8 +98,11 @@ It then requires both nodes to answer authoritative NS and SOA queries, a
 registered hook with `NOERROR` (an answer or valid NODATA), and the known
 unregistered control name with `NXDOMAIN`, all over UDP and TCP. The control
 name must really be unregistered and use the same query shape as the probe.
-It also checks that the two nodes return the same SOA. Use `-allow-private`
-only for a disposable local test; it is not evidence of public reachability.
+It also checks that the two nodes return the same SOA. When `-expect-mx` is
+supplied, it additionally compares the exact apex MX
+answers on both nodes over UDP and TCP. Multiple exchanges use a
+comma-separated `priority:exchange` list. Use `-allow-private` only for a
+disposable local test; it is not evidence of public reachability.
 One resolver's view is not proof of global propagation or correct parent glue;
 query from other networks before accepting traffic.
 

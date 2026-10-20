@@ -24,6 +24,7 @@ final class DnsZoneCatalog
                     'nameservers' => array_values(array_filter($gateway['nameservers'] ?? [], 'is_string')),
                     'soa_email' => is_string($gateway['soa_email'] ?? null) ? $gateway['soa_email'] : '',
                     'ttl' => max(0, (int) ($gateway['ttl'] ?? 0)),
+                    'records' => array_values(is_array($gateway['records'] ?? null) ? $gateway['records'] : []),
                 ];
             }
         }

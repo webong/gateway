@@ -116,9 +116,71 @@ final readonly class DnsZoneRegistry
         return $zone->refresh();
     }
 
+    /** Replace the complete operator-owned record set; NS and SOA stay zone-managed. */
+    public function replaceRecords(WebProxyEndpoint $zone, array $records): WebProxyEndpoint
+    {
+        $gateway = $this->gateway($zone);
+        $name = (string) ($gateway['hostname'] ?? '');
+        if (! array_is_list($records) || count($records) > 256) {
+            throw new InvalidArgumentException('DNS records must be a list of at most 256 entries.');
+        }
+        $normalized = [];
+        $byName = [];
+        foreach ($records as $record) {
+            if (! is_array($record) || array_diff(array_keys($record), ['name', 'type', 'value', 'preference']) !== []
+                || ! is_string($record['name'] ?? null) || ! is_string($record['type'] ?? null)
+                || ! is_string($record['value'] ?? null)) {
+                throw new InvalidArgumentException('DNS record properties are invalid.');
+            }
+            $owner = $this->canonical($record['name']);
+            $type = strtoupper($record['type']);
+            $value = trim($record['value']);
+            if (! $this->validRecordOwner($owner) || ($owner !== $name && ! str_ends_with($owner, '.'.$name))
+                || ! in_array($type, ['A', 'AAAA', 'CNAME', 'MX', 'TXT'], true)) {
+                throw new InvalidArgumentException('DNS record owner or type is invalid for this zone.');
+            }
+            if ($type === 'A' && filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false
+                || $type === 'AAAA' && filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false
+                || in_array($type, ['CNAME', 'MX'], true) && $value !== '.' && ! $this->validName($this->canonical($value))
+                || $type === 'CNAME' && $value === '.'
+                || $type === 'TXT' && (strlen($value) > 4096 || preg_match('/[\x00-\x1f\x7f]/', $value) === 1)) {
+                throw new InvalidArgumentException('DNS record value is invalid.');
+            }
+            $preference = $record['preference'] ?? null;
+            if ($type === 'MX') {
+                if (! is_int($preference) || $preference < 0 || $preference > 65535
+                    || ($value === '.' && $preference !== 0)) {
+                    throw new InvalidArgumentException('DNS MX preference is invalid.');
+                }
+            } elseif ($preference !== null) {
+                throw new InvalidArgumentException('Only MX records accept preference.');
+            }
+            $byName[$owner][] = $type;
+            $normalized[] = ['name' => $owner, 'type' => $type, 'value' => $value]
+                + ($type === 'MX' ? ['preference' => $preference] : []);
+        }
+        foreach ($byName as $types) {
+            if (count($types) > 16) {
+                throw new InvalidArgumentException('A DNS name may have at most 16 records.');
+            }
+            if (in_array('CNAME', $types, true) && count($types) !== 1) {
+                throw new InvalidArgumentException('CNAME must be the only record at its name.');
+            }
+        }
+        if (in_array('CNAME', $byName[$name] ?? [], true)) {
+            throw new InvalidArgumentException('A zone apex cannot be a CNAME.');
+        }
+        $gateway['records'] = $normalized;
+        $zone->update(['metadata' => ['_gateway' => $gateway]]);
+        return $zone->refresh();
+    }
+
     public function delete(WebProxyEndpoint $zone): void
     {
         $gateway = $this->gateway($zone);
+        if (($gateway['records'] ?? []) !== []) {
+            throw new LogicException('Remove the DNS zone records before deleting the zone.');
+        }
         $children = WebProxyEndpoint::query()
             ->where('client', $this->client())
             ->where('metadata->_gateway->kind', 'dns_hook')
@@ -215,6 +277,11 @@ final readonly class DnsZoneRegistry
     private function canonical(string $name): string
     {
         return strtolower(rtrim(trim($name), '.'));
+    }
+
+    private function validRecordOwner(string $name): bool
+    {
+        return strlen($name) <= 253 && preg_match('/\A(?:[a-z0-9_][a-z0-9_-]{0,62}\.)+[a-z0-9][a-z0-9-]{0,62}\z/D', $name) === 1;
     }
 
     private function validName(string $name): bool

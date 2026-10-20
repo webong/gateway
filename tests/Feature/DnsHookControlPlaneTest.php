@@ -30,6 +30,32 @@ function createDnsHook($test, string $externalId = 'dns-hook-1'): array
     ])->assertCreated()->json();
 }
 
+it('manages exact DNS records on either a full zone or a delegated subdomain', function (): void {
+    $this->putJson('/dns/zones/sosongo.com/records', ['records' => []])->assertUnauthorized();
+    foreach (['sosongo.com', 'mail.sosongo.com'] as $name) {
+        $zone = $this->withToken('registry-secret')->postJson('/dns/zones', [
+            'name' => $name, 'nameservers' => ['ns1.gateway.example', 'ns2.gateway.example'],
+        ])->assertCreated()->json();
+        $records = [
+            ['name' => $name, 'type' => 'MX', 'value' => 'route1.mx.cloudflare.net', 'preference' => 10],
+            ['name' => $name, 'type' => 'TXT', 'value' => 'v=spf1 include:_spf.mx.cloudflare.net ~all'],
+            ['name' => 'cf2024-1._domainkey.'.$name, 'type' => 'TXT', 'value' => 'v=DKIM1; p=abc'],
+        ];
+        $this->withToken('registry-secret')->putJson('/dns/zones/'.$zone['id'].'/records', ['records' => $records])
+            ->assertOk()->assertJsonPath('records.0.type', 'MX');
+        $this->withHeader('X-Gateway-Internal', 'internal-secret')->getJson('/_internal/gateway/dns/zones')
+            ->assertOk()->assertJsonFragment(['name' => $name, 'type' => 'MX', 'value' => 'route1.mx.cloudflare.net', 'preference' => 10]);
+        $this->withToken('registry-secret')->putJson('/dns/zones/'.$zone['id'].'/records', ['records' => [
+            ['name' => 'outside.example', 'type' => 'MX', 'value' => 'route1.mx.cloudflare.net', 'preference' => 10],
+        ]])->assertUnprocessable();
+        $this->withToken('registry-secret')->getJson('/dns/zones/'.$zone['id'])
+            ->assertOk()->assertJsonCount(3, 'records');
+        $this->withToken('registry-secret')->deleteJson('/dns/zones/'.$zone['id'])->assertConflict();
+        $this->withToken('registry-secret')->putJson('/dns/zones/'.$zone['id'].'/records', ['records' => []])
+            ->assertOk()->assertJsonCount(0, 'records');
+    }
+});
+
 it('provisions a DNS hook as a first-class WebProxy endpoint', function (): void {
     $this->postJson('/dns/hooks', ['external_id' => 'unauthorized'])->assertUnauthorized();
 
