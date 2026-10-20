@@ -81,6 +81,7 @@ func (adapter *Adapter) DeliverGatewayResult(ctx context.Context, delivery bridg
 			request.Transport.NoProxy = append([]string(nil), transport.Proxy.NoProxy...)
 		}
 	}
+	request.Transport.PrivateCallbackCIDRs = delivery.Attributes["private_callback_cidrs"]
 	var status int
 	var body []byte
 	var err error

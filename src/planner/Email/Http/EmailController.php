@@ -8,6 +8,7 @@ use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 use RuntimeException;
 use stdClass;
 use Symfony\Component\HttpFoundation\Response;
@@ -50,6 +51,8 @@ final readonly class EmailController
         }
         try {
             $domain = $this->registry->createDomain($name);
+        } catch (InvalidArgumentException) {
+            return response()->json(['message' => 'The email domain already exists.'], Response::HTTP_CONFLICT);
         } catch (QueryException $exception) {
             if ($this->registry->domainByName($name) !== null) {
                 return response()->json(['message' => 'The email domain already exists.'], Response::HTTP_CONFLICT);

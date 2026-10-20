@@ -6,6 +6,7 @@ namespace Webong\Gateway\Email;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use stdClass;
 use Webong\Gateway\Resources\PlannerResourceStore;
 
@@ -47,6 +48,9 @@ final readonly class EmailRegistry
     public function createDomain(string $name): stdClass
     {
         $name = strtolower(rtrim($name, '.'));
+        if ($this->resources->byKey('email.receiving-domain', $name) !== null) {
+            throw new InvalidArgumentException('The email domain is already claimed for receiving.');
+        }
         return $this->domainRecord($this->resources->create('email.domain', $name, [
             'verification_token' => bin2hex(random_bytes(24)), 'verified_at' => null,
         ], false));

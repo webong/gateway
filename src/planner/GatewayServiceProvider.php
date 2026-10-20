@@ -39,10 +39,17 @@ use Webong\Gateway\Email\Http\EmailRuntimePolicyController;
 use Webong\Gateway\Email\Http\EmailSuppressionController;
 use Webong\Gateway\Email\Http\MailHookController;
 use Webong\Gateway\Email\Http\MailboxConnectionController;
+use Webong\Gateway\Email\Http\MailboxPollController;
+use Webong\Gateway\Email\Http\InternalMailboxPollController;
+use Webong\Gateway\Email\Http\WorkerIngressController;
+use Webong\Gateway\Email\Http\InternalWorkerIngressController;
+use Webong\Gateway\Email\Http\SendingConnectionController;
+use Webong\Gateway\Email\Http\AccountReceivingController;
 use Webong\Gateway\Email\Http\InternalMailboxTransportController;
 use Webong\Gateway\Email\MailHookPathResolver;
 use Webong\Gateway\Email\CacheableMailHookPathResolver;
 use Webong\Gateway\Email\MailHookRegistry;
+use Webong\Gateway\Email\AccountReceivingStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\MailboxOAuthRefresher;
 use Webong\Gateway\Email\EmailRegistry;
@@ -55,6 +62,8 @@ use Webong\Gateway\Email\EmailSuppressionStore;
 use Webong\Gateway\Email\PruneEmailSubmissionUsageCommand;
 use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\NativeTxtResolver;
+use Webong\Gateway\Email\MxResolver;
+use Webong\Gateway\Email\NativeMxResolver;
 use Webong\Gateway\Email\DmarcEvaluator;
 use Webong\Gateway\Email\EmailSrsPolicyStore;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
@@ -107,6 +116,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/config/gateway.php', 'gateway');
 
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
+        $this->app->bind(MxResolver::class, NativeMxResolver::class);
         $this->app->bind(MailboxConnectionStore::class, function (): MailboxConnectionStore {
             $configured = config('gateway.email.oauth_refresher');
             $refresher = null;
@@ -240,6 +250,7 @@ final class GatewayServiceProvider extends ServiceProvider
             suppressions: $this->app->make(EmailSuppressionStore::class),
             mailboxAuthenticator: $this->mailboxAuthenticator(),
             mailHooks: $this->app->make(MailHookRegistry::class),
+            receiving: $this->app->make(AccountReceivingStore::class),
             emailRuntimePolicy: $this->app->make(EmailRuntimePolicyStore::class),
             providerRoutes: $this->emailProviderRouteResolver(),
             webstreamPrivateSources: $this->app->make(WebstreamPrivateSourceStore::class),
@@ -367,6 +378,10 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
             $this->app['router']->post('/_internal/gateway/schedules/register', [InternalScheduleController::class, 'register']);
             $this->app['router']->post('/_internal/gateway/schedules/notify', [InternalScheduleController::class, 'notify']);
+            $this->app['router']->post('/_internal/gateway/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
+            $this->app['router']->post('/_internal/gateway/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
+            $this->app['router']->post('/_internal/gateway/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);
+            $this->app['router']->post('/_internal/gateway/worker-ingress/{route}/authorize', [InternalWorkerIngressController::class, 'authorize']);
             $this->app['router']->get('/_internal/provisioning/servers', InternalServerController::class);
             $this->app['router']->get('/_internal/provisioning/routes/resolve', InternalRouteController::class);
             $this->app['router']->put('/_internal/provisioning/nodes/{node}/assignments', InternalAssignmentController::class);
@@ -462,6 +477,28 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/email/domains', [EmailController::class, 'domains']);
             $this->app['router']->post('/accounts', [AccountController::class, 'create']);
             $this->app['router']->post('/email/mailbox-accounts', [AccountController::class, 'create']);
+            $this->app['router']->get('/email/receiving-settings', [AccountReceivingController::class, 'settings']);
+            $this->app['router']->put('/email/receiving-settings', [AccountReceivingController::class, 'configure']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-domains', [AccountReceivingController::class, 'domains']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-domains', [AccountReceivingController::class, 'createDomain']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-domains/{domain}', [AccountReceivingController::class, 'showDomain']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-domains/{domain}/verify', [AccountReceivingController::class, 'verifyDomain']);
+            $this->app['router']->delete('/email/mailbox-accounts/{account}/receiving-domains/{domain}', [AccountReceivingController::class, 'deleteDomain']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-routes', [AccountReceivingController::class, 'routes']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-routes', [AccountReceivingController::class, 'createRoute']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-routes/{route}', [AccountReceivingController::class, 'showRoute']);
+            $this->app['router']->patch('/email/mailbox-accounts/{account}/receiving-routes/{route}', [AccountReceivingController::class, 'updateRoute']);
+            $this->app['router']->delete('/email/mailbox-accounts/{account}/receiving-routes/{route}', [AccountReceivingController::class, 'deleteRoute']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-routes/{route}/worker-ingress', [WorkerIngressController::class, 'show']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-routes/{route}/worker-ingress', [WorkerIngressController::class, 'rotate']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/sending-connections', [SendingConnectionController::class, 'index']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/sending-connections', [SendingConnectionController::class, 'create']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/sending-connections/{connection}', [SendingConnectionController::class, 'show']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/sending-connections/{connection}/test', [SendingConnectionController::class, 'test']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/sending-connections/{connection}/rotate', [SendingConnectionController::class, 'rotate']);
+            $this->app['router']->patch('/email/mailbox-accounts/{account}/sending-connections/{connection}', [SendingConnectionController::class, 'status']);
+            $this->app['router']->put('/email/mailbox-accounts/{account}/sending-connections/{connection}', [SendingConnectionController::class, 'replace']);
+            $this->app['router']->delete('/email/mailbox-accounts/{account}/sending-connections/{connection}', [SendingConnectionController::class, 'delete']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'index']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'create']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'show']);
@@ -469,6 +506,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->patch('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'status']);
             $this->app['router']->put('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'replace']);
             $this->app['router']->delete('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'delete']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/connections/{connection}/polling', [MailboxPollController::class, 'show']);
+            $this->app['router']->put('/email/mailbox-accounts/{account}/connections/{connection}/polling', [MailboxPollController::class, 'put']);
+            $this->app['router']->delete('/email/mailbox-accounts/{account}/connections/{connection}/polling', [MailboxPollController::class, 'delete']);
             $this->app['router']->get('/email/hooks', [MailHookController::class, 'index']);
             $this->app['router']->post('/email/hooks', [MailHookController::class, 'create']);
             $this->app['router']->get('/email/hooks/{hook}', [MailHookController::class, 'show']);

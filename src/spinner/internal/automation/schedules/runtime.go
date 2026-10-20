@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
@@ -37,12 +38,13 @@ type NotificationControlPlane interface {
 type EnqueueFunc func(string, automation.Delivery) bool
 
 type Runtime struct {
-	Control   ControlPlane
-	Executor  automation.Executor
-	Registrar automation.ScheduleRegistrar
-	Enqueue   EnqueueFunc
-	LogError  func(string, ...any)
-	Interval  time.Duration
+	Control    ControlPlane
+	Executor   automation.Executor
+	NativeIMAP func(context.Context, string) error
+	Registrar  automation.ScheduleRegistrar
+	Enqueue    EnqueueFunc
+	LogError   func(string, ...any)
+	Interval   time.Duration
 }
 
 func (r Runtime) Start(ctx context.Context) {
@@ -97,18 +99,31 @@ func (r Runtime) Poll(ctx context.Context) {
 		r.log("claim schedules: %v", err)
 		return
 	}
+	var native sync.WaitGroup
 	for _, run := range runs {
 		if ctx.Err() != nil {
-			return
+			break
+		}
+		if run.Language == "native.imap" {
+			native.Add(1)
+			go func(run Run) { defer native.Done(); r.execute(ctx, run) }(run)
+			continue
 		}
 		r.execute(ctx, run)
 	}
+	native.Wait()
 }
 
 func (r Runtime) execute(ctx context.Context, run Run) {
 	var result automation.Outcome
 	var err error
-	if r.Executor == nil {
+	if run.Language == "native.imap" {
+		if r.NativeIMAP == nil {
+			err = fmt.Errorf("native IMAP poller is unavailable")
+		} else {
+			err = r.NativeIMAP(ctx, run.Source)
+		}
+	} else if r.Executor == nil {
 		err = fmt.Errorf("automation language %q is not installed", run.Language)
 	} else {
 		result, err = r.Executor.Execute(ctx, automation.Script{
@@ -171,11 +186,15 @@ func (r Runtime) log(format string, args ...any) {
 }
 
 type HTTPControlPlane struct {
-	client    *http.Client
-	base      *url.URL
-	token     string
-	languages []automation.Language
+	client     *http.Client
+	base       *url.URL
+	token      string
+	languages  []automation.Language
+	nativeIMAP bool
 }
+
+// EnableNativeIMAP advertises the built-in executor to Planner's scheduler.
+func (c *HTTPControlPlane) EnableNativeIMAP() { c.nativeIMAP = true }
 
 func NewHTTPControlPlane(baseURL, token string, client *http.Client, languages ...automation.Language) (*HTTPControlPlane, error) {
 	base, err := url.Parse(baseURL)
@@ -192,7 +211,7 @@ func NewHTTPControlPlane(baseURL, token string, client *http.Client, languages .
 		client:    client,
 		base:      base,
 		token:     token,
-		languages: append([]automation.Language(nil), languages...),
+		languages: append([]automation.Language{}, languages...),
 	}, nil
 }
 
@@ -218,7 +237,11 @@ func (transport handlerTransport) RoundTrip(request *http.Request) (*http.Respon
 }
 
 func (c *HTTPControlPlane) Claim(ctx context.Context) ([]Run, error) {
-	payload, err := json.Marshal(map[string]any{"automation_languages": c.languages})
+	request := map[string]any{"automation_languages": c.languages}
+	if c.nativeIMAP {
+		request["native_jobs"] = []string{"imap"}
+	}
+	payload, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +296,7 @@ func (c *HTTPControlPlane) call(ctx context.Context, endpoint string, payload []
 	}
 	request.Header.Set("X-Gateway-Internal", c.token)
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
 	response, err := c.client.Do(request)
 	if err != nil {
 		return nil, err

@@ -147,6 +147,11 @@ func (g *CaddyHandler) Provision(ctx caddy.Context) error {
 		return err
 	}
 	settings.WebstreamPrivateNetworks = privateNetworks
+	httpPrivateNetworks, err := relayconfig.ParseHTTPPrivateNetworks(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
+	if err != nil {
+		return err
+	}
+	settings.HTTPPrivateNetworks = httpPrivateNetworks
 	if g.SpoolPath != "" {
 		// The SMTP Caddy app may use the root spool path. Its files and
 		// worker must never overlap with this HTTP handler's queue.

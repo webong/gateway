@@ -29,6 +29,7 @@ type Config struct {
 	WebstreamMaxConnections    int
 	WebstreamMaxDuration       time.Duration
 	WebstreamPrivateNetworks   []netip.Prefix
+	HTTPPrivateNetworks        []netip.Prefix
 	MaxBodySize                int64
 	MaxIdleConns               int
 	MaxConnsPerHost            int
@@ -146,6 +147,14 @@ type HostedMailAdapterSpec struct {
 // ParseWebstreamPrivateNetworks sets a deployment ceiling, not a source grant.
 // Planner grants must be narrower than these ranges to permit a private dial.
 func ParseWebstreamPrivateNetworks(raw string) ([]netip.Prefix, error) {
+	return parsePrivateNetworks(raw, "GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS")
+}
+
+func ParseHTTPPrivateNetworks(raw string) ([]netip.Prefix, error) {
+	return parsePrivateNetworks(raw, "GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS")
+}
+
+func parsePrivateNetworks(raw, setting string) ([]netip.Prefix, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
@@ -157,7 +166,7 @@ func ParseWebstreamPrivateNetworks(raw string) ([]netip.Prefix, error) {
 	for _, item := range strings.Split(raw, ",") {
 		prefix, err := netip.ParsePrefix(strings.TrimSpace(item))
 		if err != nil || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
-			return nil, fmt.Errorf("invalid GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS entry %q", item)
+			return nil, fmt.Errorf("invalid %s entry %q", setting, item)
 		}
 		private := false
 		for _, allowed := range privateRanges {
@@ -210,6 +219,10 @@ func loadConfig(runtime string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	httpPrivateNetworks, err := ParseHTTPPrivateNetworks(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
+	if err != nil {
+		return nil, err
+	}
 	legacyEnabled := getEnvBool("GATEWAY_REVERB_ENABLED", false) || getEnvBool("GATEWAY_MERCURE_ENABLED", false) || getEnvBool("GATEWAY_CENTRIFUGO_ENABLED", false)
 	if (legacyEnabled || os.Getenv("GATEWAY_EXTENSION_PATHS") != "") && !provisioningConfig.Enabled {
 		return nil, fmt.Errorf("executable server extensions require GATEWAY_PROVISIONING_ENABLED")
@@ -243,6 +256,7 @@ func loadConfig(runtime string) (*Config, error) {
 		WebstreamMaxConnections:    getEnvInt("GATEWAY_WEBSTREAM_MAX_CONNECTIONS", 1000),
 		WebstreamMaxDuration:       getEnvDuration("GATEWAY_WEBSTREAM_MAX_DURATION", 24*time.Hour),
 		WebstreamPrivateNetworks:   privateNetworks,
+		HTTPPrivateNetworks:        httpPrivateNetworks,
 		MaxBodySize:                getEnvInt64("MAX_BODY_SIZE", 10*1024*1024),
 		MaxIdleConns:               getEnvInt("MAX_IDLE_CONNS", 100),
 		MaxConnsPerHost:            getEnvInt("MAX_CONNS_PER_HOST", 100),
@@ -312,7 +326,7 @@ func loadConfig(runtime string) (*Config, error) {
 		DeliveryMaxBackoff:         getEnvDuration("GATEWAY_DELIVERY_MAX_BACKOFF", time.Hour),
 		DeliveryPollInterval:       getEnvDuration("GATEWAY_DELIVERY_POLL_INTERVAL", time.Second),
 		DeliveryReceiptRetention:   getEnvDuration("GATEWAY_DELIVERY_RECEIPT_RETENTION", 90*24*time.Hour),
-		SchedulesEnabled:           getEnvBool("GATEWAY_SCHEDULES_ENABLED", false),
+		SchedulesEnabled:           getEnvBool("GATEWAY_SCHEDULES_ENABLED", runtime == "embedded"),
 		SchedulePollInterval:       getEnvDuration("GATEWAY_SCHEDULE_POLL_INTERVAL", 5*time.Second),
 		DNSAddress:                 dnsAddress,
 		DNSPlannerTimeout:          getEnvDuration("GATEWAY_DNS_PLANNER_TIMEOUT", 750*time.Millisecond),

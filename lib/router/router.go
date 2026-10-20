@@ -3,6 +3,7 @@ package router
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -61,15 +62,24 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		SetPassThrough(planner)
 	protocolPlanner := bridge.NewPHPProtocolPlanner(planner, spinner.MaxBodySize)
 	protocolPlanner.InternalToken = spinner.InternalToken
+	protocolListeners, err := spinner.ProtocolListeners(protocolPlanner)
+	if err != nil {
+		return fmt.Errorf("configure protocol listeners: %w", err)
+	}
 	control, err := transport.EmbeddedScheduleControl(planner, spinner, engine)
 	if err != nil {
 		return err
 	}
+	mailboxPoller, err := transport.EmbeddedMailboxPoller(planner, spinner)
+	if err != nil {
+		return err
+	}
+	control.EnableNativeIMAP()
 	edge.SetScheduleRegistrar(control)
 	if spinner.SchedulesEnabled {
 		scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 		defer cancelSchedules()
-		transport.StartSchedulePolling(scheduleCtx, spinner, control, engine)
+		transport.StartSchedulePolling(scheduleCtx, spinner, control, engine, mailboxPoller.Run)
 	}
 	websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
 		MaxMessageSize: spinner.MaxBodySize,
@@ -78,11 +88,12 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		MaxDuration:    spinner.WebSocketMaxDuration,
 	})
 	webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxConnections: spinner.WebstreamMaxConnections, MaxDuration: spinner.WebstreamMaxDuration})
+	workerIngress := spinner.WorkerIngressHandler(planner)
 	managed, err := ManagedRouteProxy(spinner)
 	if err != nil {
 		return err
 	}
-	handler := NewHandler(planner, edge, websocket, webstream, managed)
+	handler := NewHandler(planner, edge, websocket, webstream, managed, workerIngress)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -107,8 +118,39 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+	var tlsServer *http.Server
+	var tlsListener net.Listener
+	if tlsListen := os.Getenv("GATEWAY_ROUTER_TLS_LISTEN"); tlsListen != "" {
+		certificate, err := tls.LoadX509KeyPair(os.Getenv("GATEWAY_ROUTER_TLS_CERT_FILE"), os.Getenv("GATEWAY_ROUTER_TLS_KEY_FILE"))
+		if err != nil {
+			_ = listener.Close()
+			if controlListener != nil {
+				_ = controlListener.Close()
+			}
+			return fmt.Errorf("load Router TLS certificate: %w", err)
+		}
+		plainListener, err := net.Listen("tcp", tlsListen)
+		if err != nil {
+			_ = listener.Close()
+			if controlListener != nil {
+				_ = controlListener.Close()
+			}
+			return fmt.Errorf("listen for Router TLS requests: %w", err)
+		}
+		tlsListener = tls.NewListener(plainListener, &tls.Config{
+			MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate},
+		})
+		tlsServer = &http.Server{
+			Handler: handler, ReadHeaderTimeout: 15 * time.Second,
+			IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20,
+		}
+	}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.Serve(listener) }()
+	tlsErrors := make(chan error, 1)
+	if tlsServer != nil {
+		go func() { tlsErrors <- tlsServer.Serve(tlsListener) }()
+	}
 	controlErrors := make(chan error, 1)
 	if controlServer != nil {
 		go func() { controlErrors <- controlServer.Serve(controlListener) }()
@@ -117,11 +159,21 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if spinner.DeliveryAdminServer != nil {
 		go func() { adminErrors <- spinner.ServeDeliveryAdmin() }()
 	}
+	protocolErrors := make(chan error, len(protocolListeners))
+	for _, protocolListener := range protocolListeners {
+		go func(listener transport.ProtocolListener) {
+			protocolErrors <- listener.ListenAndServe()
+		}(protocolListener)
+	}
 	var runErr error
 	select {
 	case err := <-serverErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
 			runErr = err
+		}
+	case err := <-tlsErrors:
+		if !errors.Is(err, http.ErrServerClosed) {
+			runErr = fmt.Errorf("Router TLS listener: %w", err)
 		}
 	case err := <-adminErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -131,11 +183,19 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		if !errors.Is(err, http.ErrServerClosed) {
 			runErr = fmt.Errorf("private provisioning control listener: %w", err)
 		}
+	case err := <-protocolErrors:
+		runErr = fmt.Errorf("protocol listener stopped: %w", err)
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
 	defer cancel()
 	publicShutdownErr := server.Shutdown(shutdown)
+	if tlsServer != nil {
+		publicShutdownErr = errors.Join(publicShutdownErr, tlsServer.Shutdown(shutdown))
+	}
+	for _, listener := range protocolListeners {
+		_ = listener.Shutdown(shutdown)
+	}
 	if controlServer != nil {
 		if err := controlServer.Shutdown(shutdown); err != nil {
 			return errors.Join(publicShutdownErr, err)
@@ -155,10 +215,18 @@ func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 	return provision.NewRemoteRouter("http://planner.internal", spinner.InternalToken, nil, spinner.ProvisioningRouteCIDRs)
 }
 
-func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler) http.Handler {
+func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler, workerIngress ...http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if under(r.URL.Path, "/_internal") {
 			http.NotFound(w, r)
+			return
+		}
+		if under(r.URL.Path, "/email/worker-ingress") {
+			if len(workerIngress) == 0 || workerIngress[0] == nil {
+				http.NotFound(w, r)
+				return
+			}
+			workerIngress[0].ServeHTTP(w, r)
 			return
 		}
 		if managed != nil && managed.ServeWithPlanner(w, r, planner) {

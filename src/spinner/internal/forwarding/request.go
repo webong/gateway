@@ -13,6 +13,8 @@ type HTTPTransport struct {
 	RequestTimeout time.Duration
 	// PrivateSourceCIDRs is a trusted Planner decision, bounded by deployment networks.
 	PrivateSourceCIDRs string
+	// PrivateCallbackCIDRs is a separate mail callback grant, bounded by a separate deployment ceiling.
+	PrivateCallbackCIDRs string
 }
 
 // ForwardRequest is the transport-level request sent to a subscriber.

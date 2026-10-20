@@ -15,6 +15,127 @@ and mailbox upstream behind the same interfaces. Product parity is evaluated
 on whether that provider can be built and operated on Gateway, not on whether
 Gateway ships every hosted-service feature itself.
 
+## Application inboxes: primary receiving flow
+
+For an application such as Zorvia, the primary path is account-owned SMTP
+receiving followed by a signed HTTPS push of the unchanged RFC 5322 message.
+IMAP connections remain optional for customers whose mailbox stays at another
+provider. None of these paths gives Gateway mailbox storage.
+
+An operator creates a generic account through HTTPS `POST /accounts` (or the
+Mail alias `POST /email/mailbox-accounts`) with the registry bearer token. The
+returned account token manages resources under
+`/email/mailbox-accounts/{account}`; it cannot address another account.
+The bundled Router image serves HTTPS on container port 8443 and optional
+external-mailbox IMAP over TLS on 993, preserving the prior single-service
+ports. Its plain HTTP listener on 8080 is loopback-only for health and private
+use. It also starts an SMTP listener at container port 2525; publish host port
+25 to 2525 when testing MX ingress. It uses the Router's durable delivery queue
+on the persisted `/data` volume, requires recipient preflight, and resolves
+sending credentials through the private loopback Planner listener. A PostgreSQL
+deployment uses the shared delivery
+database instead. This is a local transport setup, not evidence of public MX
+readiness; production also needs TLS, abuse controls, public DNS and reachability
+checks.
+The Router persists its generated HTTPS/IMAP certificate under `/data/tls`;
+clients must trust that certificate or mount an operator-managed certificate
+and key. Keep the existing `/data` volume and `gateway.env` together when
+changing images so account tokens and encrypted Planner resources remain
+readable.
+First, an operator sets `PUT /email/receiving-settings` over HTTPS with the
+registry token and `{"mx_host":"mx.gateway.example"}`. This Planner resource
+is the physical public SMTP hostname shown in customer DNS instructions, not
+an environment variable. Publish A/AAAA for it and make TCP 25 reach Spinner.
+An optional `forwarding_domain` may be set only after it is verified and
+enabled under the operator's `/email/domains` API.
+
+For a customer-owned domain, create `POST .../receiving-domains` with
+`{"domain":"acme.example"}`. The response has a TXT ownership challenge at
+`_gateway-verify.acme.example` and an MX instruction (priority 10, the
+operator-configured host). Publish the TXT record, then call
+`POST .../receiving-domains/{id}/verify`. `mx_status` is a separate DNS
+observation: `pending`, `ready`, `unavailable`, or `unconfigured`; it is not
+proof that the SMTP port is reachable. `ready` requires the observed MX set to
+contain only the instructed host at priority 10; a more-preferred old MX keeps
+the status pending. Unverified domain claims are account-scoped and do not
+reserve the domain against another account; the first account that proves its
+TXT challenge acquires the globally exclusive receiving domain. Verification
+and route enabling do not
+write customer DNS. Gateway rechecks TXT ownership according to the Email
+runtime policy's verification TTL. A missing record fails closed.
+
+Create an exact receiving route with `POST .../receiving-routes`:
+
+```json
+{"mode":"mx","domain_id":"<verified domain UUID>","local_part":"support","callback_url":"https://app.example/inbound","webhook_secret":"<64 lowercase hex characters>"}
+```
+
+The account may supply its own random webhook secret to make retries after a
+lost create response recoverable. Without one, Gateway generates and returns
+a secret only on create; GET never returns it. `PATCH .../receiving-routes/{id}`
+accepts only `{"enabled":false}` or `{"enabled":true}`. A disabled exact
+address rejects SMTP rather than falling through to a catch-all or other
+route. Unknown addresses at a claimed customer domain also reject. Only one
+recipient is accepted per SMTP transaction for these routes.
+
+Alternatively, create a forwarding route with `mode: "forward"`, an
+`external_id` stable within the account, a client-generated 64-character hex
+`webhook_secret`, and `callback_url`; omit `domain_id` and `local_part`.
+Gateway deterministically assigns an opaque `z-...@<forwarding_domain>`
+address. Retrying with the same external ID, callback URL, and secret returns
+the same route; altered retry details are rejected. A customer can forward
+their existing mailbox to this address without changing MX. The operator
+must publish MX for the forwarding domain separately.
+
+Gateway returns `250` to SMTP DATA only after its durable queue accepts the
+message. The queued HTTP delivery uses `Content-Type: message/rfc822` with
+the original MIME bytes. It sends `X-Gateway-Route-Id`,
+`X-Gateway-Event-Id`, and `X-Gateway-Envelope` (base64 JSON with `mail_from`
+and one `recipients` entry). `X-Gateway-Signature` is `sha256=` plus the
+lowercase hex HMAC-SHA256 keyed by the literal webhook secret over:
+
+```text
+route_id + "\n" + event_id + "\n" + envelope_header + "\n" + lowercase_hex_sha256(raw_mime)
+```
+
+The application must verify the signature over the exact body, authorize
+the route ID to its own tenant, persist MIME safely before returning 2xx,
+and deduplicate by route ID and event ID. Delivery is at least once; 5xx and
+transient network errors retry. Gateway's outbound HTTP policy blocks private
+and loopback callback addresses by default. For an intentional private
+Compose/Kubernetes callback, the operator adds an exact `url` and private
+IPv4 `cidrs` list to `private_callbacks` in `/email/receiving-settings`, then
+sets a hard deployment ceiling with `GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS`
+(for example the narrow Compose subnet). The account route explicitly asks
+for `"network_scope":"private"`; Planner grants only the exact approved URL
+and Spinner pins the resolved destination to the intersection of that grant
+and the deployment ceiling. No proxy or redirects are allowed on that path.
+Removing the Planner grant stops future delivery. The SMTP-to-HTTPS regression
+uses disposable loopback fixtures; it does not prove cross-container or
+public-network reachability. The hard ceiling is a bootstrap safety limit,
+not a customer-configurable mail route.
+
+For sending without IMAP, use `POST .../sending-connections` with `address`,
+`smtp_upstream_id`, `smtp_username`, `smtp_auth`, and `smtp_secret`. The SMTP
+upstream itself is an operator-managed `/email/upstreams` resource. The create
+response gives a one-time `smtp_client_password`; the connection UUID is the
+client username. `POST .../{id}/test` probes SMTP AUTH without sending a
+message, and `PATCH .../{id}` with `{"enabled":true}` requires a healthy
+probe. The existing HTTPS `/email/submissions` endpoint then accepts Basic
+authentication and `Idempotency-Key` for durable outbound mail. No IMAP
+upstream, login, or MX change is required. Real-provider submission behavior
+is not established by the local tests. `PUT .../sending-connections/{id}`
+replaces SMTP upstream credentials, disables the connection, and requires a
+new test; `POST .../{id}/rotate` issues a new one-time client password if the
+create response was lost or the client credential needs rotation.
+
+Gateway DNSHook can serve MX answers only for a zone actually delegated to
+Gateway's authoritative DNS listeners, or via a separately configured
+provider integration. The account receiving API currently returns DNS
+instructions; it does not grant tenants DNSHook administration or mutate
+external customer zones. A Zorvia-managed DNS wizard should treat this as a
+manual/provider-specific step until an account-scoped DNS record API exists.
+
 ## MX mail hooks
 
 Mail hooks are an opt-in MX receiving path alongside alias-to-SMTP forwarding
@@ -58,8 +179,7 @@ reply sending.
 
 For a new local deployment, run the shared `configurations` migration
 and create IMAP, POP3, and mailbox SMTP upstreams through
-`POST /email/upstreams`. Deploy matching exact-host ceilings to both Planner
-and Spinner (or Caddy). Create hosted adapters and routes through
+`POST /email/upstreams`. Create hosted adapters and routes through
 `POST /email/hosted-adapters` and `POST /email/hosted-routes`, and import each
 DKIM domain/selector/private key through `POST /email/dkim-keys`. For SRS,
 create `/email/srs-policy` with a Gateway-controlled return domain and stable
@@ -685,3 +805,90 @@ events report queued, deferred, delivered, and failed states. The spool is
 single-process and local-disk owned; sharing one spool path between Gateway
 processes is unsupported. A future distributed adapter can implement the same
 `GatewayDeliveryQueue` interface.
+
+## Account mailbox polling (local implementation)
+
+Gateway's bundled Router can poll an external IMAP mailbox without Zorvia
+running its own IMAP worker. First create, test, and enable an account-owned
+mailbox connection. Then `PUT` over HTTPS with that account's bearer token to
+`/email/mailbox-accounts/{account}/connections/{connection}/polling`:
+
+```json
+{
+  "callback_url": "https://zorvia.example.com/webhooks/gateway-mail",
+  "webhook_secret": "64-hex-character-shared-secret",
+  "enabled": true
+}
+```
+
+The callback must be a public HTTPS URL without credentials, query, or
+fragment. The response has a stable `route_id`; `GET` returns its current
+`uid_validity` and `last_uid` checkpoint without the secret. `DELETE` removes
+the poll schedule and checkpoint. The operator can disable polling by sending
+`enabled: false` in another complete `PUT`. The secret is encrypted in the
+Planner resource and never returned by `GET`. There is no mailbox-polling
+environment toggle in the bundled image; the shared schedule loop starts by
+default and stays idle until a poll resource is enabled.
+
+Planner creates a built-in `native.imap` schedule every minute. Spinner claims
+that schedule, then obtains a separate per-resource lease and fresh IMAP
+credentials through the private in-process Planner interface. It selects
+`INBOX` read-only, searches UIDs after its durable checkpoint, and fetches at
+most three messages of at most 10 MiB each per run. It sends each raw MIME
+message to the callback as `message/rfc822`. The callback headers are
+`X-Gateway-Route-Id`, deterministic `X-Gateway-Event-Id`, base64-JSON
+`X-Gateway-Envelope`, and `X-Gateway-Signature` using the same HMAC-SHA256
+contract as Gateway MX receiving. For IMAP, `mail_from` is derived from the
+message's `From` header, not an SMTP envelope; `recipients` contains the
+connected mailbox address. The callback must authenticate the signature and
+persist the event before returning 2xx.
+
+Only a 2xx callback advances the UID checkpoint. A failure leaves the UID
+pending for the next scheduled run, which retries with the same event ID.
+Zorvia must deduplicate by route ID plus event ID, register the poll's
+`route_id` with its Gateway-mail callback, and permit its mailhook connection
+to import that callback. A changed IMAP UIDVALIDITY resets the UID cursor and
+changes event IDs. This is local code, not a published image or a
+provider-interoperability claim; OAuth, mailbox-size, and real-provider
+behavior still require deployment tests.
+
+## Cloudflare Email Worker ingress (local implementation)
+
+When Cloudflare retains MX for a domain, Gateway can accept the raw message
+over HTTPS instead of receiving the SMTP transaction itself. This is a
+separate `worker` receiving-route mode; it does not require Gateway's MX
+hostname or DNSHook delegation. The account must still verify ownership via
+Gateway's `_gateway-verify` TXT challenge. Create the exact route with
+`mode: "worker"`, `domain_id`, `local_part`, `callback_url`, and
+`webhook_secret`. An existing verified MX route can instead switch in place
+using account-authenticated `PATCH .../receiving-routes/{route_id}` with
+`{"mode":"worker"}`. The route ID, address, callback, secret, and enabled
+state are retained; Gateway SMTP acceptance stops for that route. The switch
+is one-way, and the Cloudflare Email Routing rule still needs an explicit
+cutover. Do not point both paths at the same inbox without application-side
+event deduplication.
+
+With the account bearer token, `POST` an empty JSON object to
+`/email/mailbox-accounts/{account}/receiving-routes/{route_id}/worker-ingress`.
+The response returns a one-time `ingress_token`; calling it again rotates and
+invalidates the old token. `GET` reports the credential's existence without
+returning the token. Deleting the receiving route removes its credential.
+Deploy `infra/cloudflare/email-worker.mjs` as a Cloudflare Email Routing
+Worker using `infra/cloudflare/wrangler.jsonc.example` as the configuration
+template. Set `GATEWAY_RECIPIENT` to the exact routed address and
+`GATEWAY_INGRESS_URL` to the public HTTPS URL
+`https://<gateway-host>/email/worker-ingress/{route_id}`. Store
+`GATEWAY_INGRESS_TOKEN` as a Worker secret, not a plain `vars` value.
+
+The Worker posts the original `message.raw` bytes as `message/rfc822`, with
+`Authorization: Bearer <ingress_token>`, `X-Gateway-Mail-From` and
+`X-Gateway-Recipient`. Gateway requires TLS, checks the token, verified active
+route and exact recipient through Planner, and replies `202` only after its
+delivery queue durably records the signed HTTPS callback to Zorvia. Repeated
+requests for the same route, envelope and MIME bytes are idempotent while the
+queue receipt is retained. Gateway bounds a message at 10 MiB. The callback
+signature and at-least-once delivery semantics are the same as the MX route.
+The Worker does not hold a backup queue: on anything other than `202` it calls
+Cloudflare's `setReject`, so the sender gets a visible rejection rather than a
+false acceptance. Check Cloudflare's routing and rejection behavior with a
+real Gmail-to-domain message before treating this as deployed.

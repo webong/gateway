@@ -13,19 +13,22 @@ use Throwable;
 use stdClass;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Email\MailboxPollStore;
 use Webong\Gateway\Email\MailboxConnectionTester;
 
 /** Server-to-server control plane; a tenant token cannot address another account. */
 final readonly class MailboxConnectionController
 {
-    public function __construct(private MailboxConnectionStore $store,
+    public function __construct(private MailboxConnectionStore $store, private MailboxPollStore $polls,
         private MailboxConnectionTester $tester, private AccountStore $accounts) {}
 
     public function index(Request $request, string $account): JsonResponse
     {
         if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
 
-        return response()->json(['data' => array_map($this->resource(...), $this->store->all($account))])->header('Cache-Control', 'no-store');
+        return response()->json(['data' => array_map($this->resource(...), array_values(array_filter(
+            $this->store->all($account), static fn (stdClass $row): bool => $row->mode === 'mailbox')))])
+            ->header('Cache-Control', 'no-store');
     }
 
     public function create(Request $request, string $account): JsonResponse
@@ -43,7 +46,7 @@ final readonly class MailboxConnectionController
     public function show(Request $request, string $account, string $connection): JsonResponse
     {
         if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
-        $record = $this->store->find($account, $connection);
+        $record = $this->mailbox($account, $connection);
 
         return $record === null ? $this->error('Connection not found.', 404)
             : response()->json($this->resource($record))->header('Cache-Control', 'no-store');
@@ -52,7 +55,7 @@ final readonly class MailboxConnectionController
     public function test(Request $request, string $account, string $connection): JsonResponse
     {
         if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
-        if ($this->store->find($account, $connection) === null) { return $this->error('Connection not found.', 404); }
+        if ($this->mailbox($account, $connection) === null) { return $this->error('Connection not found.', 404); }
         try { $healthy = $this->tester->test($connection); }
         catch (Throwable) { $healthy = false; }
         $record = $this->store->markHealth($account, $connection, $healthy);
@@ -63,6 +66,7 @@ final readonly class MailboxConnectionController
     public function status(Request $request, string $account, string $connection): JsonResponse
     {
         if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
+        if ($this->mailbox($account, $connection) === null) { return $this->error('Connection not found.', 404); }
         $input = $request->json()->all();
         if (array_keys($input) !== ['enabled'] || ! is_bool($input['enabled'])) { return $this->error('Only enabled may change.', 422); }
         try { $record = $this->store->update($account, $connection, $input['enabled']); }
@@ -75,6 +79,7 @@ final readonly class MailboxConnectionController
     public function replace(Request $request, string $account, string $connection): JsonResponse
     {
         if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
+        if ($this->mailbox($account, $connection) === null) { return $this->error('Connection not found.', 404); }
         try { $record = $this->store->replace($account, $connection, $request->json()->all()); }
         catch (InvalidArgumentException) { return $this->error('Connection or upstream is invalid.', 422); }
         catch (QueryException) { return $this->error('Mailbox address already exists for this account.', 409); }
@@ -86,7 +91,9 @@ final readonly class MailboxConnectionController
     public function delete(Request $request, string $account, string $connection): JsonResponse
     {
         if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
+        if ($this->mailbox($account, $connection) === null) { return $this->error('Connection not found.', 404); }
 
+        $this->polls->delete($account, $connection);
         return $this->store->delete($account, $connection)
             ? response()->json(['deleted' => true])->header('Cache-Control', 'no-store')
             : $this->error('Connection not found.', 404);
@@ -108,6 +115,12 @@ final readonly class MailboxConnectionController
             'imap_username' => $row->imap_username, 'smtp_username' => $row->smtp_username,
             'imap_auth' => $row->imap_auth, 'smtp_auth' => $row->smtp_auth,
             'enabled' => (bool) $row->enabled, 'health' => $row->health, 'tested_at' => $row->tested_at];
+    }
+
+    private function mailbox(string $account, string $connection): ?stdClass
+    {
+        $row = $this->store->find($account, $connection);
+        return $row !== null && $row->mode === 'mailbox' ? $row : null;
     }
 
     private function error(string $message, int $code): JsonResponse

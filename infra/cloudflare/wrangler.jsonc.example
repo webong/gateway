@@ -1,0 +1,9 @@
+{
+  "name": "gateway-mail-ingress",
+  "main": "./email-worker.mjs",
+  "compatibility_date": "2026-10-20",
+  "vars": {
+    "GATEWAY_RECIPIENT": "support@mail.yollof.com",
+    "GATEWAY_INGRESS_URL": "https://gateway.example.com/email/worker-ingress/<route-uuid>"
+  }
+}

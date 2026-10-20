@@ -143,7 +143,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		if spinner.SchedulesEnabled {
 			scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 			defer cancelSchedules()
-			transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine)
+			transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, nil)
 			log.Print("Schedule polling enabled")
 		}
 		listeners, err = spinner.ProtocolListeners(prepared.planner)

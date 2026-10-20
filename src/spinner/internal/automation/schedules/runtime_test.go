@@ -75,6 +75,18 @@ func TestPollReportsScriptFailure(t *testing.T) {
 	}
 }
 
+func TestPollDispatchesNativeIMAPThroughExistingScheduleClaim(t *testing.T) {
+	control := &fakeControl{runs: []Run{{ID: "run-imap", Language: "native.imap", Source: "poll-resource-id"}}}
+	called := ""
+	(Runtime{Control: control, NativeIMAP: func(_ context.Context, routeID string) error {
+		called = routeID
+		return nil
+	}, Enqueue: func(string, automation.Delivery) bool { return true }}).Poll(context.Background())
+	if called != "poll-resource-id" || control.status != "succeeded" || control.queued != 0 {
+		t.Fatalf("native job was not dispatched through schedules: called=%q control=%+v", called, control)
+	}
+}
+
 func TestPollRegistersSchedulesOwnedByTheParentSchedule(t *testing.T) {
 	control := &fakeControl{runs: []Run{{
 		ID: "run-4", ScheduleID: "schedule-4", Language: javascript.Language,
@@ -185,5 +197,29 @@ func TestHandlerControlPlaneUsesEmbeddedPlannerWithoutNetwork(t *testing.T) {
 	}
 	if len(paths) != 2 || paths[0] != "/_internal/gateway/schedules/claim" || paths[1] != "/_internal/gateway/schedules/register" {
 		t.Fatalf("unexpected embedded paths: %v", paths)
+	}
+}
+
+func TestEmptyLanguageListIsAnArrayForPlannerValidation(t *testing.T) {
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Accept") != "application/json" {
+			t.Error("private request must expect JSON")
+		}
+		var payload map[string]json.RawMessage
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if string(payload["automation_languages"]) != "[]" || string(payload["native_jobs"]) != `["imap"]` {
+			t.Errorf("invalid Planner claim payload: %v", payload)
+		}
+		_, _ = writer.Write([]byte(`{"data":[]}`))
+	})
+	control, err := NewHandlerControlPlane(handler, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.EnableNativeIMAP()
+	if _, err := control.Claim(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }

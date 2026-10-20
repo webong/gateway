@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -130,6 +131,10 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
+	httpPrivateNetworks, err := relayconfig.ParseHTTPPrivateNetworks(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
+	if err != nil {
+		return err
+	}
 
 	planner, err := bridge.NewHTTPProtocolPlanner(
 		a.PlannerURL,
@@ -157,6 +162,7 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		HostedMailResolverURL:  a.HostedMailResolverURL,
 		HostedMailAllowedHosts: a.HostedMailAllowedHosts,
 		InternalToken:          a.InternalToken,
+		HTTPPrivateNetworks:    httpPrivateNetworks,
 		EmailDKIMResolverURL:   a.DKIMResolverURL,
 		EmailClamdNetwork:      a.ClamdNetwork, EmailClamdAddress: a.ClamdAddress,
 		EmailClamdTimeout: time.Duration(a.ClamdTimeout), EmailQuarantinePath: a.QuarantinePath,

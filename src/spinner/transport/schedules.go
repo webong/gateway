@@ -3,12 +3,16 @@ package transport
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/webong/gateway/driver/automation"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	"github.com/webong/gateway/src/spinner/internal/automation/schedules"
+	"github.com/webong/gateway/src/spinner/internal/forwarding"
+	"github.com/webong/gateway/src/spinner/internal/mailpoll"
 )
 
 // ScheduleControl is the shared private schedule protocol for an embedded
@@ -19,15 +23,34 @@ func EmbeddedScheduleControl(handler http.Handler, spinner *Router, executor aut
 	return schedules.NewHandlerControlPlane(handler, spinner.InternalToken, automation.Languages(executor)...)
 }
 
-func StartSchedulePolling(ctx context.Context, spinner *Router, control *ScheduleControl, executor automation.Executor) {
+func StartSchedulePolling(ctx context.Context, spinner *Router, control *ScheduleControl, executor automation.Executor,
+	nativeIMAP func(context.Context, string) error) {
 	(schedules.Runtime{
-		Control: control, Executor: executor, Registrar: control,
+		Control: control, Executor: executor, Registrar: control, NativeIMAP: nativeIMAP,
 		Interval: spinner.SchedulePollInterval,
 		LogError: func(format string, args ...any) { log.Printf(format, args...) },
 		Enqueue: func(runID string, delivery automation.Delivery) bool {
 			return EnqueueScheduledDelivery(spinner.Executor, runID, delivery)
 		},
 	}).Start(ctx)
+}
+
+func EmbeddedMailboxPoller(handler http.Handler, spinner *Router) (mailpoll.Runner, error) {
+	control, err := mailpoll.NewHandlerControlPlane(handler, spinner.InternalToken)
+	if err != nil {
+		return mailpoll.Runner{}, err
+	}
+	return mailpoll.Runner{Control: control,
+		Dial: func(ctx context.Context, claim mailpoll.Claim) (net.Conn, error) {
+			return bridge.DialTLSMailUpstream(ctx, claim.UpstreamAddress, claim.UpstreamServerName,
+				claim.UpstreamNetworkScope, 10*time.Second, nil)
+		},
+		Deliver: func(ctx context.Context, target string, headers http.Header, body []byte) (int, error) {
+			return spinner.forwarder.ForwardStatus(forwarding.ForwardRequest{
+				TargetURL: target, Method: http.MethodPost, Headers: headers, RequestBody: body, Context: ctx,
+			})
+		},
+	}, nil
 }
 
 // EnqueueScheduledDelivery preserves the legacy callback path unless a status

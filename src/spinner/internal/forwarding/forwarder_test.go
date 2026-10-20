@@ -96,6 +96,41 @@ func TestPlannerPrivateSourceGrantDoesNotApplyToOrdinaryForwarding(t *testing.T)
 	}
 }
 
+func TestPrivateCallbackNeedsSeparateBoundedGrant(t *testing.T) {
+	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Header.Get("X-Gateway-Route-Id") != "route-1" {
+			t.Errorf("callback lost request metadata: %+v", r)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer callback.Close()
+	f := NewForwarder(&config.Config{RequestTimeout: time.Second,
+		WebstreamPrivateNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}}, logging.NewLogger("error"))
+	defer f.CloseIdleConnections()
+	req := ForwardRequest{TargetURL: callback.URL, Method: http.MethodPost,
+		Headers: map[string][]string{"X-Gateway-Route-Id": {"route-1"}}}
+	if _, err := f.ForwardStatus(req); err == nil {
+		t.Fatal("ordinary callback reached private address")
+	}
+	req.Transport.PrivateCallbackCIDRs = "127.0.0.0/8"
+	if _, err := f.ForwardStatus(req); err == nil {
+		t.Fatal("Webstream ceiling authorized a mail callback")
+	}
+	f.privateCallbackNetworks = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/16")}
+	if _, err := f.ForwardStatus(req); err == nil {
+		t.Fatal("callback grant wider than deployment ceiling was accepted")
+	}
+	f.privateCallbackNetworks = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
+	status, err := f.ForwardStatus(req)
+	if err != nil || status != http.StatusAccepted {
+		t.Fatalf("bounded callback = %d, %v", status, err)
+	}
+	req.Transport.HTTPProxy = "http://proxy.invalid:8080"
+	if _, err := f.ForwardStatus(req); err == nil {
+		t.Fatal("private callback accepted a proxy")
+	}
+}
+
 func TestPlannerPrivateSourceRequiresDeploymentCeiling(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

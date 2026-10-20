@@ -21,6 +21,18 @@ func TestWebstreamPrivateNetworkCeiling(t *testing.T) {
 	}
 }
 
+func TestHTTPPrivateNetworkCeilingIsSeparateFromWebstream(t *testing.T) {
+	for _, invalid := range []string{"127.0.0.0/8", "0.0.0.0/0", "10.0.0.0/7", "172.18.1.1/16"} {
+		if _, err := ParseHTTPPrivateNetworks(invalid); err == nil {
+			t.Fatalf("accepted unsafe HTTP ceiling %q", invalid)
+		}
+	}
+	got, err := ParseHTTPPrivateNetworks("172.18.0.0/16")
+	if err != nil || len(got) != 1 || got[0] != netip.MustParsePrefix("172.18.0.0/16") {
+		t.Fatalf("HTTP ceiling: %v %v", got, err)
+	}
+}
+
 func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://127.0.0.1:8000")
@@ -273,6 +285,14 @@ func TestLoadRouterConfigAllowsEmbeddedSchedulePolling(t *testing.T) {
 	if !config.SchedulesEnabled || config.Runtime != "embedded" {
 		t.Fatalf("unexpected embedded schedule config: %+v", config)
 	}
+}
+
+func TestBundledRouterStartsPlannerSchedulesWithoutProductEnvToggle(t *testing.T) {
+	setConfigEnv(t, "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
+	config, err := LoadRouterConfig()
+	if err != nil { t.Fatal(err) }
+	if !config.SchedulesEnabled { t.Fatal("bundled Planner schedules must start by default") }
 }
 
 func TestLoadConfigRejectsEmbeddedRuntimeForStandaloneSpinner(t *testing.T) {

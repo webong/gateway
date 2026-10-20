@@ -37,7 +37,7 @@ func TestAdapterPreservesResolvedHTTPRequest(t *testing.T) {
 	ctx := context.Background()
 	delivery := bridge.GatewayDelivery{
 		Protocol: bridge.ProtocolHTTP, Target: "https://example.test/hook?token=abc",
-		Attributes: map[string]string{"method": http.MethodPatch, "raw_query": "source=gateway"},
+		Attributes: map[string]string{"method": http.MethodPatch, "raw_query": "source=gateway", "private_callback_cidrs": "172.18.0.0/16"},
 		Headers:    map[string][]string{"X-Test": {"before"}}, Payload: []byte("payload"),
 		Transport: &bridge.HTTPTransport{
 			Proxy:                 &bridge.HTTPProxy{HTTPS: "https://proxy.example.test", NoProxy: []string{"internal.example.test"}},
@@ -51,7 +51,7 @@ func TestAdapterPreservesResolvedHTTPRequest(t *testing.T) {
 	if request.Context != ctx || request.TargetURL != delivery.Target || request.Method != http.MethodPatch || request.RawQuery != "source=gateway" || string(request.RequestBody) != "payload" {
 		t.Fatalf("HTTP request lost delivery fields: %+v", request)
 	}
-	if http.Header(request.Headers).Get("X-Test") != "before" || request.Transport.HTTPSProxy != "https://proxy.example.test" || request.Transport.ConnectTimeout != 2500*time.Millisecond || request.Transport.RequestTimeout != 10*time.Second {
+	if http.Header(request.Headers).Get("X-Test") != "before" || request.Transport.HTTPSProxy != "https://proxy.example.test" || request.Transport.ConnectTimeout != 2500*time.Millisecond || request.Transport.RequestTimeout != 10*time.Second || request.Transport.PrivateCallbackCIDRs != "172.18.0.0/16" {
 		t.Fatalf("HTTP request lost transport fields: %+v", request)
 	}
 	delivery.Headers["X-Test"][0] = "after"

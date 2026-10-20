@@ -9,6 +9,7 @@ use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Dns\DnsHookEventRecorder;
 use Webong\Gateway\Email\EmailRegistry;
+use Webong\Gateway\Email\AccountReceivingStore;
 use Webong\Gateway\Email\EmailRouteRejected;
 use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailPolicyVerdict;
@@ -52,6 +53,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         private readonly ?EmailSubmissionQuota $submissionQuota = null,
         private readonly ?MailboxAuthenticator $mailboxAuthenticator = null,
         private readonly ?MailHookRegistry $mailHooks = null,
+        private readonly ?AccountReceivingStore $receiving = null,
         private readonly ?EmailProviderRouteResolver $providerRoutes = null,
         private readonly ?EmailSuppressionStore $suppressions = null,
         private readonly ?\Webong\Gateway\Webstream\WebstreamPrivateSourceStore $webstreamPrivateSources = null,
@@ -137,6 +139,9 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             }
         }
         if ($event->protocol === Protocol::SMTP && $event->kind === EventKind::RECIPIENT) {
+            if ($this->receiving?->reservedAddress($event->route) || $this->receiving?->managedDomain($event->route)) {
+                return $this->receivingRecipient($event);
+            }
             if ($this->srs !== null && $this->srs->isCandidate($event->route)) {
                 return $this->returnRecipient($event);
             }
@@ -151,6 +156,9 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                 : new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::ACCEPT, statusCode: 250);
         }
         if ($event->protocol === Protocol::SMTP && $event->kind === EventKind::TRANSACTION && $this->email !== null) {
+            if ($this->receiving?->reservedAddress($event->route) || $this->receiving?->managedDomain($event->route)) {
+                return $this->receivingTransaction($event);
+            }
             if ($this->srs !== null && $this->hasReturnRecipient($event)) {
                 return $this->returnTransaction($event);
             }
@@ -255,6 +263,66 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         }
 
         return null;
+    }
+
+    private function receivingRecipient(GatewayEvent $event): GatewayDecision
+    {
+        $accepted = json_decode($event->attributes['accepted_recipients'] ?? '[]', true);
+        $route = $this->receiving?->activeAddress($event->route);
+        if ($route === null || ($route->document['mode'] ?? null) === 'worker' || $accepted !== []) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 550, message: 'Receiving route is unavailable or transaction has multiple recipients.');
+        }
+        try { $this->receiving->privateCallbackCidrs($route); }
+        catch (EmailRouteRejected) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 451, message: 'Private callback grant is unavailable.');
+        }
+        return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::ACCEPT, statusCode: 250);
+    }
+
+    private function receivingTransaction(GatewayEvent $event): GatewayDecision
+    {
+        $route = $this->receiving?->activeAddress($event->route);
+        $recipients = array_values(array_filter(explode(',', $event->attributes['recipients'] ?? $event->route)));
+        if ($route === null || ($route->document['mode'] ?? null) === 'worker'
+            || count($recipients) !== 1 || strcasecmp($recipients[0], $route->key) !== 0) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 550, message: 'Receiving route is unavailable or transaction has multiple recipients.');
+        }
+        if ($this->suppressions?->containsAny($recipients) === true) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 550, message: 'Recipient is suppressed.');
+        }
+        $assessment = $this->dmarc?->evaluate($event);
+        $policy = $this->emailPolicy?->assess($event, $recipients, $assessment) ?? EmailPolicyVerdict::Accept;
+        if ($policy !== EmailPolicyVerdict::Accept) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: $policy === EmailPolicyVerdict::Defer ? 451 : 550,
+                message: 'Message rejected by email policy.');
+        }
+        $envelope = base64_encode(json_encode([
+            'mail_from' => $event->attributes['mail_from'] ?? '', 'recipients' => $recipients,
+        ], JSON_THROW_ON_ERROR));
+        $signatureInput = $route->id."\n".$event->id."\n".$envelope."\n".hash('sha256', $event->payload);
+        try { $privateCidrs = $this->receiving->privateCallbackCidrs($route); }
+        catch (EmailRouteRejected) {
+            return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
+                statusCode: 451, message: 'Private callback grant is unavailable.');
+        }
+        $headers = [
+            'Content-Type' => ['message/rfc822'],
+            'X-Gateway-Route-Id' => [$route->id],
+            'X-Gateway-Event-Id' => [$event->id],
+            'X-Gateway-Envelope' => [$envelope],
+            'X-Gateway-Signature' => ['sha256='.hash_hmac('sha256', $signatureInput, $route->document['webhook_secret'])],
+        ];
+        return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::DELIVER,
+            statusCode: 250, deliveries: [new GatewayDelivery(protocol: Protocol::HTTP,
+                target: $route->document['callback_url'], subscriberId: $route->id,
+                headers: $headers, attributes: ['event_id' => $event->id, 'route_id' => $route->id,
+                    ...($privateCidrs !== null ? ['private_callback_cidrs' => $privateCidrs] : [])],
+                payload: $event->payload)]);
     }
 
     private function mailHookDomain(string $address): ?string

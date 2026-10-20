@@ -33,12 +33,17 @@ final readonly class InternalScheduleController
         $data = $request->validate([
             'automation_languages' => ['sometimes', 'array', 'max:32'],
             'automation_languages.*' => ['required', 'string', 'regex:/^[a-z][a-z0-9_-]*$/'],
+            'native_jobs' => ['sometimes', 'array', 'max:1'],
+            'native_jobs.*' => ['required', 'in:imap'],
         ]);
         $available = array_values(array_filter(
             array_unique($data['automation_languages'] ?? []),
             fn (string $language): bool => $this->languages->supports($language, AutomationCapability::SCHEDULE)
                 && $this->languages->target($language) === AutomationExecutionTarget::SPINNER,
         ));
+        // Built-in jobs are created only by their owning Planner module. They
+        // share the scheduler's claim/lease loop but are never user scripts.
+        if (in_array('imap', $data['native_jobs'] ?? [], true)) { $available[] = 'native.imap'; }
 
         return response()->json(['data' => $this->store->claim(languages: $available)]);
     }

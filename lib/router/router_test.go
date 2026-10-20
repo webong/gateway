@@ -2,16 +2,117 @@ package router
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/webong/gateway/src/spinner/transport"
 )
+
+func TestRunServesBundledTLSAndIMAP(t *testing.T) {
+	certFile, keyFile := testTLSFiles(t)
+	t.Setenv("GATEWAY_RUNTIME", "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
+	t.Setenv("GATEWAY_ROUTER_APP_DIR", t.TempDir())
+	t.Setenv("GATEWAY_ROUTER_LISTEN", "127.0.0.1:0")
+	httpsAddr := unusedLoopbackAddress(t)
+	imapAddr := unusedLoopbackAddress(t)
+	t.Setenv("GATEWAY_ROUTER_TLS_LISTEN", httpsAddr)
+	t.Setenv("GATEWAY_ROUTER_TLS_CERT_FILE", certFile)
+	t.Setenv("GATEWAY_ROUTER_TLS_KEY_FILE", keyFile)
+	t.Setenv("GATEWAY_IMAP_ADDR", imapAddr)
+	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", certFile)
+	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", keyFile)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() { finished <- Run(ctx, func(string) (Planner, error) { return &controlTestPlanner{}, nil }) }()
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		response, err := client.Get("https://" + httpsAddr + "/health")
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				t.Fatalf("HTTPS returned %d", response.StatusCode)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("bundled HTTPS listener unavailable: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	connection, err := tls.DialWithDialer(&net.Dialer{Timeout: time.Second}, "tcp", imapAddr,
+		&tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		t.Fatalf("bundled IMAP listener unavailable: %v", err)
+	}
+	buffer := make([]byte, 512)
+	n, err := connection.Read(buffer)
+	_ = connection.Close()
+	if err != nil || !strings.Contains(string(buffer[:n]), "IMAP") {
+		t.Fatalf("bundled IMAP greeting = %q, err = %v", buffer[:n], err)
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("bundled Router did not stop")
+	}
+}
+
+func testTLSFiles(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "gateway"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames: []string{"gateway"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+	}, &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "gateway"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IsCA: true, BasicConstraintsValid: true,
+	}, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certFile, keyFile := filepath.Join(dir, "server.crt"), filepath.Join(dir, "server.key")
+	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return certFile, keyFile
+}
 
 func TestRunOwnsPlannerLifecycle(t *testing.T) {
 	t.Setenv("GATEWAY_RUNTIME", "")

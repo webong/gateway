@@ -35,27 +35,29 @@ type ForwardResponse struct {
 }
 
 type Forwarder struct {
-	client                *http.Client
-	transport             *http.Transport
-	clientsMu             sync.Mutex
-	clients               map[[sha256.Size]byte]*http.Client
-	clientOrder           [][sha256.Size]byte
-	logger                *logging.Logger
-	successCount          atomic.Uint64
-	errorCount            atomic.Uint64
-	totalRequests         atomic.Uint64
-	maxBodySize           int64
-	addressAllowed        func(net.IP) bool
-	privateStreamNetworks []netip.Prefix
+	client                  *http.Client
+	transport               *http.Transport
+	clientsMu               sync.Mutex
+	clients                 map[[sha256.Size]byte]*http.Client
+	clientOrder             [][sha256.Size]byte
+	logger                  *logging.Logger
+	successCount            atomic.Uint64
+	errorCount              atomic.Uint64
+	totalRequests           atomic.Uint64
+	maxBodySize             int64
+	addressAllowed          func(net.IP) bool
+	privateStreamNetworks   []netip.Prefix
+	privateCallbackNetworks []netip.Prefix
 }
 
 func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 	forwarder := &Forwarder{
-		logger:                logger,
-		maxBodySize:           settings.MaxBodySize,
-		addressAllowed:        isAllowedTargetAddress,
-		privateStreamNetworks: settings.WebstreamPrivateNetworks,
-		clients:               make(map[[sha256.Size]byte]*http.Client),
+		logger:                  logger,
+		maxBodySize:             settings.MaxBodySize,
+		addressAllowed:          isAllowedTargetAddress,
+		privateStreamNetworks:   settings.WebstreamPrivateNetworks,
+		privateCallbackNetworks: settings.HTTPPrivateNetworks,
+		clients:                 make(map[[sha256.Size]byte]*http.Client),
 	}
 
 	// Create optimized HTTP client with connection pooling
@@ -365,7 +367,16 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 		}
 	}
 
-	client, err := f.clientFor(req.Transport)
+	var client *http.Client
+	var privateTransport *http.Transport
+	if req.Transport.PrivateCallbackCIDRs != "" {
+		client, privateTransport, err = f.privateCallbackClient(req.Transport)
+		if privateTransport != nil {
+			defer privateTransport.CloseIdleConnections()
+		}
+	} else {
+		client, err = f.clientFor(req.Transport)
+	}
 	if err != nil {
 		return ForwardResponse{}, err
 	}
@@ -391,6 +402,52 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 		Header:     resp.Header.Clone(),
 		Body:       body,
 	}, nil
+}
+
+func (f *Forwarder) privateCallbackClient(settings HTTPTransport) (*http.Client, *http.Transport, error) {
+	if settings.HTTPProxy != "" || settings.HTTPSProxy != "" || len(settings.NoProxy) != 0 {
+		return nil, nil, fmt.Errorf("private callback cannot use an HTTP proxy")
+	}
+	var ranges []netip.Prefix
+	for _, item := range strings.Split(settings.PrivateCallbackCIDRs, ",") {
+		prefix, err := netip.ParsePrefix(strings.TrimSpace(item))
+		if err != nil || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
+			return nil, nil, fmt.Errorf("invalid Planner private callback CIDR")
+		}
+		withinCeiling := false
+		for _, ceiling := range f.privateCallbackNetworks {
+			if prefix.Bits() >= ceiling.Bits() && ceiling.Contains(prefix.Addr()) {
+				withinCeiling = true
+				break
+			}
+		}
+		if !withinCeiling {
+			return nil, nil, fmt.Errorf("Planner private callback CIDR is outside deployment ceiling")
+		}
+		ranges = append(ranges, prefix)
+	}
+	transport := f.transport.Clone()
+	transport.Proxy = nil
+	transport.DialContext = f.dialContextAllowed(settings.ConnectTimeout, func(ip net.IP) bool {
+		address, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return false
+		}
+		address = address.Unmap()
+		for _, prefix := range ranges {
+			if prefix.Contains(address) {
+				return true
+			}
+		}
+		return false
+	})
+	timeout := f.client.Timeout
+	if settings.RequestTimeout > 0 {
+		timeout = settings.RequestTimeout
+	}
+	client := &http.Client{Transport: transport, Timeout: timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return client, transport, nil
 }
 
 func (f *Forwarder) clientFor(settings HTTPTransport) (*http.Client, error) {

@@ -85,7 +85,10 @@ COPY --from=planner-builder /src/gateway /gateway
 
 WORKDIR /gateway
 ENV GATEWAY_ROUTER_DATA_DIR=/data \
-    GATEWAY_ROUTER_LISTEN=:8080 \
+    GATEWAY_ROUTER_LISTEN=127.0.0.1:8080 \
+    GATEWAY_ROUTER_TLS_LISTEN=:8443 \
+    GATEWAY_ROUTER_TLS_NAME=gateway \
+    GATEWAY_IMAP_ADDR=:993 \
     GATEWAY_ROUTER_LIBRARY_BIN=/usr/local/bin/gateway-router-library
 RUN mkdir -p /data/cache /data/storage/framework/cache/data \
     /data/storage/framework/sessions /data/storage/framework/views \
@@ -93,7 +96,7 @@ RUN mkdir -p /data/cache /data/storage/framework/cache/data \
     && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-start /gateway/scripts/router-artisan
 
 VOLUME /data
-EXPOSE 8080/tcp
+EXPOSE 8080/tcp 8443/tcp 993/tcp 2525/tcp
 USER www-data
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
