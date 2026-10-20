@@ -1,6 +1,6 @@
 {
     "name": "webong/gateway-javascript",
-    "description": "JavaScript automation extension and Planner companion for Gateway",
+    "description": "JavaScript automation extension for Gateway",
     "type": "library",
     "license": "MIT",
     "require": {
