@@ -50,8 +50,7 @@ An optional `forwarding_domain` may be set only after it is verified and
 enabled under the operator's `/email/domains` API.
 
 For a customer-owned domain, create `POST .../receiving-domains` with
-`{"domain":"acme.example"}`. The response has a TXT ownership challenge at
-`_gateway-verify.acme.example` and an MX instruction (priority 10, the
+`{"domain":"acme.example"}`. The response has a TXT ownership challenge and an MX instruction (priority 10, the
 operator-configured host). Publish the TXT record, then call
 `POST .../receiving-domains/{id}/verify`. `mx_status` is a separate DNS
 observation: `pending`, `ready`, `unavailable`, or `unconfigured`; it is not
@@ -63,6 +62,29 @@ TXT challenge acquires the globally exclusive receiving domain. Verification
 and route enabling do not
 write customer DNS. Gateway rechecks TXT ownership according to the Email
 runtime policy's verification TTL. A missing record fails closed.
+
+The application building on Gateway sets the customer-facing TXT format through
+the registry-authenticated `POST /email/verification-profile` with, for example,
+`{"label":"_zorvia-verify","value_prefix":"zorvia-verification="}`. Read it with
+`GET /email/verification-profile`; update it with `PUT` and the current
+`If-Match` revision. The label must be one underscored DNS label and the value
+prefix a short ASCII key ending in `=`. Gateway appends a random token. New
+receiving, managed-sending, and legacy forwarding domains snapshot this format.
+Existing domains without a snapshot continue to use `_gateway-verify` and
+`gateway-verification=`. Changing the operator profile does not alter their
+DNS instructions or periodic verification.
+
+To move an already verified account domain, read
+`GET .../{receiving-domains|sending-domains}/{id}/migration-record`, publish
+its proposed TXT record, then call `POST .../{receiving-domains|sending-domains}/{id}/migrate`.
+Gateway checks the new DNS record before switching, and updates both receiving
+and managed-sending resources together when the same account owns both. Both
+resources must already be verified. After migration, refresh cached domain
+resources in the application before showing setup instructions; customers may
+remove the old TXT record only after the new format is shown and verifies.
+Operator forwarding domains use the same sequence at
+`/email/domains/{id}/migration-record` and `/email/domains/{id}/migrate` with
+the registry token.
 
 Create an exact receiving route with `POST .../receiving-routes`:
 
@@ -379,8 +401,8 @@ endpoint and event infrastructure.
 The Planner-owned control plane stores Email domains and aliases as typed,
 versioned `email.domain` and `email.alias` resources in `configurations`. The
 `REGISTRY_TOKEN`-authenticated `/email/domains` API creates
-a disabled domain and returns a TXT challenge at
-`_gateway-verify.<domain>`. `POST /email/domains/{id}/verify` checks that
+a disabled domain and returns a TXT challenge using the configured operator
+format (legacy default `_gateway-verify.<domain>`). `POST /email/domains/{id}/verify` checks that
 record on every call; enabling a disabled domain rechecks live TXT ownership
 before accepting mail. A missing record or unavailable DNS lookup leaves the
 domain disabled. For an enabled domain, Planner rechecks TXT ownership on the
@@ -876,6 +898,15 @@ the poll schedule and checkpoint. The operator can disable polling by sending
 Planner resource and never returned by `GET`. There is no mailbox-polling
 environment toggle in the bundled image; the shared schedule loop starts by
 default and stays idle until a poll resource is enabled.
+
+The account-owned response also includes `status` with `state`
+(`disabled`, `awaiting_first_run`, `running`, `retry_pending`, `healthy`, or
+`failed`) and UTC `last_run_at`, `last_success_at`, `last_failure_at`, and
+`next_run_at` timestamps. These fields summarize the poll schedule and its
+latest runs. A successful run includes an empty mailbox; `healthy` does not
+prove that new messages arrived. Failure details, upstream addresses, and
+credentials are not returned. The schedule can fall behind without a new run,
+so consumers should also compare `next_run_at` with the current time.
 
 Planner creates a built-in `native.imap` schedule every minute. Spinner claims
 that schedule, then obtains a separate per-resource lease and fresh IMAP

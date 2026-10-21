@@ -17,7 +17,8 @@ final readonly class ManagedSendingStore
     private const ROUTE = 'email.sending-route';
 
     public function __construct(private PlannerResourceStore $resources, private AccountStore $accounts,
-        private TxtResolver $txt, private EmailRuntimePolicyStore $policy) {}
+        private TxtResolver $txt, private EmailRuntimePolicyStore $policy,
+        private EmailVerificationProfile $verificationProfile) {}
 
     /** @return list<stdClass> */
     public function domains(string $account): array
@@ -45,24 +46,27 @@ final readonly class ManagedSendingStore
             }
         }
         $token = null;
+        $profile = $this->verificationProfile->current();
         foreach ($this->resources->all('email.receiving-domain') as $receivingDomain) {
             if (($receivingDomain->document['account_id'] ?? null) === $account
                 && ($receivingDomain->document['name'] ?? null) === $name) {
                 $token = $receivingDomain->document['verification_token'];
+                $profile = $this->verificationProfile->saved($receivingDomain->document);
                 break;
             }
         }
         return $this->resources->create(self::DOMAIN, 'pending:'.$account.':'.$name, [
             'account_id' => $account, 'name' => $name,
-            'verification_token' => $token ?? bin2hex(random_bytes(24)), 'verified_at' => null,
+            'verification_token' => $token ?? bin2hex(random_bytes(24)),
+            'verification_profile' => $profile, 'verified_at' => null,
         ], false);
     }
 
     public function verifyDomain(stdClass $domain): stdClass
     {
         $name = $domain->document['name'];
-        $expected = 'gateway-verification='.$domain->document['verification_token'];
-        if (! in_array($expected, array_map('trim', $this->txt->records('_gateway-verify.'.$name)), true)) {
+        $record = $this->verificationProfile->record($name, $domain->document['verification_token'], $domain->document);
+        if (! $this->verificationProfile->hasRecord($record)) {
             throw new VerificationRecordMissing('The sending domain verification TXT record was not found.');
         }
         $owner = $this->resources->byKey(self::DOMAIN, $name);

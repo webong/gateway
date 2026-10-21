@@ -13,6 +13,7 @@ use RuntimeException;
 use stdClass;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Email\EmailRegistry;
+use Webong\Gateway\Email\EmailVerificationProfile;
 use Webong\Gateway\Email\VerificationRecordMissing;
 use Webong\Gateway\RegistryRequestAuthenticator;
 
@@ -22,6 +23,7 @@ final readonly class EmailController
         private ValidationFactory $validator,
         private RegistryRequestAuthenticator $authenticator,
         private EmailRegistry $registry,
+        private EmailVerificationProfile $verificationProfile,
     ) {}
 
     public function domains(Request $request): JsonResponse
@@ -90,6 +92,27 @@ final readonly class EmailController
         } catch (RuntimeException) {
             return response()->json(['message' => 'DNS verification lookup is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }
+    }
+
+    public function migrationRecord(Request $request, string $domain): JsonResponse
+    {
+        if (($denied = $this->authenticator->authorize($request)) !== null) { return $denied; }
+        $model = $this->registry->domain($domain);
+        return $model === null ? $this->missing()
+            : response()->json(['txt' => $this->verificationProfile->proposedRecord(
+                $model->domain, $model->verification_token)]);
+    }
+
+    public function migrateDomain(Request $request, string $domain): JsonResponse
+    {
+        if (($denied = $this->authenticator->authorize($request)) !== null) { return $denied; }
+        $model = $this->registry->domain($domain);
+        if ($model === null) { return $this->missing(); }
+        try { return response()->json($this->domainResource($this->registry->migrate($model))); }
+        catch (InvalidArgumentException|VerificationRecordMissing) {
+            return response()->json(['message' => 'Verify the new TXT record for an already verified domain.'], 409);
+        }
+        catch (RuntimeException) { return response()->json(['message' => 'DNS verification lookup is unavailable.'], 503); }
     }
 
     public function updateDomain(Request $request, string $domain): JsonResponse
@@ -225,9 +248,11 @@ final readonly class EmailController
             'enabled' => (bool) $domain->enabled,
             'verified_at' => $domain->verified_at,
             'verification' => [
-                'name' => '_gateway-verify.'.$domain->domain,
+                'name' => $this->verificationProfile->record($domain->domain,
+                    $domain->verification_token, ['verification_profile' => $domain->verification_profile])['name'],
                 'type' => 'TXT',
-                'value' => 'gateway-verification='.$domain->verification_token,
+                'value' => $this->verificationProfile->record($domain->domain,
+                    $domain->verification_token, ['verification_profile' => $domain->verification_profile])['value'],
             ],
         ];
     }

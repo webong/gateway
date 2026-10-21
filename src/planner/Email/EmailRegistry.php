@@ -13,7 +13,7 @@ use Webong\Gateway\Resources\PlannerResourceStore;
 final readonly class EmailRegistry
 {
     public function __construct(private TxtResolver $txt, private EmailRuntimePolicyStore $runtimePolicy,
-        private PlannerResourceStore $resources) {}
+        private PlannerResourceStore $resources, private EmailVerificationProfile $verificationProfile) {}
 
     /** @return list<stdClass> */
     public function domains(): array
@@ -53,22 +53,40 @@ final readonly class EmailRegistry
         }
         return $this->domainRecord($this->resources->create('email.domain', $name, [
             'verification_token' => bin2hex(random_bytes(24)), 'verified_at' => null,
+            'verification_profile' => $this->verificationProfile->current(),
         ], false));
     }
 
     public function verify(stdClass $domain): stdClass
     {
-        $name = '_gateway-verify.'.$domain->domain;
-        $expected = 'gateway-verification='.$domain->verification_token;
-        foreach ($this->txt->records($name) as $record) {
-            if (hash_equals($expected, trim($record))) {
+        $record = $this->verificationProfile->record($domain->domain,
+            $domain->verification_token, ['verification_profile' => $domain->verification_profile]);
+        foreach ($this->txt->records($record['name']) as $observed) {
+            if (hash_equals($record['value'], trim($observed))) {
                 return $this->domainRecord($this->resources->replace('email.domain', $domain->id, $domain->domain,
-                    ['verification_token' => $domain->verification_token, 'verified_at' => now('UTC')->toIso8601String()],
+                    ['verification_token' => $domain->verification_token, 'verified_at' => now('UTC')->toIso8601String(),
+                        'verification_profile' => $domain->verification_profile],
                     $domain->enabled, $domain->revision));
             }
         }
 
         throw new VerificationRecordMissing('The domain verification TXT record was not found.');
+    }
+
+    public function migrate(stdClass $domain): stdClass
+    {
+        if ($domain->verified_at === null) {
+            throw new InvalidArgumentException('Verify the domain before migrating.');
+        }
+        $profile = $this->verificationProfile->current();
+        $record = $this->verificationProfile->record($domain->domain, $domain->verification_token,
+            ['verification_profile' => $profile]);
+        if (! $this->verificationProfile->hasRecord($record)) {
+            throw new VerificationRecordMissing('The new domain verification TXT record was not found.');
+        }
+        return $this->domainRecord($this->resources->replace('email.domain', $domain->id, $domain->domain,
+            ['verification_token' => $domain->verification_token, 'verified_at' => now('UTC')->toIso8601String(),
+                'verification_profile' => $profile], $domain->enabled, $domain->revision));
     }
 
     public function setEnabled(stdClass $domain, bool $enabled): stdClass
@@ -77,7 +95,8 @@ final readonly class EmailRegistry
             $domain = $this->verify($domain);
         }
         return $this->domainRecord($this->resources->replace('email.domain', $domain->id, $domain->domain,
-            ['verification_token' => $domain->verification_token, 'verified_at' => $domain->verified_at],
+            ['verification_token' => $domain->verification_token, 'verified_at' => $domain->verified_at,
+                'verification_profile' => $domain->verification_profile],
             $enabled, $domain->revision));
     }
 
@@ -156,6 +175,7 @@ final readonly class EmailRegistry
         return (object) [
             'id' => $resource->id, 'domain' => $resource->key, 'enabled' => $resource->enabled,
             'verification_token' => $resource->document['verification_token'],
+            'verification_profile' => $this->verificationProfile->saved($resource->document),
             'verified_at' => $resource->document['verified_at'], 'revision' => $resource->revision,
         ];
     }

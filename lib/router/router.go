@@ -208,6 +208,17 @@ type ManagedRouteHandler interface {
 	ServeWithPlanner(http.ResponseWriter, *http.Request, http.Handler) bool
 }
 
+// ingressStatus records only the HTTP outcome; credentials and MIME stay out of logs.
+type ingressStatus struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *ingressStatus) WriteHeader(code int) {
+	w.code = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
 func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 	if !spinner.ProvisioningRouteProxy {
 		return nil, nil
@@ -226,7 +237,9 @@ func NewHandler(planner, edge, websocket, webstream http.Handler, managed Manage
 				http.NotFound(w, r)
 				return
 			}
-			workerIngress[0].ServeHTTP(w, r)
+			outcome := &ingressStatus{ResponseWriter: w, code: http.StatusOK}
+			defer func() { log.Printf("worker ingress method=%s status=%d", r.Method, outcome.code) }()
+			workerIngress[0].ServeHTTP(outcome, r)
 			return
 		}
 		if managed != nil && managed.ServeWithPlanner(w, r, planner) {

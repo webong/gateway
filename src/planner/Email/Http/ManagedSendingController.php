@@ -13,12 +13,14 @@ use stdClass;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\EmailRouteRejected;
 use Webong\Gateway\Email\ManagedSendingStore;
+use Webong\Gateway\Email\EmailVerificationProfile;
 use Webong\Gateway\Email\VerificationRecordMissing;
 
 /** Account-facing managed submission identities, independent of external SMTP connections. */
 final readonly class ManagedSendingController
 {
-    public function __construct(private AccountStore $accounts, private ManagedSendingStore $store) {}
+    public function __construct(private AccountStore $accounts, private ManagedSendingStore $store,
+        private EmailVerificationProfile $verificationProfile) {}
 
     public function domains(Request $request, string $account): JsonResponse
     {
@@ -65,6 +67,27 @@ final readonly class ManagedSendingController
         try { $this->store->deleteDomain($row); }
         catch (EmailRouteRejected) { return $this->error('Delete sending routes first.', 409); }
         return $this->ok(['deleted' => true]);
+    }
+
+    public function migrationRecord(Request $request, string $account, string $domain): JsonResponse
+    {
+        if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
+        $row = $this->store->domain($account, $domain);
+        if ($row === null) { return $this->error('Sending domain not found.', 404); }
+        return $this->ok(['txt' => $this->verificationProfile->proposedRecord(
+            $row->document['name'], $row->document['verification_token'])]);
+    }
+
+    public function migrateDomain(Request $request, string $account, string $domain): JsonResponse
+    {
+        if (($denied = $this->authorize($request, $account)) !== null) { return $denied; }
+        $row = $this->store->domain($account, $domain);
+        if ($row === null) { return $this->error('Sending domain not found.', 404); }
+        try { $this->verificationProfile->migrate($account, $row->document['name']); }
+        catch (VerificationRecordMissing) { return $this->error('New verification TXT record was not found.', 409); }
+        catch (InvalidArgumentException) { return $this->error('Shared domain verification is inconsistent.', 409); }
+        catch (RuntimeException) { return $this->error('DNS verification is unavailable.', 503); }
+        return $this->ok($this->domainResource($this->store->domain($account, $domain)));
     }
 
     public function routes(Request $request, string $account): JsonResponse
@@ -128,8 +151,8 @@ final readonly class ManagedSendingController
             'verified_at' => $row->document['verified_at'], 'enabled' => $row->enabled,
             'dns_status' => ['ownership' => $row->document['verified_at'] === null ? 'pending' : 'verified',
                 'spf' => 'not_checked', 'dkim' => 'not_checked'],
-            'records' => ['txt' => ['name' => '_gateway-verify.'.$name,
-                'value' => 'gateway-verification='.$row->document['verification_token']]]];
+            'records' => ['txt' => $this->verificationProfile->record($name,
+                $row->document['verification_token'], $row->document)]];
     }
 
     private function routeResource(stdClass $row): array

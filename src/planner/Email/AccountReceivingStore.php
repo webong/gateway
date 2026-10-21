@@ -17,7 +17,8 @@ final readonly class AccountReceivingStore
     private const SETTINGS = 'email.receiving-settings';
 
     public function __construct(private PlannerResourceStore $resources, private TxtResolver $txt,
-        private EmailRegistry $legacyDomains, private EmailRuntimePolicyStore $runtimePolicy) {}
+        private EmailRegistry $legacyDomains, private EmailRuntimePolicyStore $runtimePolicy,
+        private EmailVerificationProfile $verificationProfile) {}
 
     public function settings(): ?stdClass
     {
@@ -89,16 +90,19 @@ final readonly class AccountReceivingStore
         // Pending claims are account-scoped. Only a successful TXT check may
         // acquire the globally unique domain key used by SMTP routing.
         $token = null;
+        $profile = $this->verificationProfile->current();
         foreach ($this->resources->all('email.sending-domain') as $senderDomain) {
             if (($senderDomain->document['account_id'] ?? null) === $account
                 && ($senderDomain->document['name'] ?? null) === $name) {
                 $token = $senderDomain->document['verification_token'];
+                $profile = $this->verificationProfile->saved($senderDomain->document);
                 break;
             }
         }
         return $this->resources->create(self::DOMAIN, 'pending:'.$account.':'.$name, [
             'account_id' => $account, 'name' => $name,
             'verification_token' => $token ?? bin2hex(random_bytes(24)),
+            'verification_profile' => $profile,
             'verified_at' => null,
         ], false);
     }
@@ -111,8 +115,8 @@ final readonly class AccountReceivingStore
     public function verifyDomain(stdClass $domain): stdClass
     {
         $name = $this->domainName($domain);
-        $expected = 'gateway-verification='.$domain->document['verification_token'];
-        if (! in_array($expected, array_map('trim', $this->txt->records('_gateway-verify.'.$name)), true)) {
+        $record = $this->verificationProfile->record($name, $domain->document['verification_token'], $domain->document);
+        if (! $this->verificationProfile->hasRecord($record)) {
             throw new VerificationRecordMissing('The domain verification TXT record was not found.');
         }
         $owner = $this->resources->byKey(self::DOMAIN, $name);

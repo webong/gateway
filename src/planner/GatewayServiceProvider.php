@@ -36,6 +36,7 @@ use Webong\Gateway\Email\Http\EmailController;
 use Webong\Gateway\Email\Http\EmailSubmissionController;
 use Webong\Gateway\Email\Http\EmailSubmissionPolicyController;
 use Webong\Gateway\Email\Http\EmailRuntimePolicyController;
+use Webong\Gateway\Email\Http\EmailVerificationProfileController;
 use Webong\Gateway\Email\Http\EmailSuppressionController;
 use Webong\Gateway\Email\Http\MailHookController;
 use Webong\Gateway\Email\Http\MailboxConnectionController;
@@ -429,6 +430,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/email/runtime-policy', [EmailRuntimePolicyController::class, 'store']);
             $this->app['router']->put('/email/runtime-policy', [EmailRuntimePolicyController::class, 'replace']);
             $this->app['router']->delete('/email/runtime-policy', [EmailRuntimePolicyController::class, 'destroy']);
+            $this->app['router']->get('/email/verification-profile', [EmailVerificationProfileController::class, 'show']);
+            $this->app['router']->post('/email/verification-profile', [EmailVerificationProfileController::class, 'store']);
+            $this->app['router']->put('/email/verification-profile', [EmailVerificationProfileController::class, 'replace']);
             $this->app['router']->get('/shell/hook-grants', [ShellHookGrantController::class, 'index']);
             $this->app['router']->post('/shell/hook-grants', [ShellHookGrantController::class, 'store']);
             $this->app['router']->get('/shell/hook-grants/{grant}', [ShellHookGrantController::class, 'show']);
@@ -486,6 +490,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-domains', [AccountReceivingController::class, 'createDomain']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-domains/{domain}', [AccountReceivingController::class, 'showDomain']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-domains/{domain}/verify', [AccountReceivingController::class, 'verifyDomain']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-domains/{domain}/migration-record', [AccountReceivingController::class, 'migrationRecord']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-domains/{domain}/migrate', [AccountReceivingController::class, 'migrateDomain']);
             $this->app['router']->delete('/email/mailbox-accounts/{account}/receiving-domains/{domain}', [AccountReceivingController::class, 'deleteDomain']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-routes', [AccountReceivingController::class, 'routes']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-routes', [AccountReceivingController::class, 'createRoute']);
@@ -496,6 +502,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/email/mailbox-accounts/{account}/sending-domains', [ManagedSendingController::class, 'createDomain']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/sending-domains/{domain}', [ManagedSendingController::class, 'showDomain']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/sending-domains/{domain}/verify', [ManagedSendingController::class, 'verifyDomain']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/sending-domains/{domain}/migration-record', [ManagedSendingController::class, 'migrationRecord']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/sending-domains/{domain}/migrate', [ManagedSendingController::class, 'migrateDomain']);
             $this->app['router']->delete('/email/mailbox-accounts/{account}/sending-domains/{domain}', [ManagedSendingController::class, 'deleteDomain']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/sending-routes', [ManagedSendingController::class, 'routes']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/sending-routes', [ManagedSendingController::class, 'createRoute']);
@@ -546,6 +554,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/email/domains', [EmailController::class, 'createDomain']);
             $this->app['router']->get('/email/domains/{domain}', [EmailController::class, 'showDomain']);
             $this->app['router']->post('/email/domains/{domain}/verify', [EmailController::class, 'verifyDomain']);
+            $this->app['router']->get('/email/domains/{domain}/migration-record', [EmailController::class, 'migrationRecord']);
+            $this->app['router']->post('/email/domains/{domain}/migrate', [EmailController::class, 'migrateDomain']);
             $this->app['router']->patch('/email/domains/{domain}', [EmailController::class, 'updateDomain']);
             $this->app['router']->delete('/email/domains/{domain}', [EmailController::class, 'deleteDomain']);
             $this->app['router']->get('/email/domains/{domain}/aliases', [EmailController::class, 'aliases']);

@@ -31,7 +31,13 @@ it('configures account-owned IMAP polling on the shared scheduler without exposi
     expect($created['route_id'])->toBeString()
         ->and($created['connection_id'])->toBe($connection->id)
         ->and($created['enabled'])->toBeTrue()
+        ->and($created['status']['state'])->toBe('awaiting_first_run')
+        ->and($created['status']['last_run_at'])->toBeNull()
+        ->and($created['status']['last_success_at'])->toBeNull()
+        ->and($created['status']['last_failure_at'])->toBeNull()
+        ->and($created['status']['next_run_at'])->toBeString()
         ->and(json_encode($created))->not->toContain($body['webhook_secret']);
+    $this->withToken($otherToken)->getJson($endpoint)->assertUnauthorized();
     $this->withToken($token)->getJson($endpoint)->assertOk()->assertJsonPath('route_id', $created['route_id'])
         ->assertDontSee($body['webhook_secret']);
     expect(DB::table('schedules')->where('origin', 'mailbox-poll:'.$created['route_id'])->where('language', 'native.imap')->exists())->toBeTrue();
@@ -42,6 +48,46 @@ it('configures account-owned IMAP polling on the shared scheduler without exposi
     $this->withToken($token)->getJson($endpoint)->assertNotFound();
     expect(DB::table('schedules')->where('origin', 'mailbox-poll:'.$created['route_id'])->exists())->toBeFalse()
         ->and(DB::table('resource_checkpoints')->where('resource_id', $created['route_id'])->exists())->toBeFalse();
+});
+
+it('reports account-owned poll health without exposing worker failure details', function (): void {
+    $catalog = app(EmailUpstreamCatalog::class);
+    $catalog->create(['protocol' => 'imap', 'name' => 'poll-imap', 'address' => 'imap.test:993', 'server_name' => 'imap.test']);
+    $token = app(AccountStore::class)->create('poll-owner');
+    $connection = app(MailboxConnectionStore::class)->createImap('poll-owner', [
+        'address' => 'support@example.test', 'imap_upstream_id' => 'poll-imap',
+        'imap_username' => 'support@example.test', 'imap_auth' => 'password',
+        'imap_secret' => 'imap-password'])['record'];
+    app(MailboxConnectionStore::class)->markHealth('poll-owner', $connection->id, true);
+    app(MailboxConnectionStore::class)->update('poll-owner', $connection->id, true);
+    $endpoint = 'https://localhost/email/mailbox-accounts/poll-owner/imap-connections/'.$connection->id.'/polling';
+    $route = $this->withToken($token)->putJson($endpoint, [
+        'callback_url' => 'https://zorvia.example.test/webhooks/mailflow',
+        'webhook_secret' => str_repeat('a', 64), 'enabled' => true,
+    ])->assertCreated()->json('route_id');
+    $schedule = DB::table('schedules')->where('origin', 'mailbox-poll:'.$route)->first();
+
+    DB::table('schedules')->where('id', $schedule->id)->update(['next_run_at' => now('UTC')->subMinute()]);
+    $failed = app(\Webong\Gateway\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
+    app(\Webong\Gateway\Schedules\ScheduleStore::class)->complete(
+        $failed['id'], $failed['claim_token'], 'failed', 0, 'IMAP password and private host details',
+    );
+    $failure = $this->withToken($token)->getJson($endpoint)->assertOk()->json('status');
+    expect($failure['state'])->toBe('failed')
+        ->and($failure['last_run_at'])->toBeString()
+        ->and($failure['last_failure_at'])->toBeString()
+        ->and($failure['last_success_at'])->toBeNull()
+        ->and(json_encode($failure))->not->toContain('password', 'private host');
+
+    DB::table('schedules')->where('id', $schedule->id)->update(['next_run_at' => now('UTC')->subSeconds(30)]);
+    $succeeded = app(\Webong\Gateway\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
+    app(\Webong\Gateway\Schedules\ScheduleStore::class)->complete(
+        $succeeded['id'], $succeeded['claim_token'], 'succeeded', 0, null,
+    );
+    $success = $this->withToken($token)->getJson($endpoint)->assertOk()->json('status');
+    expect($success['state'])->toBe('healthy')
+        ->and($success['last_success_at'])->toBeString()
+        ->and($success['last_failure_at'])->toBeString();
 });
 
 it('leases a native IMAP schedule and advances only acknowledged UIDs', function (): void {
