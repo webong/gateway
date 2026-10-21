@@ -15,12 +15,15 @@ use Webong\Gateway\Protocol\Protocol;
 it('provides a Gateway-managed sending route without an external SMTP provider', function (): void {
     $dns = new class implements TxtResolver {
         public string $token = '';
+        public array $published = [];
         public function records(string $name): array
         {
-            return $this->token === '' ? [] : ['gateway-verification='.$this->token];
+            return $this->published[$name] ?? ($this->token === '' ? [] : ['gateway-verification='.$this->token]);
         }
     };
     app()->instance(TxtResolver::class, $dns);
+    config()->set('gateway.email.managed_dkim_signing_enabled', true);
+    config()->set('gateway.email.managed_spf_value', 'v=spf1 include:_spf.operator.test -all');
     $account = $this->withToken('registry-secret')->postJson('https://localhost/accounts', ['id' => 'zorvia'])
         ->assertCreated()->json();
     $other = $this->withToken('registry-secret')->postJson('https://localhost/accounts', ['id' => 'other'])
@@ -28,7 +31,7 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
     $base = 'https://localhost/email/mailbox-accounts/zorvia';
     $domain = $this->withToken($account['token'])->postJson($base.'/sending-domains', ['domain' => 'acme.test'])
         ->assertCreated()->assertJsonPath('dns_status.ownership', 'pending')
-        ->assertJsonPath('dns_status.spf', 'not_checked')->json();
+        ->assertJsonPath('dns_status.spf', 'pending')->json();
     $this->withToken($other['token'])->getJson($base.'/sending-domains/'.$domain['id'])->assertUnauthorized();
     $this->withToken($other['token'])->getJson('https://localhost/email/mailbox-accounts/other/sending-domains/'.$domain['id'])
         ->assertNotFound();
@@ -36,8 +39,19 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
         'domain_id' => $domain['id'], 'local_part' => 'support',
     ])->assertConflict();
     $dns->token = substr($domain['records']['txt']['value'], strlen('gateway-verification='));
-    $this->withToken($account['token'])->postJson($base.'/sending-domains/'.$domain['id'].'/verify')
-        ->assertOk()->assertJsonPath('dns_status.ownership', 'verified');
+    $verified = $this->withToken($account['token'])->postJson($base.'/sending-domains/'.$domain['id'].'/verify')
+        ->assertOk()->assertJsonPath('dns_status.ownership', 'verified')
+        ->assertJsonPath('dns_status.dkim', 'pending')->json();
+    expect($verified['records']['dkim']['name'])->toBe('gateway1._domainkey.acme.test')
+        ->and($verified['records']['dkim']['value'])->toStartWith('v=DKIM1; k=rsa; p=')
+        ->and($verified['records']['spf']['value'])->toBe('v=spf1 include:_spf.operator.test -all');
+    $this->withToken($account['token'])->postJson($base.'/sending-routes', [
+        'domain_id' => $domain['id'], 'local_part' => 'support',
+    ])->assertConflict();
+    $dns->published[$verified['records']['dkim']['name']] = [$verified['records']['dkim']['value']];
+    $dns->published[$verified['records']['spf']['name']] = [$verified['records']['spf']['value']];
+    $this->withToken($account['token'])->getJson($base.'/sending-domains/'.$domain['id'])
+        ->assertOk()->assertJsonPath('dns_status.sending', 'ready');
     $created = $this->withToken($account['token'])->postJson($base.'/sending-routes', [
         'domain_id' => $domain['id'], 'local_part' => 'support',
     ])->assertCreated()->assertJsonPath('address', 'support@acme.test')
@@ -59,6 +73,9 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
         ->and($grant->metadata['auth_identity'])->toBe('zorvia:'.$id)
         ->and($grant->metadata['authorized_mail_from'])->toBe('["support@acme.test"]')
         ->and($grant->metadata)->not->toHaveKey('mailbox_connection_id');
+    unset($dns->published[$verified['records']['dkim']['name']]);
+    expect($planner->planEvent($authenticate($password))->action)->toBe(GatewayAction::REJECT);
+    $dns->published[$verified['records']['dkim']['name']] = [$verified['records']['dkim']['value']];
 
     app(EmailRuntimePolicyStore::class)->create(['http_submission_enabled' => true]);
     config()->set('gateway.delivery_admin_url', 'http://spinner.internal:5052');
@@ -82,6 +99,8 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
     expect($planner->planEvent($authenticate($rotated['smtp_client_password']))->action)->toBe(GatewayAction::REJECT);
     $this->withToken($account['token'])->patchJson($base.'/sending-routes/'.$id, ['enabled' => false])->assertOk();
     expect($planner->planEvent($authenticate($rotated['smtp_client_password']))->action)->toBe(GatewayAction::REJECT);
+    unset($dns->published[$verified['records']['dkim']['name']]);
+    $this->withToken($account['token'])->patchJson($base.'/sending-routes/'.$id, ['enabled' => true])->assertConflict();
     $this->withToken($account['token'])->deleteJson($base.'/sending-domains/'.$domain['id'])->assertConflict();
     $this->withToken($account['token'])->deleteJson($base.'/sending-routes/'.$id)->assertOk();
     $this->withToken($account['token'])->deleteJson($base.'/sending-domains/'.$domain['id'])->assertOk();

@@ -56,6 +56,7 @@ final readonly class ManagedSendingController
         try { return $this->ok($this->domainResource($this->store->verifyDomain($row))); }
         catch (VerificationRecordMissing) { return $this->error('Verification TXT record was not found.', 409); }
         catch (EmailRouteRejected|QueryException) { return $this->error('Sending domain belongs to another account.', 409); }
+        catch (InvalidArgumentException) { return $this->error('Managed DKIM signing is unavailable.', 503); }
         catch (RuntimeException) { return $this->error('DNS verification is unavailable.', 503); }
     }
 
@@ -103,6 +104,7 @@ final readonly class ManagedSendingController
         catch (InvalidArgumentException) { return $this->error('Invalid managed sending route.', 422); }
         catch (EmailRouteRejected $exception) { return $this->error($exception->getMessage(), 409); }
         catch (QueryException) { return $this->error('Sending address already exists.', 409); }
+        catch (RuntimeException) { return $this->error('Sender DNS readiness is unavailable.', 503); }
         return $this->ok([...$this->routeResource($created['record']),
             'smtp_client_username' => $created['record']->id, 'smtp_client_password' => $created['password']], 201);
     }
@@ -123,7 +125,9 @@ final readonly class ManagedSendingController
         if (array_keys($input) !== ['enabled'] || ! is_bool($input['enabled'])) {
             return $this->error('Only enabled may change.', 422);
         }
-        return $this->ok($this->routeResource($this->store->setEnabled($row, $input['enabled'])));
+        try { return $this->ok($this->routeResource($this->store->setEnabled($row, $input['enabled']))); }
+        catch (EmailRouteRejected $exception) { return $this->error($exception->getMessage(), 409); }
+        catch (RuntimeException) { return $this->error('Sender DNS readiness is unavailable.', 503); }
     }
 
     public function rotate(Request $request, string $account, string $route): JsonResponse
@@ -147,12 +151,23 @@ final readonly class ManagedSendingController
     private function domainResource(stdClass $row): array
     {
         $name = $row->document['name'];
+        $records = $this->store->dnsRecords($row);
+        $spf = $records['spf'] === null ? 'not_required' : 'pending';
+        $dkim = 'pending';
+        try {
+            if ($records['spf'] !== null) { $spf = $this->store->recordReady($records['spf']) ? 'ready' : 'pending'; }
+            if ($records['dkim'] !== null && config('gateway.email.managed_dkim_signing_enabled') === true) {
+                $dkim = $this->store->recordReady($records['dkim']) ? 'ready' : 'pending';
+            }
+        } catch (RuntimeException) { $spf = $records['spf'] === null ? 'not_required' : 'unavailable'; $dkim = 'unavailable'; }
+        $ready = $row->enabled && $row->document['verified_at'] !== null
+            && $dkim === 'ready' && ($spf === 'ready' || $spf === 'not_required');
         return ['id' => $row->id, 'account_id' => $row->document['account_id'], 'domain' => $name,
             'verified_at' => $row->document['verified_at'], 'enabled' => $row->enabled,
             'dns_status' => ['ownership' => $row->document['verified_at'] === null ? 'pending' : 'verified',
-                'spf' => 'not_checked', 'dkim' => 'not_checked'],
+                'spf' => $spf, 'dkim' => $dkim, 'sending' => $ready ? 'ready' : 'pending'],
             'records' => ['txt' => $this->verificationProfile->record($name,
-                $row->document['verification_token'], $row->document)]];
+                $row->document['verification_token'], $row->document), ...$records]];
     }
 
     private function routeResource(stdClass $row): array

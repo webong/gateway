@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use stdClass;
 use Webong\Gateway\Accounts\AccountStore;
@@ -18,7 +19,7 @@ final readonly class ManagedSendingStore
 
     public function __construct(private PlannerResourceStore $resources, private AccountStore $accounts,
         private TxtResolver $txt, private EmailRuntimePolicyStore $policy,
-        private EmailVerificationProfile $verificationProfile) {}
+        private EmailVerificationProfile $verificationProfile, private EmailDkimKeyStore $dkimKeys) {}
 
     /** @return list<stdClass> */
     public function domains(string $account): array
@@ -75,7 +76,11 @@ final readonly class ManagedSendingStore
         }
         $document = $domain->document;
         $document['verified_at'] = now('UTC')->toIso8601String();
-        return $this->resources->replace(self::DOMAIN, $domain->id, $name, $document, true, $domain->revision);
+        return DB::transaction(function () use ($domain, $name, $document): stdClass {
+            $verified = $this->resources->replace(self::DOMAIN, $domain->id, $name, $document, true, $domain->revision);
+            $this->dkimKeys->ensureGenerated($name, (string) config('gateway.email.managed_dkim_selector'));
+            return $verified;
+        });
     }
 
     public function deleteDomain(stdClass $domain): void
@@ -121,6 +126,9 @@ final readonly class ManagedSendingStore
         if ($domain === null || ! $domain->enabled || ($domain->document['verified_at'] ?? null) === null) {
             throw new EmailRouteRejected('Verify the sending domain first.');
         }
+        if (! $this->dnsReady($domain)) {
+            throw new EmailRouteRejected('Publish the managed sender DNS records and enable DKIM signing first.');
+        }
         $local = strtolower($input['local_part']);
         if (preg_match('/^[a-z0-9][a-z0-9._+-]{0,63}$/D', $local) !== 1
             || str_contains($local, '..') || str_ends_with($local, '.')) {
@@ -146,6 +154,7 @@ final readonly class ManagedSendingStore
         if ($domain === null || ! $domain->enabled || ($domain->document['verified_at'] ?? null) === null) {
             return null;
         }
+        if (! $this->dnsReady($domain)) { return null; }
         $ttl = $this->policy->current()['verification_ttl_seconds'];
         if ($ttl === 0 || Carbon::parse($domain->document['verified_at'])->lte(now()->subSeconds($ttl))) {
             try { $this->verifyDomain($domain); }
@@ -156,6 +165,12 @@ final readonly class ManagedSendingStore
 
     public function setEnabled(stdClass $route, bool $enabled): stdClass
     {
+        if ($enabled && ($route->document['mode'] ?? null) !== 'shared') {
+            $domain = $this->domain($route->owner, $route->document['domain_id']);
+            if ($domain === null || ! $domain->enabled || ! $this->dnsReady($domain)) {
+                throw new EmailRouteRejected('Managed sender DNS is not ready.');
+            }
+        }
         return $this->resources->replace(self::ROUTE, $route->id, $route->key,
             $route->document, $enabled, $route->revision, $route->owner);
     }
@@ -186,5 +201,28 @@ final readonly class ManagedSendingStore
         return is_string($address) && strlen($address) <= 254
             && filter_var($address, FILTER_VALIDATE_EMAIL) !== false
             && $address === strtolower($address) ? $address : null;
+    }
+
+    /** @return array{dkim: array|null, spf: array|null} */
+    public function dnsRecords(stdClass $domain): array
+    {
+        $name = $domain->document['name'];
+        $spf = config('gateway.email.managed_spf_value');
+        return ['dkim' => $this->dkimKeys->publicRecord($name),
+            'spf' => is_string($spf) && $spf !== ''
+                ? ['name' => $name, 'type' => 'TXT', 'value' => $spf] : null];
+    }
+
+    public function dnsReady(stdClass $domain): bool
+    {
+        if (config('gateway.email.managed_dkim_signing_enabled') !== true) { return false; }
+        $records = $this->dnsRecords($domain);
+        return $records['dkim'] !== null && $this->recordReady($records['dkim'])
+            && ($records['spf'] === null || $this->recordReady($records['spf']));
+    }
+
+    public function recordReady(array $record): bool
+    {
+        return in_array($record['value'], array_map('trim', $this->txt->records($record['name'])), true);
     }
 }

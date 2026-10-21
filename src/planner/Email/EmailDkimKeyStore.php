@@ -26,6 +26,37 @@ final readonly class EmailDkimKeyStore
         return $row !== null && $row->enabled ? ['domain' => $row->key, ...$row->document] : null;
     }
 
+    public function ensureGenerated(string $domain, string $selector): stdClass
+    {
+        $existing = $this->resources->byKey(self::KIND, $domain);
+        if ($existing !== null) { return $existing; }
+        if (preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/D', $selector) !== 1
+            || strlen($selector) > 63) {
+            throw new InvalidArgumentException('Invalid managed DKIM selector.');
+        }
+        $key = @openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
+        if ($key === false || ! openssl_pkey_export($key, $pem)) {
+            throw new InvalidArgumentException('Could not generate a managed DKIM key.');
+        }
+        return $this->create(['domain' => $domain, 'selector' => $selector, 'private_key_pem' => $pem]);
+    }
+
+    /** @return array{name: string, type: string, value: string}|null */
+    public function publicRecord(string $domain): ?array
+    {
+        $key = $this->active($domain);
+        if ($key === null) { return null; }
+        $private = openssl_pkey_get_private($key['private_key_pem']);
+        $details = $private === false ? false : openssl_pkey_get_details($private);
+        if ($details === false || ! is_string($details['key'] ?? null)
+            || preg_match('/-----BEGIN PUBLIC KEY-----\s*([A-Za-z0-9+\/=\s]+)-----END PUBLIC KEY-----/', $details['key'], $match) !== 1) {
+            return null;
+        }
+        $public = preg_replace('/\s+/', '', $match[1]);
+        return ['name' => $key['selector'].'._domainkey.'.$domain, 'type' => 'TXT',
+            'value' => 'v=DKIM1; k=rsa; p='.$public];
+    }
+
     public function create(array $input): stdClass
     {
         $this->validate($input);

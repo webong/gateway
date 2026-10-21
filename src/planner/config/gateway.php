@@ -65,6 +65,11 @@ return [
         'submission_authenticator' => env('GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedSMTPAuthenticator::class),
         // Verified operator-owned address used by opt-in shared sender routes.
         'shared_from_address' => env('GATEWAY_EMAIL_SHARED_FROM_ADDRESS', ''),
+        // The generic relay has no provider DNS discovery API. Operators declare
+        // any SPF record their chosen adapter needs and enable DKIM resolution.
+        'managed_dkim_signing_enabled' => (bool) env('GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED', false),
+        'managed_dkim_selector' => env('GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR', 'gateway1'),
+        'managed_spf_value' => env('GATEWAY_EMAIL_MANAGED_SPF_VALUE', ''),
         // Optional deployment-owned POP3 credential authority. It returns a
         // registered upstream ID, never a client-selected network address.
         'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedIMAPAuthenticator::class),

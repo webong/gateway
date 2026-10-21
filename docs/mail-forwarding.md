@@ -147,9 +147,22 @@ the later resource reuses the existing ownership TXT value; each is still
 verified separately. Another account receives a distinct
 challenge, and an unverified claim does not reserve the name. The domain
 response reports ownership separately from SPF and DKIM; the latter are
-`not_checked` because Gateway does not yet know the operator's chosen egress
-IP, relay, or signing selector. Verification alone
-does not prove deliverability or sender reputation.
+`pending` until the configured records are published. On successful ownership
+verification, Gateway generates a 2048-bit RSA DKIM key (or uses an existing
+operator key for that domain) and returns the public
+`records.dkim` TXT value at `<selector>._domainkey.<domain>`. The private key
+stays in Planner's protected resource store. The operator configures
+`GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED=true`, the matching private DKIM
+resolver on Spinner, and optionally `GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR`.
+If the chosen relay requires SPF, the operator declares its complete,
+provider-neutral TXT value with `GATEWAY_EMAIL_MANAGED_SPF_VALUE`; Gateway
+returns it as `records.spf`. The generic SMTP relay uses the customer's
+`mail_from` address as its return path, so it declares no separate return-path
+record. Gateway checks every declared DNS record before issuing a managed
+sending route, before re-enabling one, and when authenticating it. DNS readiness
+does not prove the upstream relay accepts that customer domain; the operator
+must validate that relay capability separately. Verification alone does not
+prove deliverability or sender reputation.
 
 ### Shared operator sender
 
