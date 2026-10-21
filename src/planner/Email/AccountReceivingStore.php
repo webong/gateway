@@ -330,6 +330,26 @@ final readonly class AccountReceivingStore
             $document, $route->enabled, $route->revision);
     }
 
+    public function switchRouteToMx(stdClass $route): stdClass
+    {
+        if (($route->document['mode'] ?? null) !== 'worker') {
+            throw new EmailRouteRejected('Only a Worker receiving route can switch to MX ingress.');
+        }
+        if (! is_string($this->settings()?->document['mx_host'] ?? null)) {
+            throw new EmailRouteRejected('The Gateway receiving MX hostname is not configured.');
+        }
+        $account = $route->document['account_id'] ?? '';
+        $domain = $this->domain($account, $route->document['domain_id'] ?? '');
+        if ($domain === null || ! $domain->enabled || $domain->document['verified_at'] === null
+            || ! str_ends_with($route->key, '@'.$this->domainName($domain))) {
+            throw new EmailRouteRejected('The receiving domain is not verified and active.');
+        }
+        $document = $route->document;
+        $document['mode'] = 'mx';
+        return $this->resources->replace(self::ROUTE, $route->id, $route->key,
+            $document, $route->enabled, $route->revision);
+    }
+
     public function deleteRoute(stdClass $route): bool
     {
         return $this->resources->delete(self::ROUTE, $route->id, $route->revision);

@@ -145,12 +145,13 @@ final readonly class AccountReceivingController
         $row = $this->store->route($account, $route);
         if ($row === null) { return $this->error('Receiving route not found.', 404); }
         $input = $request->json()->all();
-        if (array_keys($input) === ['mode'] && $input['mode'] === 'worker') {
-            try { return $this->ok($this->routeResource($this->store->switchRouteToWorker($row))); }
+        if (array_keys($input) === ['mode'] && in_array($input['mode'], ['worker', 'mx'], true)) {
+            try { return $this->ok($this->routeResource($input['mode'] === 'worker'
+                ? $this->store->switchRouteToWorker($row) : $this->store->switchRouteToMx($row))); }
             catch (EmailRouteRejected $exception) { return $this->error($exception->getMessage(), 409); }
         }
         if (array_keys($input) !== ['enabled'] || ! is_bool($input['enabled'])) {
-            return $this->error('Only enabled or a switch to Worker mode may change.', 422);
+            return $this->error('Only enabled or a switch between MX and Worker mode may change.', 422);
         }
         return $this->ok($this->routeResource($this->store->setRouteEnabled($row, $input['enabled'])));
     }

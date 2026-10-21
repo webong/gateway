@@ -942,7 +942,11 @@ Gateway's `_gateway-verify` TXT challenge. Create the exact route with
 using account-authenticated `PATCH .../receiving-routes/{route_id}` with
 `{"mode":"worker"}`. The route ID, address, callback, secret, and enabled
 state are retained; Gateway SMTP acceptance stops for that route. The switch
-is one-way, and the Cloudflare Email Routing rule still needs an explicit
+can be reversed with `PATCH .../receiving-routes/{route_id}` and
+`{"mode":"mx"}` while the receiving domain is verified and enabled and an
+operator MX hostname is configured. The route ID, callback, secret, enabled
+state, and dormant Worker ingress token remain intact; Gateway SMTP accepts
+the address again. The Cloudflare Email Routing rule still needs an explicit
 cutover. Do not point both paths at the same inbox without application-side
 event deduplication.
 

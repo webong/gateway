@@ -8,6 +8,7 @@ use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
 use Webong\Gateway\Protocol\GatewayEvent;
 use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Resources\PlannerResourceStore;
 
 it('provisions a route-scoped Worker token and signs only its approved recipient', function (): void {
     $dns = new class implements TxtResolver {
@@ -86,4 +87,33 @@ it('switches an existing verified MX route to Worker ingress without changing it
     $token = $this->withToken($account['token'])->postJson($url.'/worker-ingress', [])->assertCreated()->json('ingress_token');
     expect($token)->toHaveLength(64);
     $this->withToken($account['token'])->patchJson($url, ['mode' => 'worker'])->assertConflict();
+
+    $this->withToken($other['token'])->patchJson($url, ['mode' => 'mx'])->assertUnauthorized();
+    $restored = $this->withToken($account['token'])->patchJson($url, ['mode' => 'mx'])
+        ->assertOk()->json();
+    expect($restored['id'])->toBe($route['id'])
+        ->and($restored['address'])->toBe($route['address'])
+        ->and($restored['callback_url'])->toBe($route['callback_url'])
+        ->and($restored['enabled'])->toBe($route['enabled'])
+        ->and($restored['mode'])->toBe('mx');
+    $this->withToken($account['token'])->getJson($url.'/worker-ingress')
+        ->assertOk()->assertJsonPath('enabled', true);
+    $smtp = app(ProtocolPlanner::class)->planEvent(new GatewayEvent(id: 'smtp-after-restore', protocol: Protocol::SMTP,
+        kind: EventKind::RECIPIENT, route: $route['address'], attributes: ['accepted_recipients' => '[]']));
+    expect($smtp->action)->toBe(GatewayAction::ACCEPT);
+    $this->withToken($account['token'])->patchJson($url, ['mode' => 'mx'])->assertConflict();
+    $this->withToken($account['token'])->patchJson($url, ['mode' => 'worker'])->assertOk();
+    $body = ['token' => $token, 'mail_from' => 'sender@gmail.com', 'recipient' => $route['address'],
+        'event_id' => str_repeat('a', 64), 'message_sha256' => str_repeat('c', 64)];
+    $decision = $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/worker-ingress/'.$route['id'].'/authorize', $body)->assertOk()->json();
+    $signed = $route['id']."\n".$body['event_id']."\n".$decision['headers']['X-Gateway-Envelope'][0]."\n".$body['message_sha256'];
+    expect($decision['headers']['X-Gateway-Signature'][0])
+        ->toBe('sha256='.hash_hmac('sha256', $signed, str_repeat('d', 64)));
+
+    $resources = app(PlannerResourceStore::class);
+    $storedDomain = $resources->find('email.receiving-domain', $domain['id']);
+    $resources->replace('email.receiving-domain', $storedDomain->id, $storedDomain->key,
+        $storedDomain->document, false, $storedDomain->revision);
+    $this->withToken($account['token'])->patchJson($url, ['mode' => 'mx'])->assertConflict();
 });
