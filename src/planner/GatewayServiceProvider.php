@@ -83,6 +83,7 @@ use Webong\Gateway\Email\Http\EmailSrsPolicyController;
 use Webong\Gateway\Email\Http\EmailUpstreamController;
 use Webong\Gateway\Email\Http\EmailHostedMailController;
 use Webong\Gateway\Email\Http\InternalHostedMailAdapterController;
+use Webong\Gateway\Email\Http\OutboundTransportController;
 use Webong\Gateway\Email\Http\EmailDkimKeyController;
 use Webong\Gateway\Email\Http\InternalDkimKeyController;
 use Webong\Gateway\Email\SrsReturnStore;
@@ -266,6 +267,7 @@ final class GatewayServiceProvider extends ServiceProvider
             mailHooks: $this->app->make(MailHookRegistry::class),
             receiving: $this->app->make(AccountReceivingStore::class),
             emailRuntimePolicy: $this->app->make(EmailRuntimePolicyStore::class),
+            outbound: $this->app->make(\Webong\Gateway\Email\OutboundTransportStore::class),
             providerRoutes: $this->emailProviderRouteResolver(),
             webstreamPrivateSources: $this->app->make(WebstreamPrivateSourceStore::class),
             webstreamRoutePolicies: $this->app->make(WebstreamRoutePolicyStore::class),
@@ -387,6 +389,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/_internal/gateway/dns/zones', InternalDnsZoneController::class);
             $this->app['router']->get('/_internal/gateway/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
             $this->app['router']->get('/_internal/gateway/email/hosted-adapters/{name}', InternalHostedMailAdapterController::class);
+            $this->app['router']->post('/_internal/gateway/email/outbound-plan', [OutboundTransportController::class, 'plan']);
+            $this->app['router']->post('/_internal/gateway/email/outbound-attempts/{delivery}', [OutboundTransportController::class, 'record']);
+            $this->app['router']->post('/_internal/gateway/email/outbound-attempts/{delivery}/reserve', [OutboundTransportController::class, 'reserve']);
             $this->app['router']->get('/_internal/gateway/email/dkim/{domain}', InternalDkimKeyController::class);
             $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
@@ -459,6 +464,19 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->put('/email/upstreams/{upstream}', [EmailUpstreamController::class, 'replace']);
             $this->app['router']->delete('/email/upstreams/{upstream}', [EmailUpstreamController::class, 'destroy']);
             $this->app['router']->get('/email/hosted-adapters', [EmailHostedMailController::class, 'adapters']);
+            $this->app['router']->get('/email/outbound-transports', [OutboundTransportController::class, 'transports']);
+            $this->app['router']->post('/email/outbound-transports', [OutboundTransportController::class, 'createTransport']);
+            $this->app['router']->get('/email/outbound-transports/{id}', [OutboundTransportController::class, 'transport']);
+            $this->app['router']->patch('/email/outbound-transports/{id}', [OutboundTransportController::class, 'updateTransport']);
+            $this->app['router']->post('/email/outbound-transports/{id}/credential', [OutboundTransportController::class, 'rotateCredential']);
+            $this->app['router']->get('/email/outbound-pools', [OutboundTransportController::class, 'pools']);
+            $this->app['router']->post('/email/outbound-pools', [OutboundTransportController::class, 'createPool']);
+            $this->app['router']->patch('/email/outbound-pools/{id}', [OutboundTransportController::class, 'updatePool']);
+            $this->app['router']->get('/email/outbound-bindings', [OutboundTransportController::class, 'bindings']);
+            $this->app['router']->post('/email/outbound-bindings', [OutboundTransportController::class, 'createBinding']);
+            $this->app['router']->patch('/email/outbound-bindings/{id}', [OutboundTransportController::class, 'updateBinding']);
+            $this->app['router']->get('/email/outbound-attempts', [OutboundTransportController::class, 'attempts']);
+            $this->app['router']->get('/email/submissions/{delivery}', [EmailSubmissionController::class, 'show']);
             $this->app['router']->post('/email/hosted-adapters', [EmailHostedMailController::class, 'createAdapter']);
             $this->app['router']->get('/email/hosted-adapters/{id}', [EmailHostedMailController::class, 'showAdapter']);
             $this->app['router']->put('/email/hosted-adapters/{id}', [EmailHostedMailController::class, 'replaceAdapter']);

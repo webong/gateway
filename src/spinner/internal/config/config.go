@@ -87,6 +87,7 @@ type Config struct {
 	SMTPRelayTLSMode           string
 	SMTPRelayTimeout           time.Duration
 	MailboxSMTPResolverURL     string
+	OutboundResolverURL        string
 	HostedMailResolverURL      string
 	HostedMailAllowedHosts     []string
 	EmailDKIMResolverURL       string
@@ -310,6 +311,7 @@ func loadConfig(runtime string) (*Config, error) {
 		SMTPRelayTLSMode:           strings.ToLower(getEnv("GATEWAY_SMTP_RELAY_TLS_MODE", "starttls")),
 		SMTPRelayTimeout:           getEnvDuration("GATEWAY_SMTP_RELAY_TIMEOUT", 30*time.Second),
 		MailboxSMTPResolverURL:     getEnv("GATEWAY_MAILBOX_SMTP_RESOLVER_URL", ""),
+		OutboundResolverURL:        getEnv("GATEWAY_OUTBOUND_RESOLVER_URL", ""),
 		HostedMailResolverURL:      getEnv("GATEWAY_HOSTED_MAIL_RESOLVER_URL", ""),
 		HostedMailAllowedHosts:     getEnvList("GATEWAY_HOSTED_MAIL_ALLOWED_HOSTS"),
 		EmailDKIMResolverURL:       getEnv("GATEWAY_EMAIL_DKIM_RESOLVER_URL", ""),
@@ -415,7 +417,7 @@ func loadConfig(runtime string) (*Config, error) {
 	if config.EmailDSNDomain != "" && config.SMTPRelayAddress == "" {
 		return nil, fmt.Errorf("GATEWAY_EMAIL_DSN_DOMAIN requires an outbound SMTP relay")
 	}
-	if config.EmailDKIMResolverURL != "" && (config.SMTPRelayAddress == "" || config.InternalToken == "") {
+	if config.EmailDKIMResolverURL != "" && (config.SMTPRelayAddress == "" && config.OutboundResolverURL == "" || config.InternalToken == "") {
 		return nil, fmt.Errorf("GATEWAY_EMAIL_DKIM_RESOLVER_URL requires an outbound SMTP relay and internal token")
 	}
 	if strings.TrimSpace(config.DeliverySpoolPath) != "" && strings.TrimSpace(config.DeliveryDatabaseURL) != "" {
@@ -426,6 +428,9 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.MailboxSMTPResolverURL != "" && config.InternalToken == "" {
 		return nil, fmt.Errorf("mailbox SMTP requires GATEWAY_INTERNAL_TOKEN")
+	}
+	if config.OutboundResolverURL != "" && (config.InternalToken == "" || strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "") {
+		return nil, fmt.Errorf("managed outbound SMTP requires internal token and durable delivery storage")
 	}
 	if config.MailboxSMTPResolverURL != "" && strings.TrimSpace(config.DeliverySpoolPath) == "" && strings.TrimSpace(config.DeliveryDatabaseURL) == "" {
 		return nil, fmt.Errorf("mailbox SMTP requires durable delivery storage")

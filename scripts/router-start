@@ -111,6 +111,7 @@ export GATEWAY_ROUTER_CONTROL_LISTEN=${GATEWAY_ROUTER_CONTROL_LISTEN:-127.0.0.1:
 # credentials privately and enforces the scope against DNS results when dialing.
 if [ "$RUNTIME" = library ] || [ "$RUNTIME" = roadrunner ]; then
     export GATEWAY_MAILBOX_SMTP_RESOLVER_URL=${GATEWAY_MAILBOX_SMTP_RESOLVER_URL:-http://127.0.0.1:5053}
+    export GATEWAY_OUTBOUND_RESOLVER_URL=${GATEWAY_OUTBOUND_RESOLVER_URL:-http://127.0.0.1:5053}
 fi
 if [ "$RUNTIME" = library ]; then
     export GATEWAY_SMTP_ADDR=${GATEWAY_SMTP_ADDR:-:2525}

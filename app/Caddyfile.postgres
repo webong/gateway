@@ -8,6 +8,7 @@
         recipient_preflight true
         delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
         mailbox_resolver_url http://127.0.0.1:8080
+        outbound_resolver_url http://127.0.0.1:8080
     }
 }
 

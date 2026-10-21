@@ -695,6 +695,13 @@ func (queue *Queue) processDue() {
 }
 
 func (queue *Queue) deliver(path, name string, queued item) {
+	if queued.Delivery.AdapterName() == "managed.smtp" {
+		if queued.Delivery.Attributes == nil {
+			queued.Delivery.Attributes = make(map[string]string)
+		}
+		queued.Delivery.Attributes["gateway_delivery_id"] = queued.ID
+		queued.Delivery.Attributes["gateway_attempt_index"] = strconv.Itoa(queued.Attempts)
+	}
 	adapter := queue.config.Adapters[queued.Delivery.AdapterName()]
 	var err error
 	var result bridge.GatewayDeliveryResult

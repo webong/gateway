@@ -67,7 +67,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 	var adminServer *http.Server
 	if settings.DeliveryAdminAddress != "" {
 		options := []deliveryadmin.HandlerOption{deliveryadmin.WithAutomationExecutor(automationextensions.Runtime())}
-		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" {
+		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.OutboundResolverURL != "" {
 			var checker interface{ CheckSigningDomain(string) error }
 			if settings.SMTPRelayAddress != "" {
 				adapter, adapterErr := NewSMTPAdapter(settings)

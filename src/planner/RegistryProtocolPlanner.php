@@ -16,6 +16,7 @@ use Webong\Gateway\Email\EmailPolicyVerdict;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionQuota;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
+use Webong\Gateway\Email\OutboundTransportStore;
 use Webong\Gateway\Email\EmailProviderRoute;
 use Webong\Gateway\Email\EmailProviderRouteResolver;
 use Webong\Gateway\Email\EmailSuppressionStore;
@@ -60,6 +61,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
         private readonly ?\Webong\Gateway\Webstream\WebstreamRoutePolicyStore $webstreamRoutePolicies = null,
         private readonly ?\Webong\Gateway\Email\EmailSubmissionPolicyStore $emailSubmissionPolicies = null,
         private readonly ?EmailRuntimePolicyStore $emailRuntimePolicy = null,
+        private readonly ?OutboundTransportStore $outbound = null,
     ) {}
 
     public function planEvent(GatewayEvent $event): GatewayDecision
@@ -556,15 +558,34 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
             statusCode: 250,
             deliveries: [new GatewayDelivery(
                 protocol: Protocol::SMTP,
+                adapter: $this->outboundAdapter($event),
                 target: $recipients[0],
                 attributes: [
                     'mail_from' => $mailFrom,
                     'recipients' => json_encode($recipients, JSON_THROW_ON_ERROR),
+                    ...$this->outboundAttributes($event),
                 ],
                 payload: $event->payload,
             )],
             metadata: $metadata,
         );
+    }
+
+    private function outboundAdapter(GatewayEvent $event): string
+    {
+        return $this->outboundAttributes($event) === [] ? 'smtp' : 'managed.smtp';
+    }
+
+    private function outboundAttributes(GatewayEvent $event): array
+    {
+        $identity = $event->attributes['auth_identity'] ?? '';
+        $separator = strrpos($identity, ':');
+        if ($separator === false || $this->outbound === null) { return []; }
+        $binding = $this->outbound->senderBinding(substr($identity, 0, $separator), substr($identity, $separator + 1));
+        if ($binding === null) { return []; }
+        return ['outbound_pool_id' => $binding['pool_id'], 'account_id' => $binding['account_id'],
+            'outbound_route_id' => $binding['route_id'], 'outbound_domain_id' => $binding['domain_id'],
+            'outbound_sender_domain' => $binding['sender_domain']];
     }
 
     private function hasReturnRecipient(GatewayEvent $event): bool

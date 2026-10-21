@@ -59,6 +59,10 @@ final readonly class EmailHttpSubmissionStore
                         'updated_at' => $now,
                     ];
                     DB::table('email_http_submissions')->insert($row);
+                    DB::table('email_outbound_receipt_owners')->insertOrIgnore([
+                        'receipt_id' => $row['receipt_id'], 'identity_hash' => $identityHash,
+                        'node' => $node, 'expires_at' => $now->copy()->addDays(30),
+                    ]);
                     if (! $this->quota->consumeSubmission($identity, $mailFrom, $limit, $messageBytes, $byteLimit)) {
                         throw new EmailSubmissionLimitExceeded('Daily submission quota exceeded.');
                     }
@@ -84,8 +88,19 @@ final readonly class EmailHttpSubmissionStore
             ->update(['accepted_at' => now('UTC'), 'updated_at' => now('UTC')]);
     }
 
+    public function findReceipt(string $identity, string $receiptId): ?stdClass
+    {
+        if (preg_match('/^[a-f0-9]{32}$/D', $receiptId) !== 1) { return null; }
+        $hash = hash('sha256', $identity);
+        return DB::table('email_outbound_receipt_owners')->where('identity_hash', $hash)
+            ->where('receipt_id', $receiptId)->where('expires_at', '>', now('UTC'))->first()
+            ?? DB::table('email_http_submissions')->where('identity_hash', $hash)
+                ->where('receipt_id', $receiptId)->where('expires_at', '>', now('UTC'))->first();
+    }
+
     public function prune(): int
     {
-        return DB::table('email_http_submissions')->where('expires_at', '<', now('UTC'))->delete();
+        $owners = DB::table('email_outbound_receipt_owners')->where('expires_at', '<', now('UTC'))->delete();
+        return $owners + DB::table('email_http_submissions')->where('expires_at', '<', now('UTC'))->delete();
     }
 }

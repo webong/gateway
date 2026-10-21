@@ -82,6 +82,15 @@ it('finds deliveries for an ingress event without exposing payloads', function (
     $this->withToken('registry-secret')->getJson('/deliveries?event_id='.$eventId.'&state=failed')->assertUnprocessable();
 });
 
+it('keeps ambiguous SMTP acceptance visible without exposing the message', function (): void {
+    Http::fake(['http://spinner.internal:5052/deliveries/'.DELIVERY_ID => Http::response([
+        'id' => DELIVERY_ID, 'state' => 'failed', 'attempts' => 1,
+        'body_assertion' => 'smtp_acceptance_unknown', 'payload' => 'secret-body',
+    ])]);
+    $this->withToken('registry-secret')->getJson('/deliveries/'.DELIVERY_ID)->assertOk()
+        ->assertJsonPath('body_assertion', 'smtp_acceptance_unknown')->assertJsonMissingPath('payload');
+});
+
 it('retries only a valid delivery ID and maps missing or pending states', function (): void {
     Http::fake([
         'http://spinner.internal:5052/deliveries/'.DELIVERY_ID.'/retry' => Http::sequence()

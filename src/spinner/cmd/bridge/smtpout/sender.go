@@ -20,6 +20,8 @@ import (
 
 type TLSMode string
 
+var ErrPreAcceptConnection = errors.New("outbound SMTP connection failed before acceptance")
+
 const (
 	TLSNone     TLSMode = "none"
 	TLSStartTLS TLSMode = "starttls"
@@ -126,7 +128,7 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 		connection, err = (&net.Dialer{Timeout: s.config.Timeout}).DialContext(ctx, "tcp", s.config.Address)
 	}
 	if err != nil {
-		return fmt.Errorf("connect to outbound SMTP relay: %w", err)
+		return fmt.Errorf("%w: %v", ErrPreAcceptConnection, err)
 	}
 	defer connection.Close()
 
@@ -147,7 +149,7 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 	if s.config.TLSMode == TLSStartTLS {
 		client, err = smtpclient.NewClientStartTLS(connection, tlsConfig)
 		if err != nil {
-			return fmt.Errorf("start outbound SMTP TLS: %w", err)
+			return classifySMTPResponse("start outbound SMTP TLS", err)
 		}
 	} else {
 		client = smtpclient.NewClient(connection)
@@ -157,7 +159,7 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 	defer client.Close()
 
 	if err := client.Hello(s.config.LocalName); err != nil {
-		return fmt.Errorf("greet outbound SMTP relay: %w", err)
+		return classifySMTPResponse("greet outbound SMTP relay", err)
 	}
 	if s.config.Username != "" {
 		var auth sasl.Client = sasl.NewPlainClient("", s.config.Username, s.config.Password)

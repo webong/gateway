@@ -103,6 +103,38 @@ type adapterQueue struct {
 	adapter string
 }
 
+type managedEmailQueue struct{ *fakeEmailQueue }
+
+func (*managedEmailQueue) SupportsAdapter(name string) bool { return name == "managed.smtp" }
+
+func TestPrivateEmailSubmissionUsesManagedBindingWithoutExposingTransport(t *testing.T) {
+	spool := &managedEmailQueue{fakeEmailQueue: &fakeEmailQueue{}}
+	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("private-loop-key"), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]any{
+		"receipt_id": deliveryID, "mail_from": "support@operator.test",
+		"authorized_senders": []string{"support@operator.test"},
+		"recipients":         []string{"buyer@example.test"},
+		"message":            []byte("From: support@operator.test\r\nReply-To: conversation@reply.operator.test\r\n\r\nhello"),
+		"outbound_binding": map[string]string{
+			"pool_id": "11111111-1111-4111-8111-111111111111", "account_id": "one", "route_id": "22222222-2222-4222-8222-222222222222", "domain_id": "", "sender_domain": "operator.test",
+		},
+	}
+	body, _ := json.Marshal(input)
+	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer private-token")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || spool.delivery.AdapterName() != "managed.smtp" ||
+		spool.delivery.Attributes["outbound_pool_id"] != "11111111-1111-4111-8111-111111111111" ||
+		!bytes.Contains(spool.delivery.Payload, []byte("Reply-To: conversation@reply.operator.test")) {
+		t.Fatalf("managed submission was not queued with the original sender identity: %d %s", response.Code, response.Body.String())
+	}
+}
+
 func (queue *adapterQueue) SupportsAdapter(name string) bool { return name == queue.adapter }
 
 type fakeEmailQueue struct {

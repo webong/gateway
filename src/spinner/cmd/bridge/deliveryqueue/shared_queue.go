@@ -378,6 +378,13 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 		return
 	}
 	adapter := queue.config.Adapters[queued.Delivery.AdapterName()]
+	if queued.Delivery.AdapterName() == "managed.smtp" {
+		if queued.Delivery.Attributes == nil {
+			queued.Delivery.Attributes = make(map[string]string)
+		}
+		queued.Delivery.Attributes["gateway_delivery_id"] = queued.ID
+		queued.Delivery.Attributes["gateway_attempt_index"] = strconv.Itoa(queued.Attempts)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), queue.config.DeliveryTimeout)
 	renewDone := make(chan error, 1)
 	stopRenew := make(chan struct{})

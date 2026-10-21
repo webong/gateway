@@ -84,6 +84,7 @@ type SMTPApp struct {
 	RelayTLSMode           string          `json:"relay_tls_mode,omitempty"`
 	RelayTimeout           caddy.Duration  `json:"relay_timeout,omitempty"`
 	MailboxResolverURL     string          `json:"mailbox_resolver_url,omitempty"`
+	OutboundResolverURL    string          `json:"outbound_resolver_url,omitempty"`
 	HostedMailResolverURL  string          `json:"hosted_mail_resolver_url,omitempty"`
 	HostedMailAllowedHosts []string        `json:"hosted_mail_allowed_hosts,omitempty"`
 	DKIMResolverURL        string          `json:"dkim_resolver_url,omitempty"`
@@ -159,6 +160,7 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		SMTPRelayPassword: a.RelayPassword, SMTPRelayTLSMode: a.RelayTLSMode,
 		SMTPRelayTimeout:       time.Duration(a.RelayTimeout),
 		MailboxSMTPResolverURL: a.MailboxResolverURL,
+		OutboundResolverURL:    a.OutboundResolverURL,
 		HostedMailResolverURL:  a.HostedMailResolverURL,
 		HostedMailAllowedHosts: a.HostedMailAllowedHosts,
 		InternalToken:          a.InternalToken,
@@ -313,7 +315,7 @@ func (a *SMTPApp) Validate() error {
 	if a.DSNDomain != "" && a.RelayAddress == "" {
 		return fmt.Errorf("gateway.smtp dsn_domain requires relay_address")
 	}
-	if a.DKIMResolverURL != "" && (a.RelayAddress == "" || a.InternalToken == "") {
+	if a.DKIMResolverURL != "" && (a.RelayAddress == "" && a.OutboundResolverURL == "" || a.InternalToken == "") {
 		return fmt.Errorf("gateway.smtp dkim_resolver_url requires relay_address and internal_token")
 	}
 	if strings.TrimSpace(a.SpoolPath) != "" && strings.TrimSpace(a.DeliveryDatabaseURL) != "" {
@@ -324,6 +326,9 @@ func (a *SMTPApp) Validate() error {
 	}
 	if a.MailboxResolverURL != "" && (a.InternalToken == "" || (a.SpoolPath == "" && a.DeliveryDatabaseURL == "")) {
 		return fmt.Errorf("gateway.smtp mailbox delivery requires internal_token and durable storage")
+	}
+	if a.OutboundResolverURL != "" && (a.InternalToken == "" || (a.SpoolPath == "" && a.DeliveryDatabaseURL == "")) {
+		return fmt.Errorf("gateway.smtp outbound delivery requires internal_token and durable storage")
 	}
 	if a.HostedMailResolverURL != "" && (a.InternalToken == "" || len(a.HostedMailAllowedHosts) == 0) {
 		return fmt.Errorf("gateway.smtp hosted mail requires internal_token and deployed allowed hosts")
@@ -530,7 +535,7 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				return nil, err
 			}
 			app.TLSKeyFile = value
-		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "mailbox_resolver_url", "hosted_mail_resolver_url", "hosted_mail_allowed_hosts", "dkim_resolver_url", "spool_path", "delivery_database_url", "clamd_network", "clamd_address", "domain_resolver_address", "quarantine_path", "dsn_domain":
+		case "relay_address", "relay_local_name", "relay_server_name", "relay_username", "relay_password", "relay_tls_mode", "mailbox_resolver_url", "outbound_resolver_url", "hosted_mail_resolver_url", "hosted_mail_allowed_hosts", "dkim_resolver_url", "spool_path", "delivery_database_url", "clamd_network", "clamd_address", "domain_resolver_address", "quarantine_path", "dsn_domain":
 			option := d.Val()
 			value, err := stringArg(d)
 			if err != nil {
@@ -551,6 +556,8 @@ func parseSMTPApp(d *caddyfile.Dispenser, _ any) (any, error) {
 				app.RelayTLSMode = strings.ToLower(value)
 			case "mailbox_resolver_url":
 				app.MailboxResolverURL = value
+			case "outbound_resolver_url":
+				app.OutboundResolverURL = value
 			case "hosted_mail_resolver_url":
 				app.HostedMailResolverURL = value
 			case "hosted_mail_allowed_hosts":

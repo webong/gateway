@@ -684,7 +684,7 @@ func (s *session) Data(reader io.Reader) error {
 		}
 		return nil
 	case bridge.GatewaySubmit:
-		if s.config.Submitter == nil {
+		if s.config.Submitter == nil && decision.Deliveries[0].AdapterName() != "managed.smtp" {
 			return smtpError(451, "outbound SMTP relay is unavailable")
 		}
 		if signingDomain != "" && s.config.SigningDomainChecker != nil {
@@ -719,6 +719,12 @@ func (s *session) Data(reader io.Reader) error {
 		delivery.Payload, err = markForwarding(delivery.Payload, s.config.LoopKey)
 		if err != nil {
 			return smtpError(451, "gateway forwarding trace is unavailable")
+		}
+		if delivery.AdapterName() == "managed.smtp" {
+			if s.executor == nil || !s.executor.EnqueueGateway(delivery) {
+				return smtpError(452, "gateway outbound queue is unavailable")
+			}
+			return nil
 		}
 		if err := s.config.Submitter.DeliverGateway(ctx, delivery); err != nil {
 			return smtpError(451, "outbound SMTP relay did not accept the message")

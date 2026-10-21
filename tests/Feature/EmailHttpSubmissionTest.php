@@ -51,6 +51,30 @@ function emailSubmissionBody(string $sender = 'alice@example.test'): array
     ];
 }
 
+it('returns provider-neutral submission status only to the owning credential', function (): void {
+    $state = 'queued';
+    $assertion = null;
+    Http::fake(function (ClientRequest $request) use (&$state, &$assertion) {
+        if ($request->method() === 'POST') { return Http::response(['id' => $request['receipt_id']], 202); }
+        $id = basename(parse_url($request->url(), PHP_URL_PATH));
+        return Http::response(['id' => $id, 'state' => $state, 'attempts' => 1,
+            'body_assertion' => $assertion], 200);
+    });
+    $headers = ['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'status-1'];
+    $accepted = $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())
+        ->assertAccepted()->json();
+    $url = 'https://localhost'.$accepted['status_url'];
+    $this->withHeaders(['Authorization' => 'Basic '.base64_encode('bob:secret')])->getJson($url)->assertNotFound();
+    $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret')])->getJson($url)
+        ->assertOk()->assertJsonPath('state', 'queued');
+    $state = 'delivered';
+    $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret')])->getJson($url)
+        ->assertOk()->assertJsonPath('state', 'accepted');
+    $state = 'failed'; $assertion = 'smtp_acceptance_unknown';
+    $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret')])->getJson($url)
+        ->assertOk()->assertJsonPath('state', 'ambiguous')->assertJsonMissingPath('body_assertion');
+});
+
 it('blocks new HTTP submissions to an operator-suppressed recipient without charging quota', function (): void {
     Http::fake(fn (ClientRequest $request) => Http::response(['id' => $request['receipt_id']], 202));
     $this->postJson('/email/suppressions', ['address' => 'bob@example.test', 'reason' => 'hard_bounce'])->assertUnauthorized();

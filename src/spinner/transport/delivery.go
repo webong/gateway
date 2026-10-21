@@ -18,7 +18,7 @@ import (
 // With neither backend configured, HTTP keeps its legacy in-memory delivery.
 func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, logger *logging.Logger) (deliveryqueue.Backend, error) {
 	if settings.DeliverySpoolPath == "" && settings.DeliveryDatabaseURL == "" {
-		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.HostedMailResolverURL != "" {
+		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.HostedMailResolverURL != "" || settings.OutboundResolverURL != "" {
 			return nil, fmt.Errorf("durable delivery storage is required for outbound SMTP")
 		}
 		return nil, nil
@@ -37,6 +37,21 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 			return nil, err
 		}
 		adapters[string(bridge.ProtocolSMTP)] = adapter
+	}
+	if settings.OutboundResolverURL != "" {
+		var signer smtpout.DKIMSigning
+		if settings.EmailDKIMResolverURL != "" {
+			resolved, err := smtpout.NewHTTPDKIMSigner(settings.EmailDKIMResolverURL, settings.InternalToken)
+			if err != nil {
+				return nil, err
+			}
+			signer = resolved
+		}
+		adapter, err := newManagedSMTPAdapter(settings.OutboundResolverURL, settings.InternalToken, settings.SMTPRelayTimeout, signer)
+		if err != nil {
+			return nil, err
+		}
+		adapters["managed.smtp"] = adapter
 	}
 	if settings.MailboxSMTPResolverURL != "" {
 		resolver, err := smtpout.NewHTTPMailboxResolver(settings.MailboxSMTPResolverURL, settings.InternalToken)
@@ -73,7 +88,7 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 	fanout := newFanoutAdapter()
 	adapters["gateway.fanout"] = fanout
 	deliveryTimeout := settings.RequestTimeout
-	if (settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "") && settings.SMTPRelayTimeout > deliveryTimeout {
+	if (settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.OutboundResolverURL != "") && settings.SMTPRelayTimeout > deliveryTimeout {
 		deliveryTimeout = settings.SMTPRelayTimeout
 	}
 	if deliveryTimeout <= 0 {

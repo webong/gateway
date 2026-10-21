@@ -1,6 +1,7 @@
 package smtp
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -327,6 +328,31 @@ func TestSMTPSubmitAcknowledgesOnlyAfterRelayAccepts(t *testing.T) {
 		if !errors.As(err, &smtpErr) || smtpErr.Code != 451 {
 			t.Fatalf("unaccepted relay handoff was acknowledged: %v", err)
 		}
+	}
+}
+
+func TestManagedSMTPSubmitAcknowledgesOnlyAfterDurableQueueAccepts(t *testing.T) {
+	executor := &recordingExecutor{}
+	s := &session{
+		planner: plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+			return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolSMTP,
+				Action: bridge.GatewaySubmit, Deliveries: []bridge.GatewayDelivery{{
+					Protocol: bridge.ProtocolSMTP, Adapter: "managed.smtp", Target: "buyer@example.net",
+					Attributes: map[string]string{"mail_from": "support@operator.test"},
+				}}}, nil
+		}),
+		executor: executor,
+		config: Config{MaxMessageSize: 1024, PlannerTimeout: time.Second, SubmitTimeout: time.Second,
+			LoopKey: []byte("test-loop-key")},
+		from: "support@operator.test", recipients: []string{"buyer@example.net"},
+	}
+	if err := s.Data(strings.NewReader("From: support@operator.test\r\nReply-To: conversation@reply.operator.test\r\n\r\nhello")); err != nil {
+		t.Fatal(err)
+	}
+	queued := executor.snapshot()
+	if len(queued) != 1 || queued[0].AdapterName() != "managed.smtp" ||
+		!bytes.Contains(queued[0].Payload, []byte("Reply-To: conversation@reply.operator.test")) {
+		t.Fatalf("managed SMTP submission was not durably queued: %+v", queued)
 	}
 }
 

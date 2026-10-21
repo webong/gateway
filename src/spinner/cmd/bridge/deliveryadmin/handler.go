@@ -291,6 +291,13 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 		Recipients          []string `json:"recipients"`
 		Message             []byte   `json:"message"`
 		MailboxConnectionID string   `json:"mailbox_connection_id"`
+		OutboundBinding     *struct {
+			PoolID       string `json:"pool_id"`
+			AccountID    string `json:"account_id"`
+			RouteID      string `json:"route_id"`
+			DomainID     string `json:"domain_id"`
+			SenderDomain string `json:"sender_domain"`
+		} `json:"outbound_binding"`
 	}
 	// Base64 expands the raw RFC 5322 message; leave room for the JSON envelope.
 	limit := handler.email.maxMessageSize*2 + 65536
@@ -347,11 +354,31 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 			writeError(writer, http.StatusServiceUnavailable, "Mailbox SMTP transport is unavailable.")
 			return
 		}
+	} else if input.OutboundBinding != nil {
+		binding := input.OutboundBinding
+		if !validMailboxConnectionID(binding.PoolID) || !validMailboxConnectionID(binding.RouteID) ||
+			(binding.DomainID != "" && !validMailboxConnectionID(binding.DomainID)) ||
+			binding.AccountID == "" || len(binding.AccountID) > 200 || binding.SenderDomain != signingDomain {
+			writeError(writer, http.StatusUnprocessableEntity, "Invalid outbound binding.")
+			return
+		}
+		adapter = "managed.smtp"
+		for key, value := range map[string]string{
+			"outbound_pool_id": binding.PoolID, "account_id": binding.AccountID,
+			"outbound_route_id": binding.RouteID, "outbound_domain_id": binding.DomainID,
+			"outbound_sender_domain": binding.SenderDomain,
+		} {
+			attributes[key] = value
+		}
+		if supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool }); !ok || !supported.SupportsAdapter(adapter) {
+			writeError(writer, http.StatusServiceUnavailable, "Gateway outbound transport is unavailable.")
+			return
+		}
 	} else if supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool }); ok && !supported.SupportsAdapter("smtp") {
 		writeError(writer, http.StatusServiceUnavailable, "Gateway outbound SMTP transport is unavailable.")
 		return
 	}
-	if handler.email.failureNotices {
+	if handler.email.failureNotices && adapter == "" {
 		attributes[bridge.FailureNoticeToAttribute] = input.MailFrom
 	}
 	fingerprintInput, _ := json.Marshal(struct {

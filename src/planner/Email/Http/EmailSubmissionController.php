@@ -18,6 +18,7 @@ use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\AccountReceivingStore;
 use Webong\Gateway\Email\SharedSenderMessage;
+use Webong\Gateway\Email\OutboundTransportStore;
 use InvalidArgumentException;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
@@ -37,7 +38,61 @@ final readonly class EmailSubmissionController
         private AccountReceivingStore $receiving,
         private \Webong\Gateway\Email\EmailSubmissionPolicyStore $policies,
         private EmailRuntimePolicyStore $runtimePolicy,
+        private OutboundTransportStore $outbound,
     ) {}
+
+    public function show(Request $request, string $delivery): JsonResponse
+    {
+        if (! $this->runtimePolicy->current()['http_submission_enabled']) {
+            return response()->json(['message' => 'Not found.'], Response::HTTP_NOT_FOUND);
+        }
+        if (! $request->isSecure()) {
+            return response()->json(['message' => 'HTTPS is required.'], Response::HTTP_FORBIDDEN);
+        }
+        $username = $request->getUser();
+        $password = $request->getPassword();
+        if (! is_string($username) || $username === '' || ! is_string($password) || $password === '') {
+            return $this->unauthorized();
+        }
+        try {
+            $decision = $this->planner->planEvent(new GatewayEvent(
+                id: bin2hex(random_bytes(16)), protocol: Protocol::SMTP, kind: EventKind::AUTHENTICATE,
+                route: $username, attributes: ['identity' => $username, 'username' => $username,
+                    'password' => $password, 'mechanism' => 'HTTP-Basic', 'remote_addr' => (string) $request->ip()],
+            ));
+            $identity = $decision->metadata['auth_identity'] ?? null;
+            if ($decision->action !== GatewayAction::ACCEPT || ! is_string($identity)) { return $this->unauthorized(); }
+            $receipt = $this->submissions->findReceipt($identity, $delivery);
+            if ($receipt === null) { return response()->json(['message' => 'Submission not found.'], 404); }
+            $response = $this->admin->get('/deliveries/'.$delivery, [], $receipt->node);
+            if (! $response->ok() || ! is_array($response->json()) || $response->json('id') !== $delivery) {
+                return response()->json(['message' => 'Submission status is unavailable.'], 503);
+            }
+            $queue = $response->json();
+            $attempt = $this->outbound->attempt($delivery);
+            $state = match ($queue['state'] ?? null) {
+                'queued' => 'queued', 'deferred' => 'temporarily_delayed',
+                'delivered' => 'accepted',
+                'failed' => ($queue['body_assertion'] ?? null) === 'smtp_acceptance_unknown'
+                    ? 'ambiguous' : 'rejected',
+                default => null,
+            };
+            if ($state === null) { return response()->json(['message' => 'Submission status is unavailable.'], 503); }
+            if ($attempt !== null && str_starts_with($identity, $attempt->document['account_id'].':')) {
+                $observed = $attempt->document['state'];
+                if (in_array($observed, ['delivered', 'bounced', 'complained', 'ambiguous'], true)) {
+                    $state = $observed;
+                } elseif (in_array($state, ['queued', 'temporarily_delayed'], true)
+                    && in_array($observed, ['attempted', 'temporarily_delayed'], true)) {
+                    $state = $observed;
+                }
+            }
+            return response()->json(['id' => $delivery, 'state' => $state,
+                'attempts' => $queue['attempts'] ?? 0])->header('Cache-Control', 'no-store');
+        } catch (Throwable) {
+            return response()->json(['message' => 'Submission status is unavailable.'], 503);
+        }
+    }
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -134,6 +189,10 @@ final readonly class EmailSubmissionController
                 return $this->unauthorized();
             }
         }
+        $identitySeparator = strrpos($identity, ':');
+        $outboundBinding = $connectionId === '' && $identitySeparator !== false
+            ? $this->outbound->senderBinding(substr($identity, 0, $identitySeparator),
+                substr($identity, $identitySeparator + 1)) : null;
         $rawLimit = $decision->metadata['submission_daily_limit'] ?? '';
         $rawByteLimit = $decision->metadata['submission_daily_byte_limit'] ?? '';
         $policy = $this->policies->limits();
@@ -158,6 +217,7 @@ final readonly class EmailSubmissionController
                 'recipients' => $input['recipients'],
                 'message' => base64_encode($message),
                 ...($connectionId !== '' ? ['mailbox_connection_id' => $connectionId] : []),
+                ...($outboundBinding !== null ? ['outbound_binding' => $outboundBinding] : []),
             ], $node);
         } catch (EmailSubmissionKeyConflict) {
             return response()->json(['message' => 'Idempotency key already belongs to a different message.'], Response::HTTP_CONFLICT);
@@ -190,7 +250,8 @@ final readonly class EmailSubmissionController
 
     private function accepted(string $id, string $node): JsonResponse
     {
-        return response()->json(['id' => $id, 'state' => 'queued', 'node' => $node, 'delivery_url' => '/deliveries/'.$id], Response::HTTP_ACCEPTED)
+        return response()->json(['id' => $id, 'state' => 'queued', 'node' => $node,
+            'delivery_url' => '/deliveries/'.$id, 'status_url' => '/email/submissions/'.$id], Response::HTTP_ACCEPTED)
             ->header('Cache-Control', 'no-store');
     }
 

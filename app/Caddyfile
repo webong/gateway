@@ -8,6 +8,7 @@
         recipient_preflight true
         spool_path {$GATEWAY_SMTP_DELIVERY_SPOOL_PATH}
         mailbox_resolver_url http://127.0.0.1:8080
+        outbound_resolver_url http://127.0.0.1:8080
     }
 }
 

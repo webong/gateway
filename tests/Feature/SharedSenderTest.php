@@ -80,6 +80,27 @@ it('sends from the configured shared identity and routes replies by conversation
         kind: EventKind::AUTHENTICATE, route: $sender['id'],
         attributes: ['username' => $sender['id'], 'password' => $sender['smtp_client_password'], 'mechanism' => 'PLAIN']));
     expect($smtp->action)->toBe(GatewayAction::REJECT);
+
+    $transport = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-transports', [
+        'name' => 'shared-smtp', 'type' => 'smtp', 'address' => 'smtp.operator.test:587',
+        'tls_mode' => 'starttls', 'username' => 'operator', 'password' => 'private-password',
+        'authorized_domains' => ['operator.test'], 'healthy' => true,
+        'domain_readiness' => ['operator.test' => ['spf' => 'ready', 'dkim' => 'ready']],
+    ])->assertCreated()->json();
+    $pool = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-pools', [
+        'name' => 'shared-pool', 'members' => [['transport_id' => $transport['id'], 'priority' => 0, 'weight' => 1]],
+    ])->assertCreated()->json();
+    $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'one', 'scope' => 'shared_route', 'sender_id' => $sender['id'], 'pool_id' => $pool['id'],
+    ])->assertCreated();
+    $this->withHeaders([...$auth, 'Idempotency-Key' => 'conversation-managed-pool'])
+        ->postJson('https://localhost/email/submissions', $payload)->assertAccepted();
+    Http::assertSent(function (ClientRequest $request) use ($pool, $reply): bool {
+        $mime = base64_decode($request['message'], true);
+        return ($request['outbound_binding']['pool_id'] ?? null) === $pool['id']
+            && $request['mail_from'] === 'support@operator.test'
+            && str_contains($mime, 'Reply-To: <'.$reply[0]['address'].'>');
+    });
 });
 
 it('preserves MIME body bytes and rejects conflicting sender headers', function (): void {

@@ -15,7 +15,7 @@ final class PruneEmailSubmissionUsageCommand extends Command
     protected $description = 'Delete old account and sender-domain Email submission counters';
 
     public function handle(EmailSubmissionQuota $quota, EmailHttpSubmissionStore $submissions,
-        EmailRuntimePolicyStore $runtimePolicy): int
+        EmailRuntimePolicyStore $runtimePolicy, OutboundTransportStore $outbound): int
     {
         $days = $runtimePolicy->current()['submission_usage_retention_days'];
         if ($days < 1) {
@@ -27,6 +27,8 @@ final class PruneEmailSubmissionUsageCommand extends Command
         $this->components->info("Deleted {$keys} expired HTTP Email submission keys.");
         $oauth = DB::table('mailbox_oauth_transactions')->where('expires_at', '<', now('UTC'))->delete();
         $this->components->info("Deleted {$oauth} expired mailbox authorization transactions.");
+        $outboundRows = $outbound->pruneUsage($days);
+        $this->components->info("Deleted {$outboundRows} expired outbound transport rate rows.");
 
         return self::SUCCESS;
     }

@@ -201,7 +201,7 @@ final readonly class DeliveryController
             }
         }
         if (array_key_exists('body_assertion', $value)) {
-            if (! in_array($value['body_assertion'], ['matched', 'mismatched'], true)) {
+            if (! in_array($value['body_assertion'], ['matched', 'mismatched', 'smtp_acceptance_unknown'], true)) {
                 return null;
             }
             $resource['body_assertion'] = $value['body_assertion'];
