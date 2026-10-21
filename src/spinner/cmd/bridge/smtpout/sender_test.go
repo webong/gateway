@@ -2,6 +2,7 @@ package smtpout
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
@@ -10,7 +11,23 @@ import (
 
 	"github.com/emersion/go-sasl"
 	smtpserver "github.com/emersion/go-smtp"
+	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 )
+
+func TestSMTPResponseClassification(t *testing.T) {
+	for _, test := range []struct {
+		code      int
+		permanent bool
+	}{
+		{421, false}, {450, false}, {451, false}, {452, false},
+		{550, true}, {553, true}, {554, true},
+	} {
+		err := classifySMTPResponse("submit outbound SMTP recipient", &smtpserver.SMTPError{Code: test.code})
+		if errors.Is(err, bridge.ErrPermanentDelivery) != test.permanent {
+			t.Errorf("SMTP %d permanent=%v, want %v", test.code, errors.Is(err, bridge.ErrPermanentDelivery), test.permanent)
+		}
+	}
+}
 
 type recordedMessage struct {
 	from       string

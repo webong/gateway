@@ -165,20 +165,20 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 			auth = xoauth2Client{username: s.config.Username, token: s.config.OAuthToken}
 		}
 		if err := client.Auth(auth); err != nil {
-			return fmt.Errorf("authenticate to outbound SMTP relay: %w", err)
+			return fmt.Errorf("%w: authenticate to outbound SMTP relay", bridge.ErrPermanentDelivery)
 		}
 	}
 	if err := client.Mail(message.EnvelopeFrom, nil); err != nil {
-		return fmt.Errorf("submit outbound SMTP sender: %w", err)
+		return classifySMTPResponse("submit outbound SMTP sender", err)
 	}
 	for _, recipient := range message.Recipients {
 		if err := client.Rcpt(recipient, nil); err != nil {
-			return fmt.Errorf("submit outbound SMTP recipient: %w", err)
+			return classifySMTPResponse("submit outbound SMTP recipient", err)
 		}
 	}
 	writer, err := client.Data()
 	if err != nil {
-		return fmt.Errorf("start outbound SMTP data: %w", err)
+		return classifySMTPResponse("start outbound SMTP data", err)
 	}
 	if _, err := writer.Write(message.Data); err != nil {
 		return fmt.Errorf("%w: outbound SMTP DATA write failed", bridge.ErrUncertainDelivery)
@@ -188,7 +188,7 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 		if !errors.As(err, &rejection) {
 			return fmt.Errorf("%w: outbound SMTP DATA acknowledgement was lost", bridge.ErrUncertainDelivery)
 		}
-		return fmt.Errorf("submit outbound SMTP message: %w", err)
+		return classifySMTPResponse("submit outbound SMTP message", err)
 	}
 	// A successful DATA completion transfers responsibility to the relay.
 	// QUIT is a session courtesy; an interrupted QUIT must not make the
@@ -197,6 +197,14 @@ func (s *Sender) Send(ctx context.Context, message Message) error {
 	_ = client.Quit()
 
 	return nil
+}
+
+func classifySMTPResponse(stage string, err error) error {
+	var reply *smtpclient.SMTPError
+	if errors.As(err, &reply) && reply.Code >= 500 && reply.Code < 600 {
+		return fmt.Errorf("%w: %s: %w", bridge.ErrPermanentDelivery, stage, err)
+	}
+	return fmt.Errorf("%s: %w", stage, err)
 }
 
 type xoauth2Client struct{ username, token string }
