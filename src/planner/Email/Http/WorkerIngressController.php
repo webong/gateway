@@ -8,14 +8,20 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\WorkerIngressStore;
+use Webong\Gateway\Email\AccountReceivingStore;
+use Webong\Gateway\RegistryRequestAuthenticator;
 
 final readonly class WorkerIngressController
 {
-    public function __construct(private AccountStore $accounts, private WorkerIngressStore $ingress) {}
+    public function __construct(private AccountStore $accounts, private WorkerIngressStore $ingress,
+        private AccountReceivingStore $receiving, private RegistryRequestAuthenticator $registryAuth) {}
 
     public function show(Request $request, string $account, string $route): JsonResponse
     {
         if ($denied = $this->authorize($request, $account)) { return $denied; }
+        if ($this->receiving->route($account, $route)?->document['mode'] === 'managed') {
+            return $this->error('Worker ingress not found.', 404);
+        }
         $row = $this->ingress->find($account, $route);
         return $row === null ? $this->error('Worker ingress not found.', 404)
             : response()->json(['route_id' => $route, 'enabled' => $row->enabled,
@@ -25,11 +31,29 @@ final readonly class WorkerIngressController
     public function rotate(Request $request, string $account, string $route): JsonResponse
     {
         if ($denied = $this->authorize($request, $account)) { return $denied; }
+        if ($this->receiving->route($account, $route)?->document['mode'] === 'managed') {
+            return $this->error('Worker receiving route not found.', 404);
+        }
         if ($request->json()->all() !== []) { return $this->error('Worker ingress does not accept properties.', 422); }
         $created = $this->ingress->rotate($account, $route);
         return $created === null ? $this->error('Worker receiving route not found.', 404)
             : response()->json(['route_id' => $route, 'ingress_token' => $created['token']], 201)
                 ->header('Cache-Control', 'no-store');
+    }
+
+    public function operatorRotate(Request $request, string $account, string $route): JsonResponse
+    {
+        if (! $request->isSecure()) { return $this->error('HTTPS is required.', 403); }
+        if (($denied = $this->registryAuth->authorize($request)) !== null) { return $denied; }
+        if ($request->json()->all() !== []) { return $this->error('Worker ingress does not accept properties.', 422); }
+        $receiving = $this->receiving->route($account, $route);
+        if ($receiving === null || ($receiving->document['mode'] ?? null) !== 'managed'
+            || $this->receiving->ingressAdapter($receiving) !== 'worker') {
+            return $this->error('Managed Worker route not found.', 404);
+        }
+        $created = $this->ingress->rotate($account, $route);
+        return response()->json(['route_id' => $route, 'ingress_token' => $created['token']], 201)
+            ->header('Cache-Control', 'no-store');
     }
 
     private function authorize(Request $request, string $account): ?JsonResponse

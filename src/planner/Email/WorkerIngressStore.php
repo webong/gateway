@@ -31,7 +31,7 @@ final readonly class WorkerIngressStore
     public function rotate(string $account, string $route): ?array
     {
         $receiving = $this->receiving->route($account, $route);
-        if ($receiving === null || ($receiving->document['mode'] ?? null) !== 'worker') { return null; }
+        if ($receiving === null || $this->receiving->ingressAdapter($receiving) !== 'worker') { return null; }
         $token = bin2hex(random_bytes(32));
         $document = ['route_id' => $route, 'token_hash' => hash('sha256', $token)];
         $current = $this->find($account, $route);
@@ -51,7 +51,7 @@ final readonly class WorkerIngressStore
             || strlen($mailFrom) > 320 || ($mailFrom !== '' && filter_var($mailFrom, FILTER_VALIDATE_EMAIL) === false)
             || filter_var($recipient, FILTER_VALIDATE_EMAIL) === false) { return null; }
         $route = $this->resources->find('email.receiving-route', $routeID);
-        if ($route === null || ! $route->enabled || ($route->document['mode'] ?? null) !== 'worker'
+        if ($route === null || ! $route->enabled || $this->receiving->ingressAdapter($route) !== 'worker'
             || ! hash_equals($route->key, strtolower($recipient))) { return null; }
         $credential = $this->find($route->document['account_id'], $routeID);
         if ($credential === null || ! $credential->enabled

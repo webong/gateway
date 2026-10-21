@@ -270,7 +270,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
     {
         $accepted = json_decode($event->attributes['accepted_recipients'] ?? '[]', true);
         $route = $this->receiving?->activeAddress($event->route);
-        if ($route === null || ($route->document['mode'] ?? null) === 'worker' || $accepted !== []) {
+        if ($route === null || $this->receiving->ingressAdapter($route) === 'worker' || $accepted !== []) {
             return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
                 statusCode: 550, message: 'Receiving route is unavailable or transaction has multiple recipients.');
         }
@@ -286,7 +286,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
     {
         $route = $this->receiving?->activeAddress($event->route);
         $recipients = array_values(array_filter(explode(',', $event->attributes['recipients'] ?? $event->route)));
-        if ($route === null || ($route->document['mode'] ?? null) === 'worker'
+        if ($route === null || $this->receiving->ingressAdapter($route) === 'worker'
             || count($recipients) !== 1 || strcasecmp($recipients[0], $route->key) !== 0) {
             return new GatewayDecision(protocol: Protocol::SMTP, action: GatewayAction::REJECT,
                 statusCode: 550, message: 'Receiving route is unavailable or transaction has multiple recipients.');

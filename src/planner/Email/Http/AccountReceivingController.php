@@ -145,13 +145,16 @@ final readonly class AccountReceivingController
         $row = $this->store->route($account, $route);
         if ($row === null) { return $this->error('Receiving route not found.', 404); }
         $input = $request->json()->all();
-        if (array_keys($input) === ['mode'] && in_array($input['mode'], ['worker', 'mx'], true)) {
-            try { return $this->ok($this->routeResource($input['mode'] === 'worker'
-                ? $this->store->switchRouteToWorker($row) : $this->store->switchRouteToMx($row))); }
+        if (array_keys($input) === ['mode'] && in_array($input['mode'], ['worker', 'mx', 'managed'], true)) {
+            try { return $this->ok($this->routeResource(match ($input['mode']) {
+                'worker' => $this->store->switchRouteToWorker($row),
+                'mx' => $this->store->switchRouteToMx($row),
+                'managed' => $this->store->migrateRoute($row),
+            })); }
             catch (EmailRouteRejected $exception) { return $this->error($exception->getMessage(), 409); }
         }
         if (array_keys($input) !== ['enabled'] || ! is_bool($input['enabled'])) {
-            return $this->error('Only enabled or a switch between MX and Worker mode may change.', 422);
+            return $this->error('Only enabled or receiving mode may change.', 422);
         }
         return $this->ok($this->routeResource($this->store->setRouteEnabled($row, $input['enabled'])));
     }
@@ -170,32 +173,43 @@ final readonly class AccountReceivingController
     {
         $name = $this->store->domainName($row);
         $host = $this->store->settings()?->document['mx_host'] ?? null;
+        $ingress = $row->document['managed_ingress'] ?? ['adapter' => 'mx'];
+        $records = $ingress['records'] ?? ['mx' => ['name' => '{domain}', 'priority' => 10, 'value' => $host]];
+        $records = array_map(static function (array $record) use ($name): array {
+            $record['name'] = str_replace('{domain}', $name, $record['name']);
+            $record['value'] = $record['value'] === null ? null : str_replace('{domain}', $name, $record['value']);
+            return $record;
+        }, $records);
         $mxStatus = 'unconfigured';
-        if (is_string($host) && $host !== '') {
+        if (isset($records['mx']) && is_string($records['mx']['value'] ?? null) && $records['mx']['value'] !== '') {
             try {
                 $observed = $this->mx->records($name);
                 $mxStatus = count($observed) === 1
-                    && $observed[0]['host'] === $host && $observed[0]['priority'] === 10
+                    && $observed[0]['host'] === $records['mx']['value'] && $observed[0]['priority'] === ($records['mx']['priority'] ?? 10)
                     ? 'ready' : 'pending';
             } catch (RuntimeException) { $mxStatus = 'unavailable'; }
         }
+        $records = ['txt' => $this->verificationProfile->record($name,
+            $row->document['verification_token'], $row->document), ...$records];
         return ['id' => $row->id, 'account_id' => $row->document['account_id'], 'domain' => $name,
             'verified_at' => $row->document['verified_at'], 'enabled' => $row->enabled, 'mx_status' => $mxStatus,
-            'records' => [
-                'txt' => $this->verificationProfile->record($name,
-                    $row->document['verification_token'], $row->document),
-                'mx' => ['name' => $name, 'priority' => 10, 'value' => $host],
-            ],
+            'records' => $records,
         ];
     }
 
     private function routeResource(stdClass $row): array
     {
+        $status = $row->enabled ? 'active' : 'disabled';
+        if ($row->enabled && ($row->document['mode'] ?? null) === 'managed'
+            && $this->store->ingressAdapter($row) === 'worker'
+            && $this->workerIngress->find($row->document['account_id'], $row->id) === null) {
+            $status = 'pending';
+        }
         return ['id' => $row->id, 'account_id' => $row->document['account_id'],
             'mode' => $row->document['mode'], 'domain_id' => $row->document['domain_id'],
             'address' => $row->key, 'callback_url' => $row->document['callback_url'],
             'network_scope' => $row->document['network_scope'] ?? 'public',
-            'enabled' => $row->enabled, 'status' => $row->enabled ? 'active' : 'disabled'];
+            'enabled' => $row->enabled, 'status' => $status];
     }
 
     private function authorize(Request $request, string $account): ?JsonResponse

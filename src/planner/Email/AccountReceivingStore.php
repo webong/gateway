@@ -28,7 +28,7 @@ final readonly class AccountReceivingStore
     /** @param array<string, mixed> $input */
     public function configure(array $input): stdClass
     {
-        if (array_diff(array_keys($input), ['mx_host', 'forwarding_domain', 'private_callbacks']) !== []
+        if (array_diff(array_keys($input), ['mx_host', 'forwarding_domain', 'private_callbacks', 'managed_ingress']) !== []
             || ! is_string($input['mx_host'] ?? null)) {
             throw new InvalidArgumentException('Invalid receiving settings.');
         }
@@ -59,8 +59,32 @@ final readonly class AccountReceivingStore
                 }
             }
         }
+        $ingress = $input['managed_ingress'] ?? ['adapter' => 'mx'];
+        if (! is_array($ingress) || array_diff(array_keys($ingress), ['adapter', 'records']) !== []
+            || ! in_array($ingress['adapter'] ?? null, ['mx', 'worker'], true)) {
+            throw new InvalidArgumentException('Invalid managed ingress.');
+        }
+        $records = $ingress['records'] ?? null;
+        if ($records !== null && (! is_array($records) || array_is_list($records) || count($records) > 16)) {
+            throw new InvalidArgumentException('Invalid managed DNS records.');
+        }
+        foreach ($records ?? [] as $type => $record) {
+            if (! is_string($type) || $type === 'txt' || preg_match('/^[a-z][a-z0-9_-]{0,31}$/D', $type) !== 1
+                || ! is_array($record) || array_diff(array_keys($record), ['name', 'value', 'priority', 'type']) !== []
+                || ! is_string($record['name'] ?? null) || ! is_string($record['value'] ?? null)
+                || strlen($record['name']) > 253 || strlen($record['value']) > 1024
+                || preg_match('/[\x00-\x1f\x7f]/', $record['name'].$record['value']) === 1
+                || (isset($record['priority']) && (! is_int($record['priority']) || $record['priority'] < 0 || $record['priority'] > 65535))
+                || (isset($record['type']) && (! is_string($record['type']) || preg_match('/^[A-Z][A-Z0-9]{0,15}$/D', $record['type']) !== 1))
+                || (str_contains($type, '_') && ! isset($record['type']))) {
+                throw new InvalidArgumentException('Invalid managed DNS record.');
+            }
+        }
+        if ($ingress['adapter'] === 'worker' && $records === null) {
+            throw new InvalidArgumentException('Worker ingress requires DNS records.');
+        }
         $doc = ['mx_host' => $host, 'forwarding_domain' => $forwarding,
-            'private_callbacks' => $callbacks];
+            'private_callbacks' => $callbacks, 'managed_ingress' => $ingress];
         $current = $this->settings();
         return $current === null ? $this->resources->create(self::SETTINGS, 'default', $doc)
             : $this->resources->replace(self::SETTINGS, $current->id, 'default', $doc, true, $current->revision);
@@ -103,6 +127,7 @@ final readonly class AccountReceivingStore
             'account_id' => $account, 'name' => $name,
             'verification_token' => $token ?? bin2hex(random_bytes(24)),
             'verification_profile' => $profile,
+            'managed_ingress' => $this->settings()?->document['managed_ingress'] ?? ['adapter' => 'mx'],
             'verified_at' => null,
         ], false);
     }
@@ -198,8 +223,9 @@ final readonly class AccountReceivingStore
     public function createRoute(string $account, array $input): array
     {
         $mode = $input['mode'] ?? null;
-        if (! in_array($mode, ['mx', 'forward', 'worker'], true)) { throw new InvalidArgumentException('Invalid receiving mode.'); }
-        if ($mode !== 'worker' && ! is_string($this->settings()?->document['mx_host'] ?? null)) {
+        if (! in_array($mode, ['mx', 'forward', 'worker', 'managed'], true)) { throw new InvalidArgumentException('Invalid receiving mode.'); }
+        $adapter = $mode === 'managed' ? ($this->domain($account, (string) ($input['domain_id'] ?? ''))?->document['managed_ingress']['adapter'] ?? 'mx') : $mode;
+        if ($adapter !== 'worker' && ! is_string($this->settings()?->document['mx_host'] ?? null)) {
             throw new EmailRouteRejected('The Gateway receiving MX hostname is not configured.');
         }
         $scope = $input['network_scope'] ?? 'public';
@@ -211,7 +237,7 @@ final readonly class AccountReceivingStore
             || preg_match('/^[a-f0-9]{64}$/D', $providedSecret) !== 1)) {
             throw new InvalidArgumentException('Webhook secret must be 32 random bytes encoded as lowercase hex.');
         }
-        if ($mode === 'mx' || $mode === 'worker') {
+        if ($mode === 'mx' || $mode === 'worker' || $mode === 'managed') {
             $domain = $this->domain($account, (string) ($input['domain_id'] ?? ''));
             if ($domain === null || ! $domain->enabled || $domain->document['verified_at'] === null) {
                 throw new EmailRouteRejected('The receiving domain is not verified.');
@@ -275,6 +301,7 @@ final readonly class AccountReceivingStore
         }
         $record = $this->resources->create(self::ROUTE, $address, [
             'account_id' => $account, 'mode' => $mode, 'domain_id' => $domain->id,
+            ...($mode === 'managed' ? ['ingress_adapter' => $adapter] : []),
             'callback_url' => $url, 'webhook_secret' => $secret,
             'network_scope' => $scope,
             'external_id' => $input['external_id'] ?? null,
@@ -311,6 +338,25 @@ final readonly class AccountReceivingStore
     {
         return $this->resources->replace(self::ROUTE, $route->id, $route->key, $route->document,
             $enabled, $route->revision);
+    }
+
+    public function ingressAdapter(stdClass $route): string
+    {
+        return $route->document['ingress_adapter'] ?? $route->document['mode'];
+    }
+
+    /** Idempotently turn a legacy route into a managed route without changing its identity or secret. */
+    public function migrateRoute(stdClass $route): stdClass
+    {
+        if (($route->document['mode'] ?? null) === 'managed') { return $route; }
+        if (! in_array($route->document['mode'] ?? null, ['mx', 'worker'], true)) {
+            throw new EmailRouteRejected('Only MX and Worker routes can become managed.');
+        }
+        $document = $route->document;
+        $document['ingress_adapter'] = $document['mode'];
+        $document['mode'] = 'managed';
+        return $this->resources->replace(self::ROUTE, $route->id, $route->key,
+            $document, $route->enabled, $route->revision);
     }
 
     public function switchRouteToWorker(stdClass $route): stdClass

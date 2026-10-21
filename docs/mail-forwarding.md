@@ -86,10 +86,49 @@ Operator forwarding domains use the same sequence at
 `/email/domains/{id}/migration-record` and `/email/domains/{id}/migrate` with
 the registry token.
 
-Create an exact receiving route with `POST .../receiving-routes`:
+### Managed receiving ingress
+
+The account API uses `mode: "managed"` for new direct MX and Worker-backed
+receiving routes. Gateway selects the physical adapter when the receiving
+domain is created and saves that choice on the domain. A later settings change
+affects new domains only. With no explicit selection, the adapter is `mx`.
+The registry-authenticated `PUT /email/receiving-settings` may include:
 
 ```json
-{"mode":"mx","domain_id":"<verified domain UUID>","local_part":"support","callback_url":"https://app.example/inbound","webhook_secret":"<64 lowercase hex characters>"}
+{"mx_host":"mx.gateway.example","managed_ingress":{"adapter":"worker","records":{"mx":{"name":"{domain}","value":"routing.example","priority":10},"cname":{"name":"mail.{domain}","value":"routing.example"}}}}
+```
+
+`adapter` accepts `mx` or `worker`. The Worker adapter requires operator
+supplied DNS records. Record keys other than `txt` may represent any DNS
+record type; each record contains `name`, `value`, and optional integer
+`priority`. A label such as `provider_txt` must include `"type":"TXT"`, so
+multiple TXT instructions can be rendered without ambiguity. `{domain}` is
+replaced with the customer domain. Gateway adds its
+TXT ownership challenge under `records.txt`. The account receives only these
+DNS records, generic route status, and its callback details. `mx_status` is
+the DNS observation for a returned MX record. Worker names, ingress URLs,
+tokens, and provider credentials stay in Gateway's operator configuration.
+The operator provisions a managed Worker token with the registry token at
+`POST /email/operator/managed-worker-ingress/{account}/{route}/rotate` using an
+empty JSON object. The one-time token must be installed as the Worker's secret;
+account tokens cannot read or rotate it. A managed Worker route reports
+`pending` until Gateway has a token, then `active`. An active status does not
+prove that the external Worker is deployed or that DNS is ready.
+
+Legacy `mx` and `worker` routes keep operating. To migrate a route without
+changing its ID, address, enabled state, callback secret, or existing Worker
+token, call account-authenticated `PATCH .../receiving-routes/{route}` with
+`{"mode":"managed"}`. Repeating this request is safe. Gateway snapshots the
+route's current physical adapter as internal configuration. Thus the existing
+`support@sosongo.com` Worker route should become managed with a Worker adapter,
+and `contact@rowingboat.ng` MX route should become managed with an MX adapter.
+The account's `GET` route representation then reports `mode: "managed"`.
+No DNS cutover is needed for this representation change.
+
+For new customer-owned managed receiving, create an exact route with `POST .../receiving-routes`:
+
+```json
+{"mode":"managed","domain_id":"<verified domain UUID>","local_part":"support","callback_url":"https://app.example/inbound","network_scope":"public","external_id":"zorvia-connection-id","webhook_secret":"<64 lowercase hex characters>"}
 ```
 
 The account may supply its own random webhook secret to make retries after a

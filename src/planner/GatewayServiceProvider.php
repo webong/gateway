@@ -513,6 +513,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->delete('/email/mailbox-accounts/{account}/sending-routes/{route}', [ManagedSendingController::class, 'deleteRoute']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/receiving-routes/{route}/worker-ingress', [WorkerIngressController::class, 'show']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/receiving-routes/{route}/worker-ingress', [WorkerIngressController::class, 'rotate']);
+            $this->app['router']->post('/email/operator/managed-worker-ingress/{account}/{route}/rotate', [WorkerIngressController::class, 'operatorRotate']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/sending-connections', [SendingConnectionController::class, 'index']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/sending-connections', [SendingConnectionController::class, 'create']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/sending-connections/{connection}', [SendingConnectionController::class, 'show']);
