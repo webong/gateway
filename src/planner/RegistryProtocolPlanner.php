@@ -127,6 +127,7 @@ final class RegistryProtocolPlanner implements ProtocolPlanner
                     'auth_identity' => $grant->identity,
                     'authorized_mail_from' => json_encode($grant->authorizedSenders, JSON_THROW_ON_ERROR),
                     ...($grant->connectionId !== null ? ['mailbox_connection_id' => $grant->connectionId] : []),
+                    ...($grant->sharedRouteId !== null ? ['shared_sender_route_id' => $grant->sharedRouteId] : []),
                     ...($grant->dailyLimit !== null ? ['submission_daily_limit' => (string) $grant->dailyLimit] : []),
                     ...($grant->dailyByteLimit !== null ? ['submission_daily_byte_limit' => (string) $grant->dailyByteLimit] : []),
                 ],

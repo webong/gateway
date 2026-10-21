@@ -63,6 +63,8 @@ return [
         // credential and returns exact sender grants; registry routes never
         // receive AUTH passwords.
         'submission_authenticator' => env('GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedSMTPAuthenticator::class),
+        // Verified operator-owned address used by opt-in shared sender routes.
+        'shared_from_address' => env('GATEWAY_EMAIL_SHARED_FROM_ADDRESS', ''),
         // Optional deployment-owned POP3 credential authority. It returns a
         // registered upstream ID, never a client-selected network address.
         'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedIMAPAuthenticator::class),

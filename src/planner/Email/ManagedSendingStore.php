@@ -81,7 +81,7 @@ final readonly class ManagedSendingStore
     public function deleteDomain(stdClass $domain): void
     {
         foreach ($this->routes($domain->document['account_id']) as $route) {
-            if ($route->document['domain_id'] === $domain->id) {
+            if (($route->document['domain_id'] ?? null) === $domain->id) {
                 throw new EmailRouteRejected('Remove sending routes before deleting the domain.');
             }
         }
@@ -102,6 +102,17 @@ final readonly class ManagedSendingStore
     /** @return array{record: stdClass, password: string} */
     public function createRoute(string $account, array $input): array
     {
+        if (($input['mode'] ?? null) === 'shared') {
+            if (array_keys($input) !== ['mode'] || ! $this->accounts->exists($account)
+                || ! $this->sharedFromAddress()) {
+                throw new InvalidArgumentException('Shared sender is not configured.');
+            }
+            $password = bin2hex(random_bytes(32));
+            $record = $this->resources->create(self::ROUTE, 'shared:'.$account, [
+                'mode' => 'shared', 'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+            ], true, owner: $account);
+            return ['record' => $record, 'password' => $password];
+        }
         if (array_diff(array_keys($input), ['domain_id', 'local_part']) !== []
             || ! is_string($input['domain_id'] ?? null) || ! is_string($input['local_part'] ?? null)) {
             throw new InvalidArgumentException('Invalid managed sending route.');
@@ -127,6 +138,9 @@ final readonly class ManagedSendingStore
         $route = $this->resources->findAny(self::ROUTE, $id);
         if ($route === null || ! $route->enabled || ! password_verify($password, $route->document['password_hash'])) {
             return null;
+        }
+        if (($route->document['mode'] ?? null) === 'shared') {
+            return $this->sharedFromAddress() !== null ? $route : null;
         }
         $domain = $this->domain($route->owner, $route->document['domain_id']);
         if ($domain === null || ! $domain->enabled || ($domain->document['verified_at'] ?? null) === null) {
@@ -164,5 +178,13 @@ final readonly class ManagedSendingStore
     private function validDomain(string $name): bool
     {
         return preg_match('/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/D', $name) === 1;
+    }
+
+    public function sharedFromAddress(): ?string
+    {
+        $address = config('gateway.email.shared_from_address');
+        return is_string($address) && strlen($address) <= 254
+            && filter_var($address, FILTER_VALIDATE_EMAIL) !== false
+            && $address === strtolower($address) ? $address : null;
     }
 }

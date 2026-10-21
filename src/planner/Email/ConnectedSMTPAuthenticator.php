@@ -17,6 +17,11 @@ final readonly class ConnectedSMTPAuthenticator implements EmailSubmissionAuthen
         $password = $event->attributes['password'] ?? '';
         $sender = $this->managed->authenticate($username, $password);
         if ($sender !== null) {
+            if (($sender->document['mode'] ?? null) === 'shared') {
+                return ($event->attributes['mechanism'] ?? '') === 'HTTP-Basic'
+                    ? new EmailSubmissionGrant($sender->owner.':'.$sender->id, [$this->managed->sharedFromAddress()],
+                        sharedRouteId: $sender->id) : null;
+            }
             return new EmailSubmissionGrant($sender->owner.':'.$sender->id, [$sender->key]);
         }
         $record = $this->connections->authenticate($username, $password, 'smtp');

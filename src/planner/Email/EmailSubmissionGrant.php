@@ -16,6 +16,7 @@ final readonly class EmailSubmissionGrant
         public ?int $dailyLimit = null,
         public ?int $dailyByteLimit = null,
         public ?string $connectionId = null,
+        public ?string $sharedRouteId = null,
     ) {
         if ($identity === '' || strlen($identity) > 255 || trim($identity) !== $identity
             || preg_match('/[\x00-\x1F\x7F]/', $identity) === 1) {

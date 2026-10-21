@@ -16,6 +16,9 @@ use Webong\Gateway\Email\EmailSubmissionLimitExceeded;
 use Webong\Gateway\Email\EmailRecipientSuppressed;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Email\AccountReceivingStore;
+use Webong\Gateway\Email\SharedSenderMessage;
+use InvalidArgumentException;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayAction;
 use Webong\Gateway\Protocol\GatewayEvent;
@@ -31,6 +34,7 @@ final readonly class EmailSubmissionController
         private EmailHttpSubmissionStore $submissions,
         private DeliveryAdminClient $admin,
         private MailboxConnectionStore $connections,
+        private AccountReceivingStore $receiving,
         private \Webong\Gateway\Email\EmailSubmissionPolicyStore $policies,
         private EmailRuntimePolicyStore $runtimePolicy,
     ) {}
@@ -56,7 +60,7 @@ final readonly class EmailSubmissionController
             return response()->json(['message' => 'A bounded JSON email submission is required.'], Response::HTTP_BAD_REQUEST);
         }
         $input = $request->json()->all();
-        if (array_diff(array_keys($input), ['mail_from', 'recipients', 'message_base64']) !== []
+        if (array_diff(array_keys($input), ['mail_from', 'recipients', 'message_base64', 'sender_name', 'reply_route_id']) !== []
             || ! is_string($input['mail_from'] ?? null)
             || ! is_array($input['recipients'] ?? null) || ! array_is_list($input['recipients'])
             || count($input['recipients']) < 1 || count($input['recipients']) > 100
@@ -93,6 +97,32 @@ final readonly class EmailSubmissionController
             return $this->unauthorized();
         }
         $connectionId = $decision->metadata['mailbox_connection_id'] ?? '';
+        $sharedRouteId = $decision->metadata['shared_sender_route_id'] ?? '';
+        if (! is_string($sharedRouteId)) { return $this->unauthorized(); }
+        if ($sharedRouteId !== '') {
+            $separator = strrpos($identity, ':');
+            $account = $separator === false ? '' : substr($identity, 0, $separator);
+            $replyRoute = is_string($input['reply_route_id'] ?? null)
+                ? $this->receiving->route($account, $input['reply_route_id']) : null;
+            if ($identity !== $account.':'.$sharedRouteId || $replyRoute === null
+                || ! $replyRoute->enabled || ($replyRoute->document['mode'] ?? null) !== 'forward'
+                || ! is_string($input['sender_name'] ?? null)) {
+                return response()->json(['message' => 'Invalid shared sender reply route.'], Response::HTTP_UNPROCESSABLE_ENTITY);
+            }
+            try {
+                if ($this->receiving->activeAddress($replyRoute->key) === null) {
+                    return response()->json(['message' => 'Shared sender reply route is unavailable.'], Response::HTTP_CONFLICT);
+                }
+                $message = SharedSenderMessage::rewrite($message, $input['sender_name'],
+                    $input['mail_from'], $replyRoute->key);
+            } catch (InvalidArgumentException) {
+                return response()->json(['message' => 'Invalid shared sender message.'], Response::HTTP_UNPROCESSABLE_ENTITY);
+            } catch (Throwable) {
+                return response()->json(['message' => 'Shared sender reply route is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
+            }
+        } elseif (isset($input['sender_name']) || isset($input['reply_route_id'])) {
+            return response()->json(['message' => 'Shared sender fields require a shared route.'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
         if (! is_string($connectionId) || ($connectionId !== '' && ! $this->runtimePolicy->current()['connected_smtp_enabled'])) {
             return response()->json(['message' => 'Mailbox SMTP routing is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }
@@ -114,7 +144,7 @@ final readonly class EmailSubmissionController
         }
         try {
             $nodes = $this->admin->nodes();
-            $fingerprint = hash('sha256', json_encode([$connectionId, $input['mail_from'], $input['recipients']], JSON_THROW_ON_ERROR)."\0".$message);
+            $fingerprint = hash('sha256', json_encode([$connectionId, $sharedRouteId, $input['mail_from'], $input['recipients']], JSON_THROW_ON_ERROR)."\0".$message);
             $reservation = $this->submissions->reserve($identity, $input['mail_from'], $input['recipients'], $key, $fingerprint, $nodes, $limit, strlen($message), $byteLimit);
             $node = $reservation->node;
             $id = $reservation->receipt_id;
@@ -126,7 +156,7 @@ final readonly class EmailSubmissionController
                 'mail_from' => $input['mail_from'],
                 'authorized_senders' => $senders,
                 'recipients' => $input['recipients'],
-                'message' => $input['message_base64'],
+                'message' => base64_encode($message),
                 ...($connectionId !== '' ? ['mailbox_connection_id' => $connectionId] : []),
             ], $node);
         } catch (EmailSubmissionKeyConflict) {

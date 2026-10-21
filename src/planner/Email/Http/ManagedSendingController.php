@@ -157,8 +157,11 @@ final readonly class ManagedSendingController
 
     private function routeResource(stdClass $row): array
     {
-        return ['id' => $row->id, 'account_id' => $row->owner, 'domain_id' => $row->document['domain_id'],
-            'address' => $row->key, 'enabled' => $row->enabled, 'status' => $row->enabled ? 'active' : 'disabled'];
+        $shared = ($row->document['mode'] ?? null) === 'shared';
+        return ['id' => $row->id, 'account_id' => $row->owner, 'mode' => $shared ? 'shared' : 'customer_domain',
+            'domain_id' => $shared ? null : $row->document['domain_id'],
+            'address' => $shared ? $this->store->sharedFromAddress() : $row->key,
+            'enabled' => $row->enabled, 'status' => $row->enabled ? 'active' : 'disabled'];
     }
 
     private function authorize(Request $request, string $account): ?JsonResponse

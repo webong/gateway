@@ -151,6 +151,34 @@ response reports ownership separately from SPF and DKIM; the latter are
 IP, relay, or signing selector. Verification alone
 does not prove deliverability or sender reputation.
 
+### Shared operator sender
+
+For a hosted service that sends for customers who have not verified their own
+sending domain, the Gateway deployment can set
+`GATEWAY_EMAIL_SHARED_FROM_ADDRESS` to an operator-owned address already
+authorized by its outbound relay. This is a deployment setting, independent of
+the relay vendor. Each account creates `POST .../sending-routes` with
+`{"mode":"shared"}` and receives one-time HTTP Basic submission credentials.
+The shared route does not claim a customer domain and cannot authenticate to
+raw SMTP, where Gateway cannot enforce conversation Reply-To headers.
+
+Before each conversation sends, create a `mode:forward` receiving route on the
+operator's verified `forwarding_domain`, using a stable, unique `external_id`
+for that conversation, a client-generated webhook secret, and the account's
+callback URL. Submit through `POST /email/submissions` with the shared route's
+credentials, `mail_from` equal to the configured operator address, plus
+`sender_name` and `reply_route_id`. Gateway replaces the MIME `From` with the
+support name and operator address and replaces `Reply-To` with that exact
+account-owned forwarding address before queueing. The account must keep that
+receiving route enabled for later replies. A channel-wide external ID routes
+back to the channel only; use a distinct conversation ID when the reply address
+itself must identify the conversation. Existing `Message-ID`, `In-Reply-To`,
+and `References` headers remain in the MIME for the hosted service's own
+threading logic, but Gateway does not interpret them to choose a conversation.
+The hosted service must map its external ID to the intended conversation when
+handling the signed inbound callback. Customer-domain and external-provider
+sending modes continue to use their existing contracts.
+
 Create `POST .../sending-routes` with a verified `domain_id` and `local_part`.
 The exact sender address is owned by that account. The response returns the
 route UUID as `smtp_client_username` and a one-time
