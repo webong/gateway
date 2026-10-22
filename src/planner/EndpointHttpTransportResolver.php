@@ -6,7 +6,7 @@ namespace Webong\Gateway;
 
 use InvalidArgumentException;
 use Webong\Gateway\Protocol\HttpTransport;
-use Webong\WebProxy\Endpoint;
+use Webong\Proxy\Endpoint;
 
 /** @internal Adapts endpoint-owned Proxy profiles to Gateway's wire contract. */
 final class EndpointHttpTransportResolver

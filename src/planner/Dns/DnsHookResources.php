@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Dns;
 
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final class DnsHookResources
 {

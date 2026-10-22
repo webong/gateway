@@ -14,7 +14,7 @@ use Webong\Gateway\Dns\DnsProvider;
 use Webong\Gateway\Dns\DnsProviderRegistry;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Http;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 function createDnsHook($test, string $externalId = 'dns-hook-1'): array
 {

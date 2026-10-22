@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 use Webong\Gateway\SubscribeEndpoint;
 use Webong\Gateway\SubscriptionDefinition;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EndpointRegistry;
-use Webong\WebProxy\ProfileDefinition;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EndpointRegistry;
+use Webong\Proxy\ProfileDefinition;
 
 // Store the real URL in application configuration or a secret manager.
 $proxyUrl = config('services.webhooks.proxy_url');

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use InvalidArgumentException;
-use Webong\WebProxy\DestinationRecord;
+use Webong\Proxy\DestinationRecord;
 use Webong\Gateway\Protocol\MatchRules;
 use Webong\Gateway\Protocol\SubscriptionState;
 

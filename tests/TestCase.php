@@ -8,7 +8,7 @@ use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Spatie\WebhookClient\WebhookClientServiceProvider;
 use Spatie\WebhookServer\WebhookServerServiceProvider;
-use Webong\WebProxy\WebProxyServiceProvider;
+use Webong\Proxy\WebProxyServiceProvider;
 use Webong\Gateway\GatewayServiceProvider;
 
 abstract class TestCase extends Orchestra

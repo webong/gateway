@@ -16,42 +16,6 @@
             "type": "path",
             "url": "..",
             "options": { "symlink": false }
-        },
-        {
-            "type": "package",
-            "package": {
-                "name": "webong/proxy",
-                "version": "dev-feature/proxy-package",
-                "type": "library",
-                "source": {
-                    "type": "git",
-                    "url": "https://github.com/webong/proxy.git",
-                    "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
-                },
-                "dist": {
-                    "type": "zip",
-                    "url": "https://api.github.com/repos/webong/proxy/zipball/b01cf9c646507556cf4d7781b8638f5533a3b011",
-                    "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
-                },
-                "require": {
-                    "php": "^8.3 || ^8.4",
-                    "guzzlehttp/guzzle": "^7.10",
-                    "illuminate/contracts": "^12.0",
-                    "illuminate/support": "^12.0",
-                    "spatie/laravel-webhook-client": "^3.5",
-                    "spatie/laravel-webhook-server": "^3.10"
-                },
-                "autoload": {
-                    "psr-4": {
-                        "Webong\\WebProxy\\": "src/"
-                    }
-                },
-                "extra": {
-                    "laravel": {
-                        "providers": ["Webong\\WebProxy\\WebProxyServiceProvider"]
-                    }
-                }
-            }
         }
     ],
     "minimum-stability": "dev",

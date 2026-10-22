@@ -12,7 +12,7 @@ use Webong\Gateway\Email\EmailRouteRejected;
 use Webong\Gateway\Email\MailHookRegistry;
 use Webong\Gateway\Email\VerificationRecordMissing;
 use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final readonly class MailHookController
 {

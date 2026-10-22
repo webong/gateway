@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "fc9751c3803e0dabdf2c0d8acbf7e654",
+    "content-hash": "5c14128c3c60a405fda0f235bc685472",
     "packages": [
         {
             "name": "brick/math",
@@ -7053,16 +7053,17 @@
         },
         {
             "name": "webong/proxy",
-            "version": "dev-feature/proxy-package",
+            "version": "v0.2.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/proxy.git",
-                "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
+                "reference": "8fa2e84fd6a9bb3090997d22076963b5c08184cd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/proxy/zipball/b01cf9c646507556cf4d7781b8638f5533a3b011",
-                "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
+                "url": "https://api.github.com/repos/webong/proxy/zipball/8fa2e84fd6a9bb3090997d22076963b5c08184cd",
+                "reference": "8fa2e84fd6a9bb3090997d22076963b5c08184cd",
+                "shasum": ""
             },
             "require": {
                 "guzzlehttp/guzzle": "^7.10",
@@ -7072,19 +7073,34 @@
                 "spatie/laravel-webhook-client": "^3.5",
                 "spatie/laravel-webhook-server": "^3.10"
             },
+            "require-dev": {
+                "orchestra/testbench": "^10.0",
+                "pestphp/pest": "^4.0",
+                "pestphp/pest-plugin-laravel": "^4.0"
+            },
             "type": "library",
             "extra": {
                 "laravel": {
                     "providers": [
-                        "Webong\\WebProxy\\WebProxyServiceProvider"
+                        "Webong\\Proxy\\WebProxyServiceProvider"
                     ]
                 }
             },
             "autoload": {
                 "psr-4": {
-                    "Webong\\WebProxy\\": "src/"
+                    "Webong\\Proxy\\": "src/"
                 }
-            }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Webhook proxy system for scoped webhook routing and delivery",
+            "support": {
+                "issues": "https://github.com/webong/proxy/issues",
+                "source": "https://github.com/webong/proxy/tree/v0.2.0"
+            },
+            "time": "2026-10-22T10:42:07+00:00"
         }
     ],
     "packages-dev": [
@@ -12593,8 +12609,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "webong/gateway": 20,
-        "webong/proxy": 20
+        "webong/gateway": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "706845ec52bb4a1c45cd5d8f4a2504c0",
+    "content-hash": "21cef5472bc314b8cdffd11ac57f9b42",
     "packages": [
         {
             "name": "brick/math",
@@ -7752,7 +7752,7 @@
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "01ddb99549efd05b5a7aa724e0409a9cec3ffa00"
+                "reference": "cde16dd93ffe29cd8d0f1c4465fefb4e1e7550af"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -7761,7 +7761,7 @@
                 "illuminate/support": "^12.0",
                 "illuminate/validation": "^12.0",
                 "php": "^8.3",
-                "webong/proxy": "dev-feature/proxy-package"
+                "webong/proxy": "^0.2.0"
             },
             "require-dev": {
                 "laravel/octane": "^2.17",
@@ -7842,16 +7842,17 @@
         },
         {
             "name": "webong/proxy",
-            "version": "dev-feature/proxy-package",
+            "version": "v0.2.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/proxy.git",
-                "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
+                "reference": "8fa2e84fd6a9bb3090997d22076963b5c08184cd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/proxy/zipball/b01cf9c646507556cf4d7781b8638f5533a3b011",
-                "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
+                "url": "https://api.github.com/repos/webong/proxy/zipball/8fa2e84fd6a9bb3090997d22076963b5c08184cd",
+                "reference": "8fa2e84fd6a9bb3090997d22076963b5c08184cd",
+                "shasum": ""
             },
             "require": {
                 "guzzlehttp/guzzle": "^7.10",
@@ -7861,19 +7862,34 @@
                 "spatie/laravel-webhook-client": "^3.5",
                 "spatie/laravel-webhook-server": "^3.10"
             },
+            "require-dev": {
+                "orchestra/testbench": "^10.0",
+                "pestphp/pest": "^4.0",
+                "pestphp/pest-plugin-laravel": "^4.0"
+            },
             "type": "library",
             "extra": {
                 "laravel": {
                     "providers": [
-                        "Webong\\WebProxy\\WebProxyServiceProvider"
+                        "Webong\\Proxy\\WebProxyServiceProvider"
                     ]
                 }
             },
             "autoload": {
                 "psr-4": {
-                    "Webong\\WebProxy\\": "src/"
+                    "Webong\\Proxy\\": "src/"
                 }
-            }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Webhook proxy system for scoped webhook routing and delivery",
+            "support": {
+                "issues": "https://github.com/webong/proxy/issues",
+                "source": "https://github.com/webong/proxy/tree/v0.2.0"
+            },
+            "time": "2026-10-22T10:42:07+00:00"
         },
         {
             "name": "wikimedia/composer-merge-plugin",

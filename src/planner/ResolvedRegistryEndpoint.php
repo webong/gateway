@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Webong\Gateway;
 
-use Webong\WebProxy\Contracts\EndpointProvider;
-use Webong\WebProxy\Endpoint;
+use Webong\Proxy\Contracts\EndpointProvider;
+use Webong\Proxy\Endpoint;
 
 /** @internal */
 final readonly class ResolvedRegistryEndpoint

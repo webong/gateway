@@ -7,7 +7,7 @@ namespace Webong\Gateway;
 use Closure;
 use Illuminate\Contracts\Cache\Repository;
 use Throwable;
-use Webong\WebProxy\DatabaseEndpointProvider;
+use Webong\Proxy\DatabaseEndpointProvider;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Protocol\IngressRequest;

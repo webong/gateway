@@ -10,7 +10,7 @@
         "illuminate/routing": "^12.0",
         "illuminate/support": "^12.0",
         "illuminate/validation": "^12.0",
-        "webong/proxy": "dev-feature/proxy-package"
+        "webong/proxy": "^0.2.0"
     },
     "require-dev": {
         "laravel/reverb": "^1.10",
@@ -25,44 +25,6 @@
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
-    "repositories": [
-        {
-            "type": "package",
-            "package": {
-                "name": "webong/proxy",
-                "version": "dev-feature/proxy-package",
-                "type": "library",
-                "source": {
-                    "type": "git",
-                    "url": "https://github.com/webong/proxy.git",
-                    "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
-                },
-                "dist": {
-                    "type": "zip",
-                    "url": "https://api.github.com/repos/webong/proxy/zipball/b01cf9c646507556cf4d7781b8638f5533a3b011",
-                    "reference": "b01cf9c646507556cf4d7781b8638f5533a3b011"
-                },
-                "require": {
-                    "php": "^8.3 || ^8.4",
-                    "guzzlehttp/guzzle": "^7.10",
-                    "illuminate/contracts": "^12.0",
-                    "illuminate/support": "^12.0",
-                    "spatie/laravel-webhook-client": "^3.5",
-                    "spatie/laravel-webhook-server": "^3.10"
-                },
-                "autoload": {
-                    "psr-4": {
-                        "Webong\\WebProxy\\": "src/"
-                    }
-                },
-                "extra": {
-                    "laravel": {
-                        "providers": ["Webong\\WebProxy\\WebProxyServiceProvider"]
-                    }
-                }
-            }
-        }
-    ],
     "autoload": {
         "psr-4": {
             "Webong\\Gateway\\Contracts\\": "lib/contract/src/Contracts/",

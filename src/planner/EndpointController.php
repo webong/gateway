@@ -10,8 +10,8 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EndpointRegistry;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EndpointRegistry;
 
 final readonly class EndpointController
 {

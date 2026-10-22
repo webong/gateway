@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final readonly class EndpointEventController
 {

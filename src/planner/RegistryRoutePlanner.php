@@ -6,12 +6,12 @@ namespace Webong\Gateway;
 
 use InvalidArgumentException;
 use RuntimeException;
-use Webong\WebProxy\DestinationRecord;
-use Webong\WebProxy\DispatchWebhookProxyDestination;
-use Webong\WebProxy\Enums\WebhookProxyTargetType;
-use Webong\WebProxy\WebProxyChannelManager;
-use Webong\WebProxy\WebProxyRegistryManager;
-use Webong\WebProxy\WebhookRoute;
+use Webong\Proxy\DestinationRecord;
+use Webong\Proxy\DispatchWebhookProxyDestination;
+use Webong\Proxy\Enums\WebhookProxyTargetType;
+use Webong\Proxy\WebProxyChannelManager;
+use Webong\Proxy\WebProxyRegistryManager;
+use Webong\Proxy\WebhookRoute;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocol\Automation;

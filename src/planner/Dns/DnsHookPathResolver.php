@@ -7,7 +7,7 @@ namespace Webong\Gateway\Dns;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\PathBinding;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 class DnsHookPathResolver implements PathResolver
 {

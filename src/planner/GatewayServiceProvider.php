@@ -117,7 +117,7 @@ use Webong\Gateway\Webstream\Http\WebstreamPrivateSourceController;
 use Webong\Gateway\Webstream\Http\WebstreamRoutePolicyController;
 use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
 use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;
-use Webong\WebProxy\WebProxy;
+use Webong\Proxy\WebProxy;
 
 final class GatewayServiceProvider extends ServiceProvider
 {

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use InvalidArgumentException;
-use Webong\WebProxy\DestinationRecord;
-use Webong\WebProxy\Enums\WebhookProxyTargetType;
+use Webong\Proxy\DestinationRecord;
+use Webong\Proxy\Enums\WebhookProxyTargetType;
 
 /** @internal Portable registry data safe to place in a shared Laravel cache. */
 final readonly class CachedRegistryRoute

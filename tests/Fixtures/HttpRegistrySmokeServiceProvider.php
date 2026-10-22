@@ -9,7 +9,7 @@ use Illuminate\Support\ServiceProvider;
 use ReflectionClass;
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\GatewayServiceProvider;
-use Webong\WebProxy\WebProxyServiceProvider;
+use Webong\Proxy\WebProxyServiceProvider;
 use Webong\Gateway\Tests\Support\TestRouter;
 
 final class HttpRegistrySmokeServiceProvider extends ServiceProvider

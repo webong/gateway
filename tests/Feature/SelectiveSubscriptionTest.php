@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-use Webong\WebProxy\Endpoint;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EnsureEndpoint;
-use Webong\WebProxy\Models\WebProxyDestination;
-use Webong\WebProxy\Models\WebProxyEndpoint;
-use Webong\WebProxy\ProfileDefinition;
+use Webong\Proxy\Endpoint;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EnsureEndpoint;
+use Webong\Proxy\Models\WebProxyDestination;
+use Webong\Proxy\Models\WebProxyEndpoint;
+use Webong\Proxy\ProfileDefinition;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;

@@ -111,7 +111,7 @@ workload startup checks those separately.
 Build or install an executable extension and supply its workload settings, for example:
 
 ```sh
-go build -mod=readonly -o /tmp/gateway-centrifugo ./ext/centrifugo/cmd/plugin
+go -C ext/centrifugo build -mod=readonly -o /tmp/gateway-centrifugo ./cmd/plugin
 export GATEWAY_EXTENSION_PATHS=/tmp/gateway-centrifugo
 export GATEWAY_CENTRIFUGO_DOCKER_IMAGE=YOUR_PINNED_CENTRIFUGO_IMAGE
 /tmp/gateway-provision

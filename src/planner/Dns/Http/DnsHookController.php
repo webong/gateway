@@ -14,7 +14,7 @@ use Webong\Gateway\Dns\DnsHookRegistry;
 use Webong\Gateway\Dns\DnsHookResources;
 use Webong\Gateway\Dns\DnsZoneCatalog;
 use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final readonly class DnsHookController
 {

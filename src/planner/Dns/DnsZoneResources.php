@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Dns;
 
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final class DnsZoneResources
 {

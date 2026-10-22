@@ -131,7 +131,7 @@ Register the profile on the endpoint before a PHP or remote HTTP subscriber
 selects it:
 
 ```php
-use Webong\WebProxy\ProfileDefinition;
+use Webong\Proxy\ProfileDefinition;
 
 $endpoint->registerProfile(new ProfileDefinition(
     name: 'proxy',

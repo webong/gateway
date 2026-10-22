@@ -7,8 +7,8 @@ use Webong\Gateway\Protocol\MatchRules;
 use Webong\Gateway\RegistryRouteCache;
 use Webong\Gateway\SubscribeEndpoint;
 use Webong\Gateway\SubscriptionDefinition;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EndpointRegistry;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EndpointRegistry;
 
 Artisan::command('gateway:token', function (): void {
     $this->line((string) config('gateway.registry_token'));

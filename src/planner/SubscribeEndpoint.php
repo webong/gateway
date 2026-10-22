@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Webong\Gateway;
 
-use Webong\WebProxy\DestinationRecord;
-use Webong\WebProxy\WebProxyChannelManager;
-use Webong\WebProxy\WebProxyRegistryManager;
-use Webong\WebProxy\WebhookRoute;
+use Webong\Proxy\DestinationRecord;
+use Webong\Proxy\WebProxyChannelManager;
+use Webong\Proxy\WebProxyRegistryManager;
+use Webong\Proxy\WebhookRoute;
 use Webong\Gateway\Exceptions\EndpointNotFoundException;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;

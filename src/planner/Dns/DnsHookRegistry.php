@@ -6,9 +6,9 @@ namespace Webong\Gateway\Dns;
 
 use RuntimeException;
 use Webong\Gateway\RegistryRouteCache;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EndpointRegistry;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EndpointRegistry;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final readonly class DnsHookRegistry
 {

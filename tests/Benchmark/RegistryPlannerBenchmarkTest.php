@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EnsureEndpoint;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EnsureEndpoint;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\RegistryRoutePlanner;
 use Webong\Gateway\SubscribeEndpoint;

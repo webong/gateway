@@ -30,11 +30,8 @@ The monorepo host also uses Composer Merge Plugin to load
 `../ext/*/composer.json`. Those extension-owned manifests supply their
 dependencies, autoload paths, and Planner companion registration without
 adding extension names to Planner.
-The current Proxy dependency uses the `proxy` configuration namespace.
-For this integration test, both Composer manifests pin `webong/proxy` to
-feature commit `b01cf9c` while the repository's `main` branch still declares
-the former package name. Replace the temporary package repository entries with
-the normal VCS repository after the Proxy rename reaches `main`.
+The Proxy dependency uses the `proxy` configuration namespace and resolves the
+tagged `webong/proxy` release directly from Packagist.
 Dependencies live in the shared root `vendor/` directory (`app/composer.json`
 sets `vendor-dir` to `../vendor`). Use the app Composer manifest for a production
 Router build; it shares a vendor location with the development manifest, so do

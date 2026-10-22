@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use Throwable;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 final class PlannerReadiness
 {

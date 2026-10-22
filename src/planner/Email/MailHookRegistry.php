@@ -6,9 +6,9 @@ namespace Webong\Gateway\Email;
 
 use RuntimeException;
 use Webong\Gateway\RegistryRouteCache;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EndpointRegistry;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EndpointRegistry;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 /** Verified domains may expose a catch-all hook and exact-address hooks. */
 final readonly class MailHookRegistry

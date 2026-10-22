@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use InvalidArgumentException;
-use Webong\WebProxy\DestinationDefinition;
-use Webong\WebProxy\Enums\WebhookProxyTargetType;
+use Webong\Proxy\DestinationDefinition;
+use Webong\Proxy\Enums\WebhookProxyTargetType;
 use Webong\Gateway\Protocol\MatchRules;
 use Webong\Gateway\Protocol\SubscriptionState;
 

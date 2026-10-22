@@ -10,8 +10,8 @@ use Webong\Gateway\Protocol\GatewayEvent;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\Protocol;
 use Webong\Gateway\Tests\Support\TestPathResolver;
-use Webong\WebProxy\EndpointDefinition;
-use Webong\WebProxy\EnsureEndpoint;
+use Webong\Proxy\EndpointDefinition;
+use Webong\Proxy\EnsureEndpoint;
 
 beforeEach(function (): void {
     TestPathResolver::$endpointKey = 'relay-endpoint';

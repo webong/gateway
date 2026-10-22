@@ -23,7 +23,7 @@ $check(config('cache.default') === 'file', 'Flat cache configuration not loaded'
 $check(config('database.connections.sqlite.database') === getenv('DB_DATABASE'), 'Flat env configuration not loaded');
 $check(config('proxy.defaults.registry') === 'local', 'Proxy host configuration missing');
 $check(config('gateway') !== null, 'Planner package defaults missing');
-$check($app->providerIsLoaded(Webong\WebProxy\WebProxyServiceProvider::class), 'Proxy provider not discovered');
+$check($app->providerIsLoaded(Webong\Proxy\WebProxyServiceProvider::class), 'Proxy provider not discovered');
 $check($app->providerIsLoaded(Webong\Gateway\GatewayServiceProvider::class), 'Planner provider missing');
 $check($app->providerIsLoaded(Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider::class), 'JavaScript companion not discovered');
 $check($app->providerIsLoaded(Webong\Gateway\Lua\LuaExtensionServiceProvider::class), 'Lua companion not discovered');

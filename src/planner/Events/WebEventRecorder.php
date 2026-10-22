@@ -9,7 +9,7 @@ use Throwable;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\RoutePlan;
-use Webong\WebProxy\Models\WebProxyEndpoint;
+use Webong\Proxy\Models\WebProxyEndpoint;
 
 /** Bounded, endpoint-owned Web ingress history. Delivery outcomes live elsewhere. */
 final readonly class WebEventRecorder
