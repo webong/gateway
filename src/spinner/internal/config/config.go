@@ -16,8 +16,6 @@ type Config struct {
 	PlannerURL                 string
 	PlannerSocket              string
 	Port                       string
-	RoadRunnerEnabled          bool
-	RoadRunnerConfigPath       string
 	InternalToken              string
 	MaxWorkers                 int
 	MaxQueueSize               int
@@ -189,8 +187,8 @@ func LoadConfig() (*Config, error) {
 		runtime = "http"
 	}
 	runtime = strings.ToLower(strings.TrimSpace(runtime))
-	if runtime != "roadrunner" && runtime != "http" && runtime != "diagnostic" {
-		return nil, fmt.Errorf("unsupported GATEWAY_RUNTIME %q (expected roadrunner, http, or diagnostic)", runtime)
+	if runtime != "http" && runtime != "diagnostic" {
+		return nil, fmt.Errorf("unsupported GATEWAY_RUNTIME %q (expected http or diagnostic)", runtime)
 	}
 	return loadConfig(runtime)
 }
@@ -207,8 +205,8 @@ func LoadRouterConfig() (*Config, error) {
 
 func loadConfig(runtime string) (*Config, error) {
 	runtime = strings.ToLower(strings.TrimSpace(runtime))
-	if runtime != "roadrunner" && runtime != "http" && runtime != "diagnostic" && runtime != "embedded" {
-		return nil, fmt.Errorf("unsupported runtime %q (expected roadrunner, http, diagnostic, or embedded)", runtime)
+	if runtime != "http" && runtime != "diagnostic" && runtime != "embedded" {
+		return nil, fmt.Errorf("unsupported runtime %q (expected http, diagnostic, or embedded)", runtime)
 	}
 
 	provisioningConfig, err := provision.LoadConfig(runtime)
@@ -232,7 +230,7 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 
 	dnsAddress := getEnv("GATEWAY_DNS_ADDR", "")
-	dynamicDNS := (runtime == "http" && getEnv("GATEWAY_PLANNER_URL", "") != "" || runtime == "roadrunner") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
+	dynamicDNS := (runtime == "embedded" || runtime == "http" && getEnv("GATEWAY_PLANNER_URL", "") != "") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
 	if dnsAddress != "" && !dynamicDNS {
 		return nil, fmt.Errorf("GATEWAY_DNS_ADDR requires a private Planner connection and GATEWAY_INTERNAL_TOKEN")
 	}
@@ -243,8 +241,6 @@ func loadConfig(runtime string) (*Config, error) {
 		PlannerURL:                 getEnv("GATEWAY_PLANNER_URL", ""),
 		PlannerSocket:              getEnv("GATEWAY_PLANNER_SOCKET", ""),
 		Port:                       getEnv("PORT", "5001"),
-		RoadRunnerEnabled:          runtime == "roadrunner",
-		RoadRunnerConfigPath:       getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
 		InternalToken:              getEnv("GATEWAY_INTERNAL_TOKEN", ""),
 		MaxWorkers:                 getEnvInt("MAX_WORKERS", 100),
 		MaxQueueSize:               getEnvInt("MAX_QUEUE_SIZE", 1000),

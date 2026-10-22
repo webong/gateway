@@ -87,5 +87,3 @@ replace github.com/webong/gateway => ../../../..
 replace github.com/webong/gateway/driver => ../../../../lib/driver
 
 replace github.com/webong/gateway/ext/frankenphp => ../..
-
-replace github.com/webong/gateway/ext/roadrunner => ../../../roadrunner

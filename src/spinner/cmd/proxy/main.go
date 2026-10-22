@@ -20,7 +20,6 @@ import (
 	dnsgateway "github.com/webong/gateway/src/spinner/cmd/bridge/dns"
 	imapgateway "github.com/webong/gateway/src/spinner/cmd/bridge/imap"
 	pop3gateway "github.com/webong/gateway/src/spinner/cmd/bridge/pop3"
-	roadrunner "github.com/webong/gateway/src/spinner/cmd/bridge/roadrunner"
 	smtpgateway "github.com/webong/gateway/src/spinner/cmd/bridge/smtp"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"
@@ -326,7 +325,7 @@ func run() error {
 
 	logger := logging.NewLogger(config.LogLevel)
 	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "") {
-		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http or roadrunner")
+		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http")
 	}
 	server := NewServer(config, logger)
 	if err := server.ConfigureDeliveryQueue(); err != nil {
@@ -341,8 +340,6 @@ func run() error {
 		}
 	}()
 	switch config.Runtime {
-	case "roadrunner":
-		return runEmbeddedRoadRunner(config, server, logger)
 	case "http":
 		return runHTTPBackend(config, server, logger)
 	case "diagnostic":
@@ -473,7 +470,7 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 		MaxResponseRecords: config.DNSMaxResponseRecords,
 		RateLimit:          config.DNSRateLimit,
 		RateBurst:          config.DNSRateBurst,
-		AllowEmptyZones:    config.Runtime == "http" || config.Runtime == "roadrunner",
+		AllowEmptyZones:    config.Runtime == "http",
 	}, planner, executor)
 }
 
@@ -650,168 +647,4 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	}
 
 	return runServices(config, server, logger, listeners...)
-}
-
-func runEmbeddedRoadRunner(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	runner, err := roadrunner.NewEmbeddedRoadRunner(
-		config.RoadRunnerConfigPath,
-		nil,
-		server.NewGatewayExecutor(),
-		config.MaxBodySize,
-		config.InternalToken,
-	)
-	if err != nil {
-		server.workerPool.Shutdown()
-		return fmt.Errorf("failed to initialize embedded RoadRunner: %w", err)
-	}
-	logger.Info("Planner connection: managed RoadRunner PHP workers")
-
-	runnerErrors := make(chan error, 1)
-	go func() { runnerErrors <- runner.Serve() }()
-
-	if config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "" {
-		startupContext, cancelStartup := context.WithTimeout(context.Background(), config.RequestTimeout)
-		protocolPlanner, plannerErr := runner.WaitProtocolPlanner(startupContext)
-		var phpHandler http.Handler
-		var handlerErr error
-		if plannerErr == nil && config.DNSAddress != "" {
-			phpHandler, handlerErr = runner.WaitPHPHandler(startupContext)
-		}
-		cancelStartup()
-		if plannerErr != nil {
-			runner.Stop()
-			<-runnerErrors
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize RoadRunner protocol planner: %w", plannerErr)
-		}
-		if handlerErr != nil {
-			runner.Stop()
-			<-runnerErrors
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize RoadRunner DNS zone source: %w", handlerErr)
-		}
-
-		executor := server.NewGatewayExecutor()
-		listeners := make([]protocolListener, 0, 4)
-		if config.SMTPAddress != "" {
-			smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
-			if smtpErr != nil {
-				runner.Stop()
-				<-runnerErrors
-				server.workerPool.Shutdown()
-				return fmt.Errorf("failed to initialize SMTP listener: %w", smtpErr)
-			}
-			listeners = append(listeners, smtpServer)
-		}
-		if config.DNSAddress != "" {
-			dnsServer, dnsErr := newDNSServer(config, protocolPlanner, executor)
-			if dnsErr != nil {
-				runner.Stop()
-				<-runnerErrors
-				server.workerPool.Shutdown()
-				return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
-			}
-			zoneSource, sourceErr := dnsgateway.NewHandlerZoneSource(phpHandler, config.InternalToken)
-			if sourceErr != nil {
-				runner.Stop()
-				<-runnerErrors
-				server.workerPool.Shutdown()
-				return fmt.Errorf("failed to initialize RoadRunner DNS zone source: %w", sourceErr)
-			}
-			reloadContext, cancelReload := context.WithCancel(context.Background())
-			defer cancelReload()
-			reloader := dnsgateway.ZoneReloader{
-				Server: dnsServer, Source: zoneSource, Interval: config.DNSZoneRefreshInterval, OnError: logger.Error,
-			}
-			initialContext, cancelInitial := context.WithTimeout(reloadContext, config.RequestTimeout)
-			if refreshErr := reloader.Refresh(initialContext); refreshErr != nil {
-				logger.Error("Initial authoritative DNS zone refresh failed; retaining the last valid snapshot: %v", refreshErr)
-			}
-			cancelInitial()
-			reloader.Start(reloadContext)
-			logger.Info("Using authoritative DNS listener on %s with Planner-managed zones (refresh %s)", config.DNSAddress, config.DNSZoneRefreshInterval)
-			listeners = append(listeners, dnsServer)
-		}
-		if config.POP3Address != "" {
-			pop3Server, pop3Err := transport.NewPOP3Server(config, protocolPlanner)
-			if pop3Err != nil {
-				runner.Stop()
-				<-runnerErrors
-				server.workerPool.Shutdown()
-				return fmt.Errorf("failed to initialize POP3 listener: %w", pop3Err)
-			}
-			listeners = append(listeners, pop3Server)
-		}
-		if config.IMAPAddress != "" {
-			imapServer, imapErr := transport.NewIMAPServer(config, protocolPlanner)
-			if imapErr != nil {
-				runner.Stop()
-				<-runnerErrors
-				server.workerPool.Shutdown()
-				return fmt.Errorf("failed to initialize IMAP listener: %w", imapErr)
-			}
-			listeners = append(listeners, imapServer)
-		}
-
-		listenerErrors := make(chan error, len(listeners))
-		for _, listener := range listeners {
-			go func(listener protocolListener) { listenerErrors <- listener.ListenAndServe() }(listener)
-		}
-
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-		var runnerErr error
-		runnerExited := false
-		var listenerRunErr error
-		select {
-		case <-sigChan:
-			logger.Info("Received shutdown signal")
-		case runnerErr = <-runnerErrors:
-			runnerExited = true
-		case listenerRunErr = <-listenerErrors:
-		}
-
-		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), config.ShutdownTimeout)
-		var listenerShutdownErr error
-		for _, listener := range listeners {
-			if shutdownErr := listener.Shutdown(shutdownContext); shutdownErr != nil && !expectedListenerClose(shutdownErr) {
-				listenerShutdownErr = errors.Join(listenerShutdownErr, shutdownErr)
-			}
-		}
-		cancelShutdown()
-
-		if !runnerExited {
-			runner.Stop()
-			runnerErr = <-runnerErrors
-		}
-		server.workerPool.Shutdown()
-
-		if listenerShutdownErr != nil {
-			return fmt.Errorf("protocol listener shutdown error: %w", listenerShutdownErr)
-		}
-		if !expectedListenerClose(listenerRunErr) {
-			return fmt.Errorf("protocol listener failed: %w", listenerRunErr)
-		}
-		if runnerErr != nil {
-			return fmt.Errorf("embedded RoadRunner failed: %w", runnerErr)
-		}
-		logger.Info("RoadRunner and protocol listeners stopped gracefully")
-		return nil
-	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	select {
-	case <-sigChan:
-		logger.Info("Received shutdown signal")
-		runner.Stop()
-		err = <-runnerErrors
-	case err = <-runnerErrors:
-	}
-
-	server.workerPool.Shutdown()
-	if err != nil {
-		return fmt.Errorf("embedded RoadRunner failed: %w", err)
-	}
-	return nil
 }

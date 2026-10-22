@@ -42,7 +42,7 @@ func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Runtime != "http" || config.RoadRunnerEnabled || config.PlannerURL != "http://127.0.0.1:8000" {
+	if config.Runtime != "http" || config.PlannerURL != "http://127.0.0.1:8000" {
 		t.Fatalf("unexpected HTTP runtime config: %+v", config)
 	}
 	if config.InternalToken != "gateway-token" {
@@ -221,7 +221,7 @@ func TestLoadConfigAllowsUnixSocketOnlyForHTTPRuntime(t *testing.T) {
 		t.Fatalf("unexpected Planner socket %q", config.PlannerSocket)
 	}
 
-	setConfigEnv(t, "roadrunner")
+	setConfigEnv(t, "diagnostic")
 	t.Setenv("GATEWAY_PLANNER_SOCKET", "/run/gateway/planner.sock")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("expected Planner socket to require HTTP runtime")
@@ -235,7 +235,7 @@ func TestLoadConfigDefaultsToHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Runtime != "http" || config.RoadRunnerEnabled || config.InternalToken != "" {
+	if config.Runtime != "http" || config.InternalToken != "" {
 		t.Fatalf("unexpected default config: %+v", config)
 	}
 }
@@ -247,7 +247,7 @@ func TestLoadRouterConfigSelectsInProcessPlannerWithoutRuntimeSetting(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Runtime != "embedded" || config.RoadRunnerEnabled || config.InternalToken != "gateway-token" {
+	if config.Runtime != "embedded" || config.InternalToken != "gateway-token" {
 		t.Fatalf("unexpected Router config: %+v", config)
 	}
 }
@@ -384,7 +384,7 @@ func TestManagedRouteProxyRequiresPrivateHTTPPlannerWithoutLocalProvisioning(t *
 		t.Fatal("accepted both remote route proxy and local provisioning")
 	}
 	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "false")
-	t.Setenv("GATEWAY_RUNTIME", "roadrunner")
+	t.Setenv("GATEWAY_RUNTIME", "diagnostic")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("accepted remote route proxy outside standalone HTTP mode")
 	}
@@ -616,17 +616,24 @@ func TestLoadConfigAllowsPlannerManagedDNSZonesForHTTPRuntime(t *testing.T) {
 	}
 }
 
-func TestLoadConfigAllowsPlannerManagedDNSZonesForRoadRunnerRuntime(t *testing.T) {
-	setConfigEnv(t, "roadrunner")
+func TestLoadRouterConfigAllowsPlannerManagedDNSZonesForBundledRuntime(t *testing.T) {
+	setConfigEnv(t, "")
 	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
 
-	config, err := LoadConfig()
+	config, err := LoadRouterConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if config.DNSZone != "" || len(config.DNSZones) != 0 {
-		t.Fatalf("unexpected RoadRunner dynamic DNS config: %+v", config)
+		t.Fatalf("unexpected bundled Router dynamic DNS config: %+v", config)
+	}
+}
+
+func TestLoadConfigRejectsRoadRunnerRuntime(t *testing.T) {
+	setConfigEnv(t, "roadrunner")
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("standalone Spinner must not select a host-specific RoadRunner adapter")
 	}
 }
 

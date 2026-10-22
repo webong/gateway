@@ -17,6 +17,7 @@ RECEIVER_FILE="$TEMP_DIR/receiver.txt"
 DATABASE_FILE="$TEMP_DIR/registry.sqlite"
 RR_CONFIG="$TEMP_DIR/rr.yaml"
 RELAY_BIN="$TEMP_DIR/gateway"
+RR_BIN="$TEMP_DIR/gateway-router-roadrunner"
 CLIENT_BIN="$TEMP_DIR/websocket-smoke"
 PHP_PID=""
 HTTP_PID=""
@@ -37,7 +38,7 @@ cleanup() {
 	fi
 
 	rm -f "$PHP_LOG" "$HTTP_LOG" "$RR_LOG" "$RECEIVER_FILE" "$DATABASE_FILE" \
-		"$RR_CONFIG" "$RELAY_BIN" "$CLIENT_BIN"
+		"$RR_CONFIG" "$RELAY_BIN" "$RR_BIN" "$CLIENT_BIN"
 	rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -55,6 +56,7 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/src/spinner/cmd/proxy"
+go -C "$ROOT/ext/roadrunner/cmd/router" build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RR_BIN" .
 go build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" "$ROOT/src/spinner/cmd/websocket-smoke"
 
 (
@@ -155,11 +157,10 @@ EOF
 
 run_roadrunner_mode() {
 	: >"$RECEIVER_FILE"
-	GATEWAY_RUNTIME=roadrunner \
 	ROADRUNNER_CONFIG="$RR_CONFIG" \
 	GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 	LOG_LEVEL=error \
-	"$RELAY_BIN" >"$RR_LOG" 2>&1 &
+	"$RR_BIN" >"$RR_LOG" 2>&1 &
 	RR_PID=$!
 
 	wait_http "http://127.0.0.1:$RR_PORT/octane-smoke/worker" "$RR_LOG" "$RR_PID"

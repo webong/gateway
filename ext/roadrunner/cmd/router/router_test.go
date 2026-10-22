@@ -20,6 +20,7 @@ func TestRoadRunnerStopsWorkerServerOnCancellation(t *testing.T) {
 	t.Setenv("ROADRUNNER_CONFIG", "test.yaml")
 	t.Setenv("GATEWAY_SMTP_ADDR", "")
 	t.Setenv("GATEWAY_DNS_ADDR", "")
+	t.Setenv("GATEWAY_SCHEDULES_ENABLED", "false")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	server := &testWorkerServer{done: make(chan struct{}), cancel: cancel}

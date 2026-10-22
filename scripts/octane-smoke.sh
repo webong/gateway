@@ -66,9 +66,8 @@ logs:
 EOF
 
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/src/spinner/cmd/proxy"
+go -C "$ROOT/ext/roadrunner/cmd/router" build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
 
-GATEWAY_RUNTIME=roadrunner \
 ROADRUNNER_CONFIG="$CONFIG" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 "$RELAY_BIN" >"$LOG" 2>&1 &

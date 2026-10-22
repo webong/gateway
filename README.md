@@ -98,8 +98,7 @@ unaffected by these root archive rules.
   never Planner implementations.
 - `src/spinner/cmd/proxy` is the Spinner executable and lifecycle wiring.
 - `src/spinner/cmd/bridge` is the transport-neutral Go edge and protocol boundary.
-- `src/spinner/cmd/bridge/roadrunner` and `src/spinner/cmd/bridge/caddy` are the optional RoadRunner
-  and FrankenPHP/Caddy runtime adapters.
+- `src/spinner/cmd/bridge/caddy` is the optional FrankenPHP/Caddy runtime adapter.
 - `src/spinner/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `src/planner` is the PHP Planner package source tree.
@@ -140,10 +139,6 @@ Install the package dependencies in the Laravel application and configure a
 class implementing `Webong\Gateway\Contracts\RoutePlanner`, or configure the
 bundled registry planner and a `PathResolver`. Then choose one of these modes:
 
-- `roadrunner` embeds RoadRunner in the Go process. It is the single-listener
-  production path and uses RoadRunner's PHP worker transport. It can also
-  start the sibling Go SMTP listener; SMTP planning uses the same embedded PHP
-  worker through the in-process handler bridge.
 - `http` keeps Laravel independently hosted by PHP-FPM, an HTTP server,
   Octane, or another Laravel-compatible host. Go remains the public edge and
   calls Laravel's planner routes and proxies pass-through requests over HTTP.
@@ -151,10 +146,9 @@ bundled registry planner and a `PathResolver`. Then choose one of these modes:
 - `diagnostic` starts only Go health and metrics listeners for adapter tests.
 
 For the standalone Spinner executable, set `GATEWAY_RUNTIME` to `http` (the
-default), `roadrunner`, or `diagnostic`. The bundled FrankenPHP Router selects
-its in-process Planner when launched with `gateway-router library`; it does not
-need `GATEWAY_RUNTIME`. The Router launcher sets `roadrunner` when using its
-managed PHP workers.
+default) or `diagnostic`. Bundled RoadRunner and FrankenPHP Routers select their
+in-process Planner adapters in their extension commands and do not use
+`GATEWAY_RUNTIME`.
 
 The `Planner` interface is the transport seam. Goridge is used by the embedded
 RoadRunner adapter because it is RoadRunner's PHP worker transport; it is not
@@ -237,10 +231,9 @@ latency matters.
 Then start the embedded host from the repository root:
 
 ```bash
-export GATEWAY_RUNTIME=roadrunner
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export ROADRUNNER_CONFIG=.rr.yaml
-go run ./src/spinner/cmd/proxy
+go -C ext/roadrunner/cmd/router run .
 ```
 
 `GATEWAY_INTERNAL_TOKEN` is required in embedded mode. The token is sent
@@ -786,14 +779,13 @@ bidirectional sessions.
 
 ### Go configuration
 
-- `GATEWAY_RUNTIME` - `http` (default), `roadrunner`, or `diagnostic` for
-  transport-only tests; the combined image uses FrankenPHP instead
+- `GATEWAY_RUNTIME` - `http` (default) or `diagnostic` for transport-only tests;
+  bundled Router commands select their adapters themselves
 - `GATEWAY_PLANNER_URL` - Laravel base URL required by `http` mode
 - `GATEWAY_PLANNER_SOCKET` - optional Unix socket for a colocated HTTP
   Planner; the Planner URL still supplies its HTTP Host header
 - `GATEWAY_INTERNAL_TOKEN` - required shared planner token
 - `PORT` - Go host port (default `5001`)
-- `ROADRUNNER_CONFIG` - RoadRunner YAML path (default `.rr.yaml`)
 - `MAX_WORKERS` - asynchronous delivery workers (default `100`)
 - `MAX_QUEUE_SIZE` - pending relay capacity (default `1000`)
 - `REQUEST_TIMEOUT` - outbound request timeout (default `30s`)
@@ -1351,8 +1343,7 @@ add the module path to its existing build command:
 ```bash
 --with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
 --replace github.com/webong/gateway=/path/to/gateway \
---replace github.com/webong/gateway/driver=/path/to/gateway/lib/driver \
---replace github.com/webong/gateway/ext/roadrunner=/path/to/gateway/ext/roadrunner
+--replace github.com/webong/gateway/driver=/path/to/gateway/lib/driver
 ```
 
 For a custom FrankenPHP Docker image, add the same module to the builder's

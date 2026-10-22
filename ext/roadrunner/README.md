@@ -21,9 +21,9 @@ and builds this executable if needed. Native distributions contain
 another prebuilt executable. No ZTS PHP or FrankenPHP native libraries are needed.
 Do not set `GATEWAY_RUNTIME` for the bundled Router: its command selects the adapter.
 
-The old Spinner `GATEWAY_RUNTIME=roadrunner` entrypoint remains compatible and
-delegates server ownership to this extension. It is not used by the new bundled
-launcher. Build the RoadRunner image with
+Standalone Spinner deliberately has no RoadRunner dependency or
+`GATEWAY_RUNTIME=roadrunner` mode. This extension's Router command owns the
+RoadRunner composition. Build the RoadRunner image with
 `docker build -f infra/docker/RoadRunner.router.Dockerfile -t gateway-router:roadrunner-local .`.
 It uses the same port 8080 and persistent `/data` convention as the FrankenPHP image.
 
