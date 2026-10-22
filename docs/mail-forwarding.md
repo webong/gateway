@@ -380,19 +380,58 @@ and SMTP-only `/sending-connections` remain unchanged. Pair IMAP-only receive
 with a separate Gateway `/sending-routes` identity to send replies without
 using the mailbox provider's SMTP service.
 
-For OAuth, set `GATEWAY_EMAIL_OAUTH_REFRESHER` to
-`Webong\Gateway\Email\ProviderMailboxOAuthRefresher` and configure the matching
-`GATEWAY_EMAIL_GOOGLE_CLIENT_ID`/`CLIENT_SECRET` or
-`GATEWAY_EMAIL_MICROSOFT_CLIENT_ID`/`CLIENT_SECRET` and optional
-`GATEWAY_EMAIL_MICROSOFT_TENANT`. This refreshes Google or Microsoft tokens at
-their fixed token endpoints, using transport-specific Microsoft IMAP or SMTP
-scopes, and stores a rotated refresh token when returned. A deployment may
-instead supply a `MailboxOAuthRefresher` implementation. The queue never stores
-access tokens. OAuth authorization and initial consent must supply a refresh
-token with the provider's IMAP or SMTP permission. Google and Microsoft real-provider
-compatibility still needs authorized live tests, including token rotation,
-revocation, and provider-specific permissions. Connection testing is a
-credential probe, not a guarantee that a provider will accept later DATA.
+Gateway owns customer mailbox OAuth consent. Configure a fixed HTTPS
+`GATEWAY_EMAIL_OAUTH_CALLBACK_URL` handled by Zorvia, the matching
+`GATEWAY_EMAIL_GOOGLE_CLIENT_ID`/`GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET` or
+`GATEWAY_EMAIL_MICROSOFT_CLIENT_ID`/`GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET`,
+and optional `GATEWAY_EMAIL_MICROSOFT_TENANT` (default `common`). Register
+operator-approved upstreams and set the matching provider's
+`GATEWAY_EMAIL_{GOOGLE|MICROSOFT}_{IMAP|SMTP}_UPSTREAM` IDs (defaults are
+`google-imap`, `google-smtp`, `microsoft-imap`, `microsoft-smtp`). Gateway
+selects these IDs; Zorvia never supplies provider hosts, client secrets, or
+refresh tokens for this flow.
+
+`POST /email/mailbox-accounts/{account}/oauth/start` over HTTPS with the
+account bearer token and body:
+
+```json
+{"provider":"google","mode":"imap","address":"person@example.com","sending":false}
+```
+
+For combined IMAP and SMTP, use `mode: "mailbox"` and `sending: true`. To
+reauthorize an existing connection, include its `connection_id`; it must
+belong to the account and have the same mode. The response is
+`authorization_url`, opaque `state`, and `expires_at`. Gateway fixes the
+callback URL and creates a 10-minute, single-use account-bound PKCE
+transaction. Google requests offline consent and `https://mail.google.com/`;
+Microsoft requests `offline_access` and the delegated Exchange IMAP scope,
+plus SMTP scope for combined mode.
+
+Zorvia's callback handler forwards only `provider`, `state`, `code` (or
+`error`), and its exact `callback_url` to account-authenticated HTTPS
+`POST /email/mailbox-accounts/{account}/oauth/complete`. Gateway exchanges
+the code, stores the refresh token encrypted, tests the selected transports,
+and enables the connection. Success returns `connection` plus one-time
+`imap_client_password` and, for combined mode, `smtp_client_password`; an
+existing connection keeps its client passwords and returns null password
+fields. A repeat with the same state and code returns the same result until
+the transaction expires; a different code or account cannot reuse it.
+Provider failures produce a generic error without forwarding provider bodies.
+For Google, Gateway also reads the Gmail profile with the new access token and
+requires its mailbox address to match the expected address. For Microsoft,
+the IMAP credential probe must authenticate as the expected mailbox address;
+an ID-token email claim is not used as proof of mailbox access.
+The existing prune command deletes expired transactions, including their
+short-lived encrypted completion metadata.
+
+`GATEWAY_EMAIL_OAUTH_REFRESHER` defaults to
+`Webong\Gateway\Email\ProviderMailboxOAuthRefresher` and refreshes at fixed
+provider endpoints during IMAP/SMTP use. A combined connection keeps both
+sides synchronized when one shared refresh token rotates. Queued messages
+store only the connection UUID, never OAuth tokens. Google and Microsoft
+real-provider compatibility still needs authorized live tests, including
+token rotation, revocation, and tenant permissions. The credential probe does
+not guarantee that a provider will accept later message DATA.
 
 ## Product boundary
 

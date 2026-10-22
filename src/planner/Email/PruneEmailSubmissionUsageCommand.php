@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 final class PruneEmailSubmissionUsageCommand extends Command
@@ -24,6 +25,8 @@ final class PruneEmailSubmissionUsageCommand extends Command
         $this->components->info("Deleted {$deleted} expired Email submission usage rows.");
         $keys = $submissions->prune();
         $this->components->info("Deleted {$keys} expired HTTP Email submission keys.");
+        $oauth = DB::table('mailbox_oauth_transactions')->where('expires_at', '<', now('UTC'))->delete();
+        $this->components->info("Deleted {$oauth} expired mailbox authorization transactions.");
 
         return self::SUCCESS;
     }
