@@ -63,6 +63,7 @@ final readonly class MailboxCredentialSourceController
     private function resource(object $row): array
     {
         return ['id' => $row->id, 'name' => $row->key, 'url' => $row->document['url'],
+            'adapter' => $row->document['adapter'] ?? 'http',
             'enabled' => $row->enabled, 'revision' => $row->revision];
     }
 

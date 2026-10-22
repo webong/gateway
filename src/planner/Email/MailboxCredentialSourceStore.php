@@ -26,7 +26,8 @@ final readonly class MailboxCredentialSourceStore
         }
 
         return DB::transaction(function () use ($account, $input): stdClass {
-            $row = $this->resources->create(self::KIND, $input['name'], ['url' => $input['url']], owner: $account);
+            $row = $this->resources->create(self::KIND, $input['name'],
+                ['url' => $input['url'], 'adapter' => $input['adapter'] ?? 'http'], owner: $account);
             $now = now('UTC');
             DB::table('configuration_secrets')->insert([
                 'resource_id' => $row->id,
@@ -48,7 +49,8 @@ final readonly class MailboxCredentialSourceStore
         return DB::transaction(function () use ($account, $id, $input): ?stdClass {
             $current = $this->find($account, $id);
             if ($current === null) { return null; }
-            $row = $this->resources->replace(self::KIND, $id, $input['name'], ['url' => $input['url']],
+            $row = $this->resources->replace(self::KIND, $id, $input['name'],
+                ['url' => $input['url'], 'adapter' => $input['adapter'] ?? 'http'],
                 true, $current->revision, $account);
             DB::table('configuration_secrets')->where('resource_id', $id)->increment('version', 1, [
                 'ciphertext' => Crypt::encryptString($input['authorization']), 'updated_at' => now('UTC'),
@@ -69,22 +71,27 @@ final readonly class MailboxCredentialSourceStore
         return $row !== null && $this->resources->delete(self::KIND, $id, $row->revision, $account);
     }
 
-    /** @return array{url: string, authorization: string}|null */
+    /** @return array{url: string, adapter: string, authorization: string}|null */
     public function active(string $account, string $id): ?array
     {
         $row = $this->find($account, $id);
         if ($row === null || ! $row->enabled) { return null; }
         $secret = DB::table('configuration_secrets')->where('resource_id', $id)->value('ciphertext');
         if (! is_string($secret)) { return null; }
-        return ['url' => $row->document['url'], 'authorization' => Crypt::decryptString($secret)];
+        return ['url' => $row->document['url'], 'adapter' => $row->document['adapter'] ?? 'http',
+            'authorization' => Crypt::decryptString($secret)];
     }
 
     private function validate(array $input): void
     {
         $keys = array_keys($input);
         sort($keys);
-        if ($keys !== ['authorization', 'name', 'url'] ||
+        if (! in_array($keys, [['authorization', 'name', 'url'],
+            ['adapter', 'authorization', 'name', 'url']], true) ||
             ! is_string($input['name']) || preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $input['name']) !== 1 ||
+            ! is_string($input['adapter'] ?? 'http') ||
+            ! array_key_exists($input['adapter'] ?? 'http',
+                (array) config('gateway.email.credential_source_adapters', [])) ||
             ! is_string($input['authorization']) || strlen($input['authorization']) < 32 ||
             strlen($input['authorization']) > 512 || preg_match('/[^\x21-\x7E]/', $input['authorization']) === 1 ||
             ! is_string($input['url']) || ! self::safeUrl($input['url'])) {

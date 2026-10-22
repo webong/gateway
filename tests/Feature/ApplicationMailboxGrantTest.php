@@ -7,8 +7,10 @@ use Illuminate\Support\Facades\DB;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\ApplicationMailboxGrantSource;
 use Webong\Gateway\Email\ConnectedIMAPAuthenticator;
+use Webong\Gateway\Email\ConfiguredApplicationMailboxGrantSource;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Email\MailboxCredentialSourceStore;
 use Webong\Gateway\Email\MailboxPollStore;
 use Webong\Gateway\Protocol\EventKind;
 use Webong\Gateway\Protocol\GatewayEvent;
@@ -40,7 +42,8 @@ it('registers an account-owned HTTPS credential source without exposing its bear
     $input = ['name' => 'primary', 'url' => 'https://credentials.example.com/gateway/grants',
         'authorization' => str_repeat('s', 48)];
     $this->withToken($one)->postJson('https://localhost/email/mailbox-accounts/app-one/credential-sources',
-        $input)->assertCreated()->assertJsonPath('name', 'primary')->assertDontSee($input['authorization']);
+        $input)->assertCreated()->assertJsonPath('name', 'primary')->assertJsonPath('adapter', 'http')
+        ->assertDontSee($input['authorization']);
     $id = DB::table('configurations')->where('kind', 'email.credential-source')->value('id');
     expect(DB::table('configurations')->where('id', $id)->value('document'))->not->toContain($input['authorization'])
         ->and(DB::table('configuration_secrets')->where('resource_id', $id)->value('ciphertext'))
@@ -59,6 +62,67 @@ it('registers an account-owned HTTPS credential source without exposing its bear
         $this->withToken($one)->postJson('https://localhost/email/mailbox-accounts/app-one/credential-sources',
             ['name' => 'bad', 'url' => $url, 'authorization' => str_repeat('s', 48)])->assertUnprocessable();
     }
+});
+
+it('selects an installed client adapter per source and contains its failures', function (): void {
+    $token = app(AccountStore::class)->create('app-one');
+    app(AccountStore::class)->create('app-two');
+    $client = new class implements ApplicationMailboxGrantSource {
+        public array $calls = [];
+        public bool $fail = false;
+
+        public function resolve(string $sourceId, string $account, string $connection, string $protocol, string $address): array
+        {
+            $source = app(MailboxCredentialSourceStore::class)->active($account, $sourceId);
+            $this->calls[] = compact('sourceId', 'account', 'connection', 'protocol', 'address', 'source');
+            if ($this->fail) { throw new RuntimeException('remote body with secret'); }
+            return ['account_id' => $account, 'connection_id' => $connection, 'address' => $address,
+                'access_token' => 'transient', 'expires_at' => time() + 600,
+                'capabilities' => [$protocol]];
+        }
+    };
+    config()->set('gateway.email.credential_source_adapters.client', $client::class);
+    app()->instance($client::class, $client);
+    $authorization = str_repeat('s', 48);
+    $source = $this->withToken($token)
+        ->postJson('https://localhost/email/mailbox-accounts/app-one/credential-sources',
+            ['name' => 'client', 'adapter' => 'client',
+                'url' => 'https://client.example.com/opaque/setup',
+                'authorization' => $authorization])
+        ->assertCreated()->assertJsonPath('adapter', 'client')
+        ->assertDontSee($authorization)->json('id');
+    $this->withToken($token)->postJson('https://localhost/email/mailbox-accounts/app-one/credential-sources',
+        ['name' => 'unknown', 'adapter' => 'unknown', 'url' => 'https://client.example.com/setup',
+            'authorization' => $authorization])->assertUnprocessable();
+    $resolver = app(ApplicationMailboxGrantSource::class);
+    expect($resolver)->toBeInstanceOf(ConfiguredApplicationMailboxGrantSource::class);
+    $grant = $resolver->resolve($source, 'app-one', 'connection-one', 'smtp', 'mail@example.test');
+    expect($grant['access_token'])->toBe('transient')
+        ->and($client->calls[0]['source'])->toBe([
+            'url' => 'https://client.example.com/opaque/setup', 'adapter' => 'client',
+            'authorization' => $authorization])
+        ->and($client->calls[0]['protocol'])->toBe('smtp');
+    applicationMailboxUpstreams();
+    $connection = $this->withToken($token)
+        ->postJson('https://localhost/email/mailbox-accounts/app-one/connections',
+            applicationMailboxInput($source))->assertCreated()->json('connection.id');
+    expect(app(MailboxConnectionStore::class)->resolve($connection, 'smtp', allowDisabled: true)['secret'])
+        ->toBe('transient');
+    expect(fn () => $resolver->resolve($source, 'app-two', 'connection-one', 'smtp', 'mail@example.test'))
+        ->toThrow(RuntimeException::class, 'Mailbox credential source is unavailable.');
+    expect(count($client->calls))->toBe(2);
+    $client->fail = true;
+    try { $resolver->resolve($source, 'app-one', 'connection-one', 'smtp', 'mail@example.test'); }
+    catch (RuntimeException $error) {
+        expect($error->getMessage())->toBe('Mailbox credential source is unavailable.')
+            ->not->toContain('remote body with secret');
+        $failed = true;
+    }
+    expect($failed ?? false)->toBeTrue();
+    config()->set('gateway.email.credential_source_adapters.client', null);
+    expect(fn () => $resolver->resolve($source, 'app-one', 'connection-one', 'smtp', 'mail@example.test'))
+        ->toThrow(RuntimeException::class, 'Mailbox credential source is unavailable.');
+    expect(app(MailboxCredentialSourceStore::class)->active('app-two', $source))->toBeNull();
 });
 
 it('uses only transient scoped grants for application-managed IMAP and SMTP', function (): void {

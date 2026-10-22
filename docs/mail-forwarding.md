@@ -398,7 +398,7 @@ Content-Type: application/json
 {"name":"customer-app","url":"https://credentials.example.com/gateway/grants","authorization":"<random client-issued bearer token, at least 32 characters>"}
 ```
 
-The response contains `id`, `name`, `url`, `enabled`, and `revision`, but never
+The response contains `id`, `name`, `url`, `adapter`, `enabled`, and `revision`, but never
 the bearer token. The source URL must be HTTPS on port 443 with a DNS name;
 Gateway denies loopback/private/special-purpose answers, pins the checked IP
 for the TLS request, verifies the hostname, does not follow redirects or use
@@ -408,7 +408,26 @@ causes dependent connections to fail closed. `PUT .../credential-sources/{id}`
 with the same three fields rotates its bearer credential or URL without
 changing dependent connection IDs. Register only a dedicated origin
 that the account controls. The token authenticates Gateway to that origin; it
-is not a Google/Microsoft token.
+is not a Google/Microsoft token. Omitted `adapter` selects the built-in `http`
+adapter and retains the POST contract below.
+
+An application needing another request format installs an
+`ApplicationMailboxGrantSource` implementation in the Planner deployment and
+adds a stable key to `gateway.email.credential_source_adapters`. This is
+deployment code, not a class name or arbitrary script supplied through the
+account API. For example, a host may register `client_setup` to its own
+adapter class. The client then includes `"adapter":"client_setup"` in the
+source registration (and in a full `PUT` replacement). Unknown adapter keys
+are rejected. Gateway selects the installed adapter per source and passes its
+ID, account ID, connection ID, protocol, and mailbox address to `resolve`.
+The adapter reads the account-owned URL and bearer from
+`MailboxCredentialSourceStore::active`, performs its bounded authenticated
+request, and returns the grant shape below. Gateway validates the grant before
+IMAP/SMTP use and contains adapter exceptions without exposing remote bodies.
+An adapter must enforce HTTPS, egress/SSRF policy, TLS verification, deadlines,
+and response-size limits; installing one is an operator-level trust decision.
+No client route path, HTTP method, headers, or request body is assumed by this
+interface.
 
 Create an IMAP-only connection at `/imap-connections`, an SMTP-only connection
 at `/sending-connections`, or a combined connection at `/connections`. For a
@@ -422,7 +441,7 @@ For IMAP-only or SMTP-only, omit the other side's three fields. No provider
 secret is accepted in this mode. Gateway still returns one-time client
 passwords for its IMAP/SMTP front door, and the normal test/enable/poll/send
 lifecycle applies. At each test, scheduled poll claim, IMAP login, or queued
-SMTP delivery, Gateway POSTs once to the registered source with:
+SMTP delivery, the built-in `http` adapter POSTs once to the registered source with:
 
 ```http
 Authorization: Bearer <registered client-issued bearer token>
@@ -448,6 +467,17 @@ execution and its opaque connection/client-login IDs. Other applications can
 implement the same callback without knowing any provider-specific Gateway
 details. The source must answer quickly and avoid returning provider error
 bodies or refresh credentials.
+
+A client-specific adapter may instead call its application-generated URL with
+PATCH or PUT and wrap the context in another request shape, while returning
+the same grant. For example, a Zorvia deployment adapter can use a
+connection-owned `connections:setup` bearer and send
+`{"context":{"account_id":"...","connection_id":"...","protocol":"imap","address":"..."}}`.
+That translation belongs to the installed adapter, not Gateway core. The
+existing JavaScript/Lua route and schedule hooks are asynchronous Spinner
+automations; they do not synchronously return credentials to Planner. A future
+script-driven credential hook would need a separate synchronous, secret-aware
+Planner interface and security model.
 
 For Gateway-managed customer OAuth consent, configure a fixed HTTPS
 `GATEWAY_EMAIL_OAUTH_CALLBACK_URL` handled by the client application, the matching

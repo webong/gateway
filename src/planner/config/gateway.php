@@ -49,6 +49,11 @@ return [
         // Exact operator-approved upstream IDs. Customer input selects IDs,
         // never raw network addresses.
         'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER', \Webong\Gateway\Email\ProviderMailboxOAuthRefresher::class),
+        // Host applications may register client-specific grant adapters here.
+        // Source records select an installed key; they cannot name arbitrary classes.
+        'credential_source_adapters' => [
+            'http' => \Webong\Gateway\Email\HttpApplicationMailboxGrantSource::class,
+        ],
         'oauth' => [
             'callback_url' => env('GATEWAY_EMAIL_OAUTH_CALLBACK_URL'),
             'google' => ['client_id' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_ID'),
