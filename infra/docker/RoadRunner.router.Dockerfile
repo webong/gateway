@@ -1,9 +1,10 @@
 FROM golang:1.24-bookworm AS router-builder
 
+ARG GATEWAY_BUILD_TAGS="gateway_javascript,gateway_lua"
 ENV GOTELEMETRY=off
 COPY . /src/gateway
 WORKDIR /src/gateway/ext/roadrunner/cmd/router
-RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /tmp/gateway-router-roadrunner .
+RUN CGO_ENABLED=1 go build -mod=readonly -trimpath -tags="${GATEWAY_BUILD_TAGS}" -o /tmp/gateway-router-roadrunner .
 
 # RoadRunner uses ordinary PHP CLI workers; no ZTS or embed SAPI is required.
 FROM php:8.4-cli-bookworm AS php-base

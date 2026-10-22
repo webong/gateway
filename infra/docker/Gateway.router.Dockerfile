@@ -1,6 +1,8 @@
 FROM php:8.4-zts-bookworm AS php-source
 FROM golang:1.26-bookworm AS go-toolchain
 
+ARG GATEWAY_BUILD_TAGS="gateway_javascript,gateway_lua"
+
 # Build the PHP shared library and CLI from the upstream release archive.
 # The library needs ZTS, embed SAPI, and Linux execution timers.
 FROM debian:bookworm-slim AS php-builder
@@ -50,10 +52,11 @@ ENV PATH="/usr/local/go/bin:${PATH}" GOTELEMETRY=off
 COPY . /src/gateway
 WORKDIR /src/gateway/ext/frankenphp/cmd/router
 
+ARG GATEWAY_BUILD_TAGS
 RUN CGO_ENABLED=1 \
     CGO_CFLAGS="$(php-config --includes)" \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
-    go build -mod=readonly -tags=nobrotli,nowatcher,nomercure \
+    go build -mod=readonly -tags="nobrotli,nowatcher,nomercure,${GATEWAY_BUILD_TAGS}" \
     -o /tmp/gateway-router-library .
 
 FROM debian:bookworm-slim AS php-base

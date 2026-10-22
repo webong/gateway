@@ -8,6 +8,32 @@ connections and policies. No separate PHP Planner or PostgreSQL service is
 needed for a single local replica. Do not point this deployment at the
 Go-only `webong/gateway:sha-545d432` image.
 
+## Published image tags
+
+`webong/gateway` is published as the complete Gateway application. Public tags
+identify only the product release:
+
+- `latest` tracks the newest published release.
+- `sha-<commit>` is the immutable build for a Git commit.
+- `v<version>` is an immutable named release.
+
+Do not publish capability, runtime, architecture, or transport names such as
+`mail`, `router`, `javascript`, `arm64`, RoadRunner, or FrankenPHP in the tag.
+The public tag points to one multi-platform manifest for `linux/amd64` and
+`linux/arm64`. Runtime composition is image metadata and implementation detail,
+not a different Gateway product.
+
+The full Router build includes JavaScript, Lua, WebhookScript, Web, Email, DNS,
+and the other installed Gateway surfaces. The publisher defaults to the bundled
+RoadRunner composition used by Zorvia; selecting another composition does not
+change the repository or tag. Publish from a clean commit with:
+
+```bash
+scripts/publish-gateway-image
+# Or publish a named release as well as latest:
+scripts/publish-gateway-image v1.0.0
+```
+
 The split deployment below remains available when Spinner and Planner need to
 scale independently:
 
