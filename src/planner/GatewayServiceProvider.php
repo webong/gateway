@@ -40,6 +40,7 @@ use Webong\Gateway\Email\Http\EmailVerificationProfileController;
 use Webong\Gateway\Email\Http\EmailSuppressionController;
 use Webong\Gateway\Email\Http\MailHookController;
 use Webong\Gateway\Email\Http\MailboxConnectionController;
+use Webong\Gateway\Email\Http\MailboxOAuthController;
 use Webong\Gateway\Email\Http\ImapConnectionController;
 use Webong\Gateway\Email\Http\MailboxPollController;
 use Webong\Gateway\Email\Http\InternalMailboxPollController;
@@ -534,6 +535,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->put('/email/mailbox-accounts/{account}/imap-connections/{connection}/polling', [MailboxPollController::class, 'put']);
             $this->app['router']->delete('/email/mailbox-accounts/{account}/imap-connections/{connection}/polling', [MailboxPollController::class, 'delete']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'index']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/oauth/start', [MailboxOAuthController::class, 'start']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/oauth/complete', [MailboxOAuthController::class, 'complete']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'create']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections/{connection}', [MailboxConnectionController::class, 'show']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/connections/{connection}/test', [MailboxConnectionController::class, 'test']);

@@ -50,11 +50,16 @@ return [
         // never raw network addresses.
         'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER', \Webong\Gateway\Email\ProviderMailboxOAuthRefresher::class),
         'oauth' => [
+            'callback_url' => env('GATEWAY_EMAIL_OAUTH_CALLBACK_URL'),
             'google' => ['client_id' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_ID'),
-                'client_secret' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET')],
+                'client_secret' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET'),
+                'imap_upstream_id' => env('GATEWAY_EMAIL_GOOGLE_IMAP_UPSTREAM', 'google-imap'),
+                'smtp_upstream_id' => env('GATEWAY_EMAIL_GOOGLE_SMTP_UPSTREAM', 'google-smtp')],
             'microsoft' => ['client_id' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_ID'),
                 'client_secret' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET'),
-                'tenant' => env('GATEWAY_EMAIL_MICROSOFT_TENANT', 'common')],
+                'tenant' => env('GATEWAY_EMAIL_MICROSOFT_TENANT', 'common'),
+                'imap_upstream_id' => env('GATEWAY_EMAIL_MICROSOFT_IMAP_UPSTREAM', 'microsoft-imap'),
+                'smtp_upstream_id' => env('GATEWAY_EMAIL_MICROSOFT_SMTP_UPSTREAM', 'microsoft-smtp')],
         ],
         // Optional deployment-owned scanner/abuse policy class. It is
         // resolved by Planner, never selected by an SMTP client or domain.

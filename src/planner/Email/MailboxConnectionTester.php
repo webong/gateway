@@ -7,10 +7,10 @@ namespace Webong\Gateway\Email;
 use RuntimeException;
 
 /** Credential-only probes; SMTP tests never send MAIL FROM or DATA. */
-final readonly class MailboxConnectionTester
+class MailboxConnectionTester
 {
-    public function __construct(private MailboxConnectionStore $connections,
-        private EmailUpstreamCatalog $upstreams) {}
+    public function __construct(private readonly MailboxConnectionStore $connections,
+        private readonly EmailUpstreamCatalog $upstreams) {}
 
     public function test(string $id): bool
     {

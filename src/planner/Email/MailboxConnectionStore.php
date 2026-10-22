@@ -349,6 +349,14 @@ final readonly class MailboxConnectionStore
             $secrets = $this->decodeSecrets($row->ciphertext);
             if ($secrets[$side.'_secret'] !== $old) { return; }
             $secrets[$side.'_secret'] = $rotated;
+            // A combined OAuth grant starts with one refresh token for both
+            // protocols. Keep both sides on the newest rotation when shared.
+            $other = $side === 'imap' ? 'smtp' : 'imap';
+            $connection = $this->resources->findAny(self::KIND, $id);
+            if (($connection?->document[$other.'_auth'] ?? null) === ($connection?->document[$side.'_auth'] ?? null)
+                && ($secrets[$other.'_secret'] ?? null) === $old) {
+                $secrets[$other.'_secret'] = $rotated;
+            }
             $updated = DB::table('configuration_secrets')->where('resource_id', $id)->where('version', $row->version)
                 ->increment('version', 1, ['ciphertext' => $this->encodeSecrets($secrets), 'updated_at' => now('UTC')]);
             if ($updated === 1) { return; }
