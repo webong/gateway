@@ -18,7 +18,10 @@ RUN CGO_ENABLED=1 \
         --with github.com/dunglas/frankenphp/caddy \
         --with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
         --replace github.com/webong/gateway=/src/gateway \
-        --replace github.com/webong/gateway/driver=/src/gateway/lib/driver
+        --replace github.com/webong/gateway/driver=/src/gateway/lib/driver \
+        --replace github.com/webong/gateway/ext/javascript=/src/gateway/ext/javascript \
+        --replace github.com/webong/gateway/ext/lua=/src/gateway/ext/lua \
+        --replace github.com/webong/gateway/ext/shell=/src/gateway/ext/shell
 
 FROM dunglas/frankenphp AS runtime
 

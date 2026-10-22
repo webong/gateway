@@ -77,7 +77,7 @@ GATEWAY_MERCURE_KUBERNETES_CONFIG=/etc/caddy/Caddyfile
 GATEWAY_MERCURE_KUBERNETES_CONTAINER_PORT=80
 ```
 
-Build with `go build -mod=readonly -o gateway-mercure ./ext/mercure/cmd/plugin`
+Build with `go -C ext/mercure build -mod=readonly -o ../../gateway-mercure ./cmd/plugin`
 from the repository root, or use `scripts/build-gateway-extensions`. Only
 installed executable paths appear in `GATEWAY_EXTENSION_PATHS`.
 

@@ -6,7 +6,7 @@ GOFLAGS ?= -mod=mod
 test: test-go test-php
 
 test-go:
-	cd $(ROOT) && go test $(GOFLAGS) ./src/spinner/provision/... ./ext/reverb/runtime/... ./ext/reverb/cmd/...
+	go test $(GOFLAGS) ./...
 
 test-php:
 	../../vendor/bin/pest --configuration phpunit.xml.dist

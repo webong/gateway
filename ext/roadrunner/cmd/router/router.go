@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/webong/gateway/lib/router"
+	"github.com/webong/gateway/router"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	gatewayws "github.com/webong/gateway/src/spinner/cmd/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/src/spinner/cmd/bridge/webstream"

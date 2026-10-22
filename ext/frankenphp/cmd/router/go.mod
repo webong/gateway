@@ -3,8 +3,8 @@ module github.com/webong/gateway/ext/frankenphp/cmd/router
 go 1.26.0
 
 require (
-	github.com/webong/gateway v0.0.0
 	github.com/webong/gateway/ext/frankenphp v0.0.0
+	github.com/webong/gateway/router v0.0.0
 )
 
 require (
@@ -61,7 +61,11 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/unrolled/secure v1.17.0 // indirect
+	github.com/webong/gateway v0.0.0 // indirect
 	github.com/webong/gateway/driver v0.0.0 // indirect
+	github.com/webong/gateway/ext/javascript v0.0.0 // indirect
+	github.com/webong/gateway/ext/lua v0.0.0 // indirect
+	github.com/webong/gateway/ext/shell v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
@@ -86,4 +90,12 @@ replace github.com/webong/gateway => ../../../..
 
 replace github.com/webong/gateway/driver => ../../../../lib/driver
 
+replace github.com/webong/gateway/ext/javascript => ../../../javascript
+
+replace github.com/webong/gateway/ext/lua => ../../../lua
+
 replace github.com/webong/gateway/ext/frankenphp => ../..
+
+replace github.com/webong/gateway/ext/shell => ../../../shell
+
+replace github.com/webong/gateway/router => ../../../../lib/router

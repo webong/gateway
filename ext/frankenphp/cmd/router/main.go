@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	php "github.com/webong/gateway/ext/frankenphp/runtime"
-	"github.com/webong/gateway/lib/router"
+	"github.com/webong/gateway/router"
 )
 
 func main() {

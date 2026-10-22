@@ -104,7 +104,7 @@ On each remote host, install the separately built helper and an
 operator-owned hook tree:
 
 ```bash
-go build -o gateway-shell-helper ./ext/shell/cmd/gateway-shell-helper
+go -C ext/shell build -o ../../gateway-shell-helper ./cmd/gateway-shell-helper
 ```
 
 Configure the remote SSH account's `authorized_keys` entry with a forced

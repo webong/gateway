@@ -70,7 +70,7 @@ GATEWAY_CENTRIFUGO_KUBERNETES_BINARY=centrifugo
 GATEWAY_CENTRIFUGO_KUBERNETES_CONTAINER_PORT=8000
 ```
 
-Build this executable with `go build -mod=readonly -o gateway-centrifugo ./ext/centrifugo/cmd/plugin`
+Build this executable with `go -C ext/centrifugo build -mod=readonly -o ../../gateway-centrifugo ./cmd/plugin`
 from the repository root, or use `scripts/build-gateway-extensions`. Put the
 absolute executable path in `GATEWAY_EXTENSION_PATHS`. Multiple paths use the
 platform path-list separator. The worker loads the executable through the

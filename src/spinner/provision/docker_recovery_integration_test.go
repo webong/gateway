@@ -13,8 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	centrifugo "github.com/webong/gateway/ext/centrifugo/runtime"
 )
 
 // Run with GATEWAY_TEST_DOCKER_ADOPTION=1 when a local Docker daemon and the
@@ -278,15 +276,9 @@ func runDockerRecoveryWorker(t *testing.T) {
 		}
 		workload = workloads[0]
 	} else if os.Getenv("GATEWAY_TEST_REAL_PLANNER") == "1" {
-		if os.Getenv("GATEWAY_TEST_CENTRIFUGO_WORKLOAD") == "1" {
-			workload = centrifugo.NewWorkload(centrifugo.Config{
-				DockerImage: "centrifugo/centrifugo:v6", DockerBinary: "centrifugo", DockerContainerPort: 8000,
-			})
-		} else {
-			workload = &recoveryWorkload{
-				name: "centrifugo", port: 80, image: "nginx:alpine",
-				executable: "nginx", arguments: []string{"-g", "daemon off;"},
-			}
+		workload = &recoveryWorkload{
+			name: "centrifugo", port: 80, image: "nginx:alpine",
+			executable: "nginx", arguments: []string{"-g", "daemon off;"},
 		}
 	}
 	runtime, err := Start(config, os.Getenv("GATEWAY_TEST_BACKEND"), "test-only", &http.Client{Timeout: 5 * time.Second}, &fakeLogger{}, workload)

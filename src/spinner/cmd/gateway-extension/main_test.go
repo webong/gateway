@@ -10,8 +10,8 @@ import (
 func TestProbeValidatesExecutableAgainstServerSpecification(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "..")
 	plugin := filepath.Join(t.TempDir(), "gateway-centrifugo")
-	build := exec.Command("go", "build", "-mod=mod", "-o", plugin, "./ext/centrifugo/cmd/plugin")
-	build.Dir = root
+	build := exec.Command("go", "build", "-mod=mod", "-o", plugin, "./cmd/plugin")
+	build.Dir = filepath.Join(root, "ext", "centrifugo")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build extension: %v\n%s", err, output)
 	}

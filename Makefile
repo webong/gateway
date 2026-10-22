@@ -1,4 +1,4 @@
-.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 GATEWAY_BUILD_TAGS ?=
@@ -19,13 +19,25 @@ test: test-go test-php
 
 test-go:
 	go -C lib/driver test ./...
+	go -C lib/router test ./...
+	go -C ext/javascript test ./...
+	go -C ext/lua test ./...
+	go -C ext/shell test ./...
+	go -C ext/reverb test ./...
+	go -C ext/mercure test ./...
+	go -C ext/centrifugo test ./...
 	go test $(GOFLAGS) ./...
+	$(MAKE) test-runtime-module-boundaries
+	bash scripts/test-router-boundaries
 	$(MAKE) test-go-extensions
 	$(MAKE) test-automation-extension-boundaries
 	$(MAKE) test-driver-release
 
 test-go-extensions:
 	go test $(GOFLAGS) -tags gateway_javascript,gateway_lua ./src/spinner/extensions/automation ./src/spinner/cmd/proxy
+
+test-runtime-module-boundaries:
+	bash scripts/test-runtime-module-boundaries
 
 test-automation-extension-boundaries:
 	bash scripts/test-automation-extension-boundaries

@@ -158,7 +158,7 @@ GATEWAY_REVERB_KUBERNETES_ARTISAN=artisan
 GATEWAY_REVERB_KUBERNETES_CONTAINER_PORT=8080
 ```
 
-Build with `go build -mod=readonly -o gateway-reverb ./ext/reverb/cmd/plugin`
+Build with `go -C ext/reverb build -mod=readonly -o ../../gateway-reverb ./cmd/plugin`
 from the repository root, or use `scripts/build-gateway-extensions`.
 
 The shared tables are configured through `gateway.servers.tables.servers`,

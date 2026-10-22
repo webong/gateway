@@ -4,10 +4,21 @@ go 1.24.0
 
 require github.com/webong/gateway/driver v0.0.0
 
+require (
+	github.com/webong/gateway/ext/javascript v0.0.0
+	github.com/webong/gateway/ext/lua v0.0.0
+	github.com/webong/gateway/ext/shell v0.0.0
+)
+
+replace github.com/webong/gateway/ext/javascript => ./ext/javascript
+
+replace github.com/webong/gateway/ext/lua => ./ext/lua
+
+replace github.com/webong/gateway/ext/shell => ./ext/shell
+
 replace github.com/webong/gateway/driver => ./lib/driver
 
 require (
-	github.com/buke/quickjs-go v0.7.7
 	github.com/caddyserver/caddy/v2 v2.10.0
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
 	github.com/emersion/go-msgauth v0.7.0
@@ -18,9 +29,7 @@ require (
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/miekg/dns v1.1.65
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a
-	github.com/yuin/gopher-lua v1.1.1
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.38.0
 	golang.org/x/net v0.40.0
 	golang.org/x/sys v0.33.0
 	golang.org/x/time v0.11.0
@@ -45,6 +54,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.14 // indirect
 	github.com/aws/smithy-go v1.22.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/buke/quickjs-go v0.7.7 // indirect
 	github.com/caddyserver/certmagic v0.23.0 // indirect
 	github.com/caddyserver/zerossl v0.1.3 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
@@ -120,6 +130,7 @@ require (
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/tailscale/tscert v0.0.0-20240608151842-d3f834017e53 // indirect
 	github.com/urfave/cli v1.22.16 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
 	go.opentelemetry.io/otel v1.35.0 // indirect
@@ -131,6 +142,7 @@ require (
 	go.uber.org/mock v0.5.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
+	golang.org/x/crypto v0.38.0 // indirect
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20250305170421-49bf5b80c810 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/mod v0.24.0 // indirect

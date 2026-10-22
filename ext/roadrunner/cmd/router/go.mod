@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/webong/gateway v0.0.0
 	github.com/webong/gateway/ext/roadrunner v0.0.0
+	github.com/webong/gateway/router v0.0.0
 )
 
 require (
@@ -179,6 +180,9 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/webong/gateway/driver v0.0.0 // indirect
+	github.com/webong/gateway/ext/javascript v0.0.0 // indirect
+	github.com/webong/gateway/ext/lua v0.0.0 // indirect
+	github.com/webong/gateway/ext/shell v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
@@ -234,4 +238,12 @@ replace github.com/webong/gateway => ../../../..
 
 replace github.com/webong/gateway/driver => ../../../../lib/driver
 
+replace github.com/webong/gateway/ext/javascript => ../../../javascript
+
+replace github.com/webong/gateway/ext/lua => ../../../lua
+
 replace github.com/webong/gateway/ext/roadrunner => ../..
+
+replace github.com/webong/gateway/ext/shell => ../../../shell
+
+replace github.com/webong/gateway/router => ../../../../lib/router

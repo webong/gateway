@@ -86,7 +86,8 @@ unaffected by these root archive rules.
 
 ## Repository layout
 
-- `lib/router` assembles Spinner and an injected in-process Planner runtime.
+- `lib/router` is the separate `github.com/webong/gateway/router` Go module;
+  it assembles Spinner and an injected in-process Planner runtime.
 - `ext/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
 - `ext/roadrunner/runtime` manages PHP workers without Spinner imports;
   `ext/roadrunner/cmd/router` assembles its bundled deployment through `lib/router`.
@@ -116,11 +117,13 @@ unaffected by these root archive rules.
 - `ext/mercure` and `ext/centrifugo` adapt their server configuration and
   launch contracts to the same core runtime.
 
-The root Go module keeps native FrankenPHP out of Spinner-only builds;
-`ext/frankenphp` and its nested `cmd/router` are separate optional Go modules. The PHP
-extension imports no Spinner code; only `lib/router` assembles them. When the
-PHP `vendor/` directory exists, use `-mod=mod` for Go commands because that
-directory belongs to Composer, not Go.
+Every Go runtime under `ext/` owns its own module and runtime-specific
+dependencies. The root module composes JavaScript, Lua, and Shell only through
+their public runtime packages; bundled RoadRunner and FrankenPHP Router commands
+select those modules explicitly. Native FrankenPHP remains outside Spinner-only
+builds, while the host-neutral `lib/router` module assembles the shared Router.
+When the PHP `vendor/` directory exists, use `-mod=mod` for Go commands because
+that directory belongs to Composer, not Go.
 
 ## Choose a deployment
 

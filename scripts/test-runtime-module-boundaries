@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+shopt -s nullglob
+runtime_dirs=("$ROOT"/ext/*/runtime)
+
+if (( ${#runtime_dirs[@]} == 0 )); then
+    echo 'No extension runtime packages found.' >&2
+    exit 1
+fi
+
+for runtime_dir in "${runtime_dirs[@]}"; do
+    extension=$(basename -- "$(dirname -- "$runtime_dir")")
+    module_file="$ROOT/ext/$extension/go.mod"
+    if [[ ! -f "$module_file" ]]; then
+        echo "Runtime extension ext/$extension must own a go.mod." >&2
+        exit 1
+    fi
+
+    expected="github.com/webong/gateway/ext/$extension"
+    actual=$(go -C "$ROOT/ext/$extension" list -mod=readonly -m -f '{{.Path}}')
+    if [[ "$actual" != "$expected" ]]; then
+        echo "Unexpected ext/$extension module path: $actual (want $expected)" >&2
+        exit 1
+    fi
+
+    echo "ext/$extension owns module $actual."
+done

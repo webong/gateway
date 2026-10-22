@@ -18,8 +18,9 @@ if rg -n 'ext/(javascript|lua|webhookscript)/(php/)?src' "$ROOT/composer.json" >
     exit 1
 fi
 
-for package in ./ext/javascript/runtime ./ext/lua/runtime; do
-    dependencies=$(cd "$ROOT" && GOFLAGS="$GO_BUILD_FLAGS" go list -deps "$package")
+for extension in javascript lua; do
+    package="github.com/webong/gateway/ext/$extension/runtime"
+    dependencies=$(cd "$ROOT/ext/$extension" && GOFLAGS="$GO_BUILD_FLAGS" go list -deps ./runtime)
     if grep -q '^github.com/webong/gateway/src/spinner\($\|/\)' <<<"$dependencies"; then
         echo "$package depends on Spinner; automation extensions may depend only on Driver contracts." >&2
         exit 1

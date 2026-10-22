@@ -52,8 +52,8 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/src/spinner/cmd/proxy"
-go build "$GO_BUILD_FLAGS" -o "$PLUGIN_BIN" "$ROOT/ext/reverb/cmd/plugin"
-go build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" "$ROOT/ext/reverb/cmd/reverb-smoke"
+go -C "$ROOT/ext/reverb" build "$GO_BUILD_FLAGS" -o "$PLUGIN_BIN" ./cmd/plugin
+go -C "$ROOT/ext/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
 
 (
     cd "$APP_PATH"

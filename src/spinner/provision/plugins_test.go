@@ -11,8 +11,8 @@ import (
 func TestExecutableCentrifugoWorkloadLoadsWithoutHostImport(t *testing.T) {
 	t.Setenv("GATEWAY_CENTRIFUGO_DOCKER_IMAGE", "centrifugo/centrifugo:v6")
 	path := filepath.Join(t.TempDir(), "gateway-centrifugo")
-	build := exec.Command("go", "build", "-mod=readonly", "-o", path, "./ext/centrifugo/cmd/plugin")
-	build.Dir = filepath.Join("..", "..", "..")
+	build := exec.Command("go", "build", "-mod=readonly", "-o", path, "./cmd/plugin")
+	build.Dir = filepath.Join("..", "..", "..", "ext", "centrifugo")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build independently loadable extension: %v\n%s", err, output)
 	}

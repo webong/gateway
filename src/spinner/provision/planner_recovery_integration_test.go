@@ -30,13 +30,6 @@ func TestDockerWorkerRecoversWithRealPlanner(t *testing.T) {
 	runPlannerDockerRecovery(t, false, false, "centrifugo")
 }
 
-func TestCentrifugoWorkerRecoversWithRealPlanner(t *testing.T) {
-	if os.Getenv("GATEWAY_TEST_CENTRIFUGO_RECOVERY") != "1" {
-		t.Skip("set GATEWAY_TEST_CENTRIFUGO_RECOVERY=1 for real Centrifugo recovery")
-	}
-	runPlannerDockerRecovery(t, true, false, "centrifugo")
-}
-
 func TestCentrifugoPluginRecoversWithRealPlanner(t *testing.T) {
 	if os.Getenv("GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY") != "1" {
 		t.Skip("set GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY=1 for executable-extension recovery")
@@ -88,8 +81,8 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, pluginWorkload bool, t
 	pluginPath := ""
 	if pluginWorkload {
 		pluginPath = filepath.Join(dataDir, "gateway-"+technology)
-		build := exec.CommandContext(ctx, "go", "build", "-mod=mod", "-o", pluginPath, "./ext/"+technology+"/cmd/plugin")
-		build.Dir = root
+		build := exec.CommandContext(ctx, "go", "build", "-mod=mod", "-o", pluginPath, "./cmd/plugin")
+		build.Dir = filepath.Join(root, "ext", technology)
 		if output, err := build.CombinedOutput(); err != nil {
 			t.Fatalf("build %s executable extension: %v: %s", technology, err, output)
 		}
@@ -322,9 +315,6 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, pluginWorkload bool, t
 			"GATEWAY_TEST_WORKER_CHILD=1", "GATEWAY_TEST_REAL_PLANNER=1",
 			"GATEWAY_TEST_BACKEND="+backendURL, "GATEWAY_TEST_NODE="+nodeID,
 		)
-		if realWorkload {
-			workerEnv = append(workerEnv, "GATEWAY_TEST_CENTRIFUGO_WORKLOAD=1")
-		}
 		if pluginWorkload {
 			workerEnv = append(workerEnv,
 				"GATEWAY_TEST_EXECUTABLE_PLUGIN=1",
