@@ -380,15 +380,84 @@ and SMTP-only `/sending-connections` remain unchanged. Pair IMAP-only receive
 with a separate Gateway `/sending-routes` identity to send replies without
 using the mailbox provider's SMTP service.
 
-Gateway owns customer mailbox OAuth consent. Configure a fixed HTTPS
-`GATEWAY_EMAIL_OAUTH_CALLBACK_URL` handled by Zorvia, the matching
+### Credential ownership modes
+
+Connections now declare a credential mode. Existing connections and the
+`/oauth/start` flow use `gateway_managed`: Gateway keeps provider refresh
+credentials encrypted, refreshes them, and resolves a transient XOAUTH2
+access token at use time. Password connections also use this mode.
+
+Any account may instead use `application_managed` without giving Gateway a
+provider refresh token. Register an account-owned credential source first:
+
+```http
+POST /email/mailbox-accounts/customer-id/credential-sources
+Authorization: Bearer <Gateway account token>
+Content-Type: application/json
+
+{"name":"customer-app","url":"https://credentials.example.com/gateway/grants","authorization":"<random client-issued bearer token, at least 32 characters>"}
+```
+
+The response contains `id`, `name`, `url`, `enabled`, and `revision`, but never
+the bearer token. The source URL must be HTTPS on port 443 with a DNS name;
+Gateway denies loopback/private/special-purpose answers, pins the checked IP
+for the TLS request, verifies the hostname, does not follow redirects or use
+proxies, and applies a four-second total HTTP timeout. `GET` lists the
+account's sources; `DELETE .../credential-sources/{id}` revokes a source and
+causes dependent connections to fail closed. `PUT .../credential-sources/{id}`
+with the same three fields rotates its bearer credential or URL without
+changing dependent connection IDs. Register only a dedicated origin
+that the account controls. The token authenticates Gateway to that origin; it
+is not a Google/Microsoft token.
+
+Create an IMAP-only connection at `/imap-connections`, an SMTP-only connection
+at `/sending-connections`, or a combined connection at `/connections`. For a
+combined application-managed connection, the exact create body is:
+
+```json
+{"address":"mail@example.com","imap_upstream_id":"imap-a","smtp_upstream_id":"smtp-a","imap_username":"mail@example.com","smtp_username":"mail@example.com","imap_auth":"xoauth2","smtp_auth":"xoauth2","credential_mode":"application_managed","credential_source_id":"<registered source UUID>"}
+```
+
+For IMAP-only or SMTP-only, omit the other side's three fields. No provider
+secret is accepted in this mode. Gateway still returns one-time client
+passwords for its IMAP/SMTP front door, and the normal test/enable/poll/send
+lifecycle applies. At each test, scheduled poll claim, IMAP login, or queued
+SMTP delivery, Gateway POSTs once to the registered source with:
+
+```http
+Authorization: Bearer <registered client-issued bearer token>
+Content-Type: application/json
+Accept: application/json
+
+{"account_id":"customer-id","connection_id":"<Gateway connection UUID>","protocol":"imap","address":"mail@example.com"}
+```
+
+The source must answer HTTP 200 with exactly:
+
+```json
+{"account_id":"customer-id","connection_id":"<Gateway connection UUID>","address":"mail@example.com","access_token":"<short-lived XOAUTH2 access token>","expires_at":1792638000,"capabilities":["imap","smtp"]}
+```
+
+`expires_at` is a Unix timestamp. It must be more than 30 seconds away (more
+than 120 seconds for a scheduled IMAP poll) and no more than one hour away.
+Gateway rejects an account, connection, mailbox identity, capability, expiry,
+or response-shape mismatch. It never writes this access token into Planner
+resources, secrets, schedules, or queued deliveries. The client application
+owns consent, refresh, rotation, and revocation; Gateway owns only transport
+execution and its opaque connection/client-login IDs. Other applications can
+implement the same callback without knowing any provider-specific Gateway
+details. The source must answer quickly and avoid returning provider error
+bodies or refresh credentials.
+
+For Gateway-managed customer OAuth consent, configure a fixed HTTPS
+`GATEWAY_EMAIL_OAUTH_CALLBACK_URL` handled by the client application, the matching
 `GATEWAY_EMAIL_GOOGLE_CLIENT_ID`/`GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET` or
 `GATEWAY_EMAIL_MICROSOFT_CLIENT_ID`/`GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET`,
 and optional `GATEWAY_EMAIL_MICROSOFT_TENANT` (default `common`). Register
 operator-approved upstreams and set the matching provider's
 `GATEWAY_EMAIL_{GOOGLE|MICROSOFT}_{IMAP|SMTP}_UPSTREAM` IDs (defaults are
 `google-imap`, `google-smtp`, `microsoft-imap`, `microsoft-smtp`). Gateway
-selects these IDs; Zorvia never supplies provider hosts, client secrets, or
+selects these IDs; the client never supplies provider hosts, client secrets, or
 refresh tokens for this flow.
 
 `POST /email/mailbox-accounts/{account}/oauth/start` over HTTPS with the
@@ -407,7 +476,7 @@ transaction. Google requests offline consent and `https://mail.google.com/`;
 Microsoft requests `offline_access` and the delegated Exchange IMAP scope,
 plus SMTP scope for combined mode.
 
-Zorvia's callback handler forwards only `provider`, `state`, `code` (or
+The client application's callback handler forwards only `provider`, `state`, `code` (or
 `error`), and its exact `callback_url` to account-authenticated HTTPS
 `POST /email/mailbox-accounts/{account}/oauth/complete`. Gateway exchanges
 the code, stores the refresh token encrypted, tests the selected transports,

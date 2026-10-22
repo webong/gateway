@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Email;
 
+use Throwable;
 use Webong\Gateway\Protocol\GatewayEvent;
 
 final readonly class ConnectedIMAPAuthenticator implements MailboxAuthenticator
@@ -16,7 +17,8 @@ final readonly class ConnectedIMAPAuthenticator implements MailboxAuthenticator
         if ($event->protocol->value !== 'imap') { return null; }
         $record = $this->connections->authenticate($event->attributes['username'] ?? '', $event->attributes['password'] ?? '', 'imap');
         if ($record === null) { return null; }
-        $resolved = $this->connections->resolve($record->id, 'imap');
+        try { $resolved = $this->connections->resolve($record->id, 'imap'); }
+        catch (Throwable) { return null; }
         $upstream = $resolved === null ? null : $this->upstreams->active('imap', $resolved['upstream_id']);
         if ($resolved === null || $upstream === null) { return null; }
 

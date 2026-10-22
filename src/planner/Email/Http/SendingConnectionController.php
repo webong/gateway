@@ -104,6 +104,8 @@ final readonly class SendingConnectionController
         return ['id' => $row->id, 'account_id' => $row->account_id, 'mode' => 'sending',
             'address' => $row->address, 'smtp_upstream_id' => $row->smtp_upstream_id,
             'smtp_username' => $row->smtp_username, 'smtp_auth' => $row->smtp_auth,
+            'credential_mode' => $row->credential_mode ?? 'gateway_managed',
+            'credential_source_id' => $row->credential_source_id ?? null,
             'enabled' => (bool) $row->enabled, 'health' => $row->health, 'tested_at' => $row->tested_at];
     }
 

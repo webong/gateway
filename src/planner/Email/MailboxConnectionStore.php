@@ -20,7 +20,8 @@ final readonly class MailboxConnectionStore
 
     public function __construct(private ?MailboxOAuthRefresher $refresher,
         private ?EmailUpstreamCatalog $upstreams, private PlannerResourceStore $resources,
-        private AccountStore $accounts) {}
+        private AccountStore $accounts, private ?ApplicationMailboxGrantSource $applicationGrants = null,
+        private ?MailboxCredentialSourceStore $credentialSources = null) {}
 
     public function find(string $account, string $id): ?stdClass
     {
@@ -58,6 +59,10 @@ final readonly class MailboxConnectionStore
 
     private function validateSending(array $input): void
     {
+        if (($input['credential_mode'] ?? null) === 'application_managed') {
+            $this->validateApplication($input, 'sending');
+            return;
+        }
         $keys = ['address', 'smtp_upstream_id', 'smtp_username', 'smtp_auth', 'smtp_secret'];
         $provided = array_keys($input);
         sort($keys);
@@ -75,6 +80,10 @@ final readonly class MailboxConnectionStore
 
     private function validateImap(array $input): void
     {
+        if (($input['credential_mode'] ?? null) === 'application_managed') {
+            $this->validateApplication($input, 'imap');
+            return;
+        }
         $keys = ['address', 'imap_upstream_id', 'imap_username', 'imap_auth', 'imap_secret'];
         $provided = array_keys($input);
         sort($keys);
@@ -95,6 +104,7 @@ final readonly class MailboxConnectionStore
         if (! $this->accounts->exists($account)) {
             throw new InvalidArgumentException('Mailbox account does not exist.');
         }
+        $this->assertCredentialSource($account, $input);
         $imapPassword = $mode !== 'sending' ? bin2hex(random_bytes(32)) : null;
         $smtpPassword = $mode !== 'imap' ? bin2hex(random_bytes(32)) : null;
 
@@ -135,7 +145,7 @@ final readonly class MailboxConnectionStore
     }
 
     /** @return array<string, string>|null */
-    public function resolve(string $id, string $side, bool $allowDisabled = false): ?array
+    public function resolve(string $id, string $side, bool $allowDisabled = false, int $minTtlSeconds = 30): ?array
     {
         if (! in_array($side, ['imap', 'smtp'], true) || ! Str::isUuid($id)) { return null; }
         $row = $this->resources->findAny(self::KIND, $id);
@@ -147,7 +157,35 @@ final readonly class MailboxConnectionStore
         $secrets = $this->decodeSecrets($secretRow->ciphertext);
         $secret = $secrets[$side.'_secret'];
         $auth = $row->document[$side.'_auth'];
-        if ($auth !== 'password') {
+        if (($row->document['credential_mode'] ?? 'gateway_managed') === 'application_managed') {
+            if ($auth !== 'xoauth2' || $this->applicationGrants === null ||
+                ! is_string($row->document['credential_source_id'] ?? null)) {
+                throw new RuntimeException('Mailbox credential source is unavailable.');
+            }
+            if ($this->credentialSources?->active($row->owner, $row->document['credential_source_id']) === null) {
+                throw new RuntimeException('Mailbox credential source is unavailable.');
+            }
+            $grant = $this->applicationGrants->resolve($row->document['credential_source_id'],
+                $row->owner, $id, $side, $row->document['address'] ?? $row->key);
+            $keys = array_keys($grant);
+            sort($keys);
+            if ($keys !== ['access_token', 'account_id', 'address', 'capabilities', 'connection_id', 'expires_at'] ||
+                ($grant['account_id'] ?? null) !== $row->owner || ($grant['connection_id'] ?? null) !== $id ||
+                ! is_string($grant['address']) ||
+                strcasecmp($grant['address'], $row->document['address'] ?? $row->key) !== 0 ||
+                ! is_array($grant['capabilities']) || ! array_is_list($grant['capabilities']) ||
+                count($grant['capabilities']) > 2 ||
+                count(array_filter($grant['capabilities'], static fn (mixed $capability): bool =>
+                    is_string($capability) && in_array($capability, ['imap', 'smtp'], true))) !== count($grant['capabilities']) ||
+                ! in_array($side, $grant['capabilities'], true) ||
+                ! is_int($grant['expires_at']) || $grant['expires_at'] <= time() + $minTtlSeconds ||
+                $grant['expires_at'] > time() + 3600 ||
+                ! is_string($grant['access_token']) || $grant['access_token'] === '' ||
+                strlen($grant['access_token']) > 4096 || preg_match('/[^\x20-\x7E]/', $grant['access_token']) === 1) {
+                throw new RuntimeException('Mailbox access grant is invalid.');
+            }
+            $secret = $grant['access_token'];
+        } elseif ($auth !== 'password') {
             if (! in_array($auth, ['google', 'microsoft'], true) || $this->refresher === null) {
                 throw new RuntimeException('Mailbox OAuth refresh is unavailable.');
             }
@@ -210,6 +248,7 @@ final readonly class MailboxConnectionStore
 
     private function replaceRecord(string $account, string $id, array $input, string $mode): ?stdClass
     {
+        $this->assertCredentialSource($account, $input);
         return DB::transaction(function () use ($account, $id, $input, $mode): ?stdClass {
             $row = $this->resources->findOwned(self::KIND, $id, $account);
             if ($row === null || ($row->document['mode'] ?? 'mailbox') !== $mode) { return null; }
@@ -294,6 +333,8 @@ final readonly class MailboxConnectionStore
     {
         return [
             'mode' => $mode,
+            'credential_mode' => $input['credential_mode'] ?? 'gateway_managed',
+            'credential_source_id' => $input['credential_source_id'] ?? null,
             ...($mode === 'imap' ? ['address' => strtolower($input['address'])] : []),
             'imap_upstream_id' => $input['imap_upstream_id'] ?? null, 'smtp_upstream_id' => $input['smtp_upstream_id'] ?? null,
             'imap_username' => $input['imap_username'] ?? null, 'smtp_username' => $input['smtp_username'] ?? null,
@@ -366,6 +407,10 @@ final readonly class MailboxConnectionStore
     /** @param array<string, string> $input */
     private function validate(array $input): void
     {
+        if (($input['credential_mode'] ?? null) === 'application_managed') {
+            $this->validateApplication($input, 'mailbox');
+            return;
+        }
         $keys = ['address', 'imap_upstream_id', 'smtp_upstream_id', 'imap_username', 'smtp_username',
             'imap_auth', 'smtp_auth', 'imap_secret', 'smtp_secret'];
         sort($keys);
@@ -385,6 +430,43 @@ final readonly class MailboxConnectionStore
                 || $input[$side.'_secret'] === '' || strlen($input[$side.'_secret']) > 8192) {
                 throw new InvalidArgumentException('Mailbox upstream is not approved or its credentials are invalid.');
             }
+        }
+    }
+
+    /** @param array<string, mixed> $input */
+    private function validateApplication(array $input, string $mode): void
+    {
+        $sides = $mode === 'mailbox' ? ['imap', 'smtp'] : [$mode === 'sending' ? 'smtp' : 'imap'];
+        $keys = ['address', 'credential_mode', 'credential_source_id'];
+        foreach ($sides as $side) {
+            array_push($keys, $side.'_upstream_id', $side.'_username', $side.'_auth');
+        }
+        sort($keys);
+        $provided = array_keys($input);
+        sort($provided);
+        if ($keys !== $provided || ! is_string($input['address'] ?? null) ||
+            ! filter_var($input['address'], FILTER_VALIDATE_EMAIL) || strlen($input['address']) > 320 ||
+            ! is_string($input['credential_source_id'] ?? null) ||
+            ! Str::isUuid($input['credential_source_id'])) {
+            throw new InvalidArgumentException('Application-managed mailbox connection is invalid.');
+        }
+        foreach ($sides as $side) {
+            if (! is_string($input[$side.'_upstream_id']) ||
+                $this->upstreams?->active($side, $input[$side.'_upstream_id']) === null ||
+                $input[$side.'_auth'] !== 'xoauth2' ||
+                ! is_string($input[$side.'_username']) ||
+                strcasecmp($input[$side.'_username'], $input['address']) !== 0) {
+                throw new InvalidArgumentException('Application-managed mailbox upstream is invalid.');
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $input */
+    private function assertCredentialSource(string $account, array $input): void
+    {
+        if (($input['credential_mode'] ?? 'gateway_managed') === 'application_managed' &&
+            $this->credentialSources?->active($account, $input['credential_source_id']) === null) {
+            throw new InvalidArgumentException('Credential source does not belong to this account.');
         }
     }
 }

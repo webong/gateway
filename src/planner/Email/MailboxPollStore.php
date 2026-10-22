@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use stdClass;
+use Throwable;
 use Webong\Gateway\Resources\PlannerResourceStore;
 use Webong\Gateway\Schedules\ScheduleStore;
 
@@ -77,7 +78,7 @@ final readonly class MailboxPollStore
     /** A schedule claim obtains a separate resource lease before reading credentials. */
     public function claim(string $id): ?array
     {
-        return DB::transaction(function () use ($id): ?array {
+        $lease = DB::transaction(function () use ($id): ?array {
             $poll = $this->resources->findAny(self::KIND, $id);
             if ($poll === null || ! $poll->enabled || $poll->owner === null) { return null; }
             $mailbox = $this->connections->find($poll->owner, $poll->document['connection_id']);
@@ -86,20 +87,31 @@ final readonly class MailboxPollStore
             if ($checkpoint === null || ($checkpoint->lease_until !== null && $checkpoint->lease_until > now('UTC'))) {
                 return null;
             }
-            $credentials = $this->connections->resolve($mailbox->id, 'imap');
-            $upstream = $this->upstreams->active('imap', $credentials['upstream_id']);
-            if ($upstream === null) { return null; }
             $token = (string) Str::uuid();
             DB::table('resource_checkpoints')->where('resource_id', $id)->update([
                 'lease_token' => $token, 'lease_until' => now('UTC')->addSeconds(110), 'updated_at' => now('UTC')]);
             return ['route_id' => $poll->id, 'connection_id' => $mailbox->id, 'address' => $mailbox->address,
                 'callback_url' => $poll->document['callback_url'], 'webhook_secret' => $poll->document['webhook_secret'],
+                'cursor' => json_decode($checkpoint->cursor, true), 'lease_token' => $token];
+        });
+        if ($lease === null) { return null; }
+        try {
+            // Never hold the checkpoint/database lock across an external credential callback.
+            $credentials = $this->connections->resolve($lease['connection_id'], 'imap', minTtlSeconds: 120);
+            $upstream = $credentials === null ? null : $this->upstreams->active('imap', $credentials['upstream_id']);
+            if ($credentials === null || $upstream === null) {
+                $this->release($id, $lease['lease_token']);
+                return null;
+            }
+            return [...$lease,
                 'upstream_address' => $upstream['address'], 'upstream_server_name' => $upstream['server_name'],
                 'upstream_network_scope' => $upstream['network_scope'] ?? 'public',
                 'username' => $credentials['username'], 'secret' => $credentials['secret'],
-                'mechanism' => $credentials['mechanism'], 'cursor' => json_decode($checkpoint->cursor, true),
-                'lease_token' => $token];
-        });
+                'mechanism' => $credentials['mechanism']];
+        } catch (Throwable $error) {
+            $this->release($id, $lease['lease_token']);
+            throw $error;
+        }
     }
 
     public function acknowledge(string $id, string $token, int $uidValidity, int $uid): bool

@@ -114,6 +114,8 @@ final readonly class MailboxConnectionController
             'imap_upstream_id' => $row->imap_upstream_id, 'smtp_upstream_id' => $row->smtp_upstream_id,
             'imap_username' => $row->imap_username, 'smtp_username' => $row->smtp_username,
             'imap_auth' => $row->imap_auth, 'smtp_auth' => $row->smtp_auth,
+            'credential_mode' => $row->credential_mode ?? 'gateway_managed',
+            'credential_source_id' => $row->credential_source_id ?? null,
             'enabled' => (bool) $row->enabled, 'health' => $row->health, 'tested_at' => $row->tested_at];
     }
 

@@ -6,6 +6,7 @@ namespace Webong\Gateway\Email\Http;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Throwable;
 use Webong\Gateway\Email\MailboxPollStore;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 
@@ -16,7 +17,8 @@ final readonly class InternalMailboxPollController
     public function claim(Request $request, string $poll): JsonResponse
     {
         $this->auth->authorizeOrHide($request);
-        $claim = $this->polls->claim($poll);
+        try { $claim = $this->polls->claim($poll); }
+        catch (Throwable) { return response()->json(['message' => 'Poll credential unavailable.'], 503)->header('Cache-Control', 'no-store'); }
         return $claim === null ? response()->json(['message' => 'Poll is unavailable.'], 409)
             : response()->json($claim)->header('Cache-Control', 'no-store');
     }

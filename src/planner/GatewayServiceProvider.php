@@ -41,6 +41,7 @@ use Webong\Gateway\Email\Http\EmailSuppressionController;
 use Webong\Gateway\Email\Http\MailHookController;
 use Webong\Gateway\Email\Http\MailboxConnectionController;
 use Webong\Gateway\Email\Http\MailboxOAuthController;
+use Webong\Gateway\Email\Http\MailboxCredentialSourceController;
 use Webong\Gateway\Email\Http\ImapConnectionController;
 use Webong\Gateway\Email\Http\MailboxPollController;
 use Webong\Gateway\Email\Http\InternalMailboxPollController;
@@ -56,6 +57,9 @@ use Webong\Gateway\Email\MailHookRegistry;
 use Webong\Gateway\Email\AccountReceivingStore;
 use Webong\Gateway\Email\ManagedSendingStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Email\MailboxCredentialSourceStore;
+use Webong\Gateway\Email\ApplicationMailboxGrantSource;
+use Webong\Gateway\Email\HttpApplicationMailboxGrantSource;
 use Webong\Gateway\Email\MailboxOAuthRefresher;
 use Webong\Gateway\Email\EmailRegistry;
 use Webong\Gateway\Email\EmailMessagePolicy;
@@ -122,6 +126,7 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
         $this->app->bind(MxResolver::class, NativeMxResolver::class);
+        $this->app->bind(ApplicationMailboxGrantSource::class, HttpApplicationMailboxGrantSource::class);
         $this->app->bind(MailboxConnectionStore::class, function (): MailboxConnectionStore {
             $configured = config('gateway.email.oauth_refresher');
             $refresher = null;
@@ -133,7 +138,9 @@ final class GatewayServiceProvider extends ServiceProvider
             }
 
             return new MailboxConnectionStore($refresher, $this->app->make(EmailUpstreamCatalog::class),
-                $this->app->make(PlannerResourceStore::class), $this->app->make(AccountStore::class));
+                $this->app->make(PlannerResourceStore::class), $this->app->make(AccountStore::class),
+                $this->app->make(ApplicationMailboxGrantSource::class),
+                $this->app->make(MailboxCredentialSourceStore::class));
         });
         $this->app->bind(SrsReturnStore::class, fn (): SrsReturnStore => new SrsReturnStore(
             $this->app->make(EmailSrsPolicyStore::class), $this->app->make(EmailRegistry::class),
@@ -535,6 +542,10 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->put('/email/mailbox-accounts/{account}/imap-connections/{connection}/polling', [MailboxPollController::class, 'put']);
             $this->app['router']->delete('/email/mailbox-accounts/{account}/imap-connections/{connection}/polling', [MailboxPollController::class, 'delete']);
             $this->app['router']->get('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'index']);
+            $this->app['router']->get('/email/mailbox-accounts/{account}/credential-sources', [MailboxCredentialSourceController::class, 'index']);
+            $this->app['router']->post('/email/mailbox-accounts/{account}/credential-sources', [MailboxCredentialSourceController::class, 'create']);
+            $this->app['router']->put('/email/mailbox-accounts/{account}/credential-sources/{source}', [MailboxCredentialSourceController::class, 'replace']);
+            $this->app['router']->delete('/email/mailbox-accounts/{account}/credential-sources/{source}', [MailboxCredentialSourceController::class, 'delete']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/oauth/start', [MailboxOAuthController::class, 'start']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/oauth/complete', [MailboxOAuthController::class, 'complete']);
             $this->app['router']->post('/email/mailbox-accounts/{account}/connections', [MailboxConnectionController::class, 'create']);
