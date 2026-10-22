@@ -405,7 +405,7 @@ for the TLS request, verifies the hostname, does not follow redirects or use
 proxies, and applies a four-second total HTTP timeout. `GET` lists the
 account's sources; `DELETE .../credential-sources/{id}` revokes a source and
 causes dependent connections to fail closed. `PUT .../credential-sources/{id}`
-with the same three fields rotates its bearer credential or URL without
+with the full registration body rotates its bearer credential or URL without
 changing dependent connection IDs. Register only a dedicated origin
 that the account controls. The token authenticates Gateway to that origin; it
 is not a Google/Microsoft token. Omitted `adapter` selects the built-in `http`
@@ -470,8 +470,16 @@ bodies or refresh credentials.
 
 A client-specific adapter may instead call its application-generated URL with
 PATCH or PUT and wrap the context in another request shape, while returning
-the same grant. For example, a Zorvia deployment adapter can use a
-connection-owned `connections:setup` bearer and send
+the same grant. The separately installable `webong/gateway-zorvia-mailbox`
+package registers adapter identifier `zorvia`. Zorvia's CRM registers the
+source with:
+
+```json
+{"name":"zorvia-primary","adapter":"zorvia","url":"https://app.example.com/api/connect/connections/setup","authorization":"<connection-owned bearer with connections:setup scope>"}
+```
+
+The extension uses PATCH by default; its published `gateway-zorvia-mailbox`
+config may select PUT. It sends the connection-owned bearer and
 `{"context":{"account_id":"...","connection_id":"...","protocol":"imap","address":"..."}}`.
 That translation belongs to the installed adapter, not Gateway core. The
 existing JavaScript/Lua route and schedule hooks are asynchronous Spinner

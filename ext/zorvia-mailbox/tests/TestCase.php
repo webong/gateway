@@ -1,0 +1,38 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Webong\Gateway\ZorviaMailbox\Tests;
+
+use Orchestra\Testbench\TestCase as Orchestra;
+use ReflectionClass;
+use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\ZorviaMailbox\ZorviaMailboxExtensionServiceProvider;
+
+abstract class TestCase extends Orchestra
+{
+    protected function getPackageProviders($app): array
+    {
+        return [GatewayServiceProvider::class, ZorviaMailboxExtensionServiceProvider::class];
+    }
+
+    protected function defineEnvironment($app): void
+    {
+        $app['config']->set([
+            'app.key' => 'base64:'.base64_encode(str_repeat('z', 32)),
+            'database.default' => 'sqlite',
+            'database.connections.sqlite' => [
+                'driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '',
+                'foreign_key_constraints' => true,
+            ],
+            'gateway.registry_token' => 'registry-secret',
+            'gateway.internal_token' => 'internal-secret',
+        ]);
+    }
+
+    protected function defineDatabaseMigrations(): void
+    {
+        $provider = new ReflectionClass(GatewayServiceProvider::class);
+        $this->loadMigrationsFrom(dirname((string) $provider->getFileName()).'/database/migrations');
+    }
+}
