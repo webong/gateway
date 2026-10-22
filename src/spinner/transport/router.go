@@ -12,6 +12,7 @@ import (
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryadmin"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliverymembership"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryqueue"
+	automationextensions "github.com/webong/gateway/src/spinner/extensions/automation"
 	"github.com/webong/gateway/src/spinner/internal/config"
 	"github.com/webong/gateway/src/spinner/internal/forwarding"
 	"github.com/webong/gateway/src/spinner/internal/logging"
@@ -65,7 +66,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 	}
 	var adminServer *http.Server
 	if settings.DeliveryAdminAddress != "" {
-		var options []deliveryadmin.HandlerOption
+		options := []deliveryadmin.HandlerOption{deliveryadmin.WithAutomationExecutor(automationextensions.Runtime())}
 		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" {
 			var checker interface{ CheckSigningDomain(string) error }
 			if settings.SMTPRelayAddress != "" {

@@ -157,6 +157,7 @@ func (s *Server) ConfigureDeliveryQueue() error {
 	}
 	if s.config.DeliveryAdminAddress != "" {
 		var options []deliveryadmin.HandlerOption
+		options = append(options, deliveryadmin.WithAutomationExecutor(s.automation))
 		if history := automationextensions.RunHistory(); history != nil {
 			options = append(options, deliveryadmin.WithShellRunHistory(history))
 		}

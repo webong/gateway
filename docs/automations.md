@@ -5,6 +5,8 @@ and authorized a route. The standalone Gateway Driver module owns the
 language-neutral execution interface, dispatcher, and output validation.
 Spinner builds on that interface and owns composition and network policy.
 JavaScript, Lua, Shell, and WebhookScript are separate language extensions.
+JavaScript, Lua, and WebhookScript can also shape synchronous credential-source
+requests for application-managed mail connections.
 
 ```text
 JavaScript / Lua / Shell: public event -> Laravel route plan -> installed Go extension -> response / delivery queue
@@ -51,7 +53,8 @@ Installing a published extension package continues to work through ordinary
 Composer and Laravel package discovery.
 
 Planner does not contain a built-in language list. Each extension's Laravel
-provider registers its execution target and route/schedule capabilities. A
+provider registers its execution target and route, schedule, or credential
+capabilities. A
 framework-free `ExtensionProviderRegistry` in `lib/contract` carries the
 Composer-discovered provider class names into Planner, while the
 `AutomationLanguageRegistry` carries their capabilities. Spinner independently
@@ -172,6 +175,26 @@ execution context. Core validates the common response and delivery outcome
 before network I/O. The WebhookScript extension applies its own PHP-side
 source, time, delivery, and log limits.
 Keep scripts short; use normal workers for long-running or CPU-heavy work.
+
+## Credential hooks
+
+An account can register an `email.credential-source` with adapter `script`, an
+installed language, source code, a fixed HTTPS URL, and a write-only bearer.
+This is the generic integration seam for applications whose credential API
+uses a different method or JSON envelope than Gateway's built-in HTTP source.
+
+JavaScript and Lua receive a `gateway.event` containing `account_id`,
+`connection_id`, `protocol`, `address`, and `source_url`. WebhookScript receives
+the same values as `credential.account_id`, `credential.connection_id`, and so
+on. The script must emit exactly one delivery and cannot respond or schedule.
+
+The script only shapes the request. Gateway requires its URL to equal the
+registered source URL, permits POST, PUT, or PATCH, rejects authorization,
+cookie, proxy, and host headers from the script, then injects the registered
+bearer and performs the bounded HTTPS request. The script never sees either
+the source bearer or the short-lived access token returned by the application.
+The ordinary mailbox grant validator still verifies account, connection,
+address, capability, and expiry before the token can be used.
 
 ## Scheduled automations
 

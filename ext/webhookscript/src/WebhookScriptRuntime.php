@@ -21,7 +21,8 @@ final readonly class WebhookScriptRuntime
     ) {
     }
 
-    public function execute(string $source, IngressRequest $request): WebhookScriptOutcome
+    /** @param array<string, mixed> $variables */
+    public function execute(string $source, IngressRequest $request, array $variables = []): WebhookScriptOutcome
     {
         if (trim($source) === '') {
             throw new WebhookScriptExecutionException('WebhookScript source is required.');
@@ -33,7 +34,7 @@ final readonly class WebhookScriptRuntime
             throw new WebhookScriptExecutionException('WebhookScript execution requires the PCNTL extension.');
         }
 
-        $host = new WebhookScriptHost($request, $this->maxDeliveries, $this->maxSchedules, $this->maxLogs);
+        $host = new WebhookScriptHost($request, $this->maxDeliveries, $this->maxSchedules, $this->maxLogs, $variables);
 
         try {
             $interpreter = $this->withoutVendorDeprecations(function () use ($host): Interpreter {

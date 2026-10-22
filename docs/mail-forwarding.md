@@ -468,24 +468,22 @@ implement the same callback without knowing any provider-specific Gateway
 details. The source must answer quickly and avoid returning provider error
 bodies or refresh credentials.
 
-A client-specific adapter may instead call its application-generated URL with
-PATCH or PUT and wrap the context in another request shape, while returning
-the same grant. The separately installable `webong/gateway-zorvia-mailbox`
-package registers adapter identifier `zorvia`. Zorvia's CRM registers the
-source with:
+A scripted source can instead shape the request for any application's API.
+The source keeps its registered URL and bearer secret, while the script sees
+only the connection context and emits exactly one POST, PUT, or PATCH request:
 
 ```json
-{"name":"zorvia-primary","adapter":"zorvia","url":"https://app.example.com/api/connect/connections/setup","authorization":"<connection-owned bearer with connections:setup scope>"}
+{"name":"application-primary","adapter":"script","language":"javascript","url":"https://app.example.com/api/connect/connections/setup","authorization":"<connection-owned bearer>","source":"gateway.forward({url: gateway.event.source_url, method: 'PATCH', headers: {'Content-Type': ['application/json']}, body: JSON.stringify({context: gateway.event})});"}
 ```
 
-The extension uses PATCH by default; its published `gateway-zorvia-mailbox`
-config may select PUT. It sends the connection-owned bearer and
-`{"context":{"account_id":"...","connection_id":"...","protocol":"imap","address":"..."}}`.
-That translation belongs to the installed adapter, not Gateway core. The
-existing JavaScript/Lua route and schedule hooks are asynchronous Spinner
-automations; they do not synchronously return credentials to Planner. A future
-script-driven credential hook would need a separate synchronous, secret-aware
-Planner interface and security model.
+JavaScript and Lua execute in Spinner; WebhookScript executes in Planner. All
+three receive `account_id`, `connection_id`, `protocol`, `address`, and
+`source_url`. WebhookScript reads these as `credential.*` variables and calls
+`forward(...)`. Gateway requires the emitted URL to equal the registered URL,
+rejects credential and routing headers supplied by scripts, injects the
+encrypted bearer after script execution, and applies the same public-network,
+TLS, response-size, timeout, and grant-shape checks as the built-in `http`
+adapter. Scripts never receive the bearer or the returned access token.
 
 For Gateway-managed customer OAuth consent, configure a fixed HTTPS
 `GATEWAY_EMAIL_OAUTH_CALLBACK_URL` handled by the client application, the matching

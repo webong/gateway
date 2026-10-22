@@ -38,8 +38,9 @@ final class WebhookScriptHost
         private readonly int $maxDeliveries,
         private readonly int $maxSchedules,
         private readonly int $maxLogs,
+        array $variables = [],
     ) {
-        $scriptVariables = Value::buildAutomatic($this->requestVariables($request));
+        $scriptVariables = Value::buildAutomatic(array_merge($this->requestVariables($request), $variables));
         if (! $scriptVariables instanceof ArrayValue) {
             throw new InvalidArgumentException('WebhookScript variables could not be initialized.');
         }

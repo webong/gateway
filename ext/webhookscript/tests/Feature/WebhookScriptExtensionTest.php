@@ -28,7 +28,11 @@ it('decorates the configured planner only when the extension provider is install
         ->and(app(AutomationLanguageRegistry::class)->supports(
             WebhookScriptLanguage::ID,
             AutomationCapability::SCHEDULE,
-        ))->toBeFalse();
+        ))->toBeFalse()
+        ->and(app(AutomationLanguageRegistry::class)->supports(
+            WebhookScriptLanguage::ID,
+            AutomationCapability::CREDENTIAL,
+        ))->toBeTrue();
 
     expect($planner)->toBeInstanceOf(PrimiRoutePlanner::class);
 

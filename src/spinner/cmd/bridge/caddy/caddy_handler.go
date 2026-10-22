@@ -179,7 +179,7 @@ func (g *CaddyHandler) Provision(ctx caddy.Context) error {
 			return fmt.Errorf("gateway admin_addr requires spool_path or delivery_database_url")
 		}
 		adminQueue := deliveryadmin.NewMultiQueue(queue)
-		var options []deliveryadmin.HandlerOption
+		options := []deliveryadmin.HandlerOption{deliveryadmin.WithAutomationExecutor(automationextensions.Runtime())}
 		if configured, appErr := ctx.AppIfConfigured("gateway.smtp"); appErr == nil {
 			if smtpApp, ok := configured.(*SMTPApp); ok && smtpApp.deliveryQueue != nil {
 				adminQueue = deliveryadmin.NewMultiQueue(queue, smtpApp.deliveryQueue)

@@ -25,7 +25,8 @@ it('discovers extension-owned Planner companions through Composer', function ():
     foreach ([JavaScriptLanguage::ID, LuaLanguage::ID] as $language) {
         expect($registry->target($language))->toBe(AutomationExecutionTarget::SPINNER)
             ->and($registry->supports($language, AutomationCapability::ROUTE))->toBeTrue()
-            ->and($registry->supports($language, AutomationCapability::SCHEDULE))->toBeTrue();
+            ->and($registry->supports($language, AutomationCapability::SCHEDULE))->toBeTrue()
+            ->and($registry->supports($language, AutomationCapability::CREDENTIAL))->toBeTrue();
     }
 
     expect($registry->target(ShellLanguage::ID))->toBe(AutomationExecutionTarget::SPINNER)
@@ -34,5 +35,6 @@ it('discovers extension-owned Planner companions through Composer', function ():
 
     expect($registry->target(WebhookScriptLanguage::ID))->toBe(AutomationExecutionTarget::PLANNER)
         ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::ROUTE))->toBeTrue()
-        ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse();
+        ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse()
+        ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::CREDENTIAL))->toBeTrue();
 });

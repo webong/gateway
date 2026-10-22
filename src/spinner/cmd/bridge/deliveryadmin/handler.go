@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/webong/gateway/driver/automation"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryqueue"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/smtp"
@@ -29,10 +30,11 @@ type queue interface {
 }
 
 type Handler struct {
-	queue queue
-	token string
-	email *emailSubmission
-	runs  runHistoryReader
+	queue      queue
+	token      string
+	email      *emailSubmission
+	runs       runHistoryReader
+	automation automation.Executor
 }
 
 type runHistoryReader interface {
@@ -57,6 +59,19 @@ type emailSubmission struct {
 }
 
 type HandlerOption func(*Handler) error
+
+// WithAutomationExecutor exposes synchronous, declarative script execution on
+// the private admin listener. Scripts return a request plan; they never receive
+// the registered credential or a network client.
+func WithAutomationExecutor(executor automation.Executor) HandlerOption {
+	return func(handler *Handler) error {
+		if executor == nil {
+			return errors.New("automation executor is required")
+		}
+		handler.automation = executor
+		return nil
+	}
+}
 
 // WithShellRunHistory exposes redacted shell-run records on the private admin
 // listener. The reader enforces run ID and file safety checks.
@@ -92,8 +107,8 @@ func NewHandler(queue queue, token string, options ...HandlerOption) (*Handler, 
 			return nil, err
 		}
 	}
-	if queue == nil && handler.runs == nil {
-		return nil, errors.New("private admin requires a delivery queue or shell run history")
+	if queue == nil && handler.runs == nil && handler.automation == nil {
+		return nil, errors.New("private admin requires a delivery queue, shell run history or automation executor")
 	}
 	return handler, nil
 }
@@ -106,6 +121,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	path := request.URL.Path
+	if path == "/automation/credential-hook" {
+		handler.executeCredentialHook(writer, request)
+		return
+	}
 	if strings.HasPrefix(path, "/shell/runs/") {
 		if handler.runs == nil {
 			http.NotFound(writer, request)
@@ -215,6 +234,41 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	writeJSON(writer, http.StatusOK, status)
+}
+
+func (handler *Handler) executeCredentialHook(writer http.ResponseWriter, request *http.Request) {
+	if handler.automation == nil {
+		http.NotFound(writer, request)
+		return
+	}
+	if request.Method != http.MethodPost {
+		methodNotAllowed(writer, http.MethodPost)
+		return
+	}
+	if request.Header.Get("Content-Type") != "application/json" {
+		writeError(writer, http.StatusUnsupportedMediaType, "JSON content type is required.")
+		return
+	}
+	var input struct {
+		Language string         `json:"language"`
+		Source   string         `json:"source"`
+		Event    map[string]any `json:"event"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, 131072))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || decoder.Decode(new(any)) != io.EOF ||
+		len(input.Language) > 64 || len(input.Source) > 65536 || input.Event == nil {
+		writeError(writer, http.StatusBadRequest, "Invalid credential hook.")
+		return
+	}
+	outcome, err := handler.automation.Execute(request.Context(), automation.Script{
+		Language: automation.Language(input.Language), Source: input.Source,
+	}, automation.Input{Event: input.Event})
+	if err != nil || len(outcome.Deliveries) != 1 || len(outcome.Schedules) != 0 || outcome.Response != nil {
+		writeError(writer, http.StatusUnprocessableEntity, "Credential hook did not return one request.")
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"delivery": outcome.Deliveries[0]})
 }
 
 func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Request) {

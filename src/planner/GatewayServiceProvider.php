@@ -60,6 +60,7 @@ use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\MailboxCredentialSourceStore;
 use Webong\Gateway\Email\ApplicationMailboxGrantSource;
 use Webong\Gateway\Email\ConfiguredApplicationMailboxGrantSource;
+use Webong\Gateway\Email\CredentialScriptRegistry;
 use Webong\Gateway\Email\MailboxOAuthRefresher;
 use Webong\Gateway\Email\EmailRegistry;
 use Webong\Gateway\Email\EmailMessagePolicy;
@@ -127,6 +128,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
         $this->app->bind(MxResolver::class, NativeMxResolver::class);
         $this->app->bind(ApplicationMailboxGrantSource::class, ConfiguredApplicationMailboxGrantSource::class);
+        $this->app->singleton(CredentialScriptRegistry::class);
         $this->app->bind(MailboxConnectionStore::class, function (): MailboxConnectionStore {
             $configured = config('gateway.email.oauth_refresher');
             $refresher = null;

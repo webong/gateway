@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/webong/gateway/driver/automation"
 	bridge "github.com/webong/gateway/src/spinner/cmd/bridge"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/deliveryqueue"
 	"github.com/webong/gateway/src/spinner/cmd/bridge/smtp"
@@ -25,6 +26,46 @@ type fakeQueue struct {
 }
 
 type fakeRunHistory struct{ id string }
+
+type fakeAutomationExecutor struct{ outcome automation.Outcome }
+
+func (executor fakeAutomationExecutor) Execute(_ context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
+	if script.Language != "javascript" || script.Source != "source" || input.Event["protocol"] != "imap" {
+		return automation.Outcome{}, errors.New("unexpected input")
+	}
+	return executor.outcome, nil
+}
+
+func (fakeAutomationExecutor) Supports(language automation.Language) bool {
+	return language == "javascript"
+}
+
+func TestHandlerExecutesOneCredentialRequestOnPrivateListener(t *testing.T) {
+	handler, err := NewHandler(nil, "private-token", WithAutomationExecutor(fakeAutomationExecutor{outcome: automation.Outcome{
+		Deliveries: []automation.Delivery{{URL: "https://app.example.test/setup", Method: "PATCH", Body: `{}`}},
+	}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := bytes.NewBufferString(`{"language":"javascript","source":"source","event":{"protocol":"imap"}}`)
+	request := httptest.NewRequest(http.MethodPost, "/automation/credential-hook", body)
+	request.Header.Set("Authorization", "Bearer private-token")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"method":"PATCH"`)) {
+		t.Fatalf("credential hook response: %d %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/automation/credential-hook", bytes.NewBufferString(`{"language":"javascript","source":"source","event":{"protocol":"imap"}}`))
+	request.Header.Set("Authorization", "Bearer wrong-token")
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("credential hook accepted wrong token: %d", response.Code)
+	}
+}
 
 func (history fakeRunHistory) ReadRun(id string) ([]byte, error) {
 	if id != history.id {

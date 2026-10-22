@@ -10,6 +10,7 @@ use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
+use Webong\Gateway\Email\CredentialScriptRegistry;
 
 final class WebhookScriptExtensionServiceProvider extends ServiceProvider
 {
@@ -38,6 +39,11 @@ final class WebhookScriptExtensionServiceProvider extends ServiceProvider
             WebhookScriptLanguage::ID,
             AutomationExecutionTarget::PLANNER,
             AutomationCapability::ROUTE,
+            AutomationCapability::CREDENTIAL,
+        );
+        $this->app->make(CredentialScriptRegistry::class)->register(
+            WebhookScriptLanguage::ID,
+            new WebhookScriptCredentialExecutor($this->app->make(WebhookScriptRuntime::class)),
         );
 
         $this->publishes([

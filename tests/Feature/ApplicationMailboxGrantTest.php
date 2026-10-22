@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\ApplicationMailboxGrantSource;
 use Webong\Gateway\Email\ConnectedIMAPAuthenticator;
 use Webong\Gateway\Email\ConfiguredApplicationMailboxGrantSource;
+use Webong\Gateway\Email\CredentialScriptExecutor;
+use Webong\Gateway\Email\CredentialScriptRegistry;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\MailboxCredentialSourceStore;
 use Webong\Gateway\Email\MailboxPollStore;
+use Webong\Gateway\Email\SpinnerCredentialScriptExecutor;
+use Webong\Gateway\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Protocol\EventKind;
+use Webong\Gateway\Protocol\Delivery;
 use Webong\Gateway\Protocol\GatewayEvent;
 use Webong\Gateway\Protocol\Protocol;
 
@@ -34,6 +40,57 @@ function applicationMailboxUpstreams(): void
         'address' => 'smtp.example.test:465', 'server_name' => 'smtp.example.test',
         'tls_mode' => 'implicit']);
 }
+
+it('stores generic credential scripts and exposes only a declarative request capability', function (): void {
+    $token = app(AccountStore::class)->create('app-one');
+    $executor = new class implements CredentialScriptExecutor {
+        public array $events = [];
+
+        public function execute(string $source, array $event): Delivery
+        {
+            $this->events[] = compact('source', 'event');
+            return new Delivery($event['source_url'], method: 'PATCH',
+                headers: ['Content-Type' => ['application/json']], body: '{"context":true}');
+        }
+    };
+    app(CredentialScriptRegistry::class)->register('testscript', $executor);
+    $payload = ['name' => 'scripted', 'adapter' => 'script', 'language' => 'testscript',
+        'source' => 'forward source', 'url' => 'https://credentials.example.com/setup',
+        'authorization' => str_repeat('s', 48)];
+    $id = $this->withToken($token)
+        ->postJson('https://localhost/email/mailbox-accounts/app-one/credential-sources', $payload)
+        ->assertCreated()->assertJsonPath('adapter', 'script')->assertJsonPath('language', 'testscript')
+        ->assertJsonPath('source', 'forward source')->assertDontSee($payload['authorization'])->json('id');
+    $stored = app(MailboxCredentialSourceStore::class)->active('app-one', $id);
+    expect($stored)->toMatchArray(['adapter' => 'script', 'language' => 'testscript',
+        'source' => 'forward source', 'url' => $payload['url']]);
+
+    $delivery = app(CredentialScriptRegistry::class)->execute('testscript', $stored['source'], [
+        'source_url' => $stored['url'], 'protocol' => 'imap',
+    ]);
+    expect($delivery->method)->toBe('PATCH')
+        ->and($executor->events[0]['event'])->not->toHaveKey('authorization');
+    $this->withToken($token)->postJson('https://localhost/email/mailbox-accounts/app-one/credential-sources',
+        [...$payload, 'name' => 'unsupported', 'language' => 'missing'])->assertUnprocessable();
+});
+
+it('executes Go credential scripts through the authenticated private admin contract', function (): void {
+    config()->set('gateway.internal_token', 'private-token');
+    config()->set('gateway.delivery_admin_url', 'http://gateway-admin.test');
+    Http::fake(['http://gateway-admin.test/automation/credential-hook' => Http::response([
+        'delivery' => ['url' => 'https://application.example.test/setup', 'method' => 'PATCH',
+            'headers' => ['Content-Type' => ['application/json']], 'body' => '{"context":true}'],
+    ])]);
+
+    $delivery = (new SpinnerCredentialScriptExecutor(app(DeliveryAdminClient::class), 'javascript'))
+        ->execute('gateway.forward({});', ['protocol' => 'imap']);
+
+    expect($delivery->method)->toBe('PATCH')->and($delivery->body)->toBe('{"context":true}');
+    Http::assertSent(fn ($request): bool => $request->url() === 'http://gateway-admin.test/automation/credential-hook'
+        && $request->hasHeader('Authorization', 'Bearer private-token')
+        && $request['language'] === 'javascript'
+        && $request['event'] === ['protocol' => 'imap']);
+});
 
 it('registers an account-owned HTTPS credential source without exposing its bearer token', function (): void {
     $accounts = app(AccountStore::class);

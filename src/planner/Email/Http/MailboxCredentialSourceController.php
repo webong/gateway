@@ -62,9 +62,11 @@ final readonly class MailboxCredentialSourceController
 
     private function resource(object $row): array
     {
-        return ['id' => $row->id, 'name' => $row->key, 'url' => $row->document['url'],
+        return array_filter(['id' => $row->id, 'name' => $row->key, 'url' => $row->document['url'],
             'adapter' => $row->document['adapter'] ?? 'http',
-            'enabled' => $row->enabled, 'revision' => $row->revision];
+            'language' => $row->document['language'] ?? null, 'source' => $row->document['source'] ?? null,
+            'enabled' => $row->enabled, 'revision' => $row->revision],
+            static fn (mixed $value): bool => $value !== null);
     }
 
     private function error(string $message, int $status): JsonResponse

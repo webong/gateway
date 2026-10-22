@@ -53,6 +53,7 @@ return [
         // Source records select an installed key; they cannot name arbitrary classes.
         'credential_source_adapters' => [
             'http' => \Webong\Gateway\Email\HttpApplicationMailboxGrantSource::class,
+            'script' => \Webong\Gateway\Email\ScriptedApplicationMailboxGrantSource::class,
         ],
         'oauth' => [
             'callback_url' => env('GATEWAY_EMAIL_OAUTH_CALLBACK_URL'),

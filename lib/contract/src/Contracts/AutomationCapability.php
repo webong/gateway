@@ -8,4 +8,5 @@ enum AutomationCapability: string
 {
     case ROUTE = 'route';
     case SCHEDULE = 'schedule';
+    case CREDENTIAL = 'credential';
 }
