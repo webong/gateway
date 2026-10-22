@@ -32,14 +32,14 @@ func run(check bool) error {
 	if config.TargetID == "" || config.TargetToken == "" {
 		return fmt.Errorf("GATEWAY_PROVISIONING_TARGET_ID and GATEWAY_PROVISIONING_TARGET_TOKEN are required")
 	}
-	backend := os.Getenv("GATEWAY_LARAVEL_BACKEND_URL")
+	plannerURL := os.Getenv("GATEWAY_PLANNER_URL")
 	client := &http.Client{Timeout: 30 * time.Second}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if check {
 		checkContext, cancelCheck := context.WithTimeout(ctx, config.StartTimeout)
 		defer cancelCheck()
-		if err := provision.CheckTarget(checkContext, config.Config, backend, client); err != nil {
+		if err := provision.CheckTarget(checkContext, config.Config, plannerURL, client); err != nil {
 			return err
 		}
 		fmt.Println("Target connection checks passed. No workloads changed.")
@@ -57,7 +57,7 @@ func run(check bool) error {
 	if len(workloads) == 0 {
 		return fmt.Errorf("configure at least one executable in GATEWAY_EXTENSION_PATHS")
 	}
-	runtime, err := provision.Start(config.Config, backend, "", client, logging.NewLogger(os.Getenv("GATEWAY_LOG_LEVEL")), workloads...)
+	runtime, err := provision.Start(config.Config, plannerURL, "", client, logging.NewLogger(os.Getenv("GATEWAY_LOG_LEVEL")), workloads...)
 	if err != nil {
 		return err
 	}

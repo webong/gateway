@@ -32,7 +32,7 @@ not reserve a special webhook path.
 
 ```dotenv
 GATEWAY_RUNTIME=http
-GATEWAY_LARAVEL_BACKEND_URL=http://gateway-planner:8080
+GATEWAY_PLANNER_URL=http://gateway-planner:8080
 GATEWAY_INTERNAL_TOKEN=private-router-to-planner-token
 PORT=5001
 ```

@@ -9,12 +9,12 @@ import (
 	relayconfig "github.com/webong/gateway/src/spinner/internal/config"
 )
 
-// newLaravelBackendClient preserves the HTTP planner contract while allowing a
-// colocated PHP server to be reached through a Unix domain socket. The backend
+// newPlannerClient preserves the HTTP planner contract while allowing a
+// colocated Planner to be reached through a Unix domain socket. The Planner
 // URL still supplies the HTTP Host header and optional path prefix.
-func newLaravelBackendClient(config *relayconfig.Config) *http.Client {
+func newPlannerClient(config *relayconfig.Config) *http.Client {
 	client := &http.Client{Timeout: config.RequestTimeout}
-	if config.LaravelBackendSocket == "" {
+	if config.PlannerSocket == "" {
 		return client
 	}
 
@@ -22,7 +22,7 @@ func newLaravelBackendClient(config *relayconfig.Config) *http.Client {
 	client.Transport = &http.Transport{
 		Proxy: nil,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			return dialer.DialContext(ctx, "unix", config.LaravelBackendSocket)
+			return dialer.DialContext(ctx, "unix", config.PlannerSocket)
 		},
 		ForceAttemptHTTP2: false,
 	}

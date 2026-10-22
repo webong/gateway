@@ -87,7 +87,7 @@ From the repository root:
 ```sh
 go build -mod=readonly -o /tmp/gateway-provision ./src/spinner/cmd/provision
 
-export GATEWAY_LARAVEL_BACKEND_URL=https://planner.example.com
+export GATEWAY_PLANNER_URL=https://planner.example.com
 export GATEWAY_PROVISIONING_TARGET_ID=TARGET_ID_FROM_RESPONSE
 export GATEWAY_PROVISIONING_TARGET_TOKEN=WORKER_TOKEN_FROM_RESPONSE
 export GATEWAY_NODE_ID=production-worker-1
@@ -268,7 +268,7 @@ Spinner, opt into Planner-backed managed routing:
 
 ```sh
 GATEWAY_RUNTIME=http
-GATEWAY_LARAVEL_BACKEND_URL=http://planner.internal:8080
+GATEWAY_PLANNER_URL=http://planner.internal:8080
 GATEWAY_INTERNAL_TOKEN=YOUR_PRIVATE_INTERNAL_TOKEN
 GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED=true
 GATEWAY_PROVISIONING_ROUTE_CIDRS=10.244.0.0/16
@@ -396,7 +396,7 @@ if traffic proxying and provisioning are intentionally colocated.
   `/_internal/provisioning` routes to the bundled Planner; the public Router
   still returns 404 for all `/_internal` routes. For a worker in another
   container or host, bind this listener to a trusted private interface and
-  set the worker's `GATEWAY_LARAVEL_BACKEND_URL` to that private origin.
+  set the worker's `GATEWAY_PLANNER_URL` to that private origin.
   Do not publish port 5053 through public ingress. Enforce network policy or
   host firewall restrictions, and use TLS or a trusted private transport.
   Planner still authenticates target-worker and internal-token requests.

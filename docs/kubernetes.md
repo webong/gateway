@@ -6,7 +6,7 @@ Email, DNS, and TLS edge overlays:
 | Configuration | Container | Planner | Persistent state |
 | --- | --- | --- | --- |
 | [`infra/kubernetes/router`](../infra/kubernetes/router) | Combined Router image from `infra/docker/Gateway.router.Dockerfile` | Bundled in-process through the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
-| [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Go-only image from the root `Dockerfile` | Separate Laravel service at `GATEWAY_LARAVEL_BACKEND_URL` | None for the default HTTP transport |
+| [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Go-only image from the root `Dockerfile` | Separate Laravel service at `GATEWAY_PLANNER_URL` | None for the default HTTP transport |
 | [`infra/kubernetes/planner`](../infra/kubernetes/planner) | Standalone Laravel/FrankenPHP image from `infra/docker/Gateway.planner.Dockerfile` | Runs the Planner and registration API | External PostgreSQL; ephemeral local cache/storage |
 | [`infra/kubernetes/provision`](../infra/kubernetes/provision) | Dedicated target worker from the `kubernetes` target of `infra/docker/Gateway.provision.Dockerfile` | Separate private Planner connection | Planner target state; no local worker database |
 
@@ -83,7 +83,7 @@ For the next upgrade, remove the completed Job before creating it with the new
 image tag. Its Pod needs network access to PostgreSQL; the Planner and Spinner
 Pods need private reachability to each other. The `planner` Service is
 ClusterIP at `http://planner:8080`, matching Spinner's default
-`GATEWAY_LARAVEL_BACKEND_URL`. Do not publish this Service wholesale: it also
+`GATEWAY_PLANNER_URL`. Do not publish this Service wholesale: it also
 contains internal routes. External clients use the public Spinner gateway
 origin for authenticated Planner management routes such as
 `/registry/endpoints`. The Planner kustomization includes an ingress

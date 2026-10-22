@@ -81,14 +81,14 @@ wait_http() {
 }
 wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
 
-GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
+GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" GATEWAY_DNS_ADDR="127.0.0.1:$DNS_PORT" \
 GATEWAY_DNS_ZONE_REFRESH_INTERVAL=100ms PORT="$GO_PORT" LOG_LEVEL=error \
 "$GO_BIN" >"$GO_LOG" 2>&1 &
 GO_PID=$!
 wait_http "http://127.0.0.1:$GO_PORT/health" "$GO_LOG" "$GO_PID"
 
-GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
+GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" GATEWAY_DNS_ADDR="127.0.0.1:$DNS2_PORT" \
 GATEWAY_DNS_ZONE_REFRESH_INTERVAL=100ms PORT="$GO2_PORT" LOG_LEVEL=error \
 "$GO_BIN" >"$GO2_LOG" 2>&1 &
@@ -191,7 +191,7 @@ survivor_mx="$(dig @127.0.0.1 -p "$DNS2_PORT" +time=1 +tries=2 +short first.exam
 
 # A restarted node is a cold process: it must reload the Planner-owned zone
 # snapshot before serving, rather than depending on its previous in-memory copy.
-GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
+GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" GATEWAY_DNS_ADDR="127.0.0.1:$DNS_PORT" \
 GATEWAY_DNS_ZONE_REFRESH_INTERVAL=100ms PORT="$GO_PORT" LOG_LEVEL=error \
 "$GO_BIN" >"$GO_LOG" 2>&1 &

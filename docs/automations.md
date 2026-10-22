@@ -217,7 +217,7 @@ A schedule's `gateway.event` contains `type: "schedule"`, `run_id`,
 `gateway.get('payload.key')` also reads that payload.
 
 Enable polling on separate Spinner with `GATEWAY_RUNTIME=http`,
-`GATEWAY_SCHEDULES_ENABLED=true`, `GATEWAY_LARAVEL_BACKEND_URL`, and a shared
+`GATEWAY_SCHEDULES_ENABLED=true`, `GATEWAY_PLANNER_URL`, and a shared
 `GATEWAY_INTERNAL_TOKEN`. The bundled RoadRunner and FrankenPHP-library Router
 also support `GATEWAY_SCHEDULES_ENABLED=true`; they call their embedded Planner
 through the same private schedule endpoints without another network listener.

@@ -10,7 +10,7 @@ recursive resolver.
 Run `docker-compose.dns.example.yml` once on **each of two separate hosts or
 failure domains**. Give each host its own public address and persistent
 process supervision. Both must run the same Gateway release and receive the
-same `GATEWAY_INTERNAL_TOKEN` and private `GATEWAY_LARAVEL_BACKEND_URL`.
+same `GATEWAY_INTERNAL_TOKEN` and private `GATEWAY_PLANNER_URL`.
 Planner is the shared zone catalog; each Spinner refreshes it without a restart.
 Do not expose Planner publicly. The Compose
 example publishes both `53/udp` and `53/tcp` on its host.

@@ -115,7 +115,7 @@ wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
 run_http_mode() {
     : >"$RECEIVER_FILE"
     GATEWAY_RUNTIME=http \
-    GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
+    GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
     PORT="$HTTP_PORT" \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" \
     GATEWAY_SMTP_ADDR=":$HTTP_SMTP_PORT" \

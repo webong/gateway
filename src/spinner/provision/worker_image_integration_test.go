@@ -154,7 +154,7 @@ func TestProvisionWorkerImageChecksRealPlanner(t *testing.T) {
 	fixture := newWorkerImageFixture(t)
 	worker := exec.CommandContext(fixture.ctx, "docker", "run", "--rm", "--network", "host", "--user", "0:0",
 		"--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
-		"--env", "GATEWAY_LARAVEL_BACKEND_URL="+fixture.backend,
+		"--env", "GATEWAY_PLANNER_URL="+fixture.backend,
 		"--env", "GATEWAY_PROVISIONING_TARGET_ID="+fixture.targetID,
 		"--env", "GATEWAY_PROVISIONING_TARGET_TOKEN="+fixture.targetToken,
 		"--env", "GATEWAY_NODE_ID=disposable-image-check",
@@ -246,7 +246,7 @@ func TestProvisionWorkerImageRecoversCentrifugo(t *testing.T) {
 		command := exec.CommandContext(fixture.ctx, "docker", "run", "--detach", "--rm", "--pull", "never",
 			"--name", name, "--network", "host", "--user", "0:0",
 			"--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
-			"--env", "GATEWAY_LARAVEL_BACKEND_URL="+fixture.backend,
+			"--env", "GATEWAY_PLANNER_URL="+fixture.backend,
 			"--env", "GATEWAY_PROVISIONING_TARGET_ID="+fixture.targetID,
 			"--env", "GATEWAY_PROVISIONING_TARGET_TOKEN="+fixture.targetToken,
 			"--env", "GATEWAY_NODE_ID="+nodeID,

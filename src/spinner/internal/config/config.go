@@ -13,8 +13,8 @@ import (
 
 type Config struct {
 	Runtime                    string
-	LaravelBackendURL          string
-	LaravelBackendSocket       string
+	PlannerURL                 string
+	PlannerSocket              string
 	Port                       string
 	RoadRunnerEnabled          bool
 	RoadRunnerConfigPath       string
@@ -232,7 +232,7 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 
 	dnsAddress := getEnv("GATEWAY_DNS_ADDR", "")
-	dynamicDNS := (runtime == "http" && getEnv("GATEWAY_LARAVEL_BACKEND_URL", "") != "" || runtime == "roadrunner") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
+	dynamicDNS := (runtime == "http" && getEnv("GATEWAY_PLANNER_URL", "") != "" || runtime == "roadrunner") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
 	if dnsAddress != "" && !dynamicDNS {
 		return nil, fmt.Errorf("GATEWAY_DNS_ADDR requires a private Planner connection and GATEWAY_INTERNAL_TOKEN")
 	}
@@ -240,8 +240,8 @@ func loadConfig(runtime string) (*Config, error) {
 
 	config := &Config{
 		Runtime:                    runtime,
-		LaravelBackendURL:          getEnv("GATEWAY_LARAVEL_BACKEND_URL", ""),
-		LaravelBackendSocket:       getEnv("GATEWAY_LARAVEL_BACKEND_SOCKET", ""),
+		PlannerURL:                 getEnv("GATEWAY_PLANNER_URL", ""),
+		PlannerSocket:              getEnv("GATEWAY_PLANNER_SOCKET", ""),
 		Port:                       getEnv("PORT", "5001"),
 		RoadRunnerEnabled:          runtime == "roadrunner",
 		RoadRunnerConfigPath:       getEnv("ROADRUNNER_CONFIG", ".rr.yaml"),
@@ -340,19 +340,19 @@ func loadConfig(runtime string) (*Config, error) {
 		ProvisioningRouteProxy:     getEnvBool("GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED", false),
 		ProvisioningRouteCIDRs:     getEnvList("GATEWAY_PROVISIONING_ROUTE_CIDRS"),
 	}
-	if config.LaravelBackendSocket != "" && config.Runtime != "http" {
-		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_SOCKET requires an external Planner HTTP connection")
+	if config.PlannerSocket != "" && config.Runtime != "http" {
+		return nil, fmt.Errorf("GATEWAY_PLANNER_SOCKET requires an external Planner HTTP connection")
 	}
 	if config.SchedulesEnabled && config.Runtime != "http" && config.Runtime != "embedded" {
 		return nil, fmt.Errorf("GATEWAY_SCHEDULES_ENABLED requires an HTTP or bundled Router Planner connection")
 	}
-	if config.Runtime == "embedded" && config.LaravelBackendURL != "" {
-		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_URL is for an external Planner; the bundled Router uses its in-process Planner")
+	if config.Runtime == "embedded" && config.PlannerURL != "" {
+		return nil, fmt.Errorf("GATEWAY_PLANNER_URL is for an external Planner; the bundled Router uses its in-process Planner")
 	}
 	if config.ProvisioningRouteProxy && (config.Runtime != "http" && config.Runtime != "embedded" || config.Provisioning.Enabled) {
 		return nil, fmt.Errorf("GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED requires HTTP Spinner or bundled Router without a local provisioning worker")
 	}
-	if config.ProvisioningRouteProxy && (config.Runtime == "http" && config.LaravelBackendURL == "" || config.InternalToken == "") {
+	if config.ProvisioningRouteProxy && (config.Runtime == "http" && config.PlannerURL == "" || config.InternalToken == "") {
 		return nil, fmt.Errorf("GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED requires a Planner connection and GATEWAY_INTERNAL_TOKEN")
 	}
 	if config.ProvisioningRouteProxy && len(config.ProvisioningRouteCIDRs) == 0 {

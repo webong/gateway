@@ -123,7 +123,7 @@ curl -fsS --max-time 5 \
     "$PHP_URL/applications" >"$BODY"
 
 GATEWAY_RUNTIME=http \
-GATEWAY_LARAVEL_BACKEND_URL="$PHP_URL" \
+GATEWAY_PLANNER_URL="$PHP_URL" \
 PORT="$GATEWAY_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \

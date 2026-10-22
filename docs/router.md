@@ -122,7 +122,7 @@ when you intend to expose it behind your TLS/proxy layer. Set
 All three bundled launchers also bind a provisioning-only Planner listener at
 `127.0.0.1:5053`. Keep this loopback default for a colocated worker. For a
 separate worker, set `GATEWAY_ROUTER_CONTROL_LISTEN` to a trusted private
-interface and point its `GATEWAY_LARAVEL_BACKEND_URL` to that origin. The
+interface and point its `GATEWAY_PLANNER_URL` to that origin. The
 listener accepts only `/_internal/provisioning` paths; Planner applies the
 worker-token or internal-token authorization. Never expose this port through
 the public Router ingress, and enforce private-network access independently

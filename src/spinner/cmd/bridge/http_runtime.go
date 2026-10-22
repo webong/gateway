@@ -32,8 +32,8 @@ type HTTPPlanner struct {
 	MaxBodySize   int64
 }
 
-func NewHTTPPlanner(backendURL string, client *http.Client, maxBodySize int64, internalToken string) (*HTTPPlanner, error) {
-	planURL, err := internalPlanURL(backendURL)
+func NewHTTPPlanner(plannerURL string, client *http.Client, maxBodySize int64, internalToken string) (*HTTPPlanner, error) {
+	planURL, err := internalPlanURL(plannerURL)
 	if err != nil {
 		return nil, err
 	}
@@ -114,8 +114,8 @@ type HTTPRuntime struct {
 	transport   http.RoundTripper
 }
 
-func NewHTTPRuntime(backendURL string, internalToken string, maxBodySize int64, client *http.Client) (*HTTPRuntime, error) {
-	backend, err := parseBackendURL(backendURL)
+func NewHTTPRuntime(plannerURL string, internalToken string, maxBodySize int64, client *http.Client) (*HTTPRuntime, error) {
+	backend, err := parsePlannerURL(plannerURL)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func NewHTTPRuntime(backendURL string, internalToken string, maxBodySize int64, 
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	proxy.Transport = client.Transport
 	proxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, err error) {
-		http.Error(writer, "Laravel backend unavailable", http.StatusBadGateway)
+		http.Error(writer, "Planner unavailable", http.StatusBadGateway)
 	}
 
 	return &HTTPRuntime{
@@ -159,7 +159,7 @@ func (r *HTTPRuntime) PassThrough() http.Handler {
 }
 
 // Handler protects every internal application route at the Go public edge.
-// The Laravel backend still serves those routes privately to Gateway.
+// Planner still serves those routes privately to Gateway.
 func (r *HTTPRuntime) Handler(edge http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if isPathUnder(request.URL.Path, "/_internal") {
@@ -182,25 +182,25 @@ func (r *HTTPRuntime) Close() {
 	}
 }
 
-func parseBackendURL(raw string) (*url.URL, error) {
+func parsePlannerURL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_URL is required for HTTP runtime")
+		return nil, fmt.Errorf("GATEWAY_PLANNER_URL is required for HTTP runtime")
 	}
 
 	backend, err := url.Parse(raw)
 	if err != nil || backend.Scheme == "" || backend.Host == "" {
-		return nil, fmt.Errorf("invalid GATEWAY_LARAVEL_BACKEND_URL %q", raw)
+		return nil, fmt.Errorf("invalid GATEWAY_PLANNER_URL %q", raw)
 	}
 	if backend.Scheme != "http" && backend.Scheme != "https" {
-		return nil, fmt.Errorf("GATEWAY_LARAVEL_BACKEND_URL must use http or https")
+		return nil, fmt.Errorf("GATEWAY_PLANNER_URL must use http or https")
 	}
 
 	return backend, nil
 }
 
-func internalPlanURL(backendURL string) (string, error) {
-	backend, err := parseBackendURL(backendURL)
+func internalPlanURL(plannerURL string) (string, error) {
+	backend, err := parsePlannerURL(plannerURL)
 	if err != nil {
 		return "", err
 	}

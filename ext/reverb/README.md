@@ -113,7 +113,7 @@ PUT /_internal/provisioning/servers/{server}/instances/{instance}
 
 These routes are blocked at the public Go edge. Reconciliation supports
 `local`, `docker`, and `kubernetes` server drivers and currently requires
-`GATEWAY_RUNTIME=http` so it can use the private Laravel backend.
+`GATEWAY_RUNTIME=http` so it can use the private Planner.
 
 ## Runtime settings
 

@@ -20,8 +20,8 @@ type HTTPProtocolPlanner struct {
 	MaxBodySize   int64
 }
 
-func NewHTTPProtocolPlanner(backendURL string, client *http.Client, maxBodySize int64, internalToken string) (*HTTPProtocolPlanner, error) {
-	eventURL, err := internalEventURL(backendURL)
+func NewHTTPProtocolPlanner(plannerURL string, client *http.Client, maxBodySize int64, internalToken string) (*HTTPProtocolPlanner, error) {
+	eventURL, err := internalEventURL(plannerURL)
 	if err != nil {
 		return nil, err
 	}
@@ -95,8 +95,8 @@ func (p *HTTPProtocolPlanner) PlanEvent(ctx context.Context, event GatewayEvent)
 	return decision, nil
 }
 
-func internalEventURL(backendURL string) (string, error) {
-	backend, err := parseBackendURL(backendURL)
+func internalEventURL(plannerURL string) (string, error) {
+	backend, err := parsePlannerURL(plannerURL)
 	if err != nil {
 		return "", err
 	}

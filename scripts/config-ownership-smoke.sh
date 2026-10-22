@@ -117,7 +117,7 @@ wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
 # --- Two Spinner nodes sharing one Planner ----------------------------------
 start_spinner() {
     local port="$1" log="$2"
-    GATEWAY_RUNTIME=http GATEWAY_LARAVEL_BACKEND_URL="http://127.0.0.1:$PHP_PORT" \
+    GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" PORT="$port" LOG_LEVEL=error \
     GATEWAY_SHELL_ENABLED=true GATEWAY_SHELL_HOOKS_DIR="$HOOKS_DIR" \
     GATEWAY_SHELL_OUTPUT_MODE=outcome GATEWAY_SHELL_TIMEOUT=10s \

@@ -5,7 +5,7 @@ services:
     environment:
       GATEWAY_RUNTIME: http
       PORT: "5001"
-      GATEWAY_LARAVEL_BACKEND_URL: "${GATEWAY_LARAVEL_BACKEND_URL:?Set the Laravel planner URL}"
+      GATEWAY_PLANNER_URL: "${GATEWAY_PLANNER_URL:?Set the Laravel planner URL}"
       GATEWAY_INTERNAL_TOKEN: "${GATEWAY_INTERNAL_TOKEN:?Set the shared internal token}"
       GATEWAY_DNS_ADDR: ":5353"
       GATEWAY_DNS_ZONE_REFRESH_INTERVAL: "${GATEWAY_DNS_ZONE_REFRESH_INTERVAL:-5s}"

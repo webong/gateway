@@ -18,7 +18,7 @@ spec:
       imagePullPolicy: Never
       args: ["--check"]
       env:
-        - name: GATEWAY_LARAVEL_BACKEND_URL
+        - name: GATEWAY_PLANNER_URL
           value: http://planner:8080
         - name: GATEWAY_PROVISIONING_TARGET_ID
           valueFrom:

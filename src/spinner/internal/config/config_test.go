@@ -35,14 +35,14 @@ func TestHTTPPrivateNetworkCeilingIsSeparateFromWebstream(t *testing.T) {
 
 func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://127.0.0.1:8000")
+	t.Setenv("GATEWAY_PLANNER_URL", "http://127.0.0.1:8000")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
 
 	config, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Runtime != "http" || config.RoadRunnerEnabled || config.LaravelBackendURL != "http://127.0.0.1:8000" {
+	if config.Runtime != "http" || config.RoadRunnerEnabled || config.PlannerURL != "http://127.0.0.1:8000" {
 		t.Fatalf("unexpected HTTP runtime config: %+v", config)
 	}
 	if config.InternalToken != "gateway-token" {
@@ -210,21 +210,21 @@ func TestLoadConfigWebSocketBounds(t *testing.T) {
 
 func TestLoadConfigAllowsUnixSocketOnlyForHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://gateway-planner")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_SOCKET", "/run/gateway/planner.sock")
+	t.Setenv("GATEWAY_PLANNER_URL", "http://gateway-planner")
+	t.Setenv("GATEWAY_PLANNER_SOCKET", "/run/gateway/planner.sock")
 
 	config, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.LaravelBackendSocket != "/run/gateway/planner.sock" {
-		t.Fatalf("unexpected backend socket %q", config.LaravelBackendSocket)
+	if config.PlannerSocket != "/run/gateway/planner.sock" {
+		t.Fatalf("unexpected Planner socket %q", config.PlannerSocket)
 	}
 
 	setConfigEnv(t, "roadrunner")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_SOCKET", "/run/gateway/planner.sock")
+	t.Setenv("GATEWAY_PLANNER_SOCKET", "/run/gateway/planner.sock")
 	if _, err := LoadConfig(); err == nil {
-		t.Fatal("expected backend socket to require HTTP runtime")
+		t.Fatal("expected Planner socket to require HTTP runtime")
 	}
 }
 
@@ -259,8 +259,8 @@ func TestLoadRouterConfigRejectsStandaloneConnectionSettings(t *testing.T) {
 		value string
 	}{
 		{name: "runtime", key: "GATEWAY_RUNTIME", value: "http"},
-		{name: "backend URL", key: "GATEWAY_LARAVEL_BACKEND_URL", value: "http://planner:8080"},
-		{name: "backend socket", key: "GATEWAY_LARAVEL_BACKEND_SOCKET", value: "/run/planner.sock"},
+		{name: "Planner URL", key: "GATEWAY_PLANNER_URL", value: "http://planner:8080"},
+		{name: "Planner socket", key: "GATEWAY_PLANNER_SOCKET", value: "/run/planner.sock"},
 		{name: "provisioning", key: "GATEWAY_PROVISIONING_ENABLED", value: "true"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -291,8 +291,12 @@ func TestBundledRouterStartsPlannerSchedulesWithoutProductEnvToggle(t *testing.T
 	setConfigEnv(t, "")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
 	config, err := LoadRouterConfig()
-	if err != nil { t.Fatal(err) }
-	if !config.SchedulesEnabled { t.Fatal("bundled Planner schedules must start by default") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.SchedulesEnabled {
+		t.Fatal("bundled Planner schedules must start by default")
+	}
 }
 
 func TestLoadConfigRejectsEmbeddedRuntimeForStandaloneSpinner(t *testing.T) {
@@ -313,8 +317,8 @@ func setConfigEnv(t *testing.T, runtime string) {
 	t.Helper()
 	t.Setenv("GATEWAY_RUNTIME", runtime)
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_SOCKET", "")
+	t.Setenv("GATEWAY_PLANNER_URL", "")
+	t.Setenv("GATEWAY_PLANNER_SOCKET", "")
 	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "false")
 	t.Setenv("GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED", "false")
 	t.Setenv("GATEWAY_PROVISIONING_ROUTE_CIDRS", "")
@@ -365,7 +369,7 @@ func TestManagedRouteProxyRequiresPrivateHTTPPlannerWithoutLocalProvisioning(t *
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("accepted managed route proxy without Planner credentials")
 	}
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://planner.internal")
+	t.Setenv("GATEWAY_PLANNER_URL", "http://planner.internal")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "secret")
 	if _, err := LoadConfig(); err == nil {
 		t.Fatal("accepted managed route proxy without destination networks")
@@ -385,7 +389,7 @@ func TestManagedRouteProxyRequiresPrivateHTTPPlannerWithoutLocalProvisioning(t *
 		t.Fatal("accepted remote route proxy outside standalone HTTP mode")
 	}
 	t.Setenv("GATEWAY_RUNTIME", "")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "")
+	t.Setenv("GATEWAY_PLANNER_URL", "")
 	config, err = LoadRouterConfig()
 	if err != nil || !config.ProvisioningRouteProxy {
 		t.Fatalf("bundled Router did not accept embedded managed lookup: config=%+v err=%v", config, err)
@@ -569,7 +573,7 @@ func TestLoadConfigRejectsOutboundSMTPCredentialsWithoutTLS(t *testing.T) {
 func TestLoadConfigIgnoresLegacyDNSZoneEnvironment(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://planner.internal")
+	t.Setenv("GATEWAY_PLANNER_URL", "http://planner.internal")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
 	t.Setenv("GATEWAY_DNS_ZONE", "dns.example.test")
 	t.Setenv("GATEWAY_DNS_NAMESERVERS", "ns1.example.test, ns2.example.test")
@@ -599,7 +603,7 @@ func TestLoadConfigRequiresPlannerForDNSListener(t *testing.T) {
 func TestLoadConfigAllowsPlannerManagedDNSZonesForHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-	t.Setenv("GATEWAY_LARAVEL_BACKEND_URL", "http://planner.internal")
+	t.Setenv("GATEWAY_PLANNER_URL", "http://planner.internal")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
 	t.Setenv("GATEWAY_DNS_ZONE_REFRESH_INTERVAL", "2s")
 

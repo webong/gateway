@@ -25,7 +25,7 @@ spec:
               value: http
             - name: PORT
               value: "5001"
-            - name: GATEWAY_LARAVEL_BACKEND_URL
+            - name: GATEWAY_PLANNER_URL
               value: http://planner:8080
             - name: GATEWAY_INTERNAL_TOKEN
               valueFrom:

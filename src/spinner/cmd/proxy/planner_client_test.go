@@ -14,7 +14,7 @@ import (
 	relayconfig "github.com/webong/gateway/src/spinner/internal/config"
 )
 
-func TestLaravelBackendClientDialsUnixSocket(t *testing.T) {
+func TestPlannerClientDialsUnixSocket(t *testing.T) {
 	file, err := os.CreateTemp("", "gateway-uds-*")
 	if err != nil {
 		t.Fatal(err)
@@ -45,9 +45,9 @@ func TestLaravelBackendClientDialsUnixSocket(t *testing.T) {
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() { _ = server.Close() })
 
-	client := newLaravelBackendClient(&relayconfig.Config{
-		RequestTimeout:       time.Second,
-		LaravelBackendSocket: socket,
+	client := newPlannerClient(&relayconfig.Config{
+		RequestTimeout: time.Second,
+		PlannerSocket:  socket,
 	})
 	response, err := client.Get("http://gateway-planner/_internal/gateway/plan")
 	if err != nil {

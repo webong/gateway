@@ -131,7 +131,7 @@ management commands. Choose embedded RoadRunner or FrankenPHP; the Docker
 image is optional. No existing Laravel application is required.
 
 Build the Go-only Spinner image from the root `Dockerfile` when Planner is
-deployed separately. Set `GATEWAY_LARAVEL_BACKEND_URL` to its private HTTP
+deployed separately. Set `GATEWAY_PLANNER_URL` to its private HTTP
 address. The Go-only image contains no PHP or Planner application.
 
 ## Choose a Spinner host runtime
@@ -176,7 +176,7 @@ For every path, the Go edge:
 In `roadrunner` mode, the planner call is an in-process RoadRunner HTTP-worker
 dispatch. RoadRunner encodes the internal planning request onto its PHP worker
 pool through Goridge; it does not open a second HTTP listener. In `http` mode,
-the same JSON bridge is sent to the configured Laravel backend over ordinary
+the same JSON bridge is sent to the configured Planner over ordinary
 HTTP.
 
 The JSON body fields are base64 encoded by both sides. This keeps the boundary
@@ -261,14 +261,14 @@ RoadRunner has assembled that middleware around the PHP worker, then starts
 SMTP with the same in-process PHP event planner. No second Laravel HTTP port
 is opened.
 
-### HTTP Laravel backend
+### HTTP Planner
 
 In `http` mode, start Laravel separately and point the Go host at its private
 or local URL:
 
 ```bash
 export GATEWAY_RUNTIME=http
-export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 go run ./src/spinner/cmd/proxy
 ```
@@ -276,7 +276,7 @@ go run ./src/spinner/cmd/proxy
 Go sends `POST /_internal/gateway/plan` to that backend and reverse-proxies
 every `pass_through` request to it. The Go public listener still owns the
 network edge, while Laravel owns application routing and the control plane.
-The backend URL may contain a path prefix; the planner route is appended to
+The Planner URL may contain a path prefix; the planner route is appended to
 that prefix.
 
 For a colocated Laravel process, retain the same HTTP contract but route it
@@ -285,8 +285,8 @@ prefix; Go dials the socket instead of the URL's TCP host:
 
 ```bash
 export GATEWAY_RUNTIME=http
-export GATEWAY_LARAVEL_BACKEND_URL=http://gateway-planner
-export GATEWAY_LARAVEL_BACKEND_SOCKET=/run/gateway/planner.sock
+export GATEWAY_PLANNER_URL=http://gateway-planner
+export GATEWAY_PLANNER_SOCKET=/run/gateway/planner.sock
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 go run ./src/spinner/cmd/proxy
 ```
@@ -308,7 +308,7 @@ the decision, and queues the resolved HTTP subscriber deliveries.
 
 ```bash
 export GATEWAY_RUNTIME=http
-export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_SMTP_ADDR=':2525'
 export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
@@ -324,7 +324,7 @@ acknowledged. Set `GATEWAY_DELIVERY_SPOOL_PATH` when SMTP decisions may return
 deliveries; without a durable queue Spinner returns a temporary SMTP error
 instead of accepting a volatile handoff. In `roadrunner` mode the event call
 stays in-process; in `http` mode it
-uses the Laravel backend URL. Embedded Caddy/FrankenPHP deployments use the
+uses the Planner URL. Embedded Caddy/FrankenPHP deployments use the
 `gateway_smtp` app below.
 
 The current adapter does not advertise SMTP AUTH unless
@@ -359,7 +359,7 @@ does not perform recursive resolution.
 
 ```bash
 export GATEWAY_RUNTIME=http
-export GATEWAY_LARAVEL_BACKEND_URL=http://127.0.0.1:8000
+export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_DNS_ADDR=':53'
 go run ./src/spinner/cmd/proxy
@@ -558,8 +558,8 @@ The image runs as an unprivileged `gateway` user and exposes the Go router's
 HTTP (`5001`), optional SMTP (`2525`), and unprivileged DNS (`5353` TCP/UDP)
 listeners. It intentionally does not contain a Laravel application: deploy the
 Gateway Laravel planner as its companion application and point the router at it
-with `GATEWAY_LARAVEL_BACKEND_URL`, or mount a colocated planner socket using
-`GATEWAY_LARAVEL_BACKEND_SOCKET`.
+with `GATEWAY_PLANNER_URL`, or mount a colocated planner socket using
+`GATEWAY_PLANNER_SOCKET`.
 
 Run the image-only smoke test (build, start, health probe, and non-root check)
 when Docker is available:
@@ -583,7 +583,7 @@ included `docker-compose.dns.example.yml` publishes both DNS transports on
 public port 53:
 
 ```bash
-GATEWAY_LARAVEL_BACKEND_URL=https://app.internal.example \
+GATEWAY_PLANNER_URL=https://app.internal.example \
 GATEWAY_INTERNAL_TOKEN=replace-me \
 docker compose -f docker-compose.dns.example.yml up -d
 ```
@@ -788,9 +788,9 @@ bidirectional sessions.
 
 - `GATEWAY_RUNTIME` - `http` (default), `roadrunner`, or `diagnostic` for
   transport-only tests; the combined image uses FrankenPHP instead
-- `GATEWAY_LARAVEL_BACKEND_URL` - Laravel base URL required by `http` mode
-- `GATEWAY_LARAVEL_BACKEND_SOCKET` - optional Unix socket for a colocated HTTP
-  Laravel backend; the backend URL still supplies its HTTP Host header
+- `GATEWAY_PLANNER_URL` - Laravel base URL required by `http` mode
+- `GATEWAY_PLANNER_SOCKET` - optional Unix socket for a colocated HTTP
+  Planner; the Planner URL still supplies its HTTP Host header
 - `GATEWAY_INTERNAL_TOKEN` - required shared planner token
 - `PORT` - Go host port (default `5001`)
 - `ROADRUNNER_CONFIG` - RoadRunner YAML path (default `.rr.yaml`)
@@ -1302,7 +1302,7 @@ workload requirements.
 The service provider registers `POST /_internal/gateway/plan`. In
 `roadrunner` mode, Go/RoadRunner intercepts that path before it can become a
 public Laravel route. In `http` mode, the Go edge blocks the path publicly and
-calls it only on the configured Laravel backend. The controller requires a
+calls it only on the configured Planner. The controller requires a
 non-empty `GATEWAY_INTERNAL_TOKEN` matching the Go process.
 
 The same provider registers `POST /_internal/gateway/event` for protocol events
@@ -1410,7 +1410,7 @@ built-in HTTP server, then starts Go as the public edge:
 bash scripts/http-smoke.sh
 ```
 
-Run the SMTP smoke test for both the HTTP Laravel backend and embedded
+Run the SMTP smoke test for both the HTTP Planner and embedded
 RoadRunner. It sends a real SMTP transaction through Go, the PHP protocol
 planner, and the subscriber delivery worker:
 

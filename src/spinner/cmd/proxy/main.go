@@ -478,12 +478,12 @@ func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, ex
 }
 
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	client := newLaravelBackendClient(config)
-	if err := automationextensions.ConfigureShellSSHHTTP(config.LaravelBackendURL, config.InternalToken, client, config.LaravelBackendSocket != ""); err != nil {
+	client := newPlannerClient(config)
+	if err := automationextensions.ConfigureShellSSHHTTP(config.PlannerURL, config.InternalToken, client, config.PlannerSocket != ""); err != nil {
 		return fmt.Errorf("failed to initialize private Shell credential resolver: %w", err)
 	}
 	control, controlErr := schedules.NewHTTPControlPlane(
-		config.LaravelBackendURL,
+		config.PlannerURL,
 		config.InternalToken,
 		client,
 		automation.Languages(server.automation)...,
@@ -509,17 +509,17 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		logger.Info("Schedule polling enabled")
 	}
 	runtime, err := bridge.NewHTTPRuntime(
-		config.LaravelBackendURL,
+		config.PlannerURL,
 		config.InternalToken,
 		config.MaxBodySize,
 		client,
 	)
 	if err != nil {
 		server.workerPool.Shutdown()
-		return fmt.Errorf("failed to initialize HTTP Laravel runtime: %w", err)
+		return fmt.Errorf("failed to initialize HTTP Planner runtime: %w", err)
 	}
 	defer runtime.Close()
-	readyURL, err := url.JoinPath(config.LaravelBackendURL, "_internal/gateway/ready")
+	readyURL, err := url.JoinPath(config.PlannerURL, "_internal/gateway/ready")
 	if err != nil {
 		server.workerPool.Shutdown()
 		return fmt.Errorf("invalid Planner readiness URL: %w", err)
@@ -528,14 +528,14 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 
 	edge := server.NewRelayEdge(runtime.Planner(), runtime.PassThrough())
 	server.SetRelayHandler(runtime.Handler(edge))
-	if config.LaravelBackendSocket != "" {
-		logger.Info("Planner connection: external HTTP through Unix socket %s", config.LaravelBackendSocket)
+	if config.PlannerSocket != "" {
+		logger.Info("Planner connection: external HTTP through Unix socket %s", config.PlannerSocket)
 	} else {
-		logger.Info("Planner connection: external HTTP at %s", config.LaravelBackendURL)
+		logger.Info("Planner connection: external HTTP at %s", config.PlannerURL)
 	}
 
 	protocolPlanner, err := bridge.NewHTTPProtocolPlanner(
-		config.LaravelBackendURL,
+		config.PlannerURL,
 		client,
 		config.MaxBodySize,
 		config.InternalToken,
@@ -555,7 +555,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		gatewaystream.Config{MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry, MaxConnections: config.WebstreamMaxConnections, MaxDuration: config.WebstreamMaxDuration},
 	))
 	if config.ProvisioningRouteProxy {
-		managedRouter, routeErr := provision.NewRemoteRouter(config.LaravelBackendURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)
+		managedRouter, routeErr := provision.NewRemoteRouter(config.PlannerURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)
 		if routeErr != nil {
 			server.workerPool.Shutdown()
 			return fmt.Errorf("initialize managed route proxy: %w", routeErr)
@@ -579,7 +579,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		defer plugins.Close()
 		provisioningRuntime, err = provision.Start(
 			config.Provisioning.Config,
-			config.LaravelBackendURL,
+			config.PlannerURL,
 			config.InternalToken,
 			client,
 			logger,
@@ -611,7 +611,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
 		}
-		zoneSource, sourceErr := dnsgateway.NewHTTPZoneSource(config.LaravelBackendURL, config.InternalToken, client)
+		zoneSource, sourceErr := dnsgateway.NewHTTPZoneSource(config.PlannerURL, config.InternalToken, client)
 		if sourceErr != nil {
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to initialize DNS zone source: %w", sourceErr)

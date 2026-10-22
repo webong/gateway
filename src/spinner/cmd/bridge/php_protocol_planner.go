@@ -13,7 +13,7 @@ const PHPProtocolEventPath = "/_internal/gateway/event"
 
 // PHPProtocolPlanner invokes the Laravel protocol planner through an
 // in-process HTTP handler. Embedded RoadRunner and FrankenPHP/Caddy use this
-// shape; the HTTP runtime uses HTTPProtocolPlanner for a remote backend.
+// shape; the HTTP runtime uses HTTPProtocolPlanner for a remote Planner.
 type PHPProtocolPlanner struct {
 	PHPHandler    http.Handler
 	EventPath     string

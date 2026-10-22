@@ -43,7 +43,7 @@ Internet -> TLS terminator -> Spinner (Go) -> private network -> Planner (PHP)
 
 Only the TLS terminator/router is public. Keep the planner as a Compose-only
 service, Kubernetes ClusterIP, loopback listener, or private-VPC service.
-Spinner uses `GATEWAY_LARAVEL_BACKEND_URL` and `GATEWAY_INTERNAL_TOKEN` to
+Spinner uses `GATEWAY_PLANNER_URL` and `GATEWAY_INTERNAL_TOKEN` to
 call `POST /_internal/gateway/plan` privately.
 
 ## Spinner image
@@ -84,7 +84,7 @@ services:
     image: webong/gateway:sha-545d432
     environment:
       GATEWAY_RUNTIME: http
-      GATEWAY_LARAVEL_BACKEND_URL: http://planner:8080
+      GATEWAY_PLANNER_URL: http://planner:8080
       GATEWAY_INTERNAL_TOKEN: ${GATEWAY_INTERNAL_TOKEN}
 
   tls:
