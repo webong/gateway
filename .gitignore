@@ -3,4 +3,5 @@
 /bin/
 /.gateway-router-data/
 /dist/
+/pkg/roadrunner/cmd/router/router
 .DS_Store
