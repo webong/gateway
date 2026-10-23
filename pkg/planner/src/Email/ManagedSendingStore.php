@@ -108,7 +108,9 @@ final readonly class ManagedSendingStore
     public function createRoute(string $account, array $input): array
     {
         if (($input['mode'] ?? null) === 'shared') {
-            if (array_keys($input) !== ['mode'] || ! $this->accounts->exists($account)
+            if (array_diff(array_keys($input), ['mode', 'enabled']) !== [] || count($input) > 2
+                || (array_key_exists('enabled', $input) && ! is_bool($input['enabled']))
+                || ! $this->accounts->exists($account)
                 || ! $this->sharedFromAddress()) {
                 throw new InvalidArgumentException('Shared sender is not configured.');
             }
@@ -118,11 +120,12 @@ final readonly class ManagedSendingStore
             $password = bin2hex(random_bytes(32));
             $record = $this->resources->create(self::ROUTE, 'shared:'.$account, [
                 'mode' => 'shared', 'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-            ], true, owner: $account);
+            ], $input['enabled'] ?? true, owner: $account);
             return ['record' => $record, 'password' => $password];
         }
-        if (array_diff(array_keys($input), ['domain_id', 'local_part']) !== []
-            || ! is_string($input['domain_id'] ?? null) || ! is_string($input['local_part'] ?? null)) {
+        if (array_diff(array_keys($input), ['domain_id', 'local_part', 'enabled']) !== []
+            || ! is_string($input['domain_id'] ?? null) || ! is_string($input['local_part'] ?? null)
+            || (array_key_exists('enabled', $input) && ! is_bool($input['enabled']))) {
             throw new InvalidArgumentException('Invalid managed sending route.');
         }
         $domain = $this->domain($account, $input['domain_id']);
@@ -140,7 +143,7 @@ final readonly class ManagedSendingStore
         $password = bin2hex(random_bytes(32));
         $record = $this->resources->create(self::ROUTE, $local.'@'.$domain->document['name'], [
             'domain_id' => $domain->id, 'password_hash' => password_hash($password, PASSWORD_DEFAULT),
-        ], true, owner: $account);
+        ], $input['enabled'] ?? true, owner: $account);
         return ['record' => $record, 'password' => $password];
     }
 

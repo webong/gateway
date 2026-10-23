@@ -201,7 +201,7 @@ final readonly class OutboundTransportStore
     {
         if (array_diff(array_keys($input), ['account_id', 'scope', 'sender_id', 'pool_id']) !== []
             || ! is_string($input['account_id'] ?? null) || $input['account_id'] === ''
-            || ! in_array($input['scope'] ?? null, ['shared_route', 'domain'], true)
+            || ! in_array($input['scope'] ?? null, ['shared_route', 'managed_route', 'domain'], true)
             || ! is_string($input['sender_id'] ?? null) || ! is_string($input['pool_id'] ?? null)
             || ($pool = $this->pool($input['pool_id'])) === null || ! $pool->enabled) {
             throw new InvalidArgumentException('Invalid outbound binding.');
@@ -214,13 +214,15 @@ final readonly class OutboundTransportStore
             }
             $address = $this->sending->sharedFromAddress();
             $domain = substr($address, (int) strrpos($address, '@') + 1);
-        } else {
-            $row = $this->sending->domain($account, $input['sender_id']);
-            if ($row === null || ! $row->enabled || ($row->document['verified_at'] ?? null) === null
-                || ! $this->sending->dnsReady($row)) {
-                throw new InvalidArgumentException('Sending domain is not verified for account.');
+        } elseif ($input['scope'] === 'managed_route') {
+            $route = $this->sending->route($account, $input['sender_id']);
+            if ($route === null || ($route->document['mode'] ?? null) === 'shared'
+                || ! is_string($route->document['domain_id'] ?? null)) {
+                throw new InvalidArgumentException('Managed route does not belong to account.');
             }
-            $domain = $row->document['name'];
+            $domain = $this->readyDomain($account, $route->document['domain_id'])->document['name'];
+        } else {
+            $domain = $this->readyDomain($account, $input['sender_id'])->document['name'];
         }
         foreach ($pool->document['members'] as $member) {
             $transport = $this->transport($member['transport_id']);
@@ -238,8 +240,9 @@ final readonly class OutboundTransportStore
 
     public function boundPool(string $account, string $routeID, string $domainID): ?stdClass
     {
-        $binding = $this->resources->byKey(self::BINDING, $account.':shared_route:'.$routeID);
-        if ($binding === null && $domainID !== '') {
+        $scope = $domainID === '' ? 'shared_route' : 'managed_route';
+        $binding = $this->resources->byKey(self::BINDING, $account.':'.$scope.':'.$routeID);
+        if ($binding === null && $scope === 'managed_route') {
             $binding = $this->resources->byKey(self::BINDING, $account.':domain:'.$domainID);
         }
         $pool = $binding !== null && $binding->enabled ? $this->pool($binding->document['pool_id']) : null;
@@ -420,6 +423,16 @@ final readonly class OutboundTransportStore
             || ! in_array($status['dkim'] ?? null, ['ready', 'pending', 'not_required'], true)) {
             throw new InvalidArgumentException('Invalid provider-neutral sender readiness.');
         }
+    }
+
+    private function readyDomain(string $account, string $id): stdClass
+    {
+        $domain = $this->sending->domain($account, $id);
+        if ($domain === null || ! $domain->enabled || ($domain->document['verified_at'] ?? null) === null
+            || ! $this->sending->dnsReady($domain)) {
+            throw new InvalidArgumentException('Sending domain is not verified for account.');
+        }
+        return $domain;
     }
 
     private function domainReady(stdClass $transport, string $domain): bool

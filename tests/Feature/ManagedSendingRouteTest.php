@@ -6,6 +6,7 @@ use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Http;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
+use Webong\Gateway\Email\OutboundTransportStore;
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
@@ -53,8 +54,9 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
     $this->withToken($account['token'])->getJson($base.'/sending-domains/'.$domain['id'])
         ->assertOk()->assertJsonPath('dns_status.sending', 'ready');
     $created = $this->withToken($account['token'])->postJson($base.'/sending-routes', [
-        'domain_id' => $domain['id'], 'local_part' => 'support',
+        'domain_id' => $domain['id'], 'local_part' => 'support', 'enabled' => false,
     ])->assertCreated()->assertJsonPath('address', 'support@acme.test')
+        ->assertJsonPath('enabled', false)->assertJsonPath('status', 'disabled')
         ->assertJsonMissingPath('smtp_upstream_id')->json();
     $id = $created['id'];
     $password = $created['smtp_client_password'];
@@ -62,6 +64,59 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
         ->assertOk()->assertJsonMissingPath('smtp_client_password')->assertJsonMissingPath('password_hash');
     $this->withToken($other['token'])->getJson('https://localhost/email/mailbox-accounts/other/sending-routes/'.$id)
         ->assertNotFound();
+
+    $fallbackRoute = $this->withToken($account['token'])->postJson($base.'/sending-routes', [
+        'domain_id' => $domain['id'], 'local_part' => 'billing', 'enabled' => false,
+    ])->assertCreated()->assertJsonPath('enabled', false)->json();
+    $unreadyRoute = $this->withToken($account['token'])->postJson($base.'/sending-routes', [
+        'domain_id' => $domain['id'], 'local_part' => 'unready', 'enabled' => false,
+    ])->assertCreated()->assertJsonPath('enabled', false)->json();
+    $domainTransport = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-transports', [
+        'name' => 'domain-smtp', 'type' => 'smtp', 'address' => 'smtp.domain.test:587',
+        'tls_mode' => 'starttls', 'username' => 'u', 'password' => 'p', 'healthy' => true,
+        'authorized_domains' => ['acme.test'],
+        'domain_readiness' => ['acme.test' => ['spf' => 'ready', 'dkim' => 'ready']],
+    ])->assertCreated()->json();
+    $exactTransport = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-transports', [
+        'name' => 'support-smtp', 'type' => 'smtp', 'address' => 'smtp.support.test:587',
+        'tls_mode' => 'starttls', 'username' => 'u', 'password' => 'p', 'healthy' => true,
+        'authorized_domains' => ['acme.test'],
+        'domain_readiness' => ['acme.test' => ['spf' => 'ready', 'dkim' => 'ready']],
+    ])->assertCreated()->json();
+    $domainPool = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-pools', [
+        'name' => 'domain-pool',
+        'members' => [['transport_id' => $domainTransport['id'], 'priority' => 0, 'weight' => 1]],
+    ])->assertCreated()->json();
+    $exactPool = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-pools', [
+        'name' => 'support-pool',
+        'members' => [['transport_id' => $exactTransport['id'], 'priority' => 0, 'weight' => 1]],
+    ])->assertCreated()->json();
+    $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'zorvia', 'scope' => 'domain', 'sender_id' => $domain['id'], 'pool_id' => $domainPool['id'],
+    ])->assertCreated();
+    $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'zorvia', 'scope' => 'managed_route', 'sender_id' => $id, 'pool_id' => $exactPool['id'],
+    ])->assertCreated();
+    $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'other', 'scope' => 'managed_route', 'sender_id' => $id, 'pool_id' => $exactPool['id'],
+    ])->assertUnprocessable();
+    $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'zorvia', 'scope' => 'shared_route', 'sender_id' => $id, 'pool_id' => $exactPool['id'],
+    ])->assertUnprocessable();
+    unset($dns->published[$verified['records']['dkim']['name']]);
+    $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'zorvia', 'scope' => 'managed_route',
+        'sender_id' => $unreadyRoute['id'], 'pool_id' => $exactPool['id'],
+    ])->assertUnprocessable();
+    $dns->published[$verified['records']['dkim']['name']] = [$verified['records']['dkim']['value']];
+    expect(app(OutboundTransportStore::class)->senderBinding('zorvia', $id))->toBeNull();
+    $this->withToken($account['token'])->patchJson($base.'/sending-routes/'.$id, ['enabled' => true])
+        ->assertOk()->assertJsonPath('status', 'active');
+    $this->withToken($account['token'])->patchJson($base.'/sending-routes/'.$fallbackRoute['id'], ['enabled' => true])
+        ->assertOk()->assertJsonPath('status', 'active');
+    expect(app(OutboundTransportStore::class)->senderBinding('zorvia', $id)['pool_id'])->toBe($exactPool['id'])
+        ->and(app(OutboundTransportStore::class)->senderBinding('zorvia', $fallbackRoute['id'])['pool_id'])
+        ->toBe($domainPool['id']);
 
     $authenticate = static fn (string $password): GatewayEvent => new GatewayEvent(
         id: bin2hex(random_bytes(8)), protocol: Protocol::SMTP, kind: EventKind::AUTHENTICATE,
@@ -103,6 +158,8 @@ it('provides a Gateway-managed sending route without an external SMTP provider',
     $this->withToken($account['token'])->patchJson($base.'/sending-routes/'.$id, ['enabled' => true])->assertConflict();
     $this->withToken($account['token'])->deleteJson($base.'/sending-domains/'.$domain['id'])->assertConflict();
     $this->withToken($account['token'])->deleteJson($base.'/sending-routes/'.$id)->assertOk();
+    $this->withToken($account['token'])->deleteJson($base.'/sending-routes/'.$fallbackRoute['id'])->assertOk();
+    $this->withToken($account['token'])->deleteJson($base.'/sending-routes/'.$unreadyRoute['id'])->assertOk();
     $this->withToken($account['token'])->deleteJson($base.'/sending-domains/'.$domain['id'])->assertOk();
 });
 
