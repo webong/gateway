@@ -4,6 +4,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -186,7 +187,15 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outcome, automationErr := e.automation.Execute(r.Context(), script, input)
 		if automationErr != nil {
 			if errors.Is(automationErr, automation.ErrBusy) {
+				w.Header().Set("Retry-After", "1")
 				http.Error(w, "automation capacity exhausted", http.StatusServiceUnavailable)
+				return
+			}
+			if errors.Is(automationErr, context.DeadlineExceeded) {
+				http.Error(w, "automation execution timed out", http.StatusGatewayTimeout)
+				return
+			}
+			if errors.Is(automationErr, context.Canceled) {
 				return
 			}
 			var identified interface{ RunID() string }

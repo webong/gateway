@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/webong/gateway/driver/automation"
+	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
@@ -37,10 +39,12 @@ type Router struct {
 	ProvisioningRouteCIDRs  []string
 	ShutdownTimeout         time.Duration
 	DeliveryAdminServer     *http.Server
+	Automation              automation.Executor
 
-	forwarder     *forwarding.Forwarder
-	workerPool    *workers.WorkerPool
-	deliveryQueue deliveryqueue.Backend
+	forwarder      *forwarding.Forwarder
+	workerPool     *workers.WorkerPool
+	deliveryQueue  deliveryqueue.Backend
+	automationPool *automationexecution.Executor
 }
 
 func NewRouterFromEnvironment() (*Router, error) {
@@ -60,6 +64,20 @@ func NewRouterFromEnvironment() (*Router, error) {
 		forwarder.CloseIdleConnections()
 		return nil, err
 	}
+	automationPool, err := automationexecution.New(automationextensions.Runtime(), automationexecution.Options{
+		Mode: automationexecution.Mode(settings.AutomationExecutor), Workers: settings.AutomationWorkers,
+		QueueSize: settings.AutomationQueueSize, Timeout: settings.AutomationTimeout,
+	})
+	if err != nil {
+		if deliveryQueue != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = deliveryQueue.Close(ctx)
+			cancel()
+		}
+		workerPool.Shutdown()
+		forwarder.CloseIdleConnections()
+		return nil, fmt.Errorf("initialize automation executor: %w", err)
+	}
 	var executorOptions []bridge.RelayExecutorOption
 	if deliveryQueue != nil {
 		executorOptions = append(executorOptions, bridge.WithGatewayDeliveryQueue(deliveryQueue))
@@ -72,6 +90,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 			if settings.SMTPRelayAddress != "" {
 				adapter, adapterErr := NewSMTPAdapter(settings)
 				if adapterErr != nil {
+					automationPool.Close()
 					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 					_ = deliveryQueue.Close(ctx)
 					cancel()
@@ -83,6 +102,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 			}
 			scanner, _, protectionErr := NewEmailProtection(settings)
 			if protectionErr != nil {
+				automationPool.Close()
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				_ = deliveryQueue.Close(ctx)
 				cancel()
@@ -94,6 +114,7 @@ func NewRouterFromEnvironment() (*Router, error) {
 		}
 		handler, err := deliveryadmin.NewHandler(deliveryQueue, settings.InternalToken, options...)
 		if err != nil {
+			automationPool.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			_ = deliveryQueue.Close(ctx)
 			cancel()
@@ -124,13 +145,18 @@ func NewRouterFromEnvironment() (*Router, error) {
 		ProvisioningRouteCIDRs:  settings.ProvisioningRouteCIDRs,
 		ShutdownTimeout:         settings.ShutdownTimeout,
 		DeliveryAdminServer:     adminServer,
+		Automation:              automationPool,
 		forwarder:               forwarder,
 		workerPool:              workerPool,
 		deliveryQueue:           deliveryQueue,
+		automationPool:          automationPool,
 	}, nil
 }
 
 func (r *Router) Close() {
+	if r.automationPool != nil {
+		r.automationPool.Close()
+	}
 	if r.DeliveryAdminServer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), r.ShutdownTimeout)
 		_ = r.DeliveryAdminServer.Shutdown(ctx)

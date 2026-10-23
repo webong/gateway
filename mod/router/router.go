@@ -58,7 +58,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	httpPlanner.InternalToken = spinner.InternalToken
 	engine := automationextensions.Runtime()
 	edge := bridge.NewEdge(httpPlanner, spinner.Executor, spinner.MaxBodySize).
-		SetAutomationExecutor(engine).
+		SetAutomationExecutor(spinner.Automation).
 		SetPassThrough(planner)
 	protocolPlanner := bridge.NewPHPProtocolPlanner(planner, spinner.MaxBodySize)
 	protocolPlanner.InternalToken = spinner.InternalToken
@@ -79,7 +79,9 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if spinner.SchedulesEnabled {
 		scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 		defer cancelSchedules()
-		transport.StartSchedulePolling(scheduleCtx, spinner, control, engine, mailboxPoller.Run)
+		if err := transport.StartSchedulePolling(scheduleCtx, spinner, control, engine, mailboxPoller.Run); err != nil {
+			return err
+		}
 	}
 	websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
 		MaxMessageSize: spinner.MaxBodySize,

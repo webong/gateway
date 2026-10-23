@@ -193,6 +193,24 @@ before network I/O. The WebhookScript extension applies its own PHP-side
 source, time, delivery, and log limits.
 Keep scripts short; use normal workers for long-running or CPU-heavy work.
 
+Ingress scripts execute through the common `automation.Executor` contract.
+Spinner selects its local implementation with `GATEWAY_AUTOMATION_EXECUTOR`:
+`ergo` (the default), `goroutine`, or `direct`. Ergo and goroutine modes use the
+same bounded worker, queue, deadline, cancellation, and error contract; direct
+mode is intended for debugging and delegates execution without a Spinner pool.
+
+The selected bounded pool waits for an
+available worker within the request's total automation deadline, including time
+already spent in its bounded queue. Client cancellation also cancels queued or
+running work. When the worker and queue capacity remain exhausted until that
+deadline, Gateway returns `503 Service Unavailable` with `Retry-After: 1`;
+execution that starts but exceeds the deadline returns `504 Gateway Timeout`.
+Configure the pool with `GATEWAY_AUTOMATION_WORKERS` (default `8`),
+`GATEWAY_AUTOMATION_QUEUE_SIZE` (default `32`), and
+`GATEWAY_AUTOMATION_TIMEOUT` (default `10s`). In Ergo mode, the node has
+networking disabled. Streaming Shell responses retain their direct streaming
+lifecycle because their HTTP response begins before execution completes.
+
 ## Credential hooks
 
 An account can register an `email.credential-source` with adapter `script`, an
@@ -219,6 +237,13 @@ Schedules can run an installed Go-side language extension without an inbound
 webhook. Laravel owns cron definitions and run history; Go claims due runs
 through the private planner connection, dispatches them through the same
 extension registry, queues their HTTP deliveries, and reports the outcome.
+Spinner dispatches each claimed batch through a local Ergo actor pool with five
+workers. The Ergo node has networking disabled: Planner's lease protocol still
+coordinates work across Spinner nodes. Each actor owns one script execution at
+a time, and the pool replaces a worker that stops. A script interrupted by an
+actor crash is left claimed for Planner's existing lease recovery; it is not
+immediately rerun because its side effects may already have happened. Actor
+execution is bounded to 110 seconds within the two-minute claim lease.
 The optional WebhookScript planner extension does not execute scheduled jobs,
 but a WebhookScript route may create a schedule for an installed Go-side
 language with `schedule([...])`.

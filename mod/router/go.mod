@@ -4,7 +4,10 @@ go 1.26.0
 
 require github.com/google/uuid v1.6.0
 
-require github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
+require (
+	ergo.services/ergo v1.999.330 // indirect
+	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
+)
 
 require (
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect

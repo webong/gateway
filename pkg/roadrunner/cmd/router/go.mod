@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	ergo.services/ergo v1.999.330 // indirect
 	github.com/traefik/yaegi v0.16.1 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 )

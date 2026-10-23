@@ -47,16 +47,21 @@ type Runtime struct {
 	Interval   time.Duration
 }
 
-func (r Runtime) Start(ctx context.Context) {
+func (r Runtime) Start(ctx context.Context) error {
+	pool, err := newActorPool(r)
+	if err != nil {
+		return fmt.Errorf("start schedule actor pool: %w", err)
+	}
 	interval := r.Interval
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
 	go func() {
+		defer pool.Stop()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
-			r.Poll(ctx)
+			r.poll(ctx, pool.Dispatch)
 			select {
 			case <-ctx.Done():
 				return
@@ -86,9 +91,14 @@ func (r Runtime) Start(ctx context.Context) {
 			}
 		}()
 	}
+	return nil
 }
 
 func (r Runtime) Poll(ctx context.Context) {
+	r.poll(ctx, nil)
+}
+
+func (r Runtime) poll(ctx context.Context, dispatch func(context.Context, Run)) {
 	if r.Control == nil || r.Enqueue == nil {
 		return
 	}
@@ -99,19 +109,41 @@ func (r Runtime) Poll(ctx context.Context) {
 		r.log("claim schedules: %v", err)
 		return
 	}
-	var native sync.WaitGroup
+	var work sync.WaitGroup
+	var slots chan struct{}
+	if dispatch != nil {
+		slots = make(chan struct{}, scheduleActorCount)
+	}
 	for _, run := range runs {
 		if ctx.Err() != nil {
 			break
 		}
-		if run.Language == "native.imap" {
-			native.Add(1)
-			go func(run Run) { defer native.Done(); r.execute(ctx, run) }(run)
+		if dispatch != nil || run.Language == "native.imap" {
+			if slots != nil {
+				select {
+				case slots <- struct{}{}:
+				case <-ctx.Done():
+					work.Wait()
+					return
+				}
+			}
+			work.Add(1)
+			go func(run Run) {
+				defer work.Done()
+				if slots != nil {
+					defer func() { <-slots }()
+				}
+				if dispatch != nil {
+					dispatch(ctx, run)
+				} else {
+					r.execute(ctx, run)
+				}
+			}(run)
 			continue
 		}
 		r.execute(ctx, run)
 	}
-	native.Wait()
+	work.Wait()
 }
 
 func (r Runtime) execute(ctx context.Context, run Run) {

@@ -252,6 +252,49 @@ func TestLoadRouterConfigSelectsInProcessPlannerWithoutRuntimeSetting(t *testing
 	}
 }
 
+func TestAutomationActorDefaultsAndValidation(t *testing.T) {
+	setConfigEnv(t, "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
+	config, err := LoadRouterConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.AutomationExecutor != "ergo" || config.AutomationWorkers != 8 || config.AutomationQueueSize != 32 || config.AutomationTimeout != 10*time.Second {
+		t.Fatalf("unexpected automation actor defaults: %+v", config)
+	}
+	for _, mode := range []string{"direct", "goroutine", "ergo"} {
+		t.Run(mode, func(t *testing.T) {
+			setConfigEnv(t, "")
+			t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
+			t.Setenv("GATEWAY_AUTOMATION_EXECUTOR", mode)
+			config, err := LoadRouterConfig()
+			if err != nil || config.AutomationExecutor != mode {
+				t.Fatalf("failed to select %q: config=%+v err=%v", mode, config, err)
+			}
+		})
+	}
+	setConfigEnv(t, "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
+	t.Setenv("GATEWAY_AUTOMATION_EXECUTOR", "process")
+	if _, err := LoadRouterConfig(); err == nil {
+		t.Fatal("accepted unsupported automation executor")
+	}
+	for _, test := range []struct{ key, value string }{
+		{"GATEWAY_AUTOMATION_WORKERS", "0"},
+		{"GATEWAY_AUTOMATION_QUEUE_SIZE", "-1"},
+		{"GATEWAY_AUTOMATION_TIMEOUT", "0s"},
+	} {
+		t.Run(test.key, func(t *testing.T) {
+			setConfigEnv(t, "")
+			t.Setenv("GATEWAY_INTERNAL_TOKEN", "gateway-token")
+			t.Setenv(test.key, test.value)
+			if _, err := LoadRouterConfig(); err == nil {
+				t.Fatalf("accepted %s=%s", test.key, test.value)
+			}
+		})
+	}
+}
+
 func TestLoadRouterConfigRejectsStandaloneConnectionSettings(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -316,6 +359,7 @@ func TestLoadConfigRejectsOldStandaloneName(t *testing.T) {
 func setConfigEnv(t *testing.T, runtime string) {
 	t.Helper()
 	t.Setenv("GATEWAY_RUNTIME", runtime)
+	t.Setenv("GATEWAY_AUTOMATION_EXECUTOR", "")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "")
 	t.Setenv("GATEWAY_PLANNER_URL", "")
 	t.Setenv("GATEWAY_PLANNER_SOCKET", "")

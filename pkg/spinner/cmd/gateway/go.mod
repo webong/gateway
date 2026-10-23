@@ -14,6 +14,7 @@ require (
 )
 
 require (
+	ergo.services/ergo v1.999.330 // indirect
 	github.com/MauriceGit/skiplist v0.0.0-20211105230623-77f5c8d3e145 // indirect
 	github.com/RoaringBitmap/roaring/v2 v2.24.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

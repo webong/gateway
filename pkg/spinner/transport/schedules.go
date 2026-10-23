@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
-	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/automation/schedules"
+	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/mailpoll"
 )
@@ -24,8 +24,8 @@ func EmbeddedScheduleControl(handler http.Handler, spinner *Router, executor aut
 }
 
 func StartSchedulePolling(ctx context.Context, spinner *Router, control *ScheduleControl, executor automation.Executor,
-	nativeIMAP func(context.Context, string) error) {
-	(schedules.Runtime{
+	nativeIMAP func(context.Context, string) error) error {
+	return (schedules.Runtime{
 		Control: control, Executor: executor, Registrar: control, NativeIMAP: nativeIMAP,
 		Interval: spinner.SchedulePollInterval,
 		LogError: func(format string, args ...any) { log.Printf(format, args...) },

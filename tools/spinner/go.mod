@@ -7,7 +7,7 @@
 // is the other composition root.
 module github.com/webong/gateway/tools/spinner
 
-go 1.24.0
+go 1.26.0
 
 require (
 	github.com/webong/gateway/driver v0.0.0
@@ -16,6 +16,8 @@ require (
 	github.com/webong/gateway/pkg/shell v0.0.0
 	github.com/webong/gateway/pkg/spinner v0.0.0
 )
+
+require ergo.services/ergo v1.999.330 // indirect
 
 replace github.com/webong/gateway/driver => ../../mod/driver
 

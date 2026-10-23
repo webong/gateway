@@ -9,12 +9,12 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/webong/gateway/router"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	"github.com/webong/gateway/pkg/spinner/transport"
+	"github.com/webong/gateway/router"
 )
 
 // workerServer owns an embedded PHP worker server and its listener.
@@ -73,7 +73,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			})
 		}
 		edge := bridge.NewEdge(planner, spinner.Executor, spinner.MaxBodySize).
-			SetAutomationExecutor(engine).SetScheduleRegistrar(control).SetPassThrough(next)
+			SetAutomationExecutor(spinner.Automation).SetScheduleRegistrar(control).SetPassThrough(next)
 		websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
 			MaxMessageSize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
 			MaxDuration: spinner.WebSocketMaxDuration, Admission: websocketAdmission,
@@ -143,7 +143,11 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		if spinner.SchedulesEnabled {
 			scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 			defer cancelSchedules()
-			transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, nil)
+			if err := transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, nil); err != nil {
+				server.Stop()
+				<-done
+				return err
+			}
 			log.Print("Schedule polling enabled")
 		}
 		listeners, err = spinner.ProtocolListeners(prepared.planner)

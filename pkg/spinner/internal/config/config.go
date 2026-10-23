@@ -20,6 +20,10 @@ type Config struct {
 	MaxWorkers                 int
 	MaxQueueSize               int
 	RequestTimeout             time.Duration
+	AutomationExecutor         string
+	AutomationWorkers          int
+	AutomationQueueSize        int
+	AutomationTimeout          time.Duration
 	WebSocketMaxConnections    int
 	WebSocketMaxDuration       time.Duration
 	WebstreamHeartbeat         time.Duration
@@ -246,6 +250,10 @@ func loadConfig(runtime string) (*Config, error) {
 		MaxWorkers:                 getEnvInt("MAX_WORKERS", 100),
 		MaxQueueSize:               getEnvInt("MAX_QUEUE_SIZE", 1000),
 		RequestTimeout:             getEnvDuration("REQUEST_TIMEOUT", 30*time.Second),
+		AutomationExecutor:         strings.ToLower(strings.TrimSpace(getEnv("GATEWAY_AUTOMATION_EXECUTOR", "ergo"))),
+		AutomationWorkers:          getEnvInt("GATEWAY_AUTOMATION_WORKERS", 8),
+		AutomationQueueSize:        getEnvInt("GATEWAY_AUTOMATION_QUEUE_SIZE", 32),
+		AutomationTimeout:          getEnvDuration("GATEWAY_AUTOMATION_TIMEOUT", 10*time.Second),
 		WebSocketMaxConnections:    getEnvInt("GATEWAY_WEBSOCKET_MAX_CONNECTIONS", 1000),
 		WebSocketMaxDuration:       getEnvDuration("GATEWAY_WEBSOCKET_MAX_DURATION", 24*time.Hour),
 		WebstreamHeartbeat:         getEnvDuration("GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL", 15*time.Second),
@@ -358,6 +366,12 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.SchedulePollInterval <= 0 {
 		return nil, fmt.Errorf("GATEWAY_SCHEDULE_POLL_INTERVAL must be positive")
+	}
+	if config.AutomationExecutor != "direct" && config.AutomationExecutor != "goroutine" && config.AutomationExecutor != "ergo" {
+		return nil, fmt.Errorf("GATEWAY_AUTOMATION_EXECUTOR must be direct, goroutine, or ergo")
+	}
+	if config.AutomationWorkers < 1 || config.AutomationQueueSize < 0 || config.AutomationTimeout <= 0 {
+		return nil, fmt.Errorf("GATEWAY_AUTOMATION_WORKERS and GATEWAY_AUTOMATION_TIMEOUT must be positive and GATEWAY_AUTOMATION_QUEUE_SIZE must be non-negative")
 	}
 	if config.DNSZoneRefreshInterval <= 0 {
 		return nil, fmt.Errorf("GATEWAY_DNS_ZONE_REFRESH_INTERVAL must be positive")

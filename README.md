@@ -805,6 +805,11 @@ bidirectional sessions.
 - `MAX_WORKERS` - asynchronous delivery workers (default `100`)
 - `MAX_QUEUE_SIZE` - pending relay capacity (default `1000`)
 - `REQUEST_TIMEOUT` - outbound request timeout (default `30s`)
+- `GATEWAY_AUTOMATION_WORKERS` - concurrent ingress script actors (default `8`)
+- `GATEWAY_AUTOMATION_QUEUE_SIZE` - ingress scripts allowed to wait for an
+  actor before overload handling (default `32`)
+- `GATEWAY_AUTOMATION_TIMEOUT` - total ingress script queue and execution
+  deadline (default `10s`)
 - `MAX_BODY_SIZE` - ingress and planner response limit (default `10MB`)
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - Spinner shutdown timeout (default `30s`)

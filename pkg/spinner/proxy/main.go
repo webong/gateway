@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
+	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
+	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
@@ -24,7 +26,6 @@ import (
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
-	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
@@ -49,6 +50,8 @@ type Server struct {
 	workerPool          *workers.WorkerPool
 	executorOptions     []bridge.RelayExecutorOption
 	automation          automation.Executor
+	automationRuntime   automation.Executor
+	automationPool      *automationexecution.Executor
 	scheduleRegistrar   automation.ScheduleRegistrar
 	deliveryQueue       deliveryqueue.Backend
 	deliveryAdminServer *http.Server
@@ -60,19 +63,26 @@ type Server struct {
 	httpServer          *http.Server
 }
 
-func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
+func NewServer(config *relayconfig.Config, logger *logging.Logger) (*Server, error) {
 	forwarder := forwarding.NewForwarder(config, logger)
 	workerPool := workers.NewWorkerPool(config.MaxWorkers, config.MaxQueueSize, forwarder, logger)
+	runtime := automationextensions.Runtime()
+	automationPool, err := automationexecution.New(runtime, automationexecution.Options{
+		Mode: automationexecution.Mode(config.AutomationExecutor), Workers: config.AutomationWorkers,
+		QueueSize: config.AutomationQueueSize, Timeout: config.AutomationTimeout,
+	})
+	if err != nil {
+		workerPool.Shutdown()
+		forwarder.CloseIdleConnections()
+		return nil, fmt.Errorf("initialize automation executor: %w", err)
+	}
 
 	// Automation guests are composed by the host binary before the server is
 	// built: Spinner's transport layer only reads automationextensions.Runtime().
 
 	server := &Server{
-		config:     config,
-		logger:     logger,
-		forwarder:  forwarder,
-		workerPool: workerPool,
-		automation: automationextensions.Runtime(),
+		config: config, logger: logger, forwarder: forwarder, workerPool: workerPool,
+		automation: automationPool, automationRuntime: runtime, automationPool: automationPool,
 	}
 
 	mux := http.NewServeMux()
@@ -91,7 +101,7 @@ func NewServer(config *relayconfig.Config, logger *logging.Logger) *Server {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	return server
+	return server, nil
 }
 
 // SetRelayPlanner connects the Go transport edge to the PHP control plane.
@@ -309,6 +319,9 @@ func (s *Server) closeExecutionResources(ctx context.Context) error {
 	if s.deliveryQueue != nil {
 		queueErr = s.deliveryQueue.Close(ctx)
 	}
+	if s.automationPool != nil {
+		s.automationPool.Close()
+	}
 	s.workerPool.Shutdown()
 	return queueErr
 }
@@ -331,7 +344,11 @@ func run() error {
 	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "") {
 		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http")
 	}
-	server := NewServer(config, logger)
+	server, err := NewServer(config, logger)
+	if err != nil {
+		return err
+	}
+	defer server.automationPool.Close()
 	if err := server.ConfigureDeliveryQueue(); err != nil {
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to configure delivery queue: %w", err)
@@ -487,7 +504,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		config.PlannerURL,
 		config.InternalToken,
 		client,
-		automation.Languages(server.automation)...,
+		automation.Languages(server.automationRuntime)...,
 	)
 	if controlErr != nil {
 		return fmt.Errorf("failed to initialize schedule control plane: %w", controlErr)
@@ -497,16 +514,18 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		scheduleCtx, cancelSchedules := context.WithCancel(context.Background())
 		defer cancelSchedules()
 		executor := server.NewGatewayExecutor()
-		(schedules.Runtime{
+		if err := (schedules.Runtime{
 			Control:   control,
-			Executor:  server.automation,
+			Executor:  server.automationRuntime,
 			Registrar: control,
 			Interval:  config.SchedulePollInterval,
 			LogError:  logger.Error,
 			Enqueue: func(runID string, delivery automation.Delivery) bool {
 				return transport.EnqueueScheduledDelivery(executor, runID, delivery)
 			},
-		}).Start(scheduleCtx)
+		}).Start(scheduleCtx); err != nil {
+			return err
+		}
 		logger.Info("Schedule polling enabled")
 	}
 	runtime, err := bridge.NewHTTPRuntime(
