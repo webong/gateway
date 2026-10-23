@@ -1,0 +1,26 @@
+{
+    "name": "webong/gateway-planner",
+    "description": "Laravel Planner runtime for Webong Gateway",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^12.0",
+        "webong/gateway": "dev-main",
+        "webong/proxy": "^0.2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\Gateway\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webong\\Gateway\\GatewayServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
