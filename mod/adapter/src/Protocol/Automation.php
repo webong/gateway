@@ -12,6 +12,7 @@ final readonly class Automation
     public function __construct(
         public string $language,
         public string $source,
+        public ?string $executor = null,
     ) {
         if (preg_match('/^[a-z][a-z0-9_-]*$/', $language) !== 1) {
             throw new InvalidArgumentException("Invalid gateway automation language [{$language}].");
@@ -20,11 +21,19 @@ final readonly class Automation
         if (trim($source) === '') {
             throw new InvalidArgumentException('Gateway automation source is required.');
         }
+
+        if ($executor !== null && ! in_array($executor, ['direct', 'goroutine', 'ergo'], true)) {
+            throw new InvalidArgumentException("Invalid gateway automation executor [{$executor}].");
+        }
     }
 
-    /** @return array{language: string, source: string} */
+    /** @return array{language: string, source: string, executor?: string} */
     public function toArray(): array
     {
-        return ['language' => $this->language, 'source' => $this->source];
+        return array_filter([
+            'language' => $this->language,
+            'source' => $this->source,
+            'executor' => $this->executor,
+        ], static fn (mixed $value): bool => $value !== null);
     }
 }

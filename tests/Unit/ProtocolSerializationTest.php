@@ -62,6 +62,17 @@ it('allows an installed extension to define its language identifier', function (
     ]);
 });
 
+it('allows trusted route policy to select an automation executor', function (): void {
+    expect((new Automation('javascript', 'run()', executor: 'goroutine'))->toArray())->toBe([
+        'language' => 'javascript',
+        'source' => 'run()',
+        'executor' => 'goroutine',
+    ]);
+
+    expect(fn (): Automation => new Automation('javascript', 'run()', executor: 'process'))
+        ->toThrow(InvalidArgumentException::class);
+});
+
 it('accepts the active Spinner language catalog from the bridge', function (): void {
     $request = IngressRequest::fromArray([
         'delivery_id' => 'delivery-1',

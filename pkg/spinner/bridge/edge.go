@@ -154,6 +154,7 @@ func (e *Edge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		script := automation.Script{
 			Language: plan.Automation.Language,
 			Source:   plan.Automation.Source,
+			Executor: plan.Automation.Executor,
 		}
 		input := automation.Input{
 			Event: map[string]any{

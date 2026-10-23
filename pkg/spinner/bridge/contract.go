@@ -82,8 +82,9 @@ type RoutePlan struct {
 // Optional PHP planner extensions must consume their own languages and return
 // an ordinary response or relay plan before this contract crosses the bridge.
 type Automation struct {
-	Language automation.Language `json:"language"`
-	Source   string              `json:"source"`
+	Language automation.Language     `json:"language"`
+	Source   string                  `json:"source"`
+	Executor automation.ExecutorMode `json:"executor,omitempty"`
 }
 
 // Delivery describes a destination resolved by PHP. Go still applies its
@@ -244,6 +245,9 @@ func (p RoutePlan) Validate() error {
 		}
 		if !automationLanguagePattern.MatchString(string(p.Automation.Language)) {
 			return fmt.Errorf("%w: invalid automation language %q", ErrInvalidPlan, p.Automation.Language)
+		}
+		if !automation.ValidExecutorMode(p.Automation.Executor) {
+			return fmt.Errorf("%w: invalid automation executor %q", ErrInvalidPlan, p.Automation.Executor)
 		}
 		for index := range p.Relays {
 			if err := p.Relays[index].Validate(); err != nil {

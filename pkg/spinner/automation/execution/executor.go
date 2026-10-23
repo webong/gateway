@@ -14,12 +14,12 @@ import (
 	"github.com/webong/gateway/pkg/spinner/automation/actors"
 )
 
-type Mode string
+type Mode = automation.ExecutorMode
 
 const (
-	ModeDirect    Mode = "direct"
-	ModeGoroutine Mode = "goroutine"
-	ModeErgo      Mode = "ergo"
+	ModeDirect    = automation.ExecutorDirect
+	ModeGoroutine = automation.ExecutorGoroutine
+	ModeErgo      = automation.ExecutorErgo
 )
 
 type Options struct {
@@ -32,55 +32,89 @@ type Options struct {
 // Executor is the managed Spinner adapter returned for every execution mode.
 // Callers continue to depend only on automation.Executor.
 type Executor struct {
-	delegate automation.Executor
-	mode     Mode
-	close    func()
-	once     sync.Once
+	delegate    automation.Executor
+	executors   map[Mode]automation.Executor
+	defaultMode Mode
+	options     Options
+	mu          sync.Mutex
+	closed      bool
 }
 
 func New(delegate automation.Executor, options Options) (*Executor, error) {
 	if delegate == nil {
 		return nil, errors.New("automation execution delegate is required")
 	}
+	if options.Workers < 1 || options.QueueSize < 0 || options.Timeout <= 0 {
+		return nil, errors.New("automation workers and timeout must be positive and queue size must be non-negative")
+	}
 	mode := Mode(strings.ToLower(strings.TrimSpace(string(options.Mode))))
 	if mode == "" {
 		mode = ModeErgo
 	}
 
-	var selected automation.Executor
-	var closeSelected func()
-	switch mode {
-	case ModeDirect:
-		selected = delegate
-		closeSelected = func() {}
-	case ModeGoroutine:
-		executor, err := newGoroutineExecutor(delegate, options)
-		if err != nil {
-			return nil, err
-		}
-		selected = executor
-		closeSelected = executor.Close
-	case ModeErgo:
-		executor, err := actors.New(delegate, actors.Options{
-			Workers: options.Workers, QueueSize: options.QueueSize, Timeout: options.Timeout,
-		})
-		if err != nil {
-			return nil, err
-		}
-		selected = executor
-		closeSelected = executor.Close
-	default:
+	if !automation.ValidExecutorMode(mode) || mode == automation.ExecutorDefault {
 		return nil, fmt.Errorf("unsupported automation execution mode %q", mode)
 	}
 
-	return &Executor{delegate: selected, mode: mode, close: closeSelected}, nil
+	executor := &Executor{
+		delegate:    delegate,
+		executors:   map[Mode]automation.Executor{ModeDirect: delegate},
+		defaultMode: mode,
+		options:     options,
+	}
+	if _, err := executor.ExecutorFor(mode); err != nil {
+		return nil, err
+	}
+	return executor, nil
 }
 
 func (e *Executor) Mode() Mode {
 	if e == nil {
 		return ""
 	}
-	return e.mode
+	return e.defaultMode
+}
+
+// ExecutorFor resolves one request's choice. An empty choice uses the default
+// selected by GATEWAY_AUTOMATION_EXECUTOR at Spinner composition time.
+func (e *Executor) ExecutorFor(mode Mode) (automation.Executor, error) {
+	if e == nil {
+		return nil, fmt.Errorf("%w: executor is unavailable", automation.ErrBusy)
+	}
+	mode = Mode(strings.ToLower(strings.TrimSpace(string(mode))))
+	if mode == automation.ExecutorDefault {
+		mode = e.defaultMode
+	}
+	if !automation.ValidExecutorMode(mode) {
+		return nil, fmt.Errorf("unsupported automation execution mode %q", mode)
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return nil, fmt.Errorf("%w: executor is stopped", automation.ErrBusy)
+	}
+	if executor, ok := e.executors[mode]; ok {
+		return executor, nil
+	}
+
+	var executor automation.Executor
+	var err error
+	switch mode {
+	case ModeGoroutine:
+		executor, err = newGoroutineExecutor(e.delegate, e.options)
+	case ModeErgo:
+		executor, err = actors.New(e.delegate, actors.Options{
+			Workers: e.options.Workers, QueueSize: e.options.QueueSize, Timeout: e.options.Timeout,
+		})
+	default:
+		return nil, fmt.Errorf("unsupported automation execution mode %q", mode)
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.executors[mode] = executor
+	return executor, nil
 }
 
 func (e *Executor) Supports(language automation.Language) bool {
@@ -95,17 +129,19 @@ func (e *Executor) Languages() []automation.Language {
 }
 
 func (e *Executor) Execute(ctx context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
-	if e == nil || e.delegate == nil {
-		return automation.Outcome{}, fmt.Errorf("%w: executor is unavailable", automation.ErrBusy)
+	executor, err := e.ExecutorFor(script.Executor)
+	if err != nil {
+		return automation.Outcome{}, err
 	}
-	return e.delegate.Execute(ctx, script, input)
+	return executor.Execute(ctx, script, input)
 }
 
 func (e *Executor) OpenStream(ctx context.Context, script automation.Script, input automation.Input) (*automation.Stream, error) {
-	if e == nil || e.delegate == nil {
-		return nil, errors.New("automation streaming is unavailable")
+	executor, err := e.ExecutorFor(script.Executor)
+	if err != nil {
+		return nil, err
 	}
-	streamer, ok := e.delegate.(automation.StreamingExecutor)
+	streamer, ok := executor.(automation.StreamingExecutor)
 	if !ok {
 		return nil, errors.New("automation streaming is unavailable")
 	}
@@ -113,8 +149,24 @@ func (e *Executor) OpenStream(ctx context.Context, script automation.Script, inp
 }
 
 func (e *Executor) Close() {
-	if e != nil {
-		e.once.Do(e.close)
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return
+	}
+	e.closed = true
+	goroutineExecutor := e.executors[ModeGoroutine]
+	ergoExecutor := e.executors[ModeErgo]
+	e.mu.Unlock()
+
+	if executor, ok := goroutineExecutor.(interface{ Close() }); ok {
+		executor.Close()
+	}
+	if executor, ok := ergoExecutor.(interface{ Close() }); ok {
+		executor.Close()
 	}
 }
 

@@ -123,3 +123,59 @@ func TestNewRejectsUnknownMode(t *testing.T) {
 		t.Fatal("expected unknown execution mode to fail")
 	}
 }
+
+func TestExecutorResolvesEachRequestAndFallsBackToConfiguredDefault(t *testing.T) {
+	delegate := &testExecutor{}
+	executor, err := New(delegate, Options{Mode: ModeGoroutine, Workers: 1, QueueSize: 1, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executor.Close()
+
+	fallback, err := executor.ExecutorFor(automation.ExecutorDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goroutineMode, err := executor.ExecutorFor(automation.ExecutorGoroutine)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directMode, err := executor.ExecutorFor(automation.ExecutorDirect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ergoMode, err := executor.ExecutorFor(automation.ExecutorErgo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback != goroutineMode {
+		t.Fatal("empty request choice did not use the configured default")
+	}
+	if directMode != delegate || directMode == goroutineMode || directMode == ergoMode || goroutineMode == ergoMode {
+		t.Fatal("request modes did not resolve to distinct adapters")
+	}
+
+	_, err = executor.Execute(context.Background(), automation.Script{
+		Language: "test", Source: "run", Executor: "process",
+	}, automation.Input{})
+	if err == nil {
+		t.Fatal("accepted an unsupported per-request executor")
+	}
+}
+
+func TestExecutorLazilyStartsNonDefaultPools(t *testing.T) {
+	executor, err := New(&testExecutor{}, Options{Mode: ModeDirect, Workers: 1, QueueSize: 1, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executor.Close()
+	if len(executor.executors) != 1 {
+		t.Fatalf("started non-default pools eagerly: %d adapters", len(executor.executors))
+	}
+	if _, err := executor.ExecutorFor(ModeGoroutine); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.executors) != 2 {
+		t.Fatalf("did not retain lazily started pool: %d adapters", len(executor.executors))
+	}
+}

@@ -198,6 +198,9 @@ Spinner selects its local implementation with `GATEWAY_AUTOMATION_EXECUTOR`:
 `ergo` (the default), `goroutine`, or `direct`. Ergo and goroutine modes use the
 same bounded worker, queue, deadline, cancellation, and error contract; direct
 mode is intended for debugging and delegates execution without a Spinner pool.
+Trusted Planner route policy may set `automation.executor` to one of those
+values for an individual event. When it is absent, Spinner uses the environment
+default. The inbound request cannot select an executor directly.
 
 The selected bounded pool waits for an
 available worker within the request's total automation deadline, including time

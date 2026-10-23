@@ -23,9 +23,30 @@ var ErrBusy = errors.New("automation executor is busy")
 
 type Language string
 
+// ExecutorMode selects Spinner's local execution mechanism for one script.
+// The empty value asks Spinner to use its configured default.
+type ExecutorMode string
+
+const (
+	ExecutorDefault   ExecutorMode = ""
+	ExecutorDirect    ExecutorMode = "direct"
+	ExecutorGoroutine ExecutorMode = "goroutine"
+	ExecutorErgo      ExecutorMode = "ergo"
+)
+
+func ValidExecutorMode(mode ExecutorMode) bool {
+	switch mode {
+	case ExecutorDefault, ExecutorDirect, ExecutorGoroutine, ExecutorErgo:
+		return true
+	default:
+		return false
+	}
+}
+
 type Script struct {
 	Language Language
 	Source   string
+	Executor ExecutorMode
 }
 
 type Input struct {
