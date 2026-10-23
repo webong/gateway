@@ -62,6 +62,14 @@ final readonly class OutboundTransportController
                 $input['domain_readiness']['domain'], $input['domain_readiness']['status']))); }
             catch (InvalidArgumentException) { return $this->error('Invalid sender readiness.', 422); }
         }
+        if (array_key_exists('domain_authorization', $input) && is_array($input['domain_authorization'])
+            && is_string($input['domain_authorization']['domain'] ?? null)
+            && is_array($input['domain_authorization']['status'] ?? null)
+            && count($input['domain_authorization']) === 2) {
+            try { return $this->ok($this->resource($this->store->authorizeDomain($row,
+                $input['domain_authorization']['domain'], $input['domain_authorization']['status']))); }
+            catch (InvalidArgumentException) { return $this->error('Invalid domain authorization.', 422); }
+        }
         return $this->error('Invalid transport update.', 422);
     }
 
@@ -113,10 +121,14 @@ final readonly class OutboundTransportController
         $row = $this->store->binding($id);
         if ($row === null) { return $this->error('Outbound binding not found.', 404); }
         $input = $request->json()->all();
-        if (array_keys($input) !== ['enabled'] || ! is_bool($input['enabled'])) {
-            return $this->error('Invalid outbound binding update.', 422);
+        if (array_keys($input) === ['enabled'] && is_bool($input['enabled'])) {
+            return $this->ok($this->bindingResource($this->store->setBindingEnabled($row, $input['enabled'])));
         }
-        return $this->ok($this->bindingResource($this->store->setBindingEnabled($row, $input['enabled'])));
+        if (array_keys($input) === ['pool_id'] && is_string($input['pool_id'])) {
+            try { return $this->ok($this->bindingResource($this->store->setBindingPool($row, $input['pool_id']))); }
+            catch (InvalidArgumentException) { return $this->error('Invalid outbound binding update.', 422); }
+        }
+        return $this->error('Invalid outbound binding update.', 422);
     }
 
     public function rotateCredential(Request $request, string $id): JsonResponse

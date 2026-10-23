@@ -114,6 +114,24 @@ final readonly class OutboundTransportStore
             $doc, $transport->enabled, $transport->revision);
     }
 
+    public function authorizeDomain(stdClass $transport, string $domain, array $status): stdClass
+    {
+        if (! $this->validDomain($domain)) {
+            throw new InvalidArgumentException('Invalid outbound sender domain.');
+        }
+        $this->validateReadiness($status);
+        $doc = $transport->document;
+        if (! in_array($domain, $doc['authorized_domains'], true)) {
+            if (count($doc['authorized_domains']) >= 100) {
+                throw new InvalidArgumentException('Too many authorized sender domains.');
+            }
+            $doc['authorized_domains'][] = $domain;
+        }
+        $doc['domain_readiness'][$domain] = $status;
+        return $this->resources->replace(self::TRANSPORT, $transport->id, $transport->key,
+            $doc, $transport->enabled, $transport->revision);
+    }
+
     public function rotateCredential(stdClass $transport, string $password): void
     {
         if ($password === '' || strlen($password) > 8192) { throw new InvalidArgumentException('Invalid SMTP credential.'); }
@@ -160,7 +178,26 @@ final readonly class OutboundTransportStore
             $binding->document, $enabled, $binding->revision);
     }
 
+    public function setBindingPool(stdClass $binding, string $poolID): stdClass
+    {
+        $doc = $this->bindingDocument([
+            'account_id' => $binding->document['account_id'] ?? null,
+            'scope' => $binding->document['scope'] ?? null,
+            'sender_id' => $binding->document['sender_id'] ?? null,
+            'pool_id' => $poolID,
+        ]);
+        return $this->resources->replace(self::BINDING, $binding->id, $binding->key,
+            $doc, $binding->enabled, $binding->revision);
+    }
+
     public function bind(array $input): stdClass
+    {
+        $doc = $this->bindingDocument($input);
+        $key = $doc['account_id'].':'.$doc['scope'].':'.$doc['sender_id'];
+        return $this->resources->create(self::BINDING, $key, $doc);
+    }
+
+    private function bindingDocument(array $input): array
     {
         if (array_diff(array_keys($input), ['account_id', 'scope', 'sender_id', 'pool_id']) !== []
             || ! is_string($input['account_id'] ?? null) || $input['account_id'] === ''
@@ -193,11 +230,10 @@ final readonly class OutboundTransportStore
                 throw new InvalidArgumentException('Every pool transport must authorize the sender domain and account.');
             }
         }
-        $key = $account.':'.$input['scope'].':'.$input['sender_id'];
-        return $this->resources->create(self::BINDING, $key, [
+        return [
             'account_id' => $account, 'scope' => $input['scope'], 'sender_id' => $input['sender_id'],
             'pool_id' => $pool->id, 'sender_domain' => $domain,
-        ]);
+        ];
     }
 
     public function boundPool(string $account, string $routeID, string $domainID): ?stdClass
