@@ -1,4 +1,4 @@
-.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-driver-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -58,11 +58,15 @@ test-contract-package:
 
 test-php:
 	$(MAKE) test-contract-package
+	$(MAKE) test-roadrunner-planner-env
 	vendor/bin/pest
 	$(MAKE) -C pkg/reverb test-php
 	$(MAKE) -C pkg/mercure test-php
 	$(MAKE) -C pkg/centrifugo test-php
 	$(MAKE) -C pkg/webhookscript test-php
+
+test-roadrunner-planner-env:
+	bash scripts/test-roadrunner-planner-env
 
 test-octane:
 	bash scripts/octane-smoke.sh

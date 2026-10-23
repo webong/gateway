@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-roadrunner-planner-env.XXXXXX")
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+cat > "$TEST_DIR/roadrunner" <<'SH'
+#!/usr/bin/env bash
+env | sort > "$GATEWAY_ROUTER_DATA_DIR/runtime.env"
+SH
+chmod +x "$TEST_DIR/roadrunner"
+
+GATEWAY_ROUTER_DATA_DIR="$TEST_DIR" \
+GATEWAY_ROUTER_ROADRUNNER_BIN="$TEST_DIR/roadrunner" \
+GATEWAY_EMAIL_HOOK_CLIENT=hook-client \
+GATEWAY_EMAIL_PROVIDER_ROUTE_RESOLVER=provider-route-resolver \
+GATEWAY_EMAIL_OAUTH_REFRESHER=oauth-refresher \
+GATEWAY_EMAIL_OAUTH_CALLBACK_URL=https://app.example.test/oauth/callback \
+GATEWAY_EMAIL_GOOGLE_CLIENT_ID=google-client-id \
+GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET=google-client-secret \
+GATEWAY_EMAIL_GOOGLE_IMAP_UPSTREAM=google-imap \
+GATEWAY_EMAIL_GOOGLE_SMTP_UPSTREAM=google-smtp \
+GATEWAY_EMAIL_MICROSOFT_CLIENT_ID=microsoft-client-id \
+GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET=microsoft-client-secret \
+GATEWAY_EMAIL_MICROSOFT_TENANT=microsoft-tenant \
+GATEWAY_EMAIL_MICROSOFT_IMAP_UPSTREAM=microsoft-imap \
+GATEWAY_EMAIL_MICROSOFT_SMTP_UPSTREAM=microsoft-smtp \
+GATEWAY_EMAIL_POLICY=email-policy \
+GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR='App\Email\SubmissionAuthenticator' \
+GATEWAY_EMAIL_SHARED_FROM_ADDRESS=mail@example.test \
+GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED=true \
+GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR=selector-live \
+GATEWAY_EMAIL_MANAGED_SPF_VALUE='v=spf1 include:_spf.example.test -all' \
+GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR='App\Email\MailboxAuthenticator' \
+    "$ROOT/scripts/router-start" roadrunner >/dev/null
+
+CONFIG="$TEST_DIR/router.rr.yaml"
+assert_config_contains() {
+    local expected=$1
+
+    if ! grep -F "$expected" "$CONFIG" >/dev/null; then
+        echo "Generated RoadRunner config is missing: $expected" >&2
+        exit 1
+    fi
+}
+
+assert_config_contains '    GATEWAY_EMAIL_HOOK_CLIENT: "hook-client"'
+assert_config_contains '    GATEWAY_EMAIL_PROVIDER_ROUTE_RESOLVER: "provider-route-resolver"'
+assert_config_contains '    GATEWAY_EMAIL_OAUTH_REFRESHER: "oauth-refresher"'
+assert_config_contains '    GATEWAY_EMAIL_OAUTH_CALLBACK_URL: "https://app.example.test/oauth/callback"'
+assert_config_contains '    GATEWAY_EMAIL_GOOGLE_CLIENT_ID: "google-client-id"'
+assert_config_contains '    GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET: "google-client-secret"'
+assert_config_contains '    GATEWAY_EMAIL_GOOGLE_IMAP_UPSTREAM: "google-imap"'
+assert_config_contains '    GATEWAY_EMAIL_GOOGLE_SMTP_UPSTREAM: "google-smtp"'
+assert_config_contains '    GATEWAY_EMAIL_MICROSOFT_CLIENT_ID: "microsoft-client-id"'
+assert_config_contains '    GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET: "microsoft-client-secret"'
+assert_config_contains '    GATEWAY_EMAIL_MICROSOFT_TENANT: "microsoft-tenant"'
+assert_config_contains '    GATEWAY_EMAIL_MICROSOFT_IMAP_UPSTREAM: "microsoft-imap"'
+assert_config_contains '    GATEWAY_EMAIL_MICROSOFT_SMTP_UPSTREAM: "microsoft-smtp"'
+assert_config_contains '    GATEWAY_EMAIL_POLICY: "email-policy"'
+assert_config_contains '    GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR: "App\\Email\\SubmissionAuthenticator"'
+assert_config_contains '    GATEWAY_EMAIL_SHARED_FROM_ADDRESS: "mail@example.test"'
+assert_config_contains '    GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED: "true"'
+assert_config_contains '    GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR: "selector-live"'
+assert_config_contains '    GATEWAY_EMAIL_MANAGED_SPF_VALUE: "v=spf1 include:_spf.example.test -all"'
+assert_config_contains '    GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR: "App\\Email\\MailboxAuthenticator"'
+
+if ! grep -Fx 'GATEWAY_EMAIL_DKIM_RESOLVER_URL=http://127.0.0.1:5053' "$TEST_DIR/runtime.env" >/dev/null; then
+    echo 'Bundled Spinner is missing its private Planner DKIM resolver URL.' >&2
+    exit 1
+fi
+
+echo 'RoadRunner Planner Email environment forwarding passed.'
