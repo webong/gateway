@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Http;
-use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Contract\ProtocolPlanner;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\SharedSenderMessage;
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 it('sends from the configured shared identity and routes replies by conversation', function (): void {
     config()->set('gateway.email.shared_from_address', 'support@operator.test');

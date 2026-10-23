@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\MatchRules;
 use Webong\Gateway\RequestMatcher;
 use Webong\Gateway\SubscriptionMatcher;
 

@@ -8,7 +8,7 @@ use RuntimeException;
 use Webong\Gateway\Email\DmarcAssessment;
 use Webong\Gateway\Email\EmailMessagePolicy;
 use Webong\Gateway\Email\EmailPolicyVerdict;
-use Webong\Gateway\Protocol\GatewayEvent;
+use Webong\Gateway\Protocols\GatewayEvent;
 
 /** Test-only policy that exercises SMTP reject and temporary defer paths. */
 final class EmailSmokeMessagePolicy implements EmailMessagePolicy

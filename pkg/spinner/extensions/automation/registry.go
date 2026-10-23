@@ -1,0 +1,202 @@
+// Package automationextensions is Spinner's host-side automation registry.
+//
+// Spinner is a plugin host: it depends only on the automation driver contract
+// and the portable plugin contract. Automation engines (JavaScript, Lua, Shell,
+// Go, PHP, HookScript, or third-party engines) are guests and are registered
+// here either in-process by an external composition root or loaded at runtime
+// from native/shared objects and external plugin processes.
+//
+// This package must never import a concrete engine package.
+package automationextensions
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/webong/ext/pkg/plugin-go/contract"
+	"github.com/webong/ext/pkg/plugin-go/contract/host"
+	"github.com/webong/ext/pkg/plugin-go/contract/host/nativego"
+	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	"github.com/webong/gateway/driver/automation"
+)
+
+var registry = NewRegistry()
+
+// Register installs an in-process guest engine. Composition roots outside
+// Spinner call it so that Spinner never imports an engine package directly.
+func Register(engine automation.Engine) {
+	registry.Register(NewEngineAdapter(engine, EngineDescriptor(engine, contract.Identity{
+		ID:       "builtin/" + string(engine.Language()),
+		Revision: "v0",
+	})))
+}
+
+// Runtime returns a dispatcher containing every engine registered so far.
+func Runtime() *automation.Runtime {
+	return automation.NewRuntime(registry.All()...)
+}
+
+// LoadConfig configures runtime guest loading.
+type LoadConfig struct {
+	// NativeGoDir holds .so guests built with -buildmode=plugin.
+	NativeGoDir string
+	// ExternalDir holds externpo plugin guests launched via the ext host.
+	ExternalDir string
+}
+
+// DefaultLoadConfig reads the loader directories from the environment.
+func DefaultLoadConfig() LoadConfig {
+	return LoadConfig{
+		NativeGoDir: os.Getenv("GATEWAY_PLUGIN_DIR_NATIVE"),
+		ExternalDir: os.Getenv("GATEWAY_PLUGIN_DIR"),
+	}
+}
+
+// LoadAll loads runtime guests using the default configuration.
+func LoadAll(ctx context.Context) error {
+	return LoadPlugins(ctx, DefaultLoadConfig())
+}
+
+// LoadPlugins discovers and loads guest engines from native and external
+// plugin directories. In-process engines registered via Register are untouched.
+func LoadPlugins(ctx context.Context, cfg LoadConfig) error {
+	if cfg.NativeGoDir != "" {
+		if err := loadNativeGoPlugins(ctx, cfg.NativeGoDir); err != nil {
+			return fmt.Errorf("load native Go plugins: %w", err)
+		}
+	}
+	if cfg.ExternalDir != "" {
+		if err := loadExternalPlugins(ctx, cfg.ExternalDir); err != nil {
+			return fmt.Errorf("load external plugins: %w", err)
+		}
+	}
+	return nil
+}
+
+// loadNativeGoPlugins loads .so guests built with -buildmode=plugin. Each guest
+// exports contract.Symbol and returns a plugin.Backend that Spinner wraps as an
+// automation engine.
+func loadNativeGoPlugins(ctx context.Context, dir string) error {
+	if !nativego.Supported() {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read native plugin dir %s: %w", dir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".so") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		backend, err := nativego.Open(ctx, path)
+		if err != nil {
+			fmt.Printf("failed to load native plugin %s: %v\n", path, err)
+			continue
+		}
+		engine, err := NewEndpointEngine(ctx, backend)
+		if err != nil {
+			_ = backend.Close()
+			fmt.Printf("native plugin %s is not an automation guest: %v\n", e.Name(), err)
+			continue
+		}
+		Register(engine)
+		fmt.Printf("loaded native Go plugin: %s (lang=%s)\n", e.Name(), engine.Language())
+	}
+	return nil
+}
+
+// loadExternalPlugins loads plugin packages installed in an ext store and
+// launches each as a supervised child process.
+func loadExternalPlugins(ctx context.Context, dir string) error {
+	s, err := store.New(dir, store.Limits{})
+	if err != nil {
+		return fmt.Errorf("open plugin store: %w", err)
+	}
+	installed, err := s.List()
+	if err != nil {
+		return fmt.Errorf("list plugins: %w", err)
+	}
+	for _, inst := range installed {
+		if !SupportsAutomation(inst.Manifest.Descriptor) {
+			continue
+		}
+		proc, err := host.Open(ctx, inst, host.Options{})
+		if err != nil {
+			fmt.Printf("failed to load plugin %s: %v\n", inst.Name(), err)
+			continue
+		}
+		engine, err := NewProcessEngine(ctx, proc, inst.Manifest.Descriptor)
+		if err != nil {
+			_ = proc.Close()
+			fmt.Printf("plugin %s is not an automation guest: %v\n", inst.Name(), err)
+			continue
+		}
+		Register(engine)
+		fmt.Printf("loaded external plugin: %s (lang=%s)\n", inst.Name(), engine.Language())
+	}
+	return nil
+}
+
+// RunHistory returns the optional local run reader without exposing a concrete
+// engine implementation to Spinner's transport or private admin packages.
+type RunHistoryReader interface {
+	ReadRun(string) ([]byte, error)
+	RunHistoryConfigured() bool
+}
+
+func RunHistory() RunHistoryReader {
+	for _, e := range registry.engines {
+		if reader, ok := e.(RunHistoryReader); ok && reader.RunHistoryConfigured() {
+			return reader
+		}
+	}
+	return nil
+}
+
+// ConfigureShellSSHHTTP resolves write-only Planner credentials through the same
+// private connection used by the host. When Shell is not installed this is a no-op.
+func ConfigureShellSSHHTTP(origin, token string, client *http.Client, localTransport bool) error {
+	for _, e := range registry.engines {
+		if configurable, ok := e.(interface {
+			SetSSHResolverHTTP(string, string, *http.Client, bool) error
+		}); ok {
+			if err := configurable.SetSSHResolverHTTP(origin, token, client, localTransport); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ConfigureShellSSHHandler(handler http.Handler, token string) error {
+	for _, e := range registry.engines {
+		if configurable, ok := e.(interface {
+			SetSSHResolverHandler(http.Handler, string) error
+		}); ok {
+			if err := configurable.SetSSHResolverHandler(handler, token); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func ContextWithShellSSHHandler(ctx context.Context, handler http.Handler, token string) (context.Context, error) {
+	for _, e := range registry.engines {
+		if configurable, ok := e.(interface {
+			ContextWithSSHResolverHandler(context.Context, http.Handler, string) (context.Context, error)
+		}); ok {
+			var err error
+			ctx, err = configurable.ContextWithSSHResolverHandler(ctx, handler, token)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return ctx, nil
+}

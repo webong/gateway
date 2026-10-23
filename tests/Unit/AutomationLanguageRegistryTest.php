@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
-use Webong\Gateway\Contracts\AutomationCapability;
-use Webong\Gateway\Contracts\AutomationExecutionTarget;
-use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Protocol\Automation;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\Contract\AutomationCapability;
+use Webong\Gateway\Contract\AutomationExecutionTarget;
+use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Protocols\Automation;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\RoutePlan;
 
 it('tracks language capabilities without knowing language implementations', function (): void {
     $registry = new InMemoryAutomationLanguageRegistry;

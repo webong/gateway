@@ -1,0 +1,11 @@
+# Static automation guests compiled into the Gateway host binary.
+# One line per guest: <language> <go import path>
+# Edit this file, then run: go generate ./...
+# Guests not listed here can still be loaded at runtime from
+# GATEWAY_PLUGIN_DIR_NATIVE (.so) or GATEWAY_PLUGIN_DIR (external processes).
+javascript github.com/webong/gateway/pkg/javascript/runtime
+lua        github.com/webong/gateway/pkg/lua/runtime
+shell      github.com/webong/gateway/pkg/shell/runtime
+go         github.com/webong/gateway/pkg/golang/runtime
+php        github.com/webong/gateway/pkg/php/runtime
+hookscript github.com/webong/gateway/pkg/hookscript/runtime

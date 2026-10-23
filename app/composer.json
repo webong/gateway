@@ -1,5 +1,5 @@
 {
-    "name": "webong/gateway-planner",
+    "name": "webong/gateway-planner-host",
     "description": "Bundled PHP Planner host for Gateway Router",
     "license": "MIT",
     "type": "project",
@@ -9,12 +9,18 @@
         "laravel/octane": "^2.17",
         "spiral/roadrunner-http": "^3.3",
         "webong/gateway": "dev-main",
+        "webong/gateway-planner": "dev-main",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
         {
             "type": "path",
             "url": "..",
+            "options": { "symlink": false }
+        },
+        {
+            "type": "path",
+            "url": "../src/planner",
             "options": { "symlink": false }
         }
     ],
@@ -33,7 +39,7 @@
     "extra": {
         "merge-plugin": {
             "include": [
-                "../ext/*/composer.json"
+                "../pkg/*/composer.json"
             ],
             "recurse": false,
             "replace": false,

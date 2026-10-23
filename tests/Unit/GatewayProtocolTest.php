@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayDecision;
-use Webong\Gateway\Protocol\GatewayDelivery;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayDecision;
+use Webong\Gateway\Protocols\GatewayDelivery;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 it('round trips a protocol-neutral gateway event', function (): void {
     $event = new GatewayEvent(

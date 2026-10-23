@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\Response;
-use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\Response;
+use Webong\Gateway\Protocols\RoutePlan;
 
 final class OctaneSmokePlanner implements RoutePlanner
 {

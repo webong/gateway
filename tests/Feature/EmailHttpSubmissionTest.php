@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Carbon;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
-use Webong\Gateway\Protocol\GatewayEvent;
+use Webong\Gateway\Protocols\GatewayEvent;
 
 final class HttpEmailSubmissionAuthenticator implements EmailSubmissionAuthenticator
 {

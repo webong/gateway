@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contracts\PathResolver;
-use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Contract\PathResolver;
+use Webong\Gateway\Contract\ProtocolPlanner;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Dns\DnsProvider;
 use Webong\Gateway\Dns\DnsProviderRegistry;
 use Illuminate\Support\Facades\Schema;

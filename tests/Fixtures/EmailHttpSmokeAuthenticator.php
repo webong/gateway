@@ -6,7 +6,7 @@ namespace Webong\Gateway\Tests\Fixtures;
 
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
-use Webong\Gateway\Protocol\GatewayEvent;
+use Webong\Gateway\Protocols\GatewayEvent;
 
 /** Fixed credentials for the isolated container integration fixture only. */
 final class EmailHttpSmokeAuthenticator implements EmailSubmissionAuthenticator

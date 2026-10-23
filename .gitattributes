@@ -1,13 +1,10 @@
-# Repository archives are the Composer Planner distribution, not Router source bundles.
+# Repository archives are the Gateway core Composer distribution, not Router source bundles.
 /* export-ignore
 /composer.json -export-ignore
 /LICENSE -export-ignore
 /README.md -export-ignore
-/src -export-ignore
-/src/* export-ignore
-/src/planner -export-ignore
 /lib -export-ignore
-/lib/* export-ignore
-/lib/contract -export-ignore
-/lib/contract/* export-ignore
-/lib/contract/src -export-ignore
+/* export-ignore
+/adapter -export-ignore
+/adapter/* export-ignore
+/adapter/src -export-ignore

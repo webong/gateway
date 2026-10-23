@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contracts\AutomationCapability;
-use Webong\Gateway\Contracts\AutomationExecutionTarget;
-use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\Contract\AutomationCapability;
+use Webong\Gateway\Contract\AutomationExecutionTarget;
+use Webong\Gateway\Contract\AutomationLanguageRegistry;
 use Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider;
 use Webong\Gateway\JavaScript\JavaScriptLanguage;
 use Webong\Gateway\Lua\LuaExtensionServiceProvider;

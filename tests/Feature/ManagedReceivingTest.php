@@ -3,11 +3,11 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Contracts\ProtocolPlanner;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 it('keeps managed MX receiving and legacy route migration signed and account scoped', function (): void {
     $dns = new class implements TxtResolver {

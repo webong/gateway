@@ -1,35 +1,38 @@
 {
     "name": "webong/gateway",
-    "description": "Laravel control-plane contract for the gateway Go transport",
+    "description": "Framework-free contracts and protocol for the Webong Gateway transport",
     "type": "library",
     "license": "MIT",
     "require": {
-        "php": "^8.3",
-        "illuminate/database": "^12.0",
-        "illuminate/http": "^12.0",
-        "illuminate/routing": "^12.0",
-        "illuminate/support": "^12.0",
-        "illuminate/validation": "^12.0",
-        "webong/proxy": "^0.2.0"
+        "php": "^8.3"
     },
     "require-dev": {
-        "laravel/reverb": "^1.10",
         "laravel/octane": "^2.17",
+        "laravel/reverb": "^1.10",
         "orchestra/testbench": "^10.0",
         "pestphp/pest": "^4.0",
         "pestphp/pest-plugin-laravel": "^4.0",
         "smuuf/primi": "^0.4",
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3",
+        "webong/gateway-planner": "dev-main",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "pkg/planner",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
     "minimum-stability": "dev",
     "prefer-stable": true,
     "autoload": {
         "psr-4": {
-            "Webong\\Gateway\\Contracts\\": "lib/contract/src/Contracts/",
-            "Webong\\Gateway\\Protocol\\": "lib/contract/src/Protocol/",
-            "Webong\\Gateway\\": "src/planner/"
+            "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contract/",
+            "Webong\\Gateway\\Protocols\\": "mod/adapter/src/Protocol/"
         }
     },
     "autoload-dev": {
@@ -44,37 +47,31 @@
             "!/composer.json",
             "!/LICENSE",
             "!/README.md",
-            "!/src",
-            "/src/*",
-            "!/src/planner",
-            "!/src/planner/**",
             "!/lib",
-            "/lib/*",
-            "!/lib/contract",
-            "/lib/contract/*",
-            "!/lib/contract/src",
-            "!/lib/contract/src/**"
+            "/mod/*",
+            "!/mod/adapter",
+            "/mod/adapter/*",
+            "!/mod/adapter/src",
+            "!/mod/adapter/src/**"
         ]
     },
     "scripts": {
         "test": "pest",
-        "test-package": "bash scripts/test-planner-package"
+        "test-package": "bash scripts/test-core-package"
     },
     "extra": {
         "merge-plugin": {
             "include": [
-                "ext/*/composer.json"
+                "pkg/*/composer.json"
+            ],
+            "exclude": [
+                "pkg/webhookscript/composer.json"
             ],
             "recurse": false,
             "replace": false,
             "merge-dev": true,
             "merge-extra": false,
             "merge-scripts": false
-        },
-        "laravel": {
-            "providers": [
-                "Webong\\Gateway\\GatewayServiceProvider"
-            ]
         }
     },
     "config": {

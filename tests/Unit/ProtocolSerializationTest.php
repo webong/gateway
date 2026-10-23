@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Protocol\Automation;
-use Webong\Gateway\Protocol\Delivery;
-use Webong\Gateway\Protocol\HttpTransport;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\Response;
-use Webong\Gateway\Protocol\RoutePlan;
-use Webong\Gateway\Protocol\ScheduleCommand;
+use Webong\Gateway\Protocols\Automation;
+use Webong\Gateway\Protocols\Delivery;
+use Webong\Gateway\Protocols\HttpTransport;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\Response;
+use Webong\Gateway\Protocols\RoutePlan;
+use Webong\Gateway\Protocols\ScheduleCommand;
 
 it('serializes empty response headers as a JSON map for Go', function (): void {
     $json = json_encode(

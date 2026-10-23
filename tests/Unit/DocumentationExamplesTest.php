@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocols\MatchRules;
 
 it('keeps remote subscription examples aligned with the Planner DSL', function (
     string $filename,

@@ -11,9 +11,9 @@ use Webong\Gateway\Email\ConnectedSMTPAuthenticator;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\ProviderMailboxOAuthRefresher;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 function mailboxInput(string $address): array
 {

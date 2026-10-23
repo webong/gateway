@@ -5,13 +5,13 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\QueryException;
-use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Contract\ProtocolPlanner;
 use Webong\Gateway\Email\SrsCodec;
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 final class SrsTestTxtResolver implements TxtResolver
 {

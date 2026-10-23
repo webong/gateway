@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\Gateway\Contracts\ProtocolPlanner;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayDecision;
-use Webong\Gateway\Protocol\GatewayDelivery;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayDecision;
+use Webong\Gateway\Protocols\GatewayDelivery;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 final class SmtpSmokeProtocolPlanner implements ProtocolPlanner
 {

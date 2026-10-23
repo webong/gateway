@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
-use Webong\Gateway\Contracts\ProtocolPlanner;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EnsureEndpoint;

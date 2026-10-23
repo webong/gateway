@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "21cef5472bc314b8cdffd11ac57f9b42",
+    "content-hash": "69a8e1ef14bf38278caa5b10849b612d",
     "packages": [
         {
             "name": "brick/math",
@@ -7752,16 +7752,10 @@
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "cde16dd93ffe29cd8d0f1c4465fefb4e1e7550af"
+                "reference": "8dc2fe4ceadcef7a7878f4ff65e6494ac3d2bb99"
             },
             "require": {
-                "illuminate/database": "^12.0",
-                "illuminate/http": "^12.0",
-                "illuminate/routing": "^12.0",
-                "illuminate/support": "^12.0",
-                "illuminate/validation": "^12.0",
-                "php": "^8.3",
-                "webong/proxy": "^0.2.0"
+                "php": "^8.3"
             },
             "require-dev": {
                 "laravel/octane": "^2.17",
@@ -7772,31 +7766,26 @@
                 "smuuf/primi": "^0.4",
                 "spiral/roadrunner-cli": "^2.6",
                 "spiral/roadrunner-http": "^3.3",
+                "webong/gateway-planner": "dev-main",
                 "wikimedia/composer-merge-plugin": "^2.1"
             },
             "type": "library",
             "extra": {
                 "merge-plugin": {
                     "include": [
-                        "ext/*/composer.json"
+                        "pkg/*/composer.json"
                     ],
                     "recurse": false,
                     "replace": false,
                     "merge-dev": true,
                     "merge-extra": false,
                     "merge-scripts": false
-                },
-                "laravel": {
-                    "providers": [
-                        "Webong\\Gateway\\GatewayServiceProvider"
-                    ]
                 }
             },
             "autoload": {
                 "psr-4": {
-                    "Webong\\Gateway\\Contracts\\": "lib/contract/src/Contracts/",
-                    "Webong\\Gateway\\Protocol\\": "lib/contract/src/Protocol/",
-                    "Webong\\Gateway\\": "src/planner/"
+                    "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contracts/",
+                    "Webong\\Gateway\\Protocol\\": "mod/adapter/src/Protocol/"
                 }
             },
             "autoload-dev": {
@@ -7811,16 +7800,12 @@
                     "!/composer.json",
                     "!/LICENSE",
                     "!/README.md",
-                    "!/src",
-                    "/src/*",
-                    "!/src/planner",
-                    "!/src/planner/**",
                     "!/lib",
-                    "/lib/*",
-                    "!/lib/contract",
-                    "/lib/contract/*",
-                    "!/lib/contract/src",
-                    "!/lib/contract/src/**"
+                    "/mod/*",
+                    "!/mod/adapter",
+                    "/mod/adapter/*",
+                    "!/mod/adapter/src",
+                    "!/mod/adapter/src/**"
                 ]
             },
             "scripts": {
@@ -7834,7 +7819,43 @@
             "license": [
                 "MIT"
             ],
-            "description": "Laravel control-plane contract for the gateway Go transport",
+            "description": "Framework-free contracts and protocol for the Webong Gateway transport",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/gateway-planner",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../src/planner",
+                "reference": "ca1f2b17026e0c49c47bece5c9ebcef9b790cc67"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/proxy": "^0.2.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Webong\\Gateway\\GatewayServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\": ""
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Laravel Planner runtime for Webong Gateway",
             "transport-options": {
                 "symlink": false,
                 "relative": true
@@ -7952,7 +7973,8 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "webong/gateway": 20
+        "webong/gateway": 20,
+        "webong/gateway-planner": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

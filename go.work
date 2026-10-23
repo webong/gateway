@@ -1,0 +1,26 @@
+go 1.26.0
+
+use (
+	.
+	./mod/router
+	./pkg/caddy
+	./pkg/centrifugo
+	./pkg/frankenphp
+	./pkg/frankenphp/cmd/router
+	./pkg/golang
+	./pkg/hookscript
+	./pkg/javascript
+	./pkg/lua
+	./pkg/mercure
+	./pkg/php
+	./pkg/reverb
+	./pkg/roadrunner
+	./pkg/roadrunner/cmd/router
+	./pkg/shell
+	./pkg/spinner
+	./pkg/spinner/cmd/gateway
+	./tools
+	./tools/spinner
+)
+
+replace github.com/webong/gateway/driver => ./mod/driver

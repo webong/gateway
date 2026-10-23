@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Tests\Support;
 
 use Webong\Gateway\Contracts\CacheablePathResolver;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\PathBinding;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\PathBinding;
 
 final class TestPathResolver implements CacheablePathResolver
 {

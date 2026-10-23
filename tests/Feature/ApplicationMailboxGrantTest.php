@@ -17,10 +17,10 @@ use Webong\Gateway\Email\MailboxCredentialSourceStore;
 use Webong\Gateway\Email\MailboxPollStore;
 use Webong\Gateway\Email\SpinnerCredentialScriptExecutor;
 use Webong\Gateway\Deliveries\DeliveryAdminClient;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\Delivery;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\Delivery;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 function applicationMailboxInput(string $source): array
 {

@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Protocol\Delivery;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\Protocol;
-use Webong\Gateway\Protocol\RoutePlan;
+use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Protocols\Delivery;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\Protocol;
+use Webong\Gateway\Protocols\RoutePlan;
 use Webong\Gateway\RegistryProtocolPlanner;
 use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
 

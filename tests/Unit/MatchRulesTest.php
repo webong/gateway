@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocols\MatchRules;
 
 it('normalizes PHP rules to the canonical JSON representation', function (): void {
     $rules = MatchRules::make([

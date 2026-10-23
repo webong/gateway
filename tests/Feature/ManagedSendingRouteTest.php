@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Http;
-use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Contract\ProtocolPlanner;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 it('provides a Gateway-managed sending route without an external SMTP provider', function (): void {
     $dns = new class implements TxtResolver {

@@ -5,11 +5,11 @@ declare(strict_types=1);
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Email\MxResolver;
 use Webong\Gateway\Email\VerificationRecordMissing;
-use Webong\Gateway\Contracts\ProtocolPlanner;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 it('owns verified receiving domains and signed routes per account', function (): void {
     $dns = new class implements TxtResolver {

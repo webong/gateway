@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Contract\ProtocolPlanner;
 use Webong\Gateway\Email\EmailProviderRoute;
 use Webong\Gateway\Email\EmailProviderRouteResolver;
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Protocol\EventKind;
-use Webong\Gateway\Protocol\GatewayAction;
-use Webong\Gateway\Protocol\GatewayEvent;
-use Webong\Gateway\Protocol\Protocol;
+use Webong\Gateway\Protocols\EventKind;
+use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
 
 it('routes one verified recipient to a deployment registered hosted mailbox adapter', function (): void {
     $txt = new class implements TxtResolver {

@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Protocol\MatchRules;
-use Webong\Gateway\Protocol\MatchRulesPatch;
+use Webong\Gateway\Protocols\MatchRules;
+use Webong\Gateway\Protocols\MatchRulesPatch;
 
 it('applies ordered add and remove operations incrementally', function (): void {
     $current = MatchRules::make([
