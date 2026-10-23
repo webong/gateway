@@ -8,8 +8,8 @@
     },
     "autoload": {
         "psr-4": {
-            "Webong\\Gateway\\Contracts\\": "src/Contracts/",
-            "Webong\\Gateway\\Protocol\\": "src/Protocol/"
+            "Webong\\Gateway\\Contracts\\": "src/Contract/",
+            "Webong\\Gateway\\Protocols\\": "src/Protocol/"
         }
     }
 }
