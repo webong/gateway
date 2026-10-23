@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 shopt -s nullglob
-runtime_dirs=("$ROOT"/ext/*/runtime)
+runtime_dirs=("$ROOT"/pkg/*/runtime)
 
 if (( ${#runtime_dirs[@]} == 0 )); then
     echo 'No extension runtime packages found.' >&2
@@ -12,18 +12,18 @@ fi
 
 for runtime_dir in "${runtime_dirs[@]}"; do
     extension=$(basename -- "$(dirname -- "$runtime_dir")")
-    module_file="$ROOT/ext/$extension/go.mod"
+    module_file="$ROOT/pkg/$extension/go.mod"
     if [[ ! -f "$module_file" ]]; then
-        echo "Runtime extension ext/$extension must own a go.mod." >&2
+        echo "Runtime extension pkg/$extension must own a go.mod." >&2
         exit 1
     fi
 
-    expected="github.com/webong/gateway/ext/$extension"
-    actual=$(go -C "$ROOT/ext/$extension" list -mod=readonly -m -f '{{.Path}}')
+    expected="github.com/webong/gateway/pkg/$extension"
+    actual=$(GOWORK=off go -C "$ROOT/pkg/$extension" list -mod=readonly -m -f '{{.Path}}')
     if [[ "$actual" != "$expected" ]]; then
-        echo "Unexpected ext/$extension module path: $actual (want $expected)" >&2
+        echo "Unexpected pkg/$extension module path: $actual (want $expected)" >&2
         exit 1
     fi
 
-    echo "ext/$extension owns module $actual."
+    echo "pkg/$extension owns module $actual."
 done

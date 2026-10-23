@@ -1,32 +1,40 @@
 .PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-driver-release test-contract-package test-php test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
-GATEWAY_BUILD_TAGS ?=
+# FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
+# Docker build supplies php-config; local builds need the same toolchain.
+GATEWAY_BUILD_TAGS ?= nowatcher,nobrotli,nomercure
 GATEWAY_TAG_FLAGS = $(if $(strip $(GATEWAY_BUILD_TAGS)),-tags $(GATEWAY_BUILD_TAGS),)
+GATEWAY_HOST_DIR = pkg/spinner/cmd/gateway
 
 build:
 	mkdir -p bin
-	CGO_ENABLED=1 go build $(GOFLAGS) $(GATEWAY_TAG_FLAGS) -o bin/gateway ./src/spinner/cmd/proxy
+	GOWORK=off CGO_ENABLED=1 \
+		CGO_CFLAGS="$$(php-config --includes 2>/dev/null)" \
+		CGO_LDFLAGS="$$(php-config --ldflags 2>/dev/null) $$(php-config --libs 2>/dev/null)" \
+		go -C $(GATEWAY_HOST_DIR) build $(GOFLAGS) $(GATEWAY_TAG_FLAGS) -o $(CURDIR)/bin/gateway .
 
 build-extension-manager:
 	mkdir -p bin
-	CGO_ENABLED=0 go build $(GOFLAGS) -o bin/gateway-extension ./src/spinner/cmd/gateway-extension
+	GOWORK=off CGO_ENABLED=0 go -C pkg/spinner build $(GOFLAGS) -o ../../bin/gateway-extension ./cmd/gateway-extension
 
 build-with-script-extensions:
-	$(MAKE) build GATEWAY_BUILD_TAGS=gateway_javascript,gateway_lua
+	$(MAKE) build
 
 test: test-go test-php
 
 test-go:
-	go -C lib/driver test ./...
-	go -C lib/router test ./...
-	go -C ext/javascript test ./...
-	go -C ext/lua test ./...
-	go -C ext/shell test ./...
-	go -C ext/reverb test ./...
-	go -C ext/mercure test ./...
-	go -C ext/centrifugo test ./...
-	go test $(GOFLAGS) ./...
+	GOWORK=off go -C mod/driver test ./...
+	GOWORK=off go -C mod/router test ./...
+	GOWORK=off go -C pkg/caddy test ./...
+	GOWORK=off go -C pkg/javascript test ./...
+	GOWORK=off go -C pkg/lua test ./...
+	GOWORK=off go -C pkg/shell test ./...
+	GOWORK=off go -C pkg/reverb test ./...
+	GOWORK=off go -C pkg/mercure test ./...
+	GOWORK=off go -C pkg/centrifugo test ./...
+	GOWORK=off go -C pkg/spinner test $(GOFLAGS) ./...
+	GOWORK=off go -C tools/spinner test $(GOFLAGS) ./...
 	$(MAKE) test-runtime-module-boundaries
 	bash scripts/test-router-boundaries
 	$(MAKE) test-go-extensions
@@ -34,7 +42,7 @@ test-go:
 	$(MAKE) test-driver-release
 
 test-go-extensions:
-	go test $(GOFLAGS) -tags gateway_javascript,gateway_lua ./src/spinner/extensions/automation ./src/spinner/cmd/proxy
+	GOWORK=off go -C tools/spinner test $(GOFLAGS) ./...
 
 test-runtime-module-boundaries:
 	bash scripts/test-runtime-module-boundaries
@@ -50,11 +58,11 @@ test-contract-package:
 
 test-php:
 	$(MAKE) test-contract-package
-	composer test
-	$(MAKE) -C ext/reverb test-php
-	$(MAKE) -C ext/mercure test-php
-	$(MAKE) -C ext/centrifugo test-php
-	$(MAKE) -C ext/webhookscript test-php
+	vendor/bin/pest
+	$(MAKE) -C pkg/reverb test-php
+	$(MAKE) -C pkg/mercure test-php
+	$(MAKE) -C pkg/centrifugo test-php
+	$(MAKE) -C pkg/webhookscript test-php
 
 test-octane:
 	bash scripts/octane-smoke.sh
@@ -69,7 +77,7 @@ test-email:
 	bash scripts/email-smoke.sh
 
 test-dns:
-	go test $(GOFLAGS) ./src/spinner/cmd/bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
+	GOWORK=off go -C pkg/spinner test $(GOFLAGS) ./bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
 
 test-dns-integration:
 	bash scripts/dns-smoke.sh
@@ -93,11 +101,12 @@ test-container-integration:
 	bash scripts/docker-integration-smoke.sh
 
 benchmark:
-	go run $(GOFLAGS) ./src/spinner/cmd/benchmark $(ARGS)
+	GOWORK=off go -C tools run $(GOFLAGS) ./benchmark $(ARGS)
 
 benchmark-php:
 	vendor/bin/pest -c phpunit.benchmark.xml.dist
 
 vet:
-	go -C lib/driver vet ./...
-	go vet $(GOFLAGS) ./...
+	go -C mod/driver vet ./...
+	GOWORK=off go -C pkg/spinner vet $(GOFLAGS) ./...
+	GOWORK=off go vet $(GOFLAGS) ./...

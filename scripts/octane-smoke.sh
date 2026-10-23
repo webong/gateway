@@ -66,7 +66,7 @@ logs:
 EOF
 
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go -C "$ROOT/ext/roadrunner/cmd/router" build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
+go -C "$ROOT/pkg/roadrunner/cmd/router" build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
 
 ROADRUNNER_CONFIG="$CONFIG" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \

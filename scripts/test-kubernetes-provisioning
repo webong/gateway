@@ -152,7 +152,7 @@ for ((attempt=0; attempt<120; attempt++)); do
         GATEWAY_CENTRIFUGO_KUBERNETES_SMOKE_NAMESPACE="$NAMESPACE" \
         GATEWAY_CENTRIFUGO_KUBERNETES_SMOKE_IMAGE="$WORKLOAD_IMAGE" \
         GOTELEMETRY=off go test -mod=mod -count=1 -timeout=2m \
-            -run '^TestKubernetesSmoke$' ./ext/centrifugo/runtime
+            -run '^TestKubernetesSmoke$' ./pkg/centrifugo/runtime
         break
     fi
     if [[ "$PHASE" == Failed ]]; then

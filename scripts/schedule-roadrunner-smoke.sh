@@ -59,7 +59,7 @@ if ! curl -fsS --max-time 2 "http://127.0.0.1:$CALLBACK_PORT/README.md" >/dev/nu
 fi
 README_DIGEST="$(php -r 'echo hash_file("sha256", $argv[1]);' "$ROOT/README.md")"
 
-go -C "$ROOT/ext/roadrunner/cmd/router" build -mod=mod -tags=gateway_lua,gateway_smoke -o "$ROUTER_BIN" .
+go -C "$ROOT/pkg/roadrunner/cmd/router" build -mod=mod -tags=gateway_smoke -o "$ROUTER_BIN" .
 
 GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/data" \
 GATEWAY_ROUTER_ROADRUNNER_BIN="$ROUTER_BIN" \

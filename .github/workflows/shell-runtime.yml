@@ -4,19 +4,19 @@ on:
   push:
     paths:
       - '.github/workflows/shell-runtime.yml'
-      - 'ext/shell/runtime/**'
-      - 'lib/driver/**'
-      - 'src/spinner/cmd/bridge/**'
-      - 'src/spinner/extensions/automation/**'
+      - 'pkg/shell/runtime/**'
+      - 'mod/driver/**'
+      - 'pkg/spinner/bridge/**'
+      - 'pkg/spinner/extensions/automation/**'
       - 'go.mod'
       - 'go.sum'
   pull_request:
     paths:
       - '.github/workflows/shell-runtime.yml'
-      - 'ext/shell/runtime/**'
-      - 'lib/driver/**'
-      - 'src/spinner/cmd/bridge/**'
-      - 'src/spinner/extensions/automation/**'
+      - 'pkg/shell/runtime/**'
+      - 'mod/driver/**'
+      - 'pkg/spinner/bridge/**'
+      - 'pkg/spinner/extensions/automation/**'
       - 'go.mod'
       - 'go.sum'
 
@@ -38,7 +38,7 @@ jobs:
           $command = Get-Command pwsh -ErrorAction Stop
           Write-Host "PowerShell executable: $($command.Source)"
       - name: Test shell runtime with PowerShell
-        run: go test -mod=mod -count=1 ./ext/shell/runtime
+        run: go test -mod=mod -count=1 ./pkg/shell/runtime
       - name: Test Shell bridge behavior
         if: runner.os == 'Linux'
-        run: go test -mod=mod -count=1 ./src/spinner/cmd/bridge -run 'TestRoutePlanAllowsOnlyGeneratedShellNotifications|TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput|TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion|TestEdgeStreamsPlannerSelectedShellHook'
+        run: go test -mod=mod -count=1 ./pkg/spinner/bridge -run 'TestRoutePlanAllowsOnlyGeneratedShellNotifications|TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput|TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion|TestEdgeStreamsPlannerSelectedShellHook'

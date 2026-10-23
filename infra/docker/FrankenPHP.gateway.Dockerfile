@@ -16,12 +16,14 @@ RUN CGO_ENABLED=1 \
     xcaddy build \
         --output /tmp/frankenphp \
         --with github.com/dunglas/frankenphp/caddy \
-        --with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
+        --with github.com/webong/gateway/pkg/caddy \
         --replace github.com/webong/gateway=/src/gateway \
-        --replace github.com/webong/gateway/driver=/src/gateway/lib/driver \
-        --replace github.com/webong/gateway/ext/javascript=/src/gateway/ext/javascript \
-        --replace github.com/webong/gateway/ext/lua=/src/gateway/ext/lua \
-        --replace github.com/webong/gateway/ext/shell=/src/gateway/ext/shell
+        --replace github.com/webong/gateway/pkg/caddy=/src/gateway/pkg/caddy \
+        --replace github.com/webong/gateway/driver=/src/gateway/mod/driver \
+        --replace github.com/webong/gateway/src/spinner=/src/gateway/src/spinner \
+        --replace github.com/webong/gateway/pkg/javascript=/src/gateway/pkg/javascript \
+        --replace github.com/webong/gateway/pkg/lua=/src/gateway/pkg/lua \
+        --replace github.com/webong/gateway/pkg/shell=/src/gateway/pkg/shell
 
 FROM dunglas/frankenphp AS runtime
 

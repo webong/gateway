@@ -5,7 +5,7 @@ RUN apt-get update \
     && docker-php-ext-install -j4 bcmath pcntl pdo_pgsql sockets \
     && apt-mark manual libpq5 \
     && apt-get purge -y --auto-remove libpq-dev \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/mod/apt/lists/* \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
 FROM php-base AS planner-builder
@@ -13,7 +13,7 @@ FROM php-base AS planner-builder
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN apt-get update \
     && apt-get install -y --no-install-recommends unzip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/mod/apt/lists/*
 COPY . /gateway
 WORKDIR /gateway/app
 RUN composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \

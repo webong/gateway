@@ -29,16 +29,16 @@ pop3_addr="$(docker port "$pop3_id" 31995/tcp)"
 GATEWAY_TEST_IMAP_UPSTREAM_ADDR="$imap_addr" \
 GATEWAY_TEST_IMAP_CA_FILE="${temp_dir}/imap-ca.pem" \
 GATEWAY_TEST_IMAP_UPSTREAM_PASSWORD="$smoke_password" \
-  go test -mod=mod -count=1 -run '^TestExternalIMAPInteroperability$' ./src/spinner/cmd/bridge/imap
+  go test -mod=mod -count=1 -run '^TestExternalIMAPInteroperability$' ./pkg/spinner/bridge/imap
 
 GATEWAY_TEST_POP3_UPSTREAM_ADDR="$pop3_addr" \
 GATEWAY_TEST_POP3_CA_FILE="${temp_dir}/pop3-ca.pem" \
 GATEWAY_TEST_POP3_UPSTREAM_PASSWORD="$smoke_password" \
-  go test -mod=mod -count=1 -run '^TestExternalPOP3Interoperability$' ./src/spinner/cmd/bridge/pop3
+  go test -mod=mod -count=1 -run '^TestExternalPOP3Interoperability$' ./pkg/spinner/bridge/pop3
 
 GATEWAY_TEST_IMAP_UPSTREAM_ADDR="$imap_addr" \
 GATEWAY_TEST_IMAP_CA_FILE="${temp_dir}/imap-ca.pem" \
 GATEWAY_TEST_POP3_UPSTREAM_ADDR="$pop3_addr" \
 GATEWAY_TEST_POP3_CA_FILE="${temp_dir}/pop3-ca.pem" \
 GATEWAY_TEST_MAILBOX_UPSTREAM_PASSWORD="$smoke_password" \
-  go test -mod=mod -count=1 -run '^TestExternalMailboxCaddyInteroperability$' ./src/spinner/cmd/bridge/caddy
+  GOWORK=off go -C "$ROOT/pkg/caddy" test -mod=mod -count=1 -run '^TestExternalMailboxCaddyInteroperability$' ./...

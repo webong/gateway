@@ -29,7 +29,7 @@ docker run -d --name "$BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp \
 BACKEND_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$BACKEND")
 docker run -d --name "$WEBSOCKET_BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp:exec \
     -e GOCACHE=/tmp/gocache \
-    --mount "type=bind,source=$PWD/tests/Fixtures/managed-route-container-websocket.go,target=/fixture.go,readonly" \
+    --mount "type=bind,source=$PWD/tools/managed-route-websocket-fixture/main.go,target=/fixture.go,readonly" \
     --entrypoint go golang:1.24-bookworm run /fixture.go server >/dev/null
 WEBSOCKET_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$WEBSOCKET_BACKEND")
 if [[ ! "$BACKEND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ||
@@ -96,7 +96,7 @@ if [[ "$RESULT" != *'201 Created'* || "$RESULT" != *'X-Gateway-Managed-Smoke: re
     printf 'Managed backend was not reached through Caddy:\n%s\n' "$RESULT" >&2
     exit 1
 fi
-GOTELEMETRY=off go run -mod=mod tests/Fixtures/managed-route-container-websocket.go client "$ADDRESS"
+GOTELEMETRY=off go run -mod=mod tools/managed-route-websocket-fixture/main.go client "$ADDRESS"
 
 PRIVATE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
     "http://$ADDRESS/_internal/provisioning/routes/resolve?hostname=managed.example.test&path=%2Fmanaged")

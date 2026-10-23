@@ -25,7 +25,7 @@ mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/app" "$STAGE/src"
 cp -R "$REPO_DIR/src/planner" "$STAGE/src/"
 cp -R "$REPO_DIR/ext" "$STAGE/"
 mkdir -p "$STAGE/lib"
-cp -R "$REPO_DIR/lib/contract" "$STAGE/lib/"
+cp -R "$REPO_DIR/lib/adapter" "$STAGE/lib/"
 cp "$REPO_DIR/composer.json" "$STAGE/"
 cp "$REPO_DIR/scripts/gateway-router" "$REPO_DIR/scripts/router-start" \
     "$REPO_DIR/scripts/router-artisan" "$STAGE/scripts/"
@@ -36,17 +36,20 @@ cp -R "$REPO_DIR/vendor" "$STAGE/"
 # staged package from this checkout so Planner edits cannot ship stale vendor
 # contents from an earlier composer install.
 if [ -d "$STAGE/vendor/webong/gateway" ]; then
-    cp -R "$REPO_DIR/src/planner" "$STAGE/vendor/webong/gateway/src/"
     mkdir -p "$STAGE/vendor/webong/gateway/lib"
-    cp -R "$REPO_DIR/lib/contract" "$STAGE/vendor/webong/gateway/lib/"
+    cp -R "$REPO_DIR/lib/adapter" "$STAGE/vendor/webong/gateway/lib/"
     cp "$REPO_DIR/composer.json" "$STAGE/vendor/webong/gateway/composer.json"
+fi
+if [ -d "$STAGE/vendor/webong/gateway-planner" ]; then
+    rm -rf "$STAGE/vendor/webong/gateway-planner"
+    cp -R "$REPO_DIR/src/planner" "$STAGE/vendor/webong/gateway-planner"
 fi
 cp "$APP_SOURCE/artisan" "$APP_SOURCE/Caddyfile" \
     "$APP_SOURCE/composer.json" "$APP_SOURCE/composer.lock" \
     "$APP_SOURCE/bootstrap.php" "$APP_SOURCE/config.php" "$APP_SOURCE/index.php" "$APP_SOURCE/commands.php" \
     "$APP_SOURCE/routes.php" "$APP_SOURCE/EndpointPathResolver.php" "$APP_TARGET/"
 
-GOTELEMETRY=off go -C "$REPO_DIR/ext/roadrunner/cmd/router" build -mod=mod -o "$STAGE/bin/gateway-router-roadrunner" .
+GOTELEMETRY=off go -C "$REPO_DIR/pkg/roadrunner/cmd/router" build -mod=mod -o "$STAGE/bin/gateway-router-roadrunner" .
 if [ -n "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ]; then
     if [ ! -x "$GATEWAY_ROUTER_FRANKENPHP_BIN" ]; then
         echo "FrankenPHP binary is not executable: $GATEWAY_ROUTER_FRANKENPHP_BIN" >&2

@@ -1,9 +1,9 @@
 FROM golang:1.24-bookworm AS router-builder
 
-ARG GATEWAY_BUILD_TAGS="gateway_javascript,gateway_lua"
+ARG GATEWAY_BUILD_TAGS=""
 ENV GOTELEMETRY=off
 COPY . /src/gateway
-WORKDIR /src/gateway/ext/roadrunner/cmd/router
+WORKDIR /src/gateway/pkg/roadrunner/cmd/router
 RUN CGO_ENABLED=1 go build -mod=readonly -trimpath -tags="${GATEWAY_BUILD_TAGS}" -o /tmp/gateway-router-roadrunner .
 
 # RoadRunner uses ordinary PHP CLI workers; no ZTS or embed SAPI is required.
@@ -13,14 +13,14 @@ RUN apt-get update \
         curl libonig5 libpq5 libsqlite3-0 libonig-dev libpq-dev libsqlite3-dev \
     && docker-php-ext-install -j4 bcmath mbstring pcntl pdo_pgsql pdo_sqlite sockets opcache \
     && apt-get purge -y --auto-remove libonig-dev libpq-dev libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/mod/apt/lists/* \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf 'opcache.enable_cli=1\n' > "$PHP_INI_DIR/conf.d/router.ini"
 
 FROM php-base AS planner-builder
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN apt-get update && apt-get install -y --no-install-recommends unzip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/mod/apt/lists/*
 COPY . /src/gateway
 WORKDIR /src/gateway/app
 # Install locked dependencies without the merge plugin's post-install update.

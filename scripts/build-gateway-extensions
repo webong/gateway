@@ -16,10 +16,10 @@ mkdir -p "$(dirname -- "$OUTPUT")"
 STAGE=$(mktemp -d "${OUTPUT}.tmp.XXXXXX")
 trap 'rm -rf -- "$STAGE"' EXIT
 for extension in centrifugo mercure reverb; do
-    GOTELEMETRY=off go -C "$ROOT/ext/$extension" build -mod=readonly -trimpath \
+    GOTELEMETRY=off go -C "$ROOT/pkg/$extension" build -mod=readonly -trimpath \
         -o "$STAGE/gateway-$extension" ./cmd/plugin
 done
-GOTELEMETRY=off go -C "$ROOT" run -mod=readonly ./src/spinner/cmd/gateway-extension \
+GOTELEMETRY=off go -C "$ROOT" run -mod=readonly ./pkg/spinner/cmd/gateway-extension \
     catalog --dir "$STAGE" --version "$VERSION" >/dev/null
 mv "$STAGE" "$OUTPUT"
 trap - EXIT

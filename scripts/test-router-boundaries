@@ -2,12 +2,12 @@
 set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 for extension in frankenphp roadrunner; do
-dependencies=$(go -C "$ROOT/ext/$extension" list -mod=readonly -deps ./runtime)
-if grep -q '^github.com/webong/gateway/src/spinner\($\|/\)' <<<"$dependencies"; then
+dependencies=$(GOWORK=off go -C "$ROOT/pkg/$extension" list -mod=readonly -deps ./runtime)
+if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)' <<<"$dependencies"; then
     echo "$extension must not depend on Spinner." >&2
     exit 1
 fi
-modules=$(go -C "$ROOT/ext/$extension" list -mod=readonly -m all)
+modules=$(GOWORK=off go -C "$ROOT/pkg/$extension" list -mod=readonly -m all)
 if grep -q '^github.com/webong/gateway ' <<<"$modules"; then
     echo "$extension must not require the Gateway core module." >&2
     exit 1
@@ -15,21 +15,21 @@ fi
 echo "$extension has no Spinner implementation or Gateway core dependency."
 done
 
-router_module=$(go -C "$ROOT/lib/router" list -mod=readonly -m -f '{{.Path}}')
+router_module=$(GOWORK=off go -C "$ROOT/lib/router" list -mod=readonly -m -f '{{.Path}}')
 if [[ "$router_module" != "github.com/webong/gateway/router" ]]; then
     echo "Unexpected Router module path: $router_module" >&2
     exit 1
 fi
 
-dependencies=$(go -C "$ROOT/lib/router" list -mod=readonly -deps ./...)
-if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/ext/roadrunner\($\|/\)' <<<"$dependencies"; then
+dependencies=$(GOWORK=off go -C "$ROOT/lib/router" list -mod=readonly -deps ./...)
+if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/pkg/roadrunner\($\|/\)' <<<"$dependencies"; then
     echo 'Shared Router library must not depend on RoadRunner.' >&2
     exit 1
 fi
 echo 'Shared Router library has no RoadRunner dependency.'
 
-dependencies=$(go -C "$ROOT" list -mod=readonly -deps ./src/spinner/...)
-if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/ext/roadrunner\($\|/\)' <<<"$dependencies"; then
+dependencies=$(GOWORK=off go -C "$ROOT/pkg/spinner" list -mod=readonly -deps ./...)
+if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/pkg/roadrunner\($\|/\)' <<<"$dependencies"; then
     echo 'Standalone Spinner must not depend on RoadRunner.' >&2
     exit 1
 fi

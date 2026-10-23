@@ -14,7 +14,7 @@ catalog_args=(list --catalog "$BUNDLE/catalog.json")
 if [[ -n "${GATEWAY_EXTENSION_TEST_PUBLIC_KEY:-}" ]]; then
     catalog_args+=(--public-key "$GATEWAY_EXTENSION_TEST_PUBLIC_KEY")
 fi
-GOTELEMETRY=off go -C "$ROOT" run -mod=readonly ./src/spinner/cmd/gateway-extension "${catalog_args[@]}" >/dev/null
+GOTELEMETRY=off go -C "$ROOT" run -mod=readonly ./pkg/spinner/cmd/gateway-extension "${catalog_args[@]}" >/dev/null
 
 python3 - "$BUNDLE" "$VERSION" <<'PY'
 import hashlib

@@ -12,4 +12,4 @@ CGO_ENABLED=1 \
 CGO_CFLAGS="$(php-config --includes)" \
 CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
 GOTELEMETRY=off \
-go -C "$REPO_DIR/ext/frankenphp/cmd/router" build -mod=mod -o "$REPO_DIR/bin/gateway-router-library" .
+go -C "$REPO_DIR/pkg/frankenphp/cmd/router" build -mod=mod -o "$REPO_DIR/bin/gateway-router-library" .

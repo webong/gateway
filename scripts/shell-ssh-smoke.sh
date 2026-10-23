@@ -73,8 +73,8 @@ done
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/src/spinner/cmd/proxy"
-go -C "$ROOT/ext/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
+go build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/pkg/spinner/cmd/gateway"
+go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
 
 # --- Disposable forced-command OpenSSH server ------------------------------
 ssh-keygen -q -t ed25519 -N '' -f "$HOST_KEY"

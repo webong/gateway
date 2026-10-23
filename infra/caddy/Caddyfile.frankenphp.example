@@ -26,7 +26,7 @@
 		# clamd_network unix
 		# clamd_address /run/clamav/clamd.sock
 		# clamd_timeout 10s
-		# quarantine_path /var/lib/gateway/email-quarantine
+		# quarantine_path /var/mod/gateway/email-quarantine
 		# quarantine_retention 720h
 		# dsn_domain gateway.example.com  # authenticated, Planner-approved async SMTP only
 		# Optional outbound transport for typed SMTP deliveries returned by
@@ -39,7 +39,7 @@
 		# relay_tls_mode starttls
 		# relay_timeout 30s
 		# dkim_resolver_url http://127.0.0.1:8081
-		# spool_path /var/lib/gateway/deliveries
+		# spool_path /var/mod/gateway/deliveries
 		# Or use the same private PostgreSQL database in both gateway blocks:
 		# delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
 		# max_attempts 8
@@ -90,7 +90,7 @@
 			# The HTTP handler uses the http/ child directory, separate from SMTP.
 			# Caddy reloads that overlap spool workers are rejected; restart to
 			# apply configuration changes while durable delivery is enabled.
-			# spool_path /var/lib/gateway/deliveries
+			# spool_path /var/mod/gateway/deliveries
 			# delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
 			# admin_addr 127.0.0.1:5052
 			# receipt_retention 2160h

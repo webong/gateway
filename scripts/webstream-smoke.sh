@@ -32,7 +32,7 @@ if [[ ! -f "$APP_PATH/bootstrap/app.php" || ! -f "$ROOT/vendor/autoload.php" ]];
 fi
 
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/src/spinner/cmd/proxy"
+go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/pkg/spinner/cmd/gateway"
 (
 	cd "$APP_PATH"
 	APP_ENV=testing APP_KEY="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" COMPOSER_VENDOR_DIR="$ROOT/vendor" \

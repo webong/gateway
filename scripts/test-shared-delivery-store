@@ -53,12 +53,12 @@ if [ "$session_column" != 'character varying:32' ]; then
 fi
 
 GOTELEMETRY=off GATEWAY_SHARED_PG_TEST_DSN="postgres://postgres:gateway-test-only@127.0.0.1:$port/gateway_test?sslmode=disable" \
-    go -C "$ROOT" test -mod=mod ./src/spinner/cmd/bridge/deliveryqueue/sharedpg -count=1
+    go -C "$ROOT" test -mod=mod ./pkg/spinner/bridge/deliveryqueue/sharedpg -count=1
 GOTELEMETRY=off GATEWAY_SHARED_PG_TEST_DSN="postgres://postgres:gateway-test-only@127.0.0.1:$port/gateway_test?sslmode=disable" \
-    go -C "$ROOT" test -mod=mod ./src/spinner/cmd/bridge/deliveryqueue -run '^TestSharedQueue(AcrossTwoWorkers|TakesOverAfterWorkerProcessDies|OnlyClaimsSupportedAdapters)$' -count=1
+    go -C "$ROOT" test -mod=mod ./pkg/spinner/bridge/deliveryqueue -run '^TestSharedQueue(AcrossTwoWorkers|TakesOverAfterWorkerProcessDies|OnlyClaimsSupportedAdapters)$' -count=1
 GOTELEMETRY=off GATEWAY_SHARED_PG_TEST_DSN="postgres://postgres:gateway-test-only@127.0.0.1:$port/gateway_test?sslmode=disable" \
-    go -C "$ROOT" test -mod=mod ./src/spinner/cmd/bridge/caddy -run '^TestCaddySharedPostgresQueuesProvision$' -count=1
+    GOWORK=off go -C "$ROOT/pkg/caddy" test -mod=mod ./... -run '^TestCaddySharedPostgresQueuesProvision$' -count=1
 GOTELEMETRY=off GATEWAY_DELIVERY_MEMBERSHIP_TEST_DSN="$router_dsn" \
-    go -C "$ROOT" test -mod=mod ./src/spinner/cmd/bridge/deliverymembership -count=1
+    go -C "$ROOT" test -mod=mod ./pkg/spinner/bridge/deliverymembership -count=1
 GOTELEMETRY=off GATEWAY_DELIVERY_MEMBERSHIP_TEST_DSN="$router_dsn" \
-    go -C "$ROOT" test -mod=mod ./src/spinner/cmd/bridge/caddy -run '^TestCaddyDeliveryAdminMembership$' -count=1
+    GOWORK=off go -C "$ROOT/pkg/caddy" test -mod=mod ./... -run '^TestCaddyDeliveryAdminMembership$' -count=1

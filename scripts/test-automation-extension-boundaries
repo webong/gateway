@@ -7,21 +7,21 @@ GO_BUILD_FLAGS=${GOFLAGS:--mod=mod}
 if ! php -r '
     $composer = json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR);
     $includes = $composer["extra"]["merge-plugin"]["include"] ?? [];
-    exit(in_array("ext/*/composer.json", $includes, true) ? 0 : 1);
+    exit(in_array("pkg/*/composer.json", $includes, true) ? 0 : 1);
 ' "$ROOT/composer.json"; then
     echo 'The root Composer project must discover extension-owned manifests through Composer Merge Plugin.' >&2
     exit 1
 fi
 
-if rg -n 'ext/(javascript|lua|webhookscript)/(php/)?src' "$ROOT/composer.json" >/dev/null; then
+if rg -n 'pkg/(javascript|lua|webhookscript)/(php/)?src' "$ROOT/composer.json" >/dev/null; then
     echo 'The root Composer project duplicates extension autoload mappings instead of discovering their manifests.' >&2
     exit 1
 fi
 
 for extension in javascript lua; do
-    package="github.com/webong/gateway/ext/$extension/runtime"
-    dependencies=$(cd "$ROOT/ext/$extension" && GOFLAGS="$GO_BUILD_FLAGS" go list -deps ./runtime)
-    if grep -q '^github.com/webong/gateway/src/spinner\($\|/\)' <<<"$dependencies"; then
+    package="github.com/webong/gateway/pkg/$extension/runtime"
+    dependencies=$(cd "$ROOT/pkg/$extension" && GOWORK=off GOFLAGS="$GO_BUILD_FLAGS" go list -deps ./runtime)
+    if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)' <<<"$dependencies"; then
         echo "$package depends on Spinner; automation extensions may depend only on Driver contracts." >&2
         exit 1
     fi
@@ -31,12 +31,12 @@ for extension in javascript lua; do
     fi
 done
 
-if rg -n '^(use|extends|implements).*Illuminate\\' "$ROOT/lib/contract/src" >/dev/null; then
-    echo 'lib/contract depends on Laravel; shared PHP contracts must remain framework-free.' >&2
+if rg -n '^(use|extends|implements).*Illuminate\\' "$ROOT/lib/adapter/src" >/dev/null; then
+    echo 'lib/adapter depends on Laravel; shared PHP contracts must remain framework-free.' >&2
     exit 1
 fi
 
-for companion in "$ROOT/ext/javascript/php/src" "$ROOT/ext/lua/php/src"; do
+for companion in "$ROOT/pkg/javascript/php/src" "$ROOT/pkg/lua/php/src"; do
     if rg --pcre2 -n '^use Webong\\Gateway\\(?!Contracts\\|Protocol\\)' "$companion" >/dev/null; then
         echo "$companion imports Planner implementation; companions may depend only on shared PHP contracts." >&2
         exit 1

@@ -1,7 +1,7 @@
 FROM php:8.4-zts-bookworm AS php-source
 FROM golang:1.26-bookworm AS go-toolchain
 
-ARG GATEWAY_BUILD_TAGS="gateway_javascript,gateway_lua"
+ARG GATEWAY_BUILD_TAGS=""
 
 # Build the PHP shared library and CLI from the upstream release archive.
 # The library needs ZTS, embed SAPI, and Linux execution timers.
@@ -10,7 +10,7 @@ FROM debian:bookworm-slim AS php-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential pkg-config xz-utils libcurl4-openssl-dev libonig-dev \
     libpq-dev libsqlite3-dev libssl-dev libxml2-dev zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/mod/apt/lists/*
 COPY --from=php-source /usr/src/php.tar.xz /tmp/php.tar.xz
 RUN mkdir -p /usr/src/php \
     && tar -xJf /tmp/php.tar.xz -C /usr/src/php --strip-components=1
@@ -50,7 +50,7 @@ COPY --from=go-toolchain /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-ce
 ENV PATH="/usr/local/go/bin:${PATH}" GOTELEMETRY=off
 
 COPY . /src/gateway
-WORKDIR /src/gateway/ext/frankenphp/cmd/router
+WORKDIR /src/gateway/pkg/frankenphp/cmd/router
 
 ARG GATEWAY_BUILD_TAGS
 RUN CGO_ENABLED=1 \
@@ -63,7 +63,7 @@ FROM debian:bookworm-slim AS php-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl libcurl4 libonig5 libpq5 libsqlite3-0 libssl3 libxml2 zlib1g \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/mod/apt/lists/*
 COPY --from=php-builder /usr/local /usr/local
 RUN ldconfig
 
@@ -71,7 +71,7 @@ FROM php-base AS planner-builder
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN apt-get update && apt-get install -y --no-install-recommends unzip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/mod/apt/lists/*
 COPY . /src/gateway
 WORKDIR /src/gateway/app
 

@@ -2,17 +2,14 @@ ARG GATEWAY_WORKER_ALPINE_VERSION=3.22
 FROM golang:1.24-alpine AS builder
 
 WORKDIR /src/gateway
-COPY go.mod go.sum ./
-COPY lib/driver/go.mod ./lib/driver/go.mod
-COPY ext/roadrunner/go.mod ./ext/roadrunner/go.mod
-RUN go mod download
 COPY . .
+RUN GOWORK=off go -C src/spinner mod download
 
 # The worker and workload plugins do not embed PHP or script runtimes.
-RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -o /out/gateway-provision ./src/spinner/cmd/provision \
+RUN CGO_ENABLED=0 GOWORK=off go -C src/spinner build -mod=readonly -trimpath -o /out/gateway-provision ./cmd/provision \
     && for extension in centrifugo mercure reverb; do \
-        CGO_ENABLED=0 go build -mod=readonly -trimpath \
-            -o "/out/gateway-$extension" "./ext/$extension/cmd/plugin"; \
+        CGO_ENABLED=0 GOWORK=off go -C "pkg/$extension" build -mod=readonly -trimpath \
+            -o "/out/gateway-$extension" ./cmd/plugin; \
     done
 
 FROM alpine:${GATEWAY_WORKER_ALPINE_VERSION} AS worker-base
