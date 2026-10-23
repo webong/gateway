@@ -25,6 +25,13 @@ All management endpoints require HTTPS and the Gateway registry bearer token. Cr
 
 SMTP transport metadata is an encrypted Planner resource. Its password is stored in a separate encrypted credential resource. `GET /email/outbound-transports` and `GET /email/outbound-transports/{id}` omit both the password and credential reference. `PATCH /email/outbound-transports/{id}` accepts one of `enabled`, `healthy`, or `domain_readiness: {"domain":"...","status":{"spf":"ready|pending|not_required","dkim":"ready|pending|not_required"}}`. An operator attests provider authorization and SPF/DKIM readiness; Gateway cannot infer third-party authorization from the customer's DNS alone. A pending status excludes the transport. `POST /email/outbound-transports/{id}/credential` replaces the stored password and returns only `{"rotated":true}`. SMTP transports use TLS and Gateway's public-network mail dial policy.
 
+The application owns any Resend, SES, or other provider control-plane adapter.
+That adapter registers and verifies the customer domain with the provider before
+it marks the generic transport/domain readiness here. Gateway owns proxying,
+credential protection, queueing, selection, retries, signing, and readiness
+enforcement; it neither stores provider domain identifiers nor calls provider
+domain-management APIs.
+
 Create a pool with `POST /email/outbound-pools`:
 
 ```json

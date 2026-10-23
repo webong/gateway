@@ -112,6 +112,9 @@ final readonly class ManagedSendingStore
                 || ! $this->sharedFromAddress()) {
                 throw new InvalidArgumentException('Shared sender is not configured.');
             }
+            if (! $this->sharedReady()) {
+                throw new EmailRouteRejected('Shared sender signing and DNS are not ready.');
+            }
             $password = bin2hex(random_bytes(32));
             $record = $this->resources->create(self::ROUTE, 'shared:'.$account, [
                 'mode' => 'shared', 'password_hash' => password_hash($password, PASSWORD_DEFAULT),
@@ -148,7 +151,8 @@ final readonly class ManagedSendingStore
             return null;
         }
         if (($route->document['mode'] ?? null) === 'shared') {
-            return $this->sharedFromAddress() !== null ? $route : null;
+            try { return $this->sharedReady() ? $route : null; }
+            catch (\RuntimeException) { return null; }
         }
         $domain = $this->domain($route->owner, $route->document['domain_id']);
         if ($domain === null || ! $domain->enabled || ($domain->document['verified_at'] ?? null) === null) {
@@ -165,6 +169,9 @@ final readonly class ManagedSendingStore
 
     public function setEnabled(stdClass $route, bool $enabled): stdClass
     {
+        if ($enabled && ($route->document['mode'] ?? null) === 'shared' && ! $this->sharedReady()) {
+            throw new EmailRouteRejected('Shared sender signing and DNS are not ready.');
+        }
         if ($enabled && ($route->document['mode'] ?? null) !== 'shared') {
             $domain = $this->domain($route->owner, $route->document['domain_id']);
             if ($domain === null || ! $domain->enabled || ! $this->dnsReady($domain)) {
@@ -193,6 +200,24 @@ final readonly class ManagedSendingStore
     private function validDomain(string $name): bool
     {
         return preg_match('/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])$/D', $name) === 1;
+    }
+
+    public function sharedReady(): bool
+    {
+        $address = $this->sharedFromAddress();
+        if ($address === null || config('gateway.email.managed_dkim_signing_enabled') !== true) {
+            return false;
+        }
+        $domain = substr(strrchr($address, '@'), 1);
+        $record = $this->dkimKeys->publicRecord($domain);
+        if ($record === null || ! $this->recordReady($record)) {
+            return false;
+        }
+        $spf = config('gateway.email.managed_spf_value');
+
+        return ! is_string($spf) || $spf === '' || $this->recordReady([
+            'name' => $domain, 'type' => 'TXT', 'value' => $spf,
+        ]);
     }
 
     public function sharedFromAddress(): ?string

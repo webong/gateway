@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Http;
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Protocols\EventKind;

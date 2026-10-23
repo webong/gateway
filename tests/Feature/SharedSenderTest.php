@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\Http;
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Email\EmailDkimKeyStore;
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
+use Webong\Gateway\Email\ManagedSendingStore;
 use Webong\Gateway\Email\SharedSenderMessage;
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Protocols\EventKind;
@@ -15,9 +17,15 @@ use Webong\Gateway\Protocols\Protocol;
 
 it('sends from the configured shared identity and routes replies by conversation', function (): void {
     config()->set('gateway.email.shared_from_address', 'support@operator.test');
+    config()->set('gateway.email.managed_dkim_signing_enabled', true);
+    app(EmailDkimKeyStore::class)->ensureGenerated('operator.test', 'gateway1');
     $dns = new class implements TxtResolver {
         public string $token = '';
-        public function records(string $name): array { return $this->token === '' ? [] : ['gateway-verification='.$this->token]; }
+        public function records(string $name): array {
+            $record = app(EmailDkimKeyStore::class)->publicRecord('operator.test');
+            if ($record !== null && $name === $record['name']) { return [$record['value']]; }
+            return $this->token === '' ? [] : ['gateway-verification='.$this->token];
+        }
     };
     app()->instance(TxtResolver::class, $dns);
     $forward = $this->withToken('registry-secret')->postJson('/email/domains', ['domain' => 'inbound.operator.test'])->assertCreated()->json();
@@ -111,4 +119,57 @@ it('preserves MIME body bytes and rejects conflicting sender headers', function 
         'reply@inbound.operator.test'))->toContain('=?UTF-8?B?');
     expect(fn () => SharedSenderMessage::rewrite("From: old@example.test\r\nSender: bad@example.test\r\n\r\nbody",
         'Support', 'support@operator.test', 'reply@inbound.operator.test'))->toThrow(InvalidArgumentException::class);
+});
+
+it('rejects shared sender setup without ready signing', function (string $unavailable): void {
+    config()->set('gateway.email.shared_from_address', 'support@operator.test');
+    config()->set('gateway.email.managed_dkim_signing_enabled', $unavailable !== 'disabled signing');
+    if ($unavailable !== 'missing key') {
+        $keys = app(EmailDkimKeyStore::class);
+        $key = $keys->ensureGenerated('operator.test', 'gateway1');
+        if ($unavailable === 'disabled key') {
+            $keys->replace($key->id, ['domain' => 'operator.test', 'selector' => 'gateway1', 'enabled' => false], $key->revision);
+        }
+    }
+    app()->instance(TxtResolver::class, new class implements TxtResolver {
+        public function records(string $name): array { return []; }
+    });
+    $account = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'not-ready'])
+        ->assertCreated()->json();
+
+    $this->withToken($account['token'])->postJson('https://localhost/email/mailbox-accounts/not-ready/sending-routes', ['mode' => 'shared'])
+        ->assertConflict()->assertJsonPath('message', 'Shared sender signing and DNS are not ready.');
+    expect(app(ManagedSendingStore::class)->routes('not-ready'))->toBeEmpty();
+})->with(['missing key', 'disabled key', 'missing DNS', 'disabled signing']);
+
+it('marks an existing shared sender pending and rejects activation when its key disappears', function (): void {
+    config()->set('gateway.email.shared_from_address', 'support@operator.test');
+    config()->set('gateway.email.managed_dkim_signing_enabled', true);
+    $keys = app(EmailDkimKeyStore::class);
+    $key = $keys->ensureGenerated('operator.test', 'gateway1');
+    $record = $keys->publicRecord('operator.test');
+    $dns = new class implements TxtResolver {
+        public array $records = [];
+        public bool $unavailable = false;
+        public function records(string $name): array {
+            if ($this->unavailable) { throw new RuntimeException('DNS unavailable'); }
+            return $this->records[$name] ?? [];
+        }
+    };
+    $dns->records[$record['name']] = [$record['value']];
+    app()->instance(TxtResolver::class, $dns);
+    $account = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'existing'])
+        ->assertCreated()->json();
+    $base = 'https://localhost/email/mailbox-accounts/existing/sending-routes';
+    $route = $this->withToken($account['token'])->postJson($base, ['mode' => 'shared'])
+        ->assertCreated()->assertJsonPath('status', 'active')->json();
+
+    $dns->unavailable = true;
+    expect(app(ManagedSendingStore::class)->authenticate($route['id'], $route['smtp_client_password']))->toBeNull();
+    $dns->unavailable = false;
+    $keys->delete($key->id, $key->revision);
+
+    $this->withToken($account['token'])->getJson($base.'/'.$route['id'])->assertOk()->assertJsonPath('status', 'pending');
+    $this->withToken($account['token'])->patchJson($base.'/'.$route['id'], ['enabled' => true])->assertConflict();
+    expect(app(ManagedSendingStore::class)->authenticate($route['id'], $route['smtp_client_password']))->toBeNull();
 });

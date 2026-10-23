@@ -173,10 +173,20 @@ final readonly class ManagedSendingController
     private function routeResource(stdClass $row): array
     {
         $shared = ($row->document['mode'] ?? null) === 'shared';
+        $ready = $row->enabled;
+        if ($shared && $ready) {
+            try { $ready = $this->store->sharedReady(); }
+            catch (RuntimeException) { $ready = false; }
+        } elseif ($ready) {
+            try {
+                $domain = $this->store->domain($row->owner, $row->document['domain_id']);
+                $ready = $domain !== null && $domain->enabled && $this->store->dnsReady($domain);
+            } catch (RuntimeException) { $ready = false; }
+        }
         return ['id' => $row->id, 'account_id' => $row->owner, 'mode' => $shared ? 'shared' : 'customer_domain',
             'domain_id' => $shared ? null : $row->document['domain_id'],
             'address' => $shared ? $this->store->sharedFromAddress() : $row->key,
-            'enabled' => $row->enabled, 'status' => $row->enabled ? 'active' : 'disabled'];
+            'enabled' => $row->enabled, 'status' => ! $row->enabled ? 'disabled' : ($ready ? 'active' : 'pending')];
     }
 
     private function authorize(Request $request, string $account): ?JsonResponse

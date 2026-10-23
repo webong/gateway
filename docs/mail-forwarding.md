@@ -211,6 +211,10 @@ sending domain, the Gateway deployment can set
 authorized by its outbound relay. This is a deployment setting, independent of
 the relay vendor. Each account creates `POST .../sending-routes` with
 `{"mode":"shared"}` and receives one-time HTTP Basic submission credentials.
+Gateway refuses to create, re-enable, or authenticate that route unless managed
+DKIM signing is enabled, an active key exists for the address domain, its public
+TXT record is published, and any declared SPF record is also published. An
+existing route reports `pending` if that readiness later disappears.
 The shared route does not claim a customer domain and cannot authenticate to
 raw SMTP, where Gateway cannot enforce conversation Reply-To headers.
 
@@ -244,6 +248,14 @@ route, `POST .../{id}/rotate` changes the password, and deletion revokes it.
 The operator must configure a relay, SPF, DKIM, TLS, abuse limits, and
 public reachability before treating this as a production sending service.
 No Cloudflare or Resend credential is part of this account-facing contract.
+Gateway does not register customer sender identities with Resend, SES, or any
+other delivery provider. The application building on Gateway owns that provider
+credential, domain-registration workflow, provider identifier, and verification
+polling. It publishes only provider-neutral DNS instructions and readiness to
+its customer, then configures Gateway's generic outbound transport and domain
+readiness resources after the provider confirms authorization. Changing
+providers therefore changes the application adapter and transport resources,
+not Gateway's managed-domain or submission contract.
 
 For sending through a customer's existing external SMTP provider instead,
 use `POST .../sending-connections` with `address`,
