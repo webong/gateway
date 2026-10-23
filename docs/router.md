@@ -6,7 +6,7 @@ application skeleton or a separate service you must deploy. Choose a runtime:
 
 | Runtime | Public listener | PHP execution |
 | --- | --- | --- |
-| RoadRunner | `ext/roadrunner/cmd/router` | Embedded PHP workers, no second listener |
+| RoadRunner | `pkg/roadrunner/cmd/router` | Embedded PHP workers, no second listener |
 | FrankenPHP library | Optional Go extension command | In-process FrankenPHP, no Caddy module |
 | FrankenPHP/Caddy (legacy integration) | Custom FrankenPHP/Caddy binary with Gateway's Go module | In-process FrankenPHP |
 
@@ -27,7 +27,7 @@ array instead of Laravel's public/config/bootstrap directory skeleton.
 Host configuration overrides framework defaults before providers register;
 installed Composer packages are discovered normally and merge their own defaults.
 The monorepo host also uses Composer Merge Plugin to load
-`../ext/*/composer.json`. Those extension-owned manifests supply their
+`../pkg/*/composer.json`. Those extension-owned manifests supply their
 dependencies, autoload paths, and Planner companion registration without
 adding extension names to Planner.
 The Proxy dependency uses the `proxy` configuration namespace and resolves the
@@ -150,8 +150,8 @@ controlled public HTTPS receiver.
 
 ## Optional Docker image
 
-The image builds `ext/frankenphp/cmd/router`, which connects `lib/router` to the
-`ext/frankenphp` PHP adapter, with Go 1.26 and bundles
+The image builds `pkg/frankenphp/cmd/router`, which connects `mod/router` to the
+`pkg/frankenphp` PHP adapter, with Go 1.26 and bundles
 the Planner on Debian. It compiles PHP 8.4 from the upstream release archive
 with ZTS, the embed SAPI, and Linux execution timers, following FrankenPHP's
 [library compilation requirements](https://frankenphp.dev/docs/library/).
@@ -236,7 +236,7 @@ smoke, but not a single-image managed-route deployment check.
 
 ### RoadRunner Docker image
 
-The alternative image packages `ext/roadrunner/cmd/router`, ordinary PHP CLI
+The alternative image packages `pkg/roadrunner/cmd/router`, ordinary PHP CLI
 workers, and the same Planner host. It does not use FrankenPHP, ZTS, or a
 separate Planner service. It runs as `www-data`; RoadRunner serves HTTPS on
 8443 and keeps its HTTP health listener on container loopback. It persists

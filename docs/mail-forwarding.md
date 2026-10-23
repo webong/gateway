@@ -728,7 +728,7 @@ or private TCP connection:
 GATEWAY_EMAIL_CLAMD_NETWORK=unix
 GATEWAY_EMAIL_CLAMD_ADDR=/run/clamav/clamd.sock
 GATEWAY_EMAIL_CLAMD_TIMEOUT=10s
-GATEWAY_EMAIL_QUARANTINE_PATH=/var/lib/gateway/email-quarantine
+GATEWAY_EMAIL_QUARANTINE_PATH=/var/mod/gateway/email-quarantine
 GATEWAY_EMAIL_QUARANTINE_RETENTION=720h
 ```
 
@@ -754,10 +754,10 @@ retention window and backup policy that match your obligations.
 Local operators can inspect and export an item without a public API:
 
 ```sh
-go run -mod=mod ./src/spinner/cmd/email-quarantine list -path /var/lib/gateway/email-quarantine
-go run -mod=mod ./src/spinner/cmd/email-quarantine show -path /var/lib/gateway/email-quarantine -id ID
-go run -mod=mod ./src/spinner/cmd/email-quarantine export -path /var/lib/gateway/email-quarantine -id ID -output /absolute/review.eml
-go run -mod=mod ./src/spinner/cmd/email-quarantine delete -path /var/lib/gateway/email-quarantine -id ID
+go run -mod=mod ./pkg/spinner/cmd/email-quarantine list -path /var/mod/gateway/email-quarantine
+go run -mod=mod ./pkg/spinner/cmd/email-quarantine show -path /var/mod/gateway/email-quarantine -id ID
+go run -mod=mod ./pkg/spinner/cmd/email-quarantine export -path /var/mod/gateway/email-quarantine -id ID -output /absolute/review.eml
+go run -mod=mod ./pkg/spinner/cmd/email-quarantine delete -path /var/mod/gateway/email-quarantine -id ID
 ```
 
 There is no automatic release, spam verdict, or tenant-facing quarantine.
@@ -773,7 +773,7 @@ then run:
 ```sh
 docker run --rm -d --name gateway-clamd-test -p 127.0.0.1:13310:3310 clamav/clamav-debian:stable
 docker inspect --format '{{.State.Health.Status}}' gateway-clamd-test
-GATEWAY_TEST_CLAMD_ADDR=127.0.0.1:13310 go test -mod=mod ./src/spinner/cmd/bridge/smtp -run 'TestClamdScannerAgainstRealService|TestSMTPRealClamdQuarantine' -count=1 -v
+GATEWAY_TEST_CLAMD_ADDR=127.0.0.1:13310 go test -mod=mod ./pkg/spinner/bridge/smtp -run 'TestClamdScannerAgainstRealService|TestSMTPRealClamdQuarantine' -count=1 -v
 docker stop gateway-clamd-test
 ```
 
@@ -1052,7 +1052,7 @@ remain their modules rather than Gateway storage responsibilities.
 
 ## First implementation slice
 
-`src/spinner/cmd/bridge/smtpout` implements authenticated relay submission with plaintext,
+`pkg/spinner/bridge/smtpout` implements authenticated relay submission with plaintext,
 STARTTLS, or implicit TLS transport modes. Plaintext is intended only for
 local/private test relays; production configuration should use STARTTLS or
 implicit TLS. Typed SMTP `GatewayDelivery` values now run through a durable

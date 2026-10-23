@@ -3,8 +3,11 @@
 Gateway Automations run small, bounded ingress logic after Laravel has matched
 and authorized a route. The standalone Gateway Driver module owns the
 language-neutral execution interface, dispatcher, and output validation.
-Spinner builds on that interface and owns composition and network policy.
-JavaScript, Lua, Shell, and WebhookScript are separate language extensions.
+Spinner builds on that interface and owns transport and network policy. Spinner
+is a plugin host: each host binary is a composition root that registers the
+guest engines it ships with, or loads them at runtime. The standalone host's
+static set is `pkg/spinner/cmd/gateway/plugins.txt`.
+JavaScript, Lua, Shell, and HookScript are separate language extensions.
 JavaScript, Lua, and WebhookScript can also shape synchronous credential-source
 requests for application-managed mail connections.
 
@@ -15,28 +18,37 @@ WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary
 
 ## Optional Go language extensions
 
-- [`ext/javascript`](../ext/javascript/README.md) adds `javascript` using the
+- [`pkg/javascript`](../pkg/javascript/README.md) adds `javascript` using the
   pinned QuickJS-NG adapter.
-- [`ext/lua`](../ext/lua/README.md) adds `lua` using gopher-lua without
+- [`pkg/lua`](../pkg/lua/README.md) adds `lua` using gopher-lua without
   standard host libraries.
-- [`ext/shell`](../ext/shell/README.md) adds `shell` as an opt-in local or SSH-backed hook
+- [`pkg/shell`](../pkg/shell/README.md) adds `shell` as an opt-in local or SSH-backed hook
   executor rooted to one configured directory.
+- [`pkg/hookscript`](../pkg/hookscript/README.md) adds `hookscript` and runs the
+  PHP-compatible guest through FrankenPHP.
 
-Neither interpreter is linked into a default Gateway build. Select the
-extensions at the Go composition root with build tags:
+Engines are never imported by Spinner. Select the static guests for the
+standalone host by editing `pkg/spinner/cmd/gateway/plugins.txt`, then
+regenerate the composition map:
 
 ```bash
-# no script engines
+# add or remove a line: <language> <go import path>
+$EDITOR pkg/spinner/cmd/gateway/plugins.txt
+go generate ./pkg/spinner/cmd/gateway/...
 make build
-
-# QuickJS-NG and Lua
-make build-with-script-extensions
-
-# one engine only
-make build GATEWAY_BUILD_TAGS=gateway_javascript
-make build GATEWAY_BUILD_TAGS=gateway_lua
-make build GATEWAY_BUILD_TAGS=gateway_shell
 ```
+
+Guests that are not compiled in can still be loaded at runtime:
+
+```bash
+export GATEWAY_PLUGIN_DIR_NATIVE=/opt/gateway/plugins/native   # .so guests
+export GATEWAY_PLUGIN_DIR=/opt/gateway/plugins                # ext plugin store
+```
+
+Bundled Router binaries are separate composition roots and ship with the
+engines they need (JavaScript, Lua, Shell, and Go). A route plan whose language
+is not registered fails closed with HTTP 502; Gateway never falls back to
+evaluating source in another runtime.
 
 Install the matching Planner companion package in the Laravel application:
 
@@ -46,7 +58,7 @@ composer require webong/gateway-shell
 ```
 
 In this monorepo, the root development project and bundled Router host use
-Composer Merge Plugin to discover `ext/*/composer.json`. Each extension owns
+Composer Merge Plugin to discover `pkg/*/composer.json`. Each extension owns
 its PHP autoload rules, dependencies, and a tiny autoload registration file;
 the root package does not duplicate extension namespaces or provider names.
 Installing a published extension package continues to work through ordinary
@@ -55,7 +67,7 @@ Composer and Laravel package discovery.
 Planner does not contain a built-in language list. Each extension's Laravel
 provider registers its execution target and route, schedule, or credential
 capabilities. A
-framework-free `ExtensionProviderRegistry` in `lib/contract` carries the
+framework-free `ExtensionProviderRegistry` in `mod/adapter` carries the
 Composer-discovered provider class names into Planner, while the
 `AutomationLanguageRegistry` carries their capabilities. Spinner independently
 advertises the engines present in the running binary with each plan and
@@ -67,11 +79,13 @@ for a third-party Spinner extension that has not shipped a Planner companion.
 It registers the listed languages as Spinner-executed route and schedule
 capabilities, but Spinner must still advertise the engine at runtime.
 
-For a container image, pass the same selection as a build argument:
+For a container image, the Docker build supplies the PHP toolchain that the
+`php` and `hookscript` guests need. Pass optional FrankenPHP build tags with
+`GATEWAY_BUILD_TAGS` (they no longer select automation engines):
 
 ```bash
 docker build \
-  --build-arg GATEWAY_BUILD_TAGS=gateway_javascript,gateway_lua \
+  --build-arg GATEWAY_BUILD_TAGS=nowatcher \
   -t gateway-with-scripts .
 ```
 
@@ -85,9 +99,12 @@ surface.
 Third-party Go language extensions implement `automation.Engine` from
 `github.com/webong/gateway/driver/automation`. They depend only on the
 standard-library Driver module, not on Spinner. Their optional PHP companion
-depends on the framework-free interfaces under `lib/contract`, not Planner's
-implementation source. Spinner's composition root registers selected engines
-with the Driver dispatcher.
+depends on the framework-free interfaces under `mod/adapter`, not Planner's
+implementation source. A composition root (for example
+`pkg/spinner/cmd/gateway`) calls `automationextensions.Register` with the guest
+engine; Spinner itself does not import extension modules. External guests can
+also be discovered from `GATEWAY_PLUGIN_DIR_NATIVE` (`.so`) or
+`GATEWAY_PLUGIN_DIR` (ext plugin store) at runtime.
 
 ```php
 use Webong\Gateway\Protocol\Automation;
@@ -156,7 +173,7 @@ return RoutePlan::automate(new Automation(
 The extension supports Webhook.site-style Primi syntax and a bounded Gateway
 host interface. It does not copy Webhook.site product features such as stored
 data or unrestricted HTTP access. See
-[`ext/webhookscript/README.md`](../ext/webhookscript/README.md) for its complete
+[`pkg/webhookscript/README.md`](../pkg/webhookscript/README.md) for its complete
 capability list, limits, configuration, and runtime requirements.
 
 Without the extension, Go rejects `webhookscript` route plans instead of

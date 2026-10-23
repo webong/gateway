@@ -8,14 +8,14 @@ together in the Gateway Router distribution.
 | --- | --- | --- |
 | Gateway Router | Spinner and the bundled Planner behind one public listener, hosted by embedded RoadRunner or FrankenPHP | You want a self-contained Gateway-owned registry |
 | Spinner | Go image plus an external PHP Planner | Your Planner lives in an existing Laravel app or a separate service |
-| Planner | `webong/gateway` Composer package | Your Laravel app owns route policy and registry context |
+| Planner | `webong/gateway-planner` Composer package | Your Laravel app owns route policy and registry context |
 
 The same route-plan and protocol-event contracts connect Spinner and Planner
-in both deployment shapes. The optional `ext/frankenphp` Go module embeds the
+in both deployment shapes. The optional `pkg/frankenphp` Go module embeds the
 Planner through the FrankenPHP library without importing the standalone Spinner
 command. The legacy Caddy adapter remains optional; the combined Router Docker
 image uses the Go-library extension. RoadRunner embeds PHP workers in
-`src/spinner/cmd/proxy`. None of these modes
+`cmd/gateway`. None of these modes
 needs a separate public Planner listener.
 
 ```text
@@ -64,43 +64,52 @@ selected runtime adapter.
 
 ## Planner package distribution
 
-Composer distribution archives contain only `composer.json`, `LICENSE`,
-`README.md`, `src/planner/` (including configuration and migrations), and the
-framework-free PHP interfaces and protocol values in `lib/contract/src/`.
-The Go Spinner, extension sources, Go driver library, bundled Router app,
-tests, and deployment/build tooling are not downloaded into the consuming
-application's vendor directory with these archives. Dependencies are still
-resolved normally by Composer.
+The monorepo publishes separate Composer packages:
+
+- `webong/gateway` contains the framework-free contracts and protocol values in
+  `mod/adapter/src/`.
+- `webong/gateway-planner` contains the Laravel Planner in `src/planner/`,
+  including configuration, migrations, and its service provider.
+- `webong/gateway-*` extension packages own their PHP sources, autoload rules,
+  dependencies, and Planner companion providers.
+
+The root development project and the bundled Router host use Composer Merge
+Plugin to discover `pkg/*/composer.json`, so extension autoload paths and
+providers come from the extension manifests rather than from duplicated root
+mappings. The Go Spinner, Go driver library, bundled Router app, tests, and
+deployment/build tooling are not part of the Composer packages.
 
 `.gitattributes` controls GitHub/Git source archives; `archive.exclude` in
-`composer.json` controls Composer-built archives. No install-time cleanup or
-Composer plugin is needed. Verify both independently with `composer test-package`
-from a source checkout.
+`composer.json` controls Composer-built archives for the core package. Verify
+the core archive with `composer test-package` from a source checkout.
 
 This applies to releases containing these packaging rules, not existing tags
 or cached archives. `--prefer-source` (or a fallback to a Git clone) still
 downloads the full repository. Use a Git clone for Router/Spinner builds:
-the repository's generated source ZIP/tar downloads are Planner-only too.
+the repository's generated source ZIP/tar downloads are core-only.
 The driver release script constructs its own separate release tree and is
 unaffected by these root archive rules.
 
 ## Repository layout
 
-- `lib/router` is the separate `github.com/webong/gateway/router` Go module;
+- `mod/router` is the separate `github.com/webong/gateway/router` Go module;
   it assembles Spinner and an injected in-process Planner runtime.
-- `ext/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
-- `ext/roadrunner/runtime` manages PHP workers without Spinner imports;
-  `ext/roadrunner/cmd/router` assembles its bundled deployment through `lib/router`.
-- `lib/driver` is the independent `github.com/webong/gateway/driver` Go module
+- `pkg/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
+- `pkg/roadrunner/runtime` manages PHP workers without Spinner imports;
+  `pkg/roadrunner/cmd/router` assembles its bundled deployment through `mod/router`.
+- `mod/driver` is the independent `github.com/webong/gateway/driver` Go module
   for workload and runtime-driver contracts. See its [extension and release
-  guide](lib/driver/README.md); extension authors can use it without Spinner.
-- `lib/contract` is the framework-free PHP seam shared by Planner and its
+  guide](mod/driver/README.md); extension authors can use it without Spinner.
+- `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.
-- `src/spinner/cmd/proxy` is the Spinner executable and lifecycle wiring.
-- `src/spinner/cmd/bridge` is the transport-neutral Go edge and protocol boundary.
-- `src/spinner/cmd/bridge/caddy` is the optional FrankenPHP/Caddy runtime adapter.
-- `src/spinner/internal` contains Go configuration, forwarding, worker, and logging
+- `pkg/spinner` is the separate `github.com/webong/gateway/pkg/spinner` Go
+  module; `pkg/spinner/proxy` contains its HTTP lifecycle package.
+- `cmd/gateway` is the root-module composition executable; it installs optional
+  Go extensions and starts Spinner.
+- `pkg/spinner/bridge` is the transport-neutral Go edge and protocol boundary.
+- `pkg/caddy` is the optional FrankenPHP/Caddy runtime adapter.
+- `pkg/spinner/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `src/planner` is the PHP Planner package source tree.
 - `app/` is the thin PHP host for the bundled Planner, not a conventional
@@ -108,20 +117,24 @@ unaffected by these root archive rules.
 - `src/planner/config/` contains the Laravel Planner package configuration;
   `infra/caddy/` holds Caddy examples used by integration builds.
 - `src/planner/Servers`, `src/planner/Reconciliation`, `src/planner/database/migrations`, and
-  `src/spinner/provision` are the core managed-server control plane and
+  `pkg/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
   state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
   drivers.
-- `ext/reverb` adapts Laravel Reverb configuration and its dynamic application
+- `pkg/reverb` adapts Laravel Reverb configuration and its dynamic application
   provider to the core server-type contracts.
-- `ext/mercure` and `ext/centrifugo` adapt their server configuration and
+- `pkg/mercure` and `pkg/centrifugo` adapt their server configuration and
   launch contracts to the same core runtime.
 
-Every Go runtime under `ext/` owns its own module and runtime-specific
-dependencies. The root module composes JavaScript, Lua, and Shell only through
-their public runtime packages; bundled RoadRunner and FrankenPHP Router commands
-select those modules explicitly. Native FrankenPHP remains outside Spinner-only
-builds, while the host-neutral `lib/router` module assembles the shared Router.
+Every Go runtime under `pkg/` owns its own module and runtime-specific
+dependencies. Spinner is its own module and depends only on the driver
+contracts. The root `github.com/webong/gateway` module is the composition root
+(`cmd/gateway`): it owns the JavaScript, Lua, and Shell module dependencies and
+registers them through `cmd/gateway/composition`. Bundled RoadRunner and
+FrankenPHP Router commands import that same composition package. Native
+FrankenPHP remains outside Spinner-only builds, while the host-neutral
+`mod/router` module assembles the shared Router. The root `go.work` ties these
+modules together for local commands; release builds use each module directly.
 When the PHP `vendor/` directory exists, use `-mod=mod` for Go commands because
 that directory belongs to Composer, not Go.
 
@@ -139,7 +152,7 @@ address. The Go-only image contains no PHP or Planner application.
 ## Choose a Spinner host runtime
 
 Install the package dependencies in the Laravel application and configure a
-class implementing `Webong\Gateway\Contracts\RoutePlanner`, or configure the
+class implementing `Webong\Gateway\Contract\RoutePlanner`, or configure the
 bundled registry planner and a `PathResolver`. Then choose one of these modes:
 
 - `http` keeps Laravel independently hosted by PHP-FPM, an HTTP server,
@@ -236,7 +249,7 @@ Then start the embedded host from the repository root:
 ```bash
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export ROADRUNNER_CONFIG=.rr.yaml
-go -C ext/roadrunner/cmd/router run .
+go -C pkg/roadrunner/cmd/router run .
 ```
 
 `GATEWAY_INTERNAL_TOKEN` is required in embedded mode. The token is sent
@@ -249,7 +262,7 @@ To run SMTP alongside the embedded RoadRunner HTTP listener, add:
 ```bash
 export GATEWAY_SMTP_ADDR=':2525'
 export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
-go run ./src/spinner/cmd/proxy
+go run ./cmd/gateway
 ```
 
 The `gateway` middleware must remain enabled in `.rr.yaml`. Go waits until
@@ -266,7 +279,7 @@ or local URL:
 export GATEWAY_RUNTIME=http
 export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./src/spinner/cmd/proxy
+go run ./cmd/gateway
 ```
 
 Go sends `POST /_internal/gateway/plan` to that backend and reverse-proxies
@@ -284,7 +297,7 @@ export GATEWAY_RUNTIME=http
 export GATEWAY_PLANNER_URL=http://gateway-planner
 export GATEWAY_PLANNER_SOCKET=/run/gateway/planner.sock
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./src/spinner/cmd/proxy
+go run ./cmd/gateway
 ```
 
 Configure Nginx, Caddy, or another local HTTP server to listen on that socket.
@@ -294,7 +307,7 @@ separate containers or nodes; use their private HTTP network address instead.
 
 ### SMTP listener
 
-SMTP is available in `http` and `roadrunner` modes. `src/spinner/cmd/proxy` starts the Go
+SMTP is available in `http` and `roadrunner` modes. `cmd/gateway` starts the Go
 HTTP edge and SMTP listener as sibling listeners, while both use the same PHP
 control-plane bridge. The SMTP protocol itself is provided by
 [`emersion/go-smtp`](https://pkg.go.dev/github.com/emersion/go-smtp), including
@@ -308,7 +321,7 @@ export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_SMTP_ADDR=':2525'
 export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
-go run ./src/spinner/cmd/proxy
+go run ./cmd/gateway
 ```
 
 Each accepted SMTP transaction is sent to
@@ -358,7 +371,7 @@ export GATEWAY_RUNTIME=http
 export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
 export GATEWAY_DNS_ADDR=':53'
-go run ./src/spinner/cmd/proxy
+go run ./cmd/gateway
 ```
 
 Planner supplies active zones over the authenticated private connection and
@@ -986,7 +999,7 @@ bash scripts/http-smoke.sh
 ## PHP control plane
 
 The Laravel side can either implement
-`Webong\Gateway\Contracts\RoutePlanner` directly and configure it as
+`Webong\Gateway\Contract\RoutePlanner` directly and configure it as
 `GATEWAY_PLANNER`, or use the bundled `RegistryRoutePlanner` with a
 `PathResolver` configured as `GATEWAY_PATH_RESOLVER`.
 
@@ -1013,7 +1026,7 @@ identifier is carried across the bridge.
 ### Custom route planner
 
 ```php
-use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Contract\RoutePlanner;
 use Webong\Gateway\Protocol\Delivery;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\RoutePlan;
@@ -1041,7 +1054,7 @@ An application-owned path resolver can look up any path shape, for example
 the Go service:
 
 ```php
-use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Contract\PathResolver;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\PathBinding;
 
@@ -1082,7 +1095,7 @@ headers or body fields. Implement `CacheablePathResolver` and return a key
 containing every request attribute that can change its result:
 
 ```php
-use Webong\Gateway\Contracts\CacheablePathResolver;
+use Webong\Gateway\Contract\CacheablePathResolver;
 use Webong\Gateway\Protocol\IngressRequest;
 
 final class ApplicationPathResolver implements CacheablePathResolver
@@ -1288,8 +1301,8 @@ The configurable table environment variables remain
 `GATEWAY_INSTANCES_TABLE`, `GATEWAY_NODES_TABLE`, and `GATEWAY_TARGETS_TABLE`. Their Laravel keys are under
 `gateway.servers.tables`.
 
-See [`ext/reverb`](ext/reverb), [`ext/mercure`](ext/mercure), and
-[`ext/centrifugo`](ext/centrifugo) for technology-specific settings and
+See [`pkg/reverb`](pkg/reverb), [`pkg/mercure`](pkg/mercure), and
+[`pkg/centrifugo`](pkg/centrifugo) for technology-specific settings and
 workload requirements.
 
 ## Internal planner routes
@@ -1344,9 +1357,11 @@ or an equivalent `xcaddy` build. From a FrankenPHP source checkout or builder,
 add the module path to its existing build command:
 
 ```bash
---with github.com/webong/gateway/src/spinner/cmd/bridge/caddy \
+--with github.com/webong/gateway/pkg/caddy \
 --replace github.com/webong/gateway=/path/to/gateway \
---replace github.com/webong/gateway/driver=/path/to/gateway/lib/driver
+--replace github.com/webong/gateway/pkg/caddy=/path/to/gateway/pkg/caddy \
+--replace github.com/webong/gateway/driver=/path/to/gateway/mod/driver \
+--replace github.com/webong/gateway/pkg/spinner=/path/to/gateway/pkg/spinner
 ```
 
 For a custom FrankenPHP Docker image, add the same module to the builder's
@@ -1390,6 +1405,10 @@ Run the PHP test suite with the installed Testbench/Pest tooling:
 ```bash
 vendor/bin/pest
 ```
+
+The `composer test` script uses Composer's default 300-second process timeout,
+which the full Planner suite can exceed. Prefer `vendor/bin/pest` or raise
+`COMPOSER_PROCESS_TIMEOUT`.
 
 Run the real Octane worker smoke test using the included minimal Laravel host:
 

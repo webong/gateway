@@ -54,5 +54,5 @@ for this release. It does not have webhookd's direct URL-to-file routing,
 public log lookup or output-driven notifications. Its run-history lookup is
 authenticated and redacts output by default; its completion notifications
 are structured and Planner-selected.
-See [the shell extension guide](../ext/shell/README.md) for the current
+See [the shell extension guide](../pkg/shell/README.md) for the current
 contract and deployment settings.

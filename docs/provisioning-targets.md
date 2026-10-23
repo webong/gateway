@@ -85,7 +85,7 @@ its servers and stopping workers; expired node records are removed with it.
 From the repository root:
 
 ```sh
-go build -mod=readonly -o /tmp/gateway-provision ./src/spinner/cmd/provision
+go build -mod=readonly -o /tmp/gateway-provision ./pkg/spinner/cmd/provision
 
 export GATEWAY_PLANNER_URL=https://planner.example.com
 export GATEWAY_PROVISIONING_TARGET_ID=TARGET_ID_FROM_RESPONSE
@@ -111,7 +111,7 @@ workload startup checks those separately.
 Build or install an executable extension and supply its workload settings, for example:
 
 ```sh
-go -C ext/centrifugo build -mod=readonly -o /tmp/gateway-centrifugo ./cmd/plugin
+go -C pkg/centrifugo build -mod=readonly -o /tmp/gateway-centrifugo ./cmd/plugin
 export GATEWAY_EXTENSION_PATHS=/tmp/gateway-centrifugo
 export GATEWAY_CENTRIFUGO_DOCKER_IMAGE=YOUR_PINNED_CENTRIFUGO_IMAGE
 /tmp/gateway-provision
@@ -132,9 +132,9 @@ client support. Build it from the repository root:
 docker build -f infra/docker/Gateway.provision.Dockerfile -t gateway-provision:local .
 scripts/test-provision-worker-image gateway-provision:local
 GATEWAY_TEST_PROVISION_WORKER_IMAGE=gateway-provision:local \
-  go test -mod=mod ./src/spinner/provision -run '^TestProvisionWorkerImageChecksRealPlanner$' -count=1
+  go test -mod=mod ./pkg/spinner/provision -run '^TestProvisionWorkerImageChecksRealPlanner$' -count=1
 GATEWAY_TEST_PROVISION_WORKER_IMAGE=gateway-provision:local \
-  go test -mod=mod ./src/spinner/provision -run '^TestProvisionWorkerImageRecoversCentrifugo$' -count=1
+  go test -mod=mod ./pkg/spinner/provision -run '^TestProvisionWorkerImageRecoversCentrifugo$' -count=1
 ```
 
 Give the container a private route to Planner and a stable `GATEWAY_NODE_ID`.
@@ -408,28 +408,28 @@ if traffic proxying and provisioning are intentionally colocated.
 Verification uses local PHP integration tests and Go tests with fake remote
 command runners and loopback listeners. With a local Docker daemon and the
 `nginx:alpine` image already available, run
-`GATEWAY_TEST_DOCKER_ADOPTION=1 go test -mod=mod ./src/spinner/provision -run '^TestDockerDriverAdoptsRealContainer$' -count=1`
+`GATEWAY_TEST_DOCKER_ADOPTION=1 go test -mod=mod ./pkg/spinner/provision -run '^TestDockerDriverAdoptsRealContainer$' -count=1`
 to check that a new driver adopts a uniquely named running container without
 recreating it. Run
-`GATEWAY_TEST_DOCKER_WORKER_RECOVERY=1 go test -mod=mod ./src/spinner/provision -run '^TestDockerWorkerRecoversAfterCrash$' -count=1`
+`GATEWAY_TEST_DOCKER_WORKER_RECOVERY=1 go test -mod=mod ./pkg/spinner/provision -run '^TestDockerWorkerRecoversAfterCrash$' -count=1`
 to hard-kill one worker process and verify that a replacement resumes the same
 container after the mocked Planner lease expires. Run
-`GATEWAY_TEST_PHP_DOCKER_RECOVERY=1 go test -mod=mod ./src/spinner/provision -run '^TestDockerWorkerRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_PHP_DOCKER_RECOVERY=1 go test -mod=mod ./pkg/spinner/provision -run '^TestDockerWorkerRecoversWithRealPlanner$' -count=1`
 to exercise the same hard restart through the PHP Planner's actual assignment,
 session, reset, and report routes. This last test uses the Centrifugo server
 type but runs a lightweight nginx test workload. Run
-`GATEWAY_TEST_CENTRIFUGO_RECOVERY=1 go test -mod=mod ./src/spinner/provision -run '^TestCentrifugoWorkerRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_CENTRIFUGO_RECOVERY=1 go test -mod=mod ./pkg/spinner/provision -run '^TestCentrifugoWorkerRecoversWithRealPlanner$' -count=1`
 to repeat the restart with the real Centrifugo workload adapter and a locally
 available `centrifugo/centrifugo:v6` image. It checks Centrifugo HTTP health
 before and after adoption. This test registers the adapter directly in the Go
 worker. Run
-`GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY=1 go test -mod=mod ./src/spinner/provision -run '^TestCentrifugoPluginRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY=1 go test -mod=mod ./pkg/spinner/provision -run '^TestCentrifugoPluginRecoversWithRealPlanner$' -count=1`
 to build and load the Centrifugo executable through `GATEWAY_EXTENSION_PATHS`
 for both worker processes and repeat the same recovery/health assertions.
 Run
-`GATEWAY_TEST_MERCURE_PLUGIN_RECOVERY=1 go test -mod=mod ./src/spinner/provision -run '^TestMercurePluginRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_MERCURE_PLUGIN_RECOVERY=1 go test -mod=mod ./pkg/spinner/provision -run '^TestMercurePluginRecoversWithRealPlanner$' -count=1`
 for the Mercure executable and its HTTP health endpoint. Run
-`GATEWAY_TEST_REVERB_PLUGIN_RECOVERY=1 go test -mod=mod ./src/spinner/provision -run '^TestReverbPluginRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_REVERB_PLUGIN_RECOVERY=1 go test -mod=mod ./pkg/spinner/provision -run '^TestReverbPluginRecoversWithRealPlanner$' -count=1`
 to build a disposable Laravel Reverb image with an isolated Planner snapshot,
 load the Reverb executable, and verify that its managed application accepts a
 WebSocket handshake before and after adoption. Reverb requires a Docker image

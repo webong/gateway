@@ -153,7 +153,7 @@ func main() {
 ```
 
 Build a platform-specific executable with `go build -o your-extension
-./cmd/plugin`. The [isolated example](../lib/driver/testdata/extension) is
+./cmd/plugin`. The [isolated example](../mod/driver/testdata/extension) is
 compiled against a synthetic published `driver/v0.1.0` tag by
 `scripts/test-driver-release`, with no Spinner dependency or local `replace`.
 

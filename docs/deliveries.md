@@ -21,7 +21,7 @@ network when Planner is deployed separately. The public Router continues to
 block `/_internal` traffic.
 
 ```sh
-export GATEWAY_DELIVERY_SPOOL_PATH=/var/lib/gateway/deliveries
+export GATEWAY_DELIVERY_SPOOL_PATH=/var/mod/gateway/deliveries
 export GATEWAY_DELIVERY_ADMIN_ADDR=127.0.0.1:5052
 export GATEWAY_DELIVERY_ADMIN_URL=http://127.0.0.1:5052
 export GATEWAY_INTERNAL_TOKEN=YOUR_PRIVATE_INTERNAL_TOKEN

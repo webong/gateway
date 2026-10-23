@@ -103,7 +103,7 @@ Before enabling rewriting, check the return domain against public DNS. Supply
 outbound relay (not Spinner's inbound IP):
 
 ```sh
-go run -mod=readonly ./src/spinner/cmd/email-dns-check \
+go run -mod=readonly ./tools/email-dns-check \
   -domain returns.example.com \
   -mx-hosts mx1.example.com,mx2.example.com \
   -relay-ips 203.0.113.10,2001:db8::10

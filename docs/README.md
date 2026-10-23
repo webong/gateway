@@ -25,6 +25,7 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 - [Endpoint event history](events.md): opt-in Web ingress records and shared DNS history with bounded capture.
 - [Email authentication gate](email-authentication.md): SPF/DKIM/DMARC, SRS, and bounce-routing requirements before public forwarding.
 - [Mail forwarding and retrieval](mail-forwarding.md): SMTP routing, durable relay, and the TLS POP3 upstream proxy.
+- [Email delivery-status webhooks](email-delivery-status-webhooks.md): account-scoped signed terminal delivery events with durable retries.
 - [Subscription matching](subscription-dsl-v1.md): versioned matching rules.
 - [Subscription examples](examples/subscriptions/README.md): direct PHP and
   remote HTTP registration, including endpoint network profiles.
