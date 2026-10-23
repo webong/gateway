@@ -5,13 +5,13 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-contract-package.XXXXXX")
 trap 'rm -rf -- "$TEST_DIR"' EXIT
 
-cp -R "$ROOT/lib/adapter/." "$TEST_DIR/"
+cp -R "$ROOT/mod/adapter/." "$TEST_DIR/"
 composer --working-dir="$TEST_DIR" dump-autoload --no-plugins --no-scripts --no-interaction --quiet
 php -r '
 require $argv[1]."/vendor/autoload.php";
-$automation = new Webong\Gateway\Protocol\Automation("example", "run()");
+$automation = new Webong\Gateway\Protocols\Automation("example", "run()");
 if ($automation->language !== "example"
-    || Webong\Gateway\Contract\AutomationExecutionTarget::SPINNER->value !== "spinner") {
+    || Webong\Gateway\Contracts\AutomationExecutionTarget::SPINNER->value !== "spinner") {
     throw new RuntimeException("Contract package consumer failed.");
 }
 ' "$TEST_DIR"

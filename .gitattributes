@@ -3,8 +3,9 @@
 /composer.json -export-ignore
 /LICENSE -export-ignore
 /README.md -export-ignore
-/lib -export-ignore
-/* export-ignore
-/adapter -export-ignore
-/adapter/* export-ignore
-/adapter/src -export-ignore
+/mod -export-ignore
+/mod/* export-ignore
+/mod/adapter -export-ignore
+/mod/adapter/* export-ignore
+/mod/adapter/src -export-ignore
+/mod/adapter/src/** -export-ignore

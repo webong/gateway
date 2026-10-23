@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+WORKSPACE_VERSION=$(awk '$1 == "go" { print $2; exit }' "$ROOT/go.work")
+
+if [ -z "$WORKSPACE_VERSION" ]; then
+    echo 'go.work does not declare a Go version.' >&2
+    exit 1
+fi
+
+# Official Go image tags omit a trailing patch zero (1.26.0 -> 1.26).
+IMAGE_VERSION=${WORKSPACE_VERSION%.0}
+EXPECTED="FROM golang:${IMAGE_VERSION}-bookworm AS router-builder"
+DOCKERFILE="$ROOT/infra/docker/RoadRunner.router.Dockerfile"
+
+if ! grep -Fx "$EXPECTED" "$DOCKERFILE" >/dev/null; then
+    echo "RoadRunner Router must build with the go.work toolchain: $EXPECTED" >&2
+    exit 1
+fi
+
+php -r '
+    $root = $argv[1];
+    $manifest = json_decode(file_get_contents($root."/app/composer.json"), true, flags: JSON_THROW_ON_ERROR);
+    $repositories = array_column($manifest["repositories"] ?? [], "url");
+    if (! in_array("../pkg/planner", $repositories, true)) {
+        fwrite(STDERR, "Planner host must load webong/gateway-planner from ../pkg/planner.\n");
+        exit(1);
+    }
+    $includes = $manifest["extra"]["merge-plugin"]["include"] ?? [];
+    if (in_array("../pkg/*/composer.json", $includes, true) || in_array("../pkg/planner/composer.json", $includes, true)) {
+        fwrite(STDERR, "Planner must be installed as a package, not merged as an extension.\n");
+        exit(1);
+    }
+    $lock = json_decode(file_get_contents($root."/app/composer.lock"), true, flags: JSON_THROW_ON_ERROR);
+    $coreFound = false;
+    $plannerFound = false;
+    foreach ($lock["packages"] ?? [] as $package) {
+        if (($package["name"] ?? null) === "webong/gateway") {
+            $autoload = $package["autoload"]["psr-4"] ?? [];
+            if (($autoload["Webong\\Gateway\\Contracts\\"] ?? null) !== "mod/adapter/src/Contract/"
+                || ($autoload["Webong\\Gateway\\Protocols\\"] ?? null) !== "mod/adapter/src/Protocol/") {
+                fwrite(STDERR, "Locked Gateway core autoload does not match mod/adapter.\n");
+                exit(1);
+            }
+            $coreFound = true;
+        }
+        if (($package["name"] ?? null) === "webong/gateway-planner") {
+            if (($package["dist"]["url"] ?? null) !== "../pkg/planner") {
+                fwrite(STDERR, "Locked Planner path does not match app/composer.json.\n");
+                exit(1);
+            }
+            $plannerFound = true;
+        }
+    }
+    if (! $coreFound || ! $plannerFound) {
+        fwrite(STDERR, "app/composer.lock is missing a required local Gateway package.\n");
+        exit(1);
+    }
+' "$ROOT"
+
+composer validate --working-dir="$ROOT/app" --no-check-publish --strict >/dev/null
+
+echo "RoadRunner Router packaging uses Go ${IMAGE_VERSION} and the current Planner module."

@@ -20,7 +20,7 @@
         },
         {
             "type": "path",
-            "url": "../src/planner",
+            "url": "../pkg/planner",
             "options": { "symlink": false }
         }
     ],
@@ -39,7 +39,13 @@
     "extra": {
         "merge-plugin": {
             "include": [
-                "../pkg/*/composer.json"
+                "../pkg/centrifugo/composer.json",
+                "../pkg/hookscript/composer.json",
+                "../pkg/javascript/composer.json",
+                "../pkg/lua/composer.json",
+                "../pkg/mercure/composer.json",
+                "../pkg/reverb/composer.json",
+                "../pkg/shell/composer.json"
             ],
             "recurse": false,
             "replace": false,

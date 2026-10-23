@@ -1,4 +1,4 @@
-FROM golang:1.24-bookworm AS router-builder
+FROM golang:1.26-bookworm AS router-builder
 
 ARG GATEWAY_BUILD_TAGS=""
 ENV GOTELEMETRY=off

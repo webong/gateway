@@ -47,7 +47,7 @@
             "!/composer.json",
             "!/LICENSE",
             "!/README.md",
-            "!/lib",
+            "!/mod",
             "/mod/*",
             "!/mod/adapter",
             "/mod/adapter/*",

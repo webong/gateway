@@ -6,13 +6,13 @@ export LC_ALL=C
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-core-package.XXXXXX")
 trap 'rm -rf "$TEST_DIR"' EXIT
-mkdir -p "$TEST_DIR/source/lib" "$TEST_DIR/output"
+mkdir -p "$TEST_DIR/source/mod" "$TEST_DIR/output"
 cp "$ROOT/composer.json" "$ROOT/.gitattributes" "$ROOT/LICENSE" "$ROOT/README.md" "$TEST_DIR/source/"
-cp -R "$ROOT/lib/adapter" "$TEST_DIR/source/lib/adapter"
+cp -R "$ROOT/mod/adapter" "$TEST_DIR/source/mod/adapter"
 cd "$TEST_DIR/source"
 
 # Representative unwanted files, including future directories and local state.
-for path in src/planner/GatewayServiceProvider.php pkg/spinner/main.go lib/driver/go.mod \
+for path in pkg/planner/src/GatewayServiceProvider.php pkg/spinner/main.go mod/driver/go.mod \
     pkg/example/main.go app/bootstrap.php scripts/build-router infra/docker/Dockerfile \
     infra/kubernetes/router.yaml tests/Test.php vendor/autoload.php \
     .gateway-router-data/gateway.env future/component.txt docs/deployment.md \
@@ -21,8 +21,8 @@ for path in src/planner/GatewayServiceProvider.php pkg/spinner/main.go lib/drive
     touch "$path"
 done
 
-{ printf '%s\n' composer.json LICENSE README.md; find lib/adapter/src -type f; } | LC_ALL=C sort > "$TEST_DIR/expected"
-test -f lib/adapter/src/Contracts/AutomationLanguageRegistry.php
+{ printf '%s\n' composer.json LICENSE README.md; find mod/adapter/src -type f; } | LC_ALL=C sort > "$TEST_DIR/expected"
+test -f mod/adapter/src/Contract/AutomationLanguageRegistry.php
 
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
