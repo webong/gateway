@@ -3,7 +3,21 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Email\OutboundTransportStore;
+use Webong\Gateway\Email\EmailDkimKeyStore;
+use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Resources\PlannerResourceStore;
+
+beforeEach(function (): void {
+    config()->set('gateway.email.managed_dkim_signing_enabled', true);
+    app(EmailDkimKeyStore::class)->ensureGenerated('operator.test', 'gateway1');
+    app()->instance(TxtResolver::class, new class implements TxtResolver {
+        public function records(string $name): array
+        {
+            $record = app(EmailDkimKeyStore::class)->publicRecord('operator.test');
+            return $record !== null && $name === $record['name'] ? [$record['value']] : [];
+        }
+    });
+});
 
 it('keeps SMTP credentials private and pins weighted outbound plans per account', function (): void {
     config()->set('gateway.email.shared_from_address', 'support@operator.test');
@@ -95,6 +109,66 @@ it('filters unhealthy and unauthorized transports and rejects a domain binding w
         $store->ordered($pool->id, 'account', 'sender.test', str_repeat('b', 32))))->toBe([$authorized->id]);
     $store->setHealth($authorized, false);
     expect($store->ordered($pool->id, 'account', 'sender.test', str_repeat('b', 32)))->toBe([]);
+});
+
+it('authorizes a sender domain atomically and moves a binding only to an eligible pool', function (): void {
+    config()->set('gateway.email.shared_from_address', 'support@operator.test');
+    $account = $this->withToken('registry-secret')->postJson('https://localhost/email/mailbox-accounts', ['id' => 'one'])
+        ->assertCreated()->json();
+    $sender = $this->withToken($account['token'])
+        ->postJson('https://localhost/email/mailbox-accounts/one/sending-routes', ['mode' => 'shared'])
+        ->assertCreated()->json();
+    $current = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-transports', [
+        'name' => 'current', 'type' => 'smtp', 'address' => 'smtp.current.test:587',
+        'tls_mode' => 'starttls', 'username' => 'u', 'password' => 'p', 'healthy' => true,
+        'authorized_domains' => ['operator.test'],
+        'domain_readiness' => ['operator.test' => ['spf' => 'ready', 'dkim' => 'ready']],
+    ])->assertCreated()->json();
+    $currentPool = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-pools', [
+        'name' => 'current-pool',
+        'members' => [['transport_id' => $current['id'], 'priority' => 0, 'weight' => 1]],
+    ])->assertCreated()->json();
+    $binding = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-bindings', [
+        'account_id' => 'one', 'scope' => 'shared_route', 'sender_id' => $sender['id'], 'pool_id' => $currentPool['id'],
+    ])->assertCreated()->json();
+
+    $replacement = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-transports', [
+        'name' => 'replacement', 'type' => 'smtp', 'address' => 'smtp.replacement.test:587',
+        'tls_mode' => 'starttls', 'username' => 'u', 'password' => 'p', 'healthy' => true,
+        'authorized_domains' => ['another.test'],
+        'domain_readiness' => ['another.test' => ['spf' => 'ready', 'dkim' => 'ready']],
+    ])->assertCreated()->json();
+    $authorized = $this->withToken('registry-secret')->patchJson('https://localhost/email/outbound-transports/'.$replacement['id'], [
+        'domain_authorization' => [
+            'domain' => 'operator.test',
+            'status' => ['spf' => 'ready', 'dkim' => 'ready'],
+        ],
+    ])->assertOk()
+        ->assertJsonPath('authorized_domains.1', 'operator.test')->json();
+    expect($authorized['domain_readiness']['operator.test']['dkim'])->toBe('ready');
+    $replacementPool = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-pools', [
+        'name' => 'replacement-pool',
+        'members' => [['transport_id' => $replacement['id'], 'priority' => 0, 'weight' => 1]],
+    ])->assertCreated()->json();
+    $this->withToken('registry-secret')->patchJson('https://localhost/email/outbound-bindings/'.$binding['id'], [
+        'pool_id' => $replacementPool['id'],
+    ])->assertOk()->assertJsonPath('pool_id', $replacementPool['id']);
+
+    $wrongAccount = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-transports', [
+        'name' => 'wrong-account', 'type' => 'smtp', 'address' => 'smtp.wrong-account.test:587',
+        'tls_mode' => 'starttls', 'username' => 'u', 'password' => 'p', 'healthy' => true,
+        'account_id' => 'two', 'authorized_domains' => ['operator.test'],
+        'domain_readiness' => ['operator.test' => ['spf' => 'ready', 'dkim' => 'ready']],
+    ])->assertCreated()->json();
+    $wrongPool = $this->withToken('registry-secret')->postJson('https://localhost/email/outbound-pools', [
+        'name' => 'wrong-account-pool',
+        'members' => [['transport_id' => $wrongAccount['id'], 'priority' => 0, 'weight' => 1]],
+    ])->assertCreated()->json();
+    $this->withToken('registry-secret')->patchJson('https://localhost/email/outbound-bindings/'.$binding['id'], [
+        'pool_id' => $wrongPool['id'],
+    ])->assertUnprocessable();
+    $this->withToken('registry-secret')->getJson('https://localhost/email/outbound-bindings')->assertOk()
+        ->assertJsonPath('data.0.pool_id', $replacementPool['id']);
 });
 
 it('selects weighted peers deterministically across store instances', function (): void {
