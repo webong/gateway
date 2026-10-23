@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
-use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocols\MatchRules;
 use Webong\Gateway\RegistryRouteCache;
 use Webong\Gateway\SubscribeEndpoint;
 use Webong\Gateway\SubscriptionDefinition;

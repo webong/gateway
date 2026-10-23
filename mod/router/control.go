@@ -12,7 +12,8 @@ import (
 // separate, operator-controlled listener. Planner authenticates every request.
 func provisioningControlHandler(planner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !under(r.URL.Path, "/_internal/provisioning") && !mailboxCredentialRequest(r) {
+		if !under(r.URL.Path, "/_internal/provisioning") &&
+			!mailboxCredentialRequest(r) && !emailRuntimeRequest(r) {
 			http.NotFound(w, r)
 			return
 		}
@@ -36,8 +37,40 @@ func mailboxCredentialRequest(r *http.Request) bool {
 	return err == nil
 }
 
+// emailRuntimeRequest allows only the private Planner operations required by
+// the SMTP runtime. Public email management APIs remain on the public Router.
+func emailRuntimeRequest(r *http.Request) bool {
+	const prefix = "/_internal/gateway/email/"
+	if !strings.HasPrefix(r.URL.Path, prefix) {
+		return false
+	}
+	remainder := strings.TrimPrefix(r.URL.Path, prefix)
+
+	switch {
+	case (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+		strings.HasPrefix(remainder, "dkim/"):
+		return singlePathSegment(strings.TrimPrefix(remainder, "dkim/"))
+	case r.Method == http.MethodGet && strings.HasPrefix(remainder, "hosted-adapters/"):
+		return singlePathSegment(strings.TrimPrefix(remainder, "hosted-adapters/"))
+	case r.Method == http.MethodPost && remainder == "outbound-plan":
+		return true
+	case r.Method == http.MethodPost && strings.HasPrefix(remainder, "outbound-attempts/"):
+		attempt := strings.TrimPrefix(remainder, "outbound-attempts/")
+		if strings.HasSuffix(attempt, "/reserve") {
+			attempt = strings.TrimSuffix(attempt, "/reserve")
+		}
+		return singlePathSegment(attempt)
+	default:
+		return false
+	}
+}
+
+func singlePathSegment(value string) bool {
+	return value != "" && !strings.Contains(value, "/")
+}
+
 // NewProvisioningControlServer serves the narrow private Planner interface
-// used by a provisioning worker, independent of the PHP runtime adapter.
+// used by provisioning and transport workers, independent of the PHP adapter.
 func NewProvisioningControlServer(planner http.Handler) *http.Server {
 	return &http.Server{
 		Handler:           provisioningControlHandler(planner),

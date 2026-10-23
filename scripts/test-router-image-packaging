@@ -62,4 +62,10 @@ php -r '
 
 composer validate --working-dir="$ROOT/app" --no-check-publish --strict >/dev/null
 
+if grep -R -n -E 'Webong\\Gateway\\(Contract|Protocol)\\' \
+    "$ROOT/app" --include='*.php' --exclude-dir=vendor; then
+    echo 'Bundled Planner host still references a singular Gateway namespace.' >&2
+    exit 1
+fi
+
 echo "RoadRunner Router packaging uses Go ${IMAGE_VERSION} and the current Planner module."

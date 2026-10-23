@@ -226,7 +226,7 @@ func TestDisabledManagedRouteIsNilAtRouterHandler(t *testing.T) {
 	}
 }
 
-func TestProvisioningControlOnlyForwardsProvisioningRoutes(t *testing.T) {
+func TestProvisioningControlOnlyForwardsPrivateRuntimeRoutes(t *testing.T) {
 	planner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Gateway-Internal") != "worker-secret" || r.Header.Get("X-Gateway-Target") != "target-1" {
 			http.NotFound(w, r)
@@ -236,24 +236,36 @@ func TestProvisioningControlOnlyForwardsProvisioningRoutes(t *testing.T) {
 	})
 	control := provisioningControlHandler(planner)
 	for _, test := range []struct {
-		path string
-		want int
+		method string
+		path   string
+		want   int
 	}{
-		{path: "/_internal/provisioning/targets/target-1", want: http.StatusOK},
-		{path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp", want: http.StatusOK},
-		{path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/imap", want: http.StatusNotFound},
-		{path: "/_internal/gateway/mailbox-connections/not-a-uuid/smtp", want: http.StatusNotFound},
-		{path: "/_internal/provisioning2/targets/target-1", want: http.StatusNotFound},
-		{path: "/_internal/gateway/plan", want: http.StatusNotFound},
-		{path: "/registry/endpoints", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/_internal/provisioning/targets/target-1", want: http.StatusOK},
+		{method: http.MethodGet, path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp", want: http.StatusOK},
+		{method: http.MethodGet, path: "/_internal/gateway/email/dkim/example.test", want: http.StatusOK},
+		{method: http.MethodHead, path: "/_internal/gateway/email/dkim/example.test", want: http.StatusOK},
+		{method: http.MethodGet, path: "/_internal/gateway/email/hosted-adapters/provider.primary", want: http.StatusOK},
+		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-plan", want: http.StatusOK},
+		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-attempts/delivery-1", want: http.StatusOK},
+		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-attempts/delivery-1/reserve", want: http.StatusOK},
+		{method: http.MethodGet, path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/imap", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/_internal/gateway/mailbox-connections/not-a-uuid/smtp", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/_internal/provisioning2/targets/target-1", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/_internal/gateway/email/dkim/example.test/private", want: http.StatusNotFound},
+		{method: http.MethodPost, path: "/_internal/gateway/email/dkim/example.test", want: http.StatusNotFound},
+		{method: http.MethodHead, path: "/_internal/gateway/email/hosted-adapters/provider.primary", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/_internal/gateway/email/outbound-plan", want: http.StatusNotFound},
+		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-attempts/delivery-1/unknown", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/_internal/gateway/plan", want: http.StatusNotFound},
+		{method: http.MethodGet, path: "/registry/endpoints", want: http.StatusNotFound},
 	} {
-		request := httptest.NewRequest(http.MethodGet, test.path, nil)
+		request := httptest.NewRequest(test.method, test.path, nil)
 		request.Header.Set("X-Gateway-Internal", "worker-secret")
 		request.Header.Set("X-Gateway-Target", "target-1")
 		response := httptest.NewRecorder()
 		control.ServeHTTP(response, request)
 		if response.Code != test.want {
-			t.Errorf("%s returned %d, want %d", test.path, response.Code, test.want)
+			t.Errorf("%s %s returned %d, want %d", test.method, test.path, response.Code, test.want)
 		}
 	}
 	response := httptest.NewRecorder()

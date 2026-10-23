@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Gateway\Router;
 
-use Webong\Gateway\Contract\PathResolver;
-use Webong\Gateway\Protocol\IngressRequest;
-use Webong\Gateway\Protocol\PathBinding;
+use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\PathBinding;
 
 final class EndpointPathResolver implements PathResolver
 {
