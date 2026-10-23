@@ -1,0 +1,28 @@
+{
+    "name": "webong/gateway-shell",
+    "description": "Shell-hook automation extension and Planner companion for Gateway",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "webong/gateway": "dev-main",
+        "webong/gateway-planner": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\Gateway\\Shell\\": "php/src/"
+        },
+        "files": [
+            "php/register.php"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Webong\\Gateway\\Shell\\ShellExtensionServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
