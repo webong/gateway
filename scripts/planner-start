@@ -38,6 +38,16 @@ case "${1:-serve}" in
         MAX_REQUESTS=${GATEWAY_PLANNER_MAX_REQUESTS:-500}
 
         case "$SERVER" in
+            fpm)
+                if ! command -v php-fpm >/dev/null 2>&1; then
+                    echo 'PHP-FPM requires the php-fpm executable.' >&2
+                    exit 1
+                fi
+                if ! command -v caddy >/dev/null 2>&1; then
+                    echo 'PHP-FPM hosting requires the caddy executable.' >&2
+                    exit 1
+                fi
+                ;;
             frankenphp)
                 if ! command -v frankenphp >/dev/null 2>&1; then
                     echo 'Octane/FrankenPHP requires the frankenphp executable.' >&2
@@ -57,7 +67,7 @@ case "${1:-serve}" in
                 fi
                 ;;
             *)
-                echo 'GATEWAY_PLANNER_SERVER must be frankenphp, swoole, or roadrunner.' >&2
+                echo 'GATEWAY_PLANNER_SERVER must be fpm, frankenphp, swoole, or roadrunner.' >&2
                 exit 2
                 ;;
         esac
@@ -65,6 +75,68 @@ case "${1:-serve}" in
         php "$APP_DIR/artisan" migrate --realpath \
             --path=/gateway/vendor/webong/proxy/database/migrations --force
         php "$APP_DIR/artisan" migrate --force
+
+        if [ "$SERVER" = fpm ]; then
+            export GATEWAY_PLANNER_APP_DIR="$APP_DIR"
+            php-fpm --nodaemonize --fpm-config \
+                "${GATEWAY_PLANNER_FPM_CONFIG:-/etc/php-fpm.d/gateway.conf}" &
+            FPM_PID=$!
+            CADDY_PID=
+
+            shutdown_fpm_stack() {
+                trap - EXIT INT TERM
+                if [ -n "$CADDY_PID" ]; then
+                    kill -TERM "$CADDY_PID" 2>/dev/null || true
+                    wait "$CADDY_PID" 2>/dev/null || true
+                fi
+                kill -TERM "$FPM_PID" 2>/dev/null || true
+                wait "$FPM_PID" 2>/dev/null || true
+            }
+            trap 'status=$?; shutdown_fpm_stack; exit "$status"' EXIT
+            trap 'exit 143' TERM
+            trap 'exit 130' INT
+
+            attempts=0
+            until php -r '$socket = @fsockopen("127.0.0.1", 9000); if ($socket === false) { exit(1); } fclose($socket);'; do
+                if ! kill -0 "$FPM_PID" 2>/dev/null; then
+                    wait "$FPM_PID"
+                    exit $?
+                fi
+                attempts=$((attempts + 1))
+                if [ "$attempts" -ge 50 ]; then
+                    echo 'PHP-FPM did not become ready on 127.0.0.1:9000.' >&2
+                    exit 1
+                fi
+                sleep 0.1
+            done
+            caddy run --config \
+                "${GATEWAY_PLANNER_FPM_CADDYFILE:-/etc/caddy/Caddyfile.fpm}" \
+                --adapter caddyfile &
+            CADDY_PID=$!
+
+            while kill -0 "$FPM_PID" 2>/dev/null \
+                && kill -0 "$CADDY_PID" 2>/dev/null; do
+                sleep 1
+            done
+
+            if ! kill -0 "$FPM_PID" 2>/dev/null; then
+                if wait "$FPM_PID"; then
+                    status=1
+                else
+                    status=$?
+                fi
+                echo "PHP-FPM exited; stopping the Planner frontend." >&2
+                exit "$status"
+            fi
+
+            if wait "$CADDY_PID"; then
+                status=1
+            else
+                status=$?
+            fi
+            echo "Caddy exited; stopping PHP-FPM." >&2
+            exit "$status"
+        fi
 
         set -- php "$APP_DIR/artisan" octane:start \
             "--server=$SERVER" "--host=$HOST" "--port=$PORT" \

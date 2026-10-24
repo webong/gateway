@@ -12,14 +12,64 @@ chmod +x "$TEMP_DIR/app/rr"
 
 cat > "$TEMP_DIR/bin/php" <<'SH'
 #!/bin/sh
+case "$*" in
+    *fsockopen*)
+        attempts=0
+        while ! grep -Fq 'php-fpm ' "$GATEWAY_TEST_COMMAND_LOG" 2>/dev/null; do
+            attempts=$((attempts + 1))
+            [ "$attempts" -lt 50 ] || exit 1
+            sleep 0.01
+        done
+        ;;
+esac
 printf '%s\n' "$*" >> "$GATEWAY_TEST_COMMAND_LOG"
 exit 0
 SH
 cat > "$TEMP_DIR/bin/frankenphp" <<'SH'
 #!/bin/sh
+printf '%s\n' "frankenphp $*" >> "$GATEWAY_TEST_COMMAND_LOG"
 exit 0
 SH
-chmod +x "$TEMP_DIR/bin/php" "$TEMP_DIR/bin/frankenphp"
+cat > "$TEMP_DIR/bin/caddy" <<'SH'
+#!/bin/sh
+printf '%s\n' "caddy $*" >> "$GATEWAY_TEST_COMMAND_LOG"
+exit 0
+SH
+cat > "$TEMP_DIR/bin/php-fpm" <<'SH'
+#!/bin/sh
+printf '%s\n' "php-fpm $*" >> "$GATEWAY_TEST_COMMAND_LOG"
+trap 'exit 0' INT TERM
+while :; do
+    sleep 1
+done
+SH
+chmod +x "$TEMP_DIR/bin/php" "$TEMP_DIR/bin/frankenphp" "$TEMP_DIR/bin/caddy" \
+    "$TEMP_DIR/bin/php-fpm"
+
+fpm_log="$TEMP_DIR/fpm.log"
+if PATH="$TEMP_DIR/bin:$PATH" \
+    APP_KEY=test REGISTRY_TOKEN=test GATEWAY_INTERNAL_TOKEN=test \
+    DB_CONNECTION=pgsql DB_URL=postgresql://gateway:test@database/gateway \
+    GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/data-fpm" \
+    GATEWAY_PLANNER_APP_DIR="$TEMP_DIR/app" \
+    GATEWAY_PLANNER_SERVER=fpm GATEWAY_TEST_COMMAND_LOG="$fpm_log" \
+        sh "$ROOT/scripts/planner-start" serve 2>> "$fpm_log"; then
+    echo 'Planner accepted an unexpected Caddy exit.' >&2
+    exit 1
+fi
+
+if ! grep -Fq 'php-fpm --nodaemonize --fpm-config /etc/php-fpm.d/gateway.conf' "$fpm_log"; then
+    echo 'Planner did not launch PHP-FPM.' >&2
+    exit 1
+fi
+if ! grep -Fq 'caddy run --config /etc/caddy/Caddyfile.fpm --adapter caddyfile' "$fpm_log"; then
+    echo 'Planner did not launch the PHP-FPM frontend.' >&2
+    exit 1
+fi
+if grep -Fq 'frankenphp ' "$fpm_log"; then
+    echo 'Planner invoked FrankenPHP while configured for PHP-FPM.' >&2
+    exit 1
+fi
 
 for server in frankenphp swoole roadrunner; do
     log="$TEMP_DIR/$server.log"
@@ -55,4 +105,4 @@ if GATEWAY_PLANNER_SERVER=invalid APP_KEY=test REGISTRY_TOKEN=test \
     exit 1
 fi
 
-echo 'Planner launcher supports Octane/FrankenPHP, Octane/Swoole, and Octane/RoadRunner.'
+echo 'Planner launcher supports PHP-FPM, Octane/FrankenPHP, Octane/Swoole, and Octane/RoadRunner.'

@@ -1,0 +1,6 @@
+#!/bin/sh
+
+export PHPRC=${GATEWAY_PLANNER_FRANKENPHP_PHP_INI:-/opt/frankenphp/php.ini}
+export PHP_INI_SCAN_DIR=${GATEWAY_PLANNER_FRANKENPHP_INI_DIR:-/opt/frankenphp/conf.d}
+
+exec /usr/local/bin/frankenphp-real "$@"
