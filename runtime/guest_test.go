@@ -8,6 +8,9 @@ import (
 )
 
 func TestGuestRequiresAutomationAndCompanionDeclarations(t *testing.T) {
+	if Language != "webhookscript" {
+		t.Fatalf("HookScript language must match the Planner language ID: %q", Language)
+	}
 	descriptor := plugin.Descriptor{
 		APIVersion: plugin.APIVersion,
 		Identity:   plugin.Identity{ID: "webong/hookscript", Revision: "test-r1", Version: "1.0.0"},
