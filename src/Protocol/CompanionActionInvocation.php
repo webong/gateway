@@ -18,9 +18,9 @@ final readonly class CompanionActionInvocation
         public string $executionId,
         public string $idempotencyKey,
         public array $input,
+        public DateTimeImmutable $deadline,
         public ?string $companionVersion = null,
         public ?string $companionDigest = null,
-        public ?DateTimeImmutable $deadline = null,
         public string $protocolVersion = self::VERSION,
     ) {
         new CompanionActionCapability($action, $companionVersion, $companionDigest);
@@ -33,7 +33,7 @@ final readonly class CompanionActionInvocation
         if (trim($idempotencyKey) === '' || strlen($idempotencyKey) > 255) {
             throw new InvalidArgumentException('Gateway companion action idempotency key is required and cannot exceed 255 bytes.');
         }
-        if ($deadline !== null && $deadline <= new DateTimeImmutable('now')) {
+        if ($deadline <= new DateTimeImmutable('now')) {
             throw new InvalidArgumentException('Gateway companion action deadline has expired.');
         }
     }
@@ -53,11 +53,11 @@ final readonly class CompanionActionInvocation
             throw new InvalidArgumentException('Gateway companion action input must be an object.');
         }
         $deadline = $attributes['deadline'] ?? null;
-        if ($deadline !== null && ! is_string($deadline)) {
+        if (! is_string($deadline) || trim($deadline) === '') {
             throw new InvalidArgumentException('Gateway companion action deadline must be an RFC 3339 timestamp.');
         }
         try {
-            $parsedDeadline = $deadline === null ? null : new DateTimeImmutable($deadline);
+            $parsedDeadline = new DateTimeImmutable($deadline);
         } catch (\Throwable) {
             throw new InvalidArgumentException('Gateway companion action deadline must be an RFC 3339 timestamp.');
         }
@@ -95,7 +95,7 @@ final readonly class CompanionActionInvocation
             'companion_digest' => $this->companionDigest,
             'execution_id' => $this->executionId,
             'idempotency_key' => $this->idempotencyKey,
-            'deadline' => $this->deadline?->format(DATE_RFC3339_EXTENDED),
+            'deadline' => $this->deadline->format(DATE_RFC3339_EXTENDED),
             'input' => $this->input,
         ], static fn (mixed $value): bool => $value !== null);
     }
@@ -111,6 +111,20 @@ final readonly class CompanionActionInvocation
         ];
 
         return hash('sha256', json_encode($document, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+    }
+
+    public function withExecutionId(string $executionId): self
+    {
+        return new self(
+            action: $this->action,
+            executionId: $executionId,
+            idempotencyKey: $this->idempotencyKey,
+            input: $this->input,
+            deadline: $this->deadline,
+            companionVersion: $this->companionVersion,
+            companionDigest: $this->companionDigest,
+            protocolVersion: $this->protocolVersion,
+        );
     }
 
     private static function canonicalize(mixed $value): mixed
