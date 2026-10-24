@@ -1,7 +1,7 @@
 services:
   gateway:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Gateway.spinner.Dockerfile
     restart: unless-stopped
     environment:

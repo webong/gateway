@@ -1,7 +1,7 @@
 services:
   planner:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/planner-fixture.Dockerfile
     environment:
       APP_ENV: testing
@@ -23,7 +23,7 @@ services:
 
   gateway:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Gateway.spinner.Dockerfile
     depends_on:
       - planner
@@ -43,7 +43,7 @@ services:
 
   relay:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/email-relay-fixture.Dockerfile
 
   tls:
@@ -53,4 +53,4 @@ services:
     ports:
       - "${GATEWAY_INTEGRATION_TLS_PORT:-0}:8443"
     volumes:
-      - ./infra/caddy/Caddyfile.integration:/etc/caddy/Caddyfile:ro
+      - ../../infra/caddy/Caddyfile.integration:/etc/caddy/Caddyfile:ro

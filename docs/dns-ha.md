@@ -7,7 +7,7 @@ recursive resolver.
 
 ## Deployment shape
 
-Run `docker-compose.dns.example.yml` once on **each of two separate hosts or
+Run `infra/compose/Gateway.spinner-dns.compose.yml` once on **each of two separate hosts or
 failure domains**. Give each host its own public address and persistent
 process supervision. Both must run the same Gateway release and receive the
 same `GATEWAY_INTERNAL_TOKEN` and private `GATEWAY_PLANNER_URL`.

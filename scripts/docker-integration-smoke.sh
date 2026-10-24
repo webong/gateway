@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="$ROOT/docker-compose.integration.yml"
+COMPOSE_FILE="$ROOT/tests/compose/Gateway.smoke.compose.yml"
 PROJECT="gateway-integration-${RANDOM}${RANDOM}"
 TLS_PORT="${GATEWAY_INTEGRATION_TLS_PORT:-0}"
 TOKEN="${GATEWAY_INTERNAL_TOKEN:-gateway-container-integration-token}"

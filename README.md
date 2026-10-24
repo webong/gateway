@@ -593,13 +593,13 @@ is rejected by the outbound SSRF policy.
 ### Production DNS deployment
 
 The root Docker image exposes HTTP and unprivileged TCP/UDP port 5353. The
-included `docker-compose.dns.example.yml` publishes both DNS transports on
+included `infra/compose/Gateway.spinner-dns.compose.yml` publishes both DNS transports on
 public port 53:
 
 ```bash
 GATEWAY_PLANNER_URL=https://app.internal.example \
 GATEWAY_INTERNAL_TOKEN=replace-me \
-docker compose -f docker-compose.dns.example.yml up -d
+docker compose -f infra/compose/Gateway.spinner-dns.compose.yml up -d
 ```
 
 Configure `REGISTRY_TOKEN`, run the
