@@ -1,6 +1,6 @@
-# Gateway Reverb extension
+# Gateway Reverb integration
 
-`webong/gateway-reverb` is the Laravel control-plane extension for managed
+`webong/gateway-reverb` is the Laravel control-plane integration for managed
 Laravel Reverb servers. It manages Reverb; it does not implement the
 WebSocket/Pusher protocol.
 
@@ -128,7 +128,7 @@ GATEWAY_PROVISIONING_STOP_TIMEOUT=15s
 GATEWAY_NODE_ID=<machine hostname>
 
 # Reverb workload
-GATEWAY_EXTENSION_PATHS=/absolute/path/to/gateway-reverb
+GATEWAY_INTEGRATION_PATHS=/absolute/path/to/gateway-reverb
 GATEWAY_REVERB_PHP_BINARY=php
 GATEWAY_REVERB_ARTISAN=artisan
 GATEWAY_REVERB_WORKING_DIRECTORY=.
@@ -158,8 +158,8 @@ GATEWAY_REVERB_KUBERNETES_ARTISAN=artisan
 GATEWAY_REVERB_KUBERNETES_CONTAINER_PORT=8080
 ```
 
-Build with `go -C pkg/reverb build -mod=readonly -o ../../gateway-reverb ./cmd/plugin`
-from the repository root, or use `scripts/build-gateway-extensions`.
+Build with `go -C pkg/reverb build -mod=readonly -o ../../gateway-reverb ./cmd/integration`
+from the repository root, or use `scripts/build-gateway-integrations`.
 
 The shared tables are configured through `gateway.servers.tables.servers`,
 `.applications`, and `.instances`.
@@ -173,7 +173,7 @@ connection with `scaling.server`; URL and password values are encrypted and
 redacted from public resources.
 
 The Docker image and Kubernetes image must contain the Laravel application,
-Reverb, and this extension. Docker additionally requires daemon access; the
+Reverb, and this integration. Docker additionally requires daemon access; the
 optional environment file supplies application configuration. Kubernetes uses
 the active `kubectl` context, requires Pod `get`, `create`, `delete`, and
 `deletecollection` permissions, and can inherit configuration from a ConfigMap
@@ -199,7 +199,7 @@ departed node's slots are reassigned after that lease expires.
 
 ## Tests
 
-Run the extension's Go and PHP tests from the repository root:
+Run the integration's Go and PHP tests from the repository root:
 
 ```bash
 make -C pkg/reverb test

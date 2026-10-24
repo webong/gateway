@@ -8,7 +8,7 @@ PHP_PORT="${GATEWAY_REVERB_PHP_PORT:-18381}"
 GATEWAY_PORT="${GATEWAY_REVERB_GATEWAY_PORT:-18382}"
 TOKEN="${GATEWAY_INTERNAL_TOKEN:-reverb-smoke-internal-token}"
 REGISTRY_TOKEN="${REGISTRY_TOKEN:-reverb-smoke-registry-token}"
-SMOKE_PROVIDERS='Laravel\Reverb\ApplicationManagerServiceProvider,Laravel\Reverb\ReverbServiceProvider,Webong\Gateway\Reverb\ReverbExtensionServiceProvider,Webong\Gateway\Reverb\Tests\Fixtures\ReverbSmokeServiceProvider'
+SMOKE_PROVIDERS='Laravel\Reverb\ApplicationManagerServiceProvider,Laravel\Reverb\ReverbServiceProvider,Webong\Gateway\Reverb\ReverbIntegrationServiceProvider,Webong\Gateway\Reverb\Tests\Fixtures\ReverbSmokeServiceProvider'
 PHP_BIN="${GATEWAY_REVERB_PHP_BINARY:-$(command -v php)}"
 PHP_URL="http://127.0.0.1:$PHP_PORT"
 GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
@@ -19,7 +19,7 @@ GATEWAY_LOG="$TEMP_DIR/gateway.log"
 DATABASE_FILE="$TEMP_DIR/reverb.sqlite"
 BODY="$TEMP_DIR/body.json"
 GATEWAY_BIN="$TEMP_DIR/gateway"
-PLUGIN_BIN="$TEMP_DIR/gateway-reverb"
+INTEGRATION_BIN="$TEMP_DIR/gateway-reverb"
 CLIENT_BIN="$TEMP_DIR/reverb-smoke"
 PHP_PID=""
 GATEWAY_PID=""
@@ -38,7 +38,7 @@ cleanup() {
         return
     fi
 
-    rm -f "$PHP_LOG" "$GATEWAY_LOG" "$DATABASE_FILE" "$BODY" "$GATEWAY_BIN" "$PLUGIN_BIN" "$CLIENT_BIN"
+    rm -f "$PHP_LOG" "$GATEWAY_LOG" "$DATABASE_FILE" "$BODY" "$GATEWAY_BIN" "$INTEGRATION_BIN" "$CLIENT_BIN"
     rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -52,7 +52,7 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/cmd/gateway"
-go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$PLUGIN_BIN" ./cmd/plugin
+go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$INTEGRATION_BIN" ./cmd/integration
 go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
 
 (
@@ -129,7 +129,7 @@ GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
 GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
 GATEWAY_PROVISIONING_ENABLED=true \
-GATEWAY_EXTENSION_PATHS="$PLUGIN_BIN" \
+GATEWAY_INTEGRATION_PATHS="$INTEGRATION_BIN" \
 GATEWAY_PROVISIONING_POLL_INTERVAL=250ms \
 GATEWAY_REVERB_PHP_BINARY="$PHP_BIN" \
 GATEWAY_REVERB_WORKING_DIRECTORY="$APP_PATH" \

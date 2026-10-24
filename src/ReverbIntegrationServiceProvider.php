@@ -9,7 +9,7 @@ use Laravel\Reverb\ApplicationManager;
 use Webong\Gateway\Reverb\ServerTypes\ReverbServerType;
 use Webong\Gateway\Servers\ServerTypeRegistry;
 
-final class ReverbExtensionServiceProvider extends ServiceProvider
+final class ReverbIntegrationServiceProvider extends ServiceProvider
 {
     public function register(): void
     {

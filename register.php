@@ -3,6 +3,6 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Contracts\ExtensionProviderRegistry;
-use Webong\Gateway\Reverb\ReverbExtensionServiceProvider;
+use Webong\Gateway\Reverb\ReverbIntegrationServiceProvider;
 
-ExtensionProviderRegistry::register(ReverbExtensionServiceProvider::class);
+ExtensionProviderRegistry::register(ReverbIntegrationServiceProvider::class);

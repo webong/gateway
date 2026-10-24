@@ -1,6 +1,6 @@
 {
     "name": "webong/gateway-reverb",
-    "description": "Laravel Reverb control-plane extension for Webong Gateway",
+    "description": "Laravel Reverb workload integration for Webong Gateway",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -31,7 +31,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Webong\\Gateway\\Reverb\\ReverbExtensionServiceProvider"
+                "Webong\\Gateway\\Reverb\\ReverbIntegrationServiceProvider"
             ]
         }
     },

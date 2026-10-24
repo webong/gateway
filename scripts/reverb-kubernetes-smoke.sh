@@ -8,7 +8,7 @@ PHP_PORT="${GATEWAY_REVERB_PHP_PORT:-18481}"
 GATEWAY_PORT="${GATEWAY_REVERB_GATEWAY_PORT:-18482}"
 TOKEN="${GATEWAY_INTERNAL_TOKEN:-reverb-kubernetes-smoke-internal-token}"
 REGISTRY_TOKEN="${REGISTRY_TOKEN:-reverb-kubernetes-smoke-registry-token}"
-SMOKE_PROVIDERS='Laravel\Reverb\ApplicationManagerServiceProvider,Laravel\Reverb\ReverbServiceProvider,Webong\Gateway\Reverb\ReverbExtensionServiceProvider,Webong\Gateway\Reverb\Tests\Fixtures\ReverbSmokeServiceProvider'
+SMOKE_PROVIDERS='Laravel\Reverb\ApplicationManagerServiceProvider,Laravel\Reverb\ReverbServiceProvider,Webong\Gateway\Reverb\ReverbIntegrationServiceProvider,Webong\Gateway\Reverb\Tests\Fixtures\ReverbSmokeServiceProvider'
 PHP_BIN="${GATEWAY_REVERB_PHP_BINARY:-$(command -v php)}"
 PHP_URL="http://127.0.0.1:$PHP_PORT"
 GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
@@ -23,7 +23,7 @@ DATABASE_FILE="$TEMP_DIR/reverb.sqlite"
 BODY="$TEMP_DIR/body.json"
 ROUTING_LOG="$TEMP_DIR/routing.log"
 GATEWAY_BIN="$TEMP_DIR/gateway"
-PLUGIN_BIN="$TEMP_DIR/gateway-reverb"
+INTEGRATION_BIN="$TEMP_DIR/gateway-reverb"
 CLIENT_BIN="$TEMP_DIR/reverb-smoke"
 PHP_PID=""
 GATEWAY_PID=""
@@ -70,7 +70,7 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 go build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/cmd/gateway"
-go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$PLUGIN_BIN" ./cmd/plugin
+go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$INTEGRATION_BIN" ./cmd/integration
 go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
 
 (
@@ -167,7 +167,7 @@ GATEWAY_PLANNER_URL="$PHP_URL" \
 PORT="$GATEWAY_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 GATEWAY_PROVISIONING_ENABLED=true \
-GATEWAY_EXTENSION_PATHS="$PLUGIN_BIN" \
+GATEWAY_INTEGRATION_PATHS="$INTEGRATION_BIN" \
 GATEWAY_PROVISIONING_POLL_INTERVAL=250ms \
 GATEWAY_SMOKE_PROVIDERS="$SMOKE_PROVIDERS" \
 GATEWAY_SMOKE_SKIP_MIGRATIONS=1 \
