@@ -11,10 +11,14 @@ use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
+use Webong\Gateway\Companion\CompanionActionExecutionStore;
+use Webong\Gateway\Companion\Http\InternalCompanionActionController;
+use Webong\Gateway\Companion\RegisteredCompanionActions;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\CacheablePathResolver;
+use Webong\Gateway\Contracts\CompanionActionRegistry;
 use Webong\Gateway\Contracts\ExtensionProviderRegistry;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
@@ -150,6 +154,9 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->bind(SrsReturnStore::class, fn (): SrsReturnStore => new SrsReturnStore(
             $this->app->make(EmailSrsPolicyStore::class), $this->app->make(EmailRegistry::class),
         ));
+
+        $this->app->singleton(CompanionActionRegistry::class, RegisteredCompanionActions::class);
+        $this->app->singleton(CompanionActionExecutionStore::class);
 
         foreach (ExtensionProviderRegistry::providers() as $provider) {
             $this->app->register($provider);
@@ -389,6 +396,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/_internal/gateway/shell/executions/{execution}', ShellSshExecutionController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
+            $this->app['router']->get('/_internal/gateway/companion-actions', [InternalCompanionActionController::class, 'index']);
+            $this->app['router']->post('/_internal/gateway/companion-actions/{action}/executions', [InternalCompanionActionController::class, 'execute']);
             $this->app['router']->get('/_internal/gateway/dns/zones', InternalDnsZoneController::class);
             $this->app['router']->get('/_internal/gateway/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
             $this->app['router']->get('/_internal/gateway/email/hosted-adapters/{name}', InternalHostedMailAdapterController::class);

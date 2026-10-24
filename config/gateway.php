@@ -103,6 +103,12 @@ return [
         ))),
     ],
 
+    'companion_actions' => [
+        // Deployment safety ceiling. Planner accepts invocation data only;
+        // companion PHP is installed through the package lifecycle.
+        'max_input_bytes' => 262144,
+    ],
+
     'shell' => [
         // Separate operator approval for managing privileged local hooks.
         'subscription_token' => (string) env('GATEWAY_SHELL_SUBSCRIPTION_TOKEN', ''),
