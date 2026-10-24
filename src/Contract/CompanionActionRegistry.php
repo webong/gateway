@@ -11,7 +11,15 @@ use Webong\Gateway\Protocols\CompanionActionResult;
 interface CompanionActionRegistry
 {
     /** @param class-string<CompanionAction> $handler */
-    public function register(string $name, string $handler, ?string $version = null, ?string $digest = null): void;
+    public function register(
+        string $name,
+        string $handler,
+        ?string $version = null,
+        ?string $digest = null,
+        ?string $extension = null,
+    ): void;
+
+    public function registerProvider(CompanionActionProvider $provider): void;
 
     /** @return list<CompanionActionCapability> */
     public function capabilities(): array;
@@ -19,4 +27,7 @@ interface CompanionActionRegistry
     public function capability(string $name): ?CompanionActionCapability;
 
     public function invoke(CompanionActionInvocation $invocation): CompanionActionResult;
+
+    /** @return list<array<string, mixed>> */
+    public function statuses(): array;
 }
