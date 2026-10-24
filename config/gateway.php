@@ -115,6 +115,7 @@ return [
         // dynamic PHP is launched only from verified ext package artifacts.
         'max_input_bytes' => 262144,
         'max_runtime_seconds' => 300,
+        'max_output_bytes' => 1048576,
         // Idempotency is guaranteed inside this operational retention window.
         'retention_days' => 30,
     ],

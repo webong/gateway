@@ -29,10 +29,11 @@ final readonly class ExtProcessCompanionActionProvider implements CompanionActio
         private string $executable,
         private string $workingDirectory,
         private int $maxRuntimeSeconds,
+        private int $maxOutputBytes = 1048576,
         private string $phpBinary = PHP_BINARY,
         private ?Closure $verifyPackage = null,
     ) {
-        if ($maxRuntimeSeconds < 1 || trim($phpBinary) === '' || ! is_file($executable) || ! is_dir($workingDirectory)) {
+        if ($maxRuntimeSeconds < 1 || $maxOutputBytes < 1 || trim($phpBinary) === '' || ! is_file($executable) || ! is_dir($workingDirectory)) {
             throw new InvalidArgumentException('Invalid ext companion process configuration.');
         }
     }
@@ -92,15 +93,36 @@ final readonly class ExtProcessCompanionActionProvider implements CompanionActio
             $input,
             $timeout,
         );
+        $output = '';
+        $outputBytes = 0;
+        $outputExceeded = false;
+        $process->disableOutput();
         try {
-            $process->mustRun();
+            $exitCode = $process->run(function (string $type, string $buffer) use (&$output, &$outputBytes, &$outputExceeded): void {
+                if ($type !== Process::OUT) {
+                    return;
+                }
+                $outputBytes += strlen($buffer);
+                if ($outputBytes > $this->maxOutputBytes) {
+                    $outputExceeded = true;
+
+                    return;
+                }
+                $output .= $buffer;
+            });
         } catch (ProcessTimedOutException $exception) {
             throw new RuntimeException('Gateway companion process timed out.', previous: $exception);
         } catch (\Throwable $exception) {
             throw new RuntimeException('Gateway companion process failed.', previous: $exception);
         }
+        if ($outputExceeded) {
+            throw new RuntimeException('Gateway companion process exceeded its output limit.');
+        }
+        if ($exitCode !== 0) {
+            throw new RuntimeException('Gateway companion process failed.');
+        }
 
-        $lines = preg_split('/\r?\n/', trim($process->getOutput()));
+        $lines = preg_split('/\r?\n/', trim($output));
         if (! is_array($lines) || count($lines) !== 2) {
             throw new RuntimeException('Gateway companion process returned an invalid frame count.');
         }
