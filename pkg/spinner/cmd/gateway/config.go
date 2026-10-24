@@ -10,7 +10,7 @@ import (
 // plus the process environment. Environment variables always win over the file.
 type config struct {
 	// StaticEngines are compiled-in guests to register, by language name.
-	// Example: GATEWAY_AUTOMATION_ENGINES=javascript,lua,shell,go,php,hookscript
+	// Example: GATEWAY_AUTOMATION_ENGINES=javascript,lua,shell,go
 	StaticEngines []string
 	// NativePluginDir holds .so guests for dynamic loading.
 	NativePluginDir string

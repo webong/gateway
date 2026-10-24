@@ -17,3 +17,8 @@ services:
       - "5001:5001/tcp"
       - "53:5353/tcp"
       - "53:5353/udp"
+    volumes:
+      - gateway-extensions:/data/extensions
+
+volumes:
+  gateway-extensions:

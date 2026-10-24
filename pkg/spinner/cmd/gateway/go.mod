@@ -5,7 +5,6 @@ go 1.26.0
 require (
 	github.com/webong/gateway/driver v0.0.0
 	github.com/webong/gateway/pkg/golang v0.0.0
-	github.com/webong/gateway/pkg/hookscript v0.0.0
 	github.com/webong/gateway/pkg/javascript v0.0.0
 	github.com/webong/gateway/pkg/lua v0.0.0
 	github.com/webong/gateway/pkg/shell v0.0.0
@@ -50,13 +49,9 @@ replace github.com/webong/gateway/driver => ../../../../mod/driver
 
 replace github.com/webong/gateway/pkg/golang => ../../../golang
 
-replace github.com/webong/gateway/pkg/hookscript => ../../../hookscript
-
 replace github.com/webong/gateway/pkg/javascript => ../../../javascript
 
 replace github.com/webong/gateway/pkg/lua => ../../../lua
-
-replace github.com/webong/gateway/pkg/php => ../../../php
 
 replace github.com/webong/gateway/pkg/shell => ../../../shell
 

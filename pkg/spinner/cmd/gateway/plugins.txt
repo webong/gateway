@@ -7,4 +7,3 @@ javascript github.com/webong/gateway/pkg/javascript/runtime
 lua        github.com/webong/gateway/pkg/lua/runtime
 shell      github.com/webong/gateway/pkg/shell/runtime
 go         github.com/webong/gateway/pkg/golang/runtime
-hookscript github.com/webong/gateway/pkg/hookscript/runtime

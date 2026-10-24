@@ -11,6 +11,7 @@ package automationextensions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -67,8 +68,8 @@ func Register(engine automation.Engine) error {
 }
 
 // Runtime returns a dispatcher containing every engine registered so far.
-func Runtime() *automation.Runtime {
-	return automation.NewRuntime(registry.All()...)
+func Runtime() *Registry {
+	return registry.Runtime()
 }
 
 // LoadConfig configures runtime guest loading.
@@ -178,40 +179,44 @@ func loadExternalPlugins(ctx context.Context, dir string) error {
 		return fmt.Errorf("list plugins: %w", err)
 	}
 	for _, inst := range installed {
-		if !SupportsAutomation(inst.Manifest.Descriptor) {
-			continue
-		}
-		options := host.Options{Reverse: companionextensions.DefaultHost.ReverseOptions()}
-		options.Launch, err = spinnerLaunch(inst)
-		if err != nil {
-			fmt.Printf("plugin %s spinner entrypoint is invalid: %v\n", inst.Name(), err)
-			continue
-		}
-		proc, err := host.Open(ctx, inst, options)
-		if err != nil {
+		if err := loadExternalInstalled(ctx, registry, inst); err != nil {
 			fmt.Printf("failed to load plugin %s: %v\n", inst.Name(), err)
-			continue
 		}
-		engine, err := NewProcessEngine(ctx, proc, inst.Manifest.Descriptor)
-		if err != nil {
-			_ = proc.Close()
-			fmt.Printf("plugin %s is not an automation guest: %v\n", inst.Name(), err)
-			continue
-		}
-		if err := Register(engine); err != nil {
-			_ = proc.Close()
-			fmt.Printf("plugin %s registration failed: %v\n", inst.Name(), err)
-			continue
-		}
-		fmt.Printf("loaded external plugin: %s (lang=%s)\n", inst.Name(), engine.Language())
 	}
+	return nil
+}
+
+func loadExternalInstalled(ctx context.Context, target *Registry, inst store.Installed) error {
+	if !SupportsAutomation(inst.Manifest.Descriptor) {
+		return nil
+	}
+	launch, err := spinnerLaunch(inst)
+	if err != nil {
+		return fmt.Errorf("spinner entrypoint is invalid: %w", err)
+	}
+	proc, err := host.Open(ctx, inst, host.Options{
+		Reverse: companionextensions.DefaultHost.ReverseOptions(),
+		Launch:  launch,
+	})
+	if err != nil {
+		return err
+	}
+	engine, err := NewProcessEngine(ctx, proc, inst.Manifest.Descriptor)
+	if err != nil {
+		_ = proc.Close()
+		return fmt.Errorf("not an automation guest: %w", err)
+	}
+	target.Register(NewEngineAdapter(engine, inst.Manifest.Descriptor))
+	fmt.Printf("loaded external plugin: %s (lang=%s)\n", inst.Name(), engine.Language())
 	return nil
 }
 
 // spinnerLaunch selects this plane's entrypoint from a combined package. A nil
 // command preserves ext's first-entrypoint behavior for legacy packages.
 func spinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
+	hasNamedEntrypoint := false
 	for _, entrypoint := range inst.Manifest.Entrypoints {
+		hasNamedEntrypoint = hasNamedEntrypoint || entrypoint.Name != ""
 		if entrypoint.Name != "spinner" {
 			continue
 		}
@@ -220,6 +225,9 @@ func spinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
 			return nil, err
 		}
 		return &pluginprocess.Command{Path: path, Dir: inst.Directory}, nil
+	}
+	if hasNamedEntrypoint {
+		return nil, errors.New("package does not declare a spinner entrypoint")
 	}
 	return nil, nil
 }
@@ -232,7 +240,7 @@ type RunHistoryReader interface {
 }
 
 func RunHistory() RunHistoryReader {
-	for _, e := range registry.engines {
+	for _, e := range registry.All() {
 		if reader, ok := e.(RunHistoryReader); ok && reader.RunHistoryConfigured() {
 			return reader
 		}
@@ -243,7 +251,7 @@ func RunHistory() RunHistoryReader {
 // ConfigureShellSSHHTTP resolves write-only Planner credentials through the same
 // private connection used by the host. When Shell is not installed this is a no-op.
 func ConfigureShellSSHHTTP(origin, token string, client *http.Client, localTransport bool) error {
-	for _, e := range registry.engines {
+	for _, e := range registry.All() {
 		if configurable, ok := e.(interface {
 			SetSSHResolverHTTP(string, string, *http.Client, bool) error
 		}); ok {
@@ -256,7 +264,7 @@ func ConfigureShellSSHHTTP(origin, token string, client *http.Client, localTrans
 }
 
 func ConfigureShellSSHHandler(handler http.Handler, token string) error {
-	for _, e := range registry.engines {
+	for _, e := range registry.All() {
 		if configurable, ok := e.(interface {
 			SetSSHResolverHandler(http.Handler, string) error
 		}); ok {
@@ -269,7 +277,7 @@ func ConfigureShellSSHHandler(handler http.Handler, token string) error {
 }
 
 func ContextWithShellSSHHandler(ctx context.Context, handler http.Handler, token string) (context.Context, error) {
-	for _, e := range registry.engines {
+	for _, e := range registry.All() {
 		if configurable, ok := e.(interface {
 			ContextWithSSHResolverHandler(context.Context, http.Handler, string) (context.Context, error)
 		}); ok {

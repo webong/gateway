@@ -8,7 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/webong/ext/pkg/plugin-go/contract"
@@ -66,6 +69,7 @@ func (a *EngineAdapter) Invoke(ctx context.Context, req contract.Request) (contr
 // It stores plugin.Endpoints so in-process, native and external guests are all
 // managed through one interface.
 type Registry struct {
+	mu       sync.RWMutex
 	engines  map[string]automation.Engine
 	endpoint map[string]contract.Endpoint
 }
@@ -79,16 +83,50 @@ func NewRegistry() *Registry {
 
 func (r *Registry) Register(adapter *EngineAdapter) {
 	lang := string(adapter.engine.Language())
+	r.mu.Lock()
+	previous := r.engines[lang]
 	r.engines[lang] = adapter.engine
 	r.endpoint[lang] = adapter
+	r.mu.Unlock()
+	if closer, ok := previous.(interface{ Close() error }); ok && previous != adapter.engine {
+		_ = closer.Close()
+	}
+}
+
+// UnregisterExtension removes every engine supplied by an extension identity.
+// Built-in engines use the builtin/* namespace and are unaffected unless that
+// exact identity is explicitly requested.
+func (r *Registry) UnregisterExtension(extension string) bool {
+	r.mu.Lock()
+	removed := make([]automation.Engine, 0, 1)
+	for language, endpoint := range r.endpoint {
+		adapter, ok := endpoint.(*EngineAdapter)
+		if !ok || adapter.desc.Identity.ID != extension {
+			continue
+		}
+		removed = append(removed, r.engines[language])
+		delete(r.engines, language)
+		delete(r.endpoint, language)
+	}
+	r.mu.Unlock()
+	for _, engine := range removed {
+		if closer, ok := engine.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
+	return len(removed) > 0
 }
 
 func (r *Registry) Get(lang automation.Language) (automation.Engine, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	e, ok := r.engines[string(lang)]
 	return e, ok
 }
 
 func (r *Registry) All() []automation.Engine {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	result := make([]automation.Engine, 0, len(r.engines))
 	for _, e := range r.engines {
 		result = append(result, e)
@@ -97,11 +135,80 @@ func (r *Registry) All() []automation.Engine {
 }
 
 func (r *Registry) AsEndpoints() []contract.Endpoint {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	result := make([]contract.Endpoint, 0, len(r.endpoint))
 	for _, e := range r.endpoint {
 		result = append(result, e)
 	}
 	return result
+}
+
+// ExternalExtensions returns identities loaded from installable packages.
+// In-process and native composition entries use the reserved builtin/ prefix.
+func (r *Registry) ExternalExtensions() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	identities := map[string]bool{}
+	for _, endpoint := range r.endpoint {
+		adapter, ok := endpoint.(*EngineAdapter)
+		if !ok || strings.HasPrefix(adapter.desc.Identity.ID, "builtin/") {
+			continue
+		}
+		identities[adapter.desc.Identity.ID] = true
+	}
+	result := make([]string, 0, len(identities))
+	for identity := range identities {
+		result = append(result, identity)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// Runtime returns a live executor. Guests installed after Spinner starts are
+// immediately visible without rebuilding the host binary or server graph.
+func (r *Registry) Runtime() *Registry { return r }
+
+func (r *Registry) Supports(language automation.Language) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.engines[string(language)]
+	return ok
+}
+
+func (r *Registry) Languages() []automation.Language {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	languages := make([]automation.Language, 0, len(r.engines))
+	for language := range r.engines {
+		languages = append(languages, automation.Language(language))
+	}
+	sort.Slice(languages, func(i, j int) bool { return languages[i] < languages[j] })
+	return languages
+}
+
+func (r *Registry) Execute(ctx context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
+	r.mu.RLock()
+	engine := r.engines[string(script.Language)]
+	if engine == nil {
+		r.mu.RUnlock()
+		return automation.Outcome{}, fmt.Errorf("%w %q", automation.ErrUnsupportedLanguage, script.Language)
+	}
+	result, err := automation.NewRuntime(engine).Execute(ctx, script, input)
+	r.mu.RUnlock()
+	return result, err
+}
+
+func (r *Registry) OpenStream(ctx context.Context, script automation.Script, input automation.Input) (*automation.Stream, error) {
+	r.mu.RLock()
+	engine := r.engines[string(script.Language)]
+	if engine == nil {
+		r.mu.RUnlock()
+		return nil, fmt.Errorf("%w %q", automation.ErrUnsupportedLanguage, script.Language)
+	}
+	stream, err := automation.NewRuntime(engine).OpenStream(ctx, script, input)
+	r.mu.RUnlock()
+	return stream, err
 }
 
 // EngineDescriptor declares an engine as a gateway.automation/v1 guest.
@@ -203,6 +310,13 @@ func (e *endpointEngine) Execute(ctx context.Context, source string, input autom
 type processEngine struct {
 	process *host.Process
 	lang    automation.Language
+}
+
+func (e *processEngine) Close() error {
+	if e == nil || e.process == nil {
+		return nil
+	}
+	return e.process.Close()
 }
 
 type sessionEngine struct {

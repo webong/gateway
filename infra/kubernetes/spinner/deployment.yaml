@@ -49,6 +49,8 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: extensions
+              mountPath: /data/extensions
           readinessProbe:
             httpGet:
               path: /ready
@@ -70,4 +72,6 @@ spec:
               memory: 512Mi
       volumes:
         - name: tmp
+          emptyDir: {}
+        - name: extensions
           emptyDir: {}

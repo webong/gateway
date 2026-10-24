@@ -16,10 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 10001 gateway \
-    && useradd -u 10001 -g gateway -d /app gateway
+    && useradd -u 10001 -g gateway -d /app gateway \
+    && mkdir -p /data/extensions \
+    && chown -R gateway:gateway /data
 
 WORKDIR /app
 COPY --from=host-builder /tmp/gateway /app/gateway
+
+ENV GATEWAY_PLUGIN_DIR=/data/extensions
+VOLUME /data
 
 USER 10001:10001
 
