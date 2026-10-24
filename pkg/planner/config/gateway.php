@@ -104,8 +104,15 @@ return [
     ],
 
     'companion_actions' => [
-        // Deployment safety ceiling. Planner accepts invocation data only;
-        // companion PHP is installed through the package lifecycle.
+        // Deployment-owned ext package store. Which installed extension is
+        // enabled, and whether its static or dynamic companion is selected,
+        // remains Planner CMS state in the generic configurations table.
+        'plugin_dir' => (string) env('GATEWAY_COMPANION_PLUGIN_DIR', env('GATEWAY_PLUGIN_DIR', '')),
+        // PHP-FPM reports its own executable through PHP_BINARY. Point this at
+        // the PHP CLI binary when Planner does not run under CLI/Octane.
+        'php_binary' => (string) env('GATEWAY_COMPANION_PHP_BINARY', PHP_BINARY),
+        // Deployment safety ceilings. Planner accepts typed invocation data;
+        // dynamic PHP is launched only from verified ext package artifacts.
         'max_input_bytes' => 262144,
         'max_runtime_seconds' => 300,
         // Idempotency is guaranteed inside this operational retention window.

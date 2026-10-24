@@ -1,9 +1,10 @@
 # PHP companion actions
 
 A Gateway extension can ship Go behavior for Spinner and trusted PHP behavior
-for the Planner host. PHP companions are installed application code. Spinner
-invokes them by action name with typed JSON data; neither the public Planner API
-nor the private invocation interface accepts PHP source.
+for the Planner host. A PHP companion may be a static Laravel handler or a
+self-contained process installed from the same ext bundle as the Go guest.
+Spinner invokes it by action name with typed JSON data; neither the public
+Planner API nor the private invocation interface accepts PHP source.
 
 ## Register a Planner companion
 
@@ -36,14 +37,97 @@ public function boot(CompanionActionRegistry $actions): void
         'email.create-ticket',
         CreateTicket::class,
         version: '1.0.0',
+        extension: 'example/email-ticket',
     );
 }
 ```
 
 The handler is resolved through Laravel's container, so its constructor may
 request only the application services that the companion intentionally uses.
-Changing the installed companion set requires the normal package deployment
-and a reload of long-running PHP workers.
+This offers a `static` candidate. Changing static code requires the normal
+application deployment and a reload of long-running PHP workers.
+
+## Ship a dynamic Planner companion
+
+An ext package can also declare a self-contained PHP JSON-line process:
+
+```json
+{
+  "apiVersion": "ext.package/v1",
+  "descriptor": {
+    "apiVersion": "ext.plugin/v1",
+    "identity": {
+      "id": "example/email-ticket",
+      "revision": "sha256-or-release-revision",
+      "version": "1.0.0"
+    },
+    "contracts": [{
+      "name": "gateway.companion",
+      "version": "v1",
+      "operations": [{"name": "email.create-ticket"}]
+    }]
+  },
+  "artifacts": [{
+    "name": "planner-companion",
+    "path": "bin/companion",
+    "sha256": "..."
+  }],
+  "entrypoints": [{
+    "name": "planner",
+    "runtime": "php-jsonline",
+    "artifact": "planner-companion",
+    "protocols": ["ext.plugin/v1"]
+  }]
+}
+```
+
+Set `GATEWAY_COMPANION_PLUGIN_DIR` to the deployment-owned ext store location.
+Planner verifies the manifest and every declared file/tree artifact, rejects
+unlisted files and symbolic links, completes the exact ext handshake, and
+starts the PHP process with protocol output isolated from PHP diagnostics.
+Dynamic mode requires `proc_open` and a PHP CLI executable. CLI and Octane
+deployments normally use the `PHP_BINARY` default. PHP-FPM deployments must set
+`GATEWAY_COMPANION_PHP_BINARY` to their CLI executable, for example
+`/usr/local/bin/php`; the FPM executable itself is not a script runner. Reload
+long-running Planner workers after installing, upgrading, or removing package
+files so discovery sees one stable reviewed release.
+
+The package's `planner` entrypoint uses `CompanionProcessGuest` to serve its
+installed actions. A combined release can also declare a `spinner` entrypoint.
+The top-level descriptor remains the Spinner process descriptor; the exact
+Planner process descriptor goes in
+`metadata["gateway.companion/v1"].descriptor` with the same identity. Each
+plane selects its named entrypoint and verifies the descriptor for the process
+it launches. The package's own Composer `vendor/` tree is an artifact inside
+the package; Planner's root Composer installation is never changed.
+
+## Enable exactly one provider
+
+Discovery does not decide which candidate runs. Planner stores activation in
+the generic `configurations` CMS as kind `extension`. Manage it through:
+
+- `GET /extensions`
+- `POST /extensions`
+- `GET /extensions/{activation-id}`
+- `PUT /extensions/{activation-id}`
+- `DELETE /extensions/{activation-id}`
+
+For example:
+
+```json
+{
+  "extension": "example/email-ticket",
+  "enabled": true,
+  "mode": "dynamic",
+  "version": "1.0.0",
+  "digest": "optional-package-sha256"
+}
+```
+
+An extension without an activation resource retains its static candidate for
+backward compatibility. Selecting `dynamic` never silently falls back to
+`static` if the process is absent or incompatible. Repeated discovery of the
+same candidate is idempotent; different candidates for one mode are rejected.
 
 ## Invoke from Spinner
 
@@ -89,19 +173,17 @@ invoke every companion action does not exist.
 
 ## Package lifecycle
 
-One extension release contains two operator-reviewed artifacts:
+One extension release can contain two operator-reviewed entrypoints:
 
-- a Go plugin package whose descriptor declares the exact reverse actions it
-  needs; and
-- a Composer package whose provider registers those actions with
-  `CompanionActionRegistry`.
+- a Go process whose descriptor declares the exact reverse actions it needs;
+  and
+- a self-contained Composer-powered PHP process providing those actions.
 
-Install the Composer package while building the Planner image and install the
-matching Go plugin through the extension store. Deploy both before routing work
-to the new version, then reload long-running Planner workers. The action's
-registered version or digest is the rollout compatibility check. Spinner never
-copies PHP source into a running Planner and cannot install PHP packages using
-the private invocation interface.
+Planner CMS is the desired-state owner. Spinner and Planner each reconcile the
+entrypoint intended for their plane from the same reviewed package identity.
+The action's registered version and package digest are the rollout compatibility
+check. Spinner never copies PHP source in an invocation. Static Composer
+packages remain available when direct Laravel container access is required.
 
 ## Execution semantics
 
@@ -130,3 +212,21 @@ The private endpoints are:
 - `POST /_internal/gateway/companion-actions/{action}/executions`
 
 Both require `X-Gateway-Internal` and are hidden by Spinner's public edge.
+
+## First bundled use: HookScript
+
+The HookScript automation extension is the first bundled consumer. Its Go guest
+declares only `gateway.hookscript.execute`, sends HookScript source and event
+data as action input, and receives a language-neutral automation outcome. The
+matching PHP code may run statically through Laravel or dynamically through
+`pkg/hookscript/bin/companion`; both expose the same versioned action. Build a
+self-contained dynamic artifact with:
+
+```bash
+cd pkg/hookscript
+composer install --no-dev --classmap-authoritative
+php scripts/build-ext-package /tmp/webong-hookscript 1.0.0
+```
+
+This keeps FrankenPHP and PHP hosting details out of the Go extension while
+preserving Go-owned ingress, egress, scheduling, and outcome validation.

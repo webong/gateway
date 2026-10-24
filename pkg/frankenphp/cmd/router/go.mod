@@ -69,6 +69,7 @@ require (
 	github.com/unrolled/secure v1.17.0 // indirect
 	github.com/webong/gateway/driver v0.0.0
 	github.com/webong/gateway/pkg/golang v0.0.0
+	github.com/webong/gateway/pkg/hookscript v0.0.0
 	github.com/webong/gateway/pkg/javascript v0.0.0
 	github.com/webong/gateway/pkg/lua v0.0.0
 	github.com/webong/gateway/pkg/shell v0.0.0
@@ -110,3 +111,5 @@ replace github.com/webong/gateway/router => ../../../../mod/router
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner
 
 replace github.com/webong/gateway/pkg/golang => ../../../golang
+
+replace github.com/webong/gateway/pkg/hookscript => ../../../hookscript

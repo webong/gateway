@@ -106,7 +106,7 @@ func (r *Registry) AsEndpoints() []contract.Endpoint {
 
 // EngineDescriptor declares an engine as a gateway.automation/v1 guest.
 func EngineDescriptor(engine automation.Engine, id contract.Identity) contract.Descriptor {
-	return contract.Descriptor{
+	descriptor := contract.Descriptor{
 		APIVersion: contract.APIVersion,
 		Identity:   id,
 		Contracts: []contract.Contract{{
@@ -114,6 +114,10 @@ func EngineDescriptor(engine automation.Engine, id contract.Identity) contract.D
 			Operations:  []contract.Operation{{Name: "execute", Surface: string(engine.Language())}},
 		}},
 	}
+	if declarer, ok := engine.(interface{ ReverseContracts() []contract.Contract }); ok {
+		descriptor.Reverse = declarer.ReverseContracts()
+	}
+	return descriptor
 }
 
 // NewEndpointEngine wraps a plugin.Endpoint guest (native .so or in-process)

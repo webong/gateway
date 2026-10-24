@@ -2,31 +2,36 @@
 status: accepted
 ---
 
-# Invoke trusted PHP companion actions through the Planner host
+# Invoke static or dynamic PHP companion actions through Planner
 
-A Gateway extension may pair its Spinner implementation with a trusted PHP Companion Action that uses the already-running Planner application's services. The PHP code is installed and registered once as part of an operator-approved, versioned companion package; Spinner invokes it by stable action name with typed input and receives a structured result. Spinner does not upload raw PHP through Planner's public API or resend source for each execution. This keeps the contract independent of FrankenPHP, RoadRunner, PHP-FPM, or an HTTP-hosted Planner while allowing one extension to contribute behavior to both Gateway planes.
+A Gateway extension may pair its Spinner implementation with a trusted PHP Companion Action. Planner supports two adapters behind the same registry seam: a static action resolved from Laravel's container, and a self-contained PHP process installed as an `ext.package/v1` artifact. Both may be discovered at once, but Planner's generic extension resource explicitly enables exactly one mode. Spinner invokes the active provider by stable action name with typed input and receives a structured result. Spinner never uploads raw PHP through the invocation interface.
 
 ## Contract
 
-- The companion package owns its PHP source, dependencies, autoload rules, provider registration, action names, and input/output schemas.
-- Planner's private Action Runner resolves only registered actions and authenticates Spinner using the existing internal trust boundary. The transport adapter may be in-process or private HTTP, but it carries the same versioned invocation contract.
+- The companion package owns its PHP source, dependencies, autoload rules, action names, and input/output schemas.
+- Static packages offer Laravel handler classes. Dynamic packages declare a `planner` entrypoint using the `php-jsonline` runtime and `ext.plugin/v1`; Planner verifies the installed package before launching it.
+- Registration discovers candidates. It does not activate them. The generic `extension` configuration selects `static` or `dynamic`, optionally pins a release version or package digest, and supplies the activation generation.
+- Repeated discovery of the same provider identity is idempotent. Two different providers for the same action and mode, or two extensions claiming the same action name, are conflicts rather than order-dependent overrides.
+- Planner's private Action Runner resolves only the enabled provider and authenticates Spinner using the existing internal trust seam. The Spinner-to-Planner adapter may be in-process or private HTTP, but it carries the same versioned invocation contract.
 - An invocation contains an action name, companion version or digest, execution ID, deadline, idempotency key, and size-bounded typed input. Its result is structured data or a declared failure; PHP output is never treated as an implicit protocol.
-- Installation, upgrade, rollback, and removal happen through deployment and package lifecycle. A long-running PHP host is reloaded when its installed companion set changes.
-- Planner advertises registered action capabilities and versions so Spinner fails closed rather than invoking an absent or incompatible companion.
+- Static installation, upgrade, rollback, and removal follow the application deployment lifecycle. Dynamic installation uses the ext store and does not modify Planner's root Composer autoloader; long-running Planner workers reload only to discover a stable package-set change, not to merge its PHP classes into the application.
+- Planner advertises only active action capabilities. Capabilities include extension identity, selected mode and activation generation so Spinner and operators can observe what is enabled.
 - Portable plugins declare every action they may invoke through the extension protocol's `gateway.companion/v1` reverse contract. Spinner supplies the runner as a host capability; plugins never receive Planner credentials.
 
 ## Trust boundary
 
-PHP Companion Actions are trusted deployment code and run with the privileges of the Planner application, including any services deliberately injected into them. They are not a sandbox for tenant-authored or request-supplied PHP. Operator-authored Automations continue to use the explicitly installed, capability-bounded scripting engines; untrusted PHP must run in a separately isolated runtime rather than inside Planner.
+PHP Companion Actions are trusted operator-installed code. Static handlers run with the privileges of the Planner application, including services deliberately injected into them. Dynamic handlers run as child processes and receive only their packaged code, typed invocation and deliberately granted process environment; process separation alone is not an OS sandbox. Neither mode is a sandbox for tenant-authored or request-supplied PHP.
 
-Planner's public CMS API may configure a route to a registered action, but it cannot create an action by accepting PHP source. The private Action Runner accepts invocation data only. Companion actions receive a narrow context and declared services instead of unrestricted access to Planner internals where practical.
+Planner's public CMS API may select an installed extension and configure a route to an active action, but it cannot create an action by accepting PHP source. The private Action Runner accepts invocation data only. Dynamic processes cannot reach Laravel's container directly; application integration must use separately declared Planner host contracts.
 
 ## Considered options
 
 - Send raw PHP source from Spinner for every execution. Rejected because it turns the Planner boundary into a remote-code-execution API, repeats code transfer, complicates provenance and caching, and risks state leakage in long-running PHP workers.
+- Require every companion to be statically installed into Planner's root Composer application. Rejected as the only lifecycle because it prevents one ext bundle from dynamically contributing behavior to both Gateway planes. Retained as a supported mode for tightly integrated application code.
+- Let a dynamically discovered provider silently override or fall back to a static provider. Rejected because load order and process health would change behavior without a Planner revision. Mode selection is explicit and failures remain closed.
 - Execute companion PHP directly inside Spinner through an embedded FrankenPHP engine. Retained for explicitly installed PHP Automation runtimes, but rejected as the companion-action contract because it couples extension behavior to one PHP host and does not run inside the provided application's container and service graph.
 - Invoke an application-owned HTTP endpoint without a Gateway action contract. Supported as an ordinary delivery, but insufficient for installed companions because capability discovery, version compatibility, idempotency, deadlines, and structured failures would be application-specific.
 
 ## Consequences
 
-Gateway provides a transport-neutral Action Runner contract, Planner-side action registry and capability advertisement, Spinner adapters, and a least-privilege reverse-call adapter for portable plugins. Execution records use expiring leases and encrypted results; retries after an uncertain crash are at-least-once and companion handlers remain responsible for idempotent external effects. Extension packaging keeps Go and PHP companions version-compatible without requiring Spinner's shared libraries to import a PHP runtime.
+Gateway provides a transport-neutral Action Runner contract, a multi-provider Planner registry, generic activation state, verified ext package discovery, a PHP JSON-line guest, Spinner adapters, and a least-privilege reverse-call adapter for portable plugins. Execution records use expiring leases and encrypted results; retries after an uncertain crash are at-least-once and companion handlers remain responsible for idempotent external effects. Extension packaging keeps Go and PHP processes version-compatible without requiring Spinner's shared libraries to import a PHP runtime.

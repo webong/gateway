@@ -1,24 +1,34 @@
-// Package runtime implements the HookScript automation engine using frankenphp.
+// Package runtime implements the HookScript automation guest. The guest owns
+// no PHP runtime: it invokes the trusted HookScript companion installed in
+// Planner through the plugin session's declared reverse-call interface.
 package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/dunglas/frankenphp"
+	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/driver/companion"
 )
 
-const Language automation.Language = "hookscript"
+const (
+	Language         automation.Language = "hookscript"
+	CompanionAction                      = "gateway.hookscript.execute"
+	CompanionVersion                     = "1.0.0"
+)
+
+var companionContract = plugin.ContractRef{Name: "gateway.companion", Version: companion.ProtocolVersion}
 
 type Engine struct {
-	timeout       time.Duration
+	timeout        time.Duration
 	maxSourceBytes int64
-	initialized   bool
 }
 
 func New(opts ...Option) *Engine {
@@ -34,6 +44,16 @@ func New(opts ...Option) *Engine {
 
 func (e *Engine) Language() automation.Language { return Language }
 
+// ReverseContracts declares the one Planner capability this guest needs. The
+// Spinner host rejects every undeclared companion action and action-name
+// substitution inside the invocation payload.
+func (e *Engine) ReverseContracts() []plugin.Contract {
+	return []plugin.Contract{{
+		ContractRef: companionContract,
+		Operations:  []plugin.Operation{{Name: CompanionAction}},
+	}}
+}
+
 type Option func(*Engine)
 
 func WithTimeout(d time.Duration) Option {
@@ -44,113 +64,95 @@ func WithMaxSourceBytes(n int64) Option {
 	return func(e *Engine) { e.maxSourceBytes = n }
 }
 
-// Execute runs a HookScript using frankenphp.
+// Execute asks the enabled PHP companion to evaluate one HookScript and
+// converts its structured result back into the language-neutral automation
+// outcome consumed by Spinner.
 func (e *Engine) Execute(ctx context.Context, source string, input automation.Input) (automation.Outcome, error) {
 	if strings.TrimSpace(source) == "" {
-		return automation.Outcome{}, fmt.Errorf("hookscript source is required")
+		return automation.Outcome{}, errors.New("hookscript source is required")
 	}
-	if int64(len(source)) > e.maxSourceBytes {
-		return automation.Outcome{}, fmt.Errorf("hookscript source exceeds configured limit")
+	if e.maxSourceBytes <= 0 || int64(len(source)) > e.maxSourceBytes {
+		return automation.Outcome{}, errors.New("hookscript source exceeds configured limit")
 	}
-
-	// Initialize frankenphp once
-	if !e.initialized {
-		if err := frankenphp.Init(); err != nil {
-			return automation.Outcome{}, fmt.Errorf("initialize frankenphp: %w", err)
-		}
-		e.initialized = true
+	caller := plugin.ReverseFrom(ctx)
+	if caller == nil {
+		return automation.Outcome{}, errors.New("hookscript companion host is unavailable")
 	}
 
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-
-	// Build the PHP script
-	script := e.buildScript(source, input)
-
-	// Execute via frankenphp
-	return e.executeScript(ctx, script)
-}
-
-func (e *Engine) buildScript(source string, input automation.Input) string {
-	// Prepare variables for the script
-	vars := map[string]any{
-		"variables": input.Variables,
-		"event":     input.Event,
+	actionInput := map[string]any{
+		"source":    source,
+		"event":     objectOrEmpty(input.Event),
+		"variables": objectOrEmpty(input.Variables),
 	}
-
-	varsJSON, _ := json.Marshal(vars)
-
-	return fmt.Sprintf(`
-<?php
-require_once __DIR__ . '/vendor/autoload.php';
-
-use Smuuf\Primi\Context;
-use Smuuf\Primi\Interpreter;
-
-$input = %s;
-$source = <<<'EOT'
-%s
-EOT;
-
-$host = new Webong\Gateway\HookScript\Host($input['event'], $input['variables']);
-$context = new Context();
-$interpreter = new Interpreter($context);
-$context->setVariables($host->functions());
-$context->setVariable('variables', $host->scriptVariables());
-
-try {
-    $interpreter->run($source);
-} catch (WebhookScriptResponseReady $e) {
-    // Response thrown, continue
-} catch (WebhookScriptTimedOut $e) {
-    throw new RuntimeException('HookScript execution timed out');
-} catch (Throwable $e) {
-    throw new RuntimeException('HookScript execution failed: ' . $e->getMessage(), 0, $e);
-}
-
-$outcome = $host->outcome();
-echo json_encode($outcome);
-`, string(varsJSON), source)
-}
-
-func (e *Engine) executeScript(ctx context.Context, script string) (automation.Outcome, error) {
-	// Write script to temp file
-	tmpFile, err := os.CreateTemp("", "hookscript-*.php")
+	fingerprint, err := json.Marshal(actionInput)
 	if err != nil {
-		return automation.Outcome{}, fmt.Errorf("create temp file: %w", err)
+		return automation.Outcome{}, fmt.Errorf("encode hookscript companion input: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	digest := sha256.Sum256(fingerprint)
+	digestText := hex.EncodeToString(digest[:])
 
-	if _, err := tmpFile.WriteString(script); err != nil {
-		return automation.Outcome{}, fmt.Errorf("write script: %w", err)
+	deadline := time.Now().Add(e.timeout)
+	if existing, ok := ctx.Deadline(); ok && existing.Before(deadline) {
+		deadline = existing
 	}
-	tmpFile.Close()
-
-	// Execute via frankenphp
-	output, err := executePhpScript(ctx, tmpFile.Name())
+	invocation := companion.Invocation{
+		ProtocolVersion:  companion.ProtocolVersion,
+		Action:           CompanionAction,
+		CompanionVersion: CompanionVersion,
+		ExecutionID:      "hookscript-" + digestText[:32],
+		IdempotencyKey:   "hookscript:" + digestText,
+		Deadline:         &deadline,
+		Input:            actionInput,
+	}
+	payload, err := json.Marshal(invocation)
 	if err != nil {
-		return automation.Outcome{}, fmt.Errorf("execute script: %w", err)
+		return automation.Outcome{}, fmt.Errorf("encode hookscript companion invocation: %w", err)
+	}
+	raw, err := caller.Call(ctx, companionContract, CompanionAction, payload)
+	if err != nil {
+		return automation.Outcome{}, fmt.Errorf("invoke hookscript companion: %w", err)
 	}
 
-	// Parse the JSON output
+	var result companion.Result
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return automation.Outcome{}, fmt.Errorf("decode hookscript companion result: %w", err)
+	}
+	if err := result.Validate(); err != nil {
+		return automation.Outcome{}, fmt.Errorf("validate hookscript companion result: %w", err)
+	}
+	if result.ExecutionID != invocation.ExecutionID {
+		return automation.Outcome{}, errors.New("hookscript companion returned the wrong execution ID")
+	}
+	if result.Status == companion.StatusInProgress {
+		return automation.Outcome{}, errors.New("hookscript companion execution is still in progress")
+	}
+	if result.Status == companion.StatusFailed {
+		return automation.Outcome{}, fmt.Errorf("hookscript companion failed: %s", result.Error.Message)
+	}
+
+	outcomeValue, ok := result.Output["outcome"]
+	if !ok || outcomeValue == nil {
+		return automation.Outcome{}, errors.New("hookscript companion returned no automation outcome")
+	}
+	encodedOutcome, err := json.Marshal(outcomeValue)
+	if err != nil {
+		return automation.Outcome{}, fmt.Errorf("encode hookscript companion outcome: %w", err)
+	}
 	var outcome automation.Outcome
-	if err := json.Unmarshal(output, &outcome); err != nil {
-		return automation.Outcome{}, fmt.Errorf("parse outcome: %w", err)
+	if err := json.Unmarshal(encodedOutcome, &outcome); err != nil {
+		return automation.Outcome{}, fmt.Errorf("decode hookscript companion outcome: %w", err)
 	}
-
 	return outcome, nil
 }
 
-func executePhpScript(ctx context.Context, scriptPath string) ([]byte, error) {
-	// Use frankenphp's ExecuteScript function
-	result, err := frankenphp.ExecuteScript(scriptPath, nil)
-	if err != nil {
-		return nil, err
+func objectOrEmpty(value map[string]any) map[string]any {
+	if value == nil {
+		return map[string]any{}
 	}
-	return result, nil
+	return value
 }
 
 var _ automation.Engine = (*Engine)(nil)
+
 // Plugin returns the engine for composition roots and dynamic loaders.
 func Plugin() (automation.Engine, error) { return New(), nil }

@@ -13,7 +13,7 @@ requests for application-managed mail connections.
 
 ```text
 JavaScript / Lua / Shell: public event -> Laravel route plan -> installed Go extension -> response / delivery queue
-WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary route plan -> Go network I/O
+HookScript: public event -> Laravel route plan -> Go extension -> declared PHP companion -> Go network I/O
 ```
 
 ## Optional Go language extensions
@@ -24,8 +24,10 @@ WebhookScript:    public event -> Laravel + optional Primi extension -> ordinary
   standard host libraries.
 - [`pkg/shell`](../pkg/shell/README.md) adds `shell` as an opt-in local or SSH-backed hook
   executor rooted to one configured directory.
-- [`pkg/hookscript`](../pkg/hookscript/README.md) adds `hookscript` and runs the
-  PHP-compatible guest through FrankenPHP.
+- [`pkg/hookscript`](../pkg/hookscript/README.md) adds `hookscript`; its Go
+  guest calls the extension's enabled PHP/Primi companion through Spinner's
+  declared reverse-call interface. Planner may host that companion statically
+  through Composer or dynamically as an ext process.
 
 Engines are never imported by Spinner. Select the static guests for the
 standalone host by editing `pkg/spinner/cmd/gateway/plugins.txt`, then
@@ -46,11 +48,12 @@ export GATEWAY_PLUGIN_DIR=/opt/gateway/plugins                # ext plugin store
 ```
 
 Bundled Router binaries are separate composition roots and ship with the
-engines they need (JavaScript, Lua, Shell, and Go). A route plan whose language
-is not registered fails closed with HTTP 502; Gateway never falls back to
-evaluating source in another runtime.
+engines they need (JavaScript, Lua, Shell, Go, and HookScript). A route plan
+whose language is not registered fails closed with HTTP 502; Gateway never
+falls back to evaluating source in another runtime.
 
-Install the matching Planner companion package in the Laravel application:
+For static mode, install the matching Planner companion package in the Laravel
+application:
 
 ```bash
 composer require webong/gateway-javascript webong/gateway-lua
@@ -63,6 +66,18 @@ its PHP autoload rules, dependencies, and a tiny autoload registration file;
 the root package does not duplicate extension namespaces or provider names.
 Installing a published extension package continues to work through ordinary
 Composer and Laravel package discovery.
+
+For dynamic mode, install a reviewed `ext.package/v1` release in the ext store.
+The package may carry both the Spinner guest entrypoint and a `planner`
+entrypoint using the `php-jsonline` runtime. Its top-level descriptor describes
+the Spinner process; `metadata["gateway.companion/v1"].descriptor` describes
+the PHP process with the same package identity. Each process therefore exposes
+only the contracts it actually serves. Planner discovers its entrypoint from
+`GATEWAY_COMPANION_PLUGIN_DIR` (or `GATEWAY_PLUGIN_DIR` when both planes share
+the store), while Spinner selects the entrypoint named `spinner`. Older
+single-plane packages without that name retain the ext host's first-entrypoint
+behavior. The Planner extension resource selects `static` or `dynamic`; it
+never runs both and never silently falls back between them.
 
 Planner does not contain a built-in language list. Each extension's Laravel
 provider registers its execution target and route, schedule, or credential
@@ -80,7 +95,8 @@ It registers the listed languages as Spinner-executed route and schedule
 capabilities, but Spinner must still advertise the engine at runtime.
 
 For a container image, the Docker build supplies the PHP toolchain that the
-`php` and `hookscript` guests need. Pass optional FrankenPHP build tags with
+standalone `php` guest needs. HookScript itself no longer embeds a PHP runtime
+in Go. Pass optional FrankenPHP build tags with
 `GATEWAY_BUILD_TAGS` (they no longer select automation engines):
 
 ```bash
@@ -144,20 +160,23 @@ gateway.respond("ok", 200)
 
 ## Optional WebhookScript extension
 
-WebhookScript is deliberately not bundled with the Planner. Once published or
-configured as a Composer path repository, install the separate package when an
-application needs it:
+WebhookScript is deliberately not built into Planner. An application can
+provide its companion statically through Composer:
 
 ```bash
-composer require webong/gateway-webhookscript
+composer require webong/gateway-hookscript
 ```
 
-Composer/Laravel package discovery registers its provider and decorates the
-configured `RoutePlanner`. In the bundled Router, Composer Merge Plugin performs
-the same discovery from the extension-owned manifest. A `webhookscript` plan is
-evaluated with Primi 0.4 in PHP and converted into an ordinary Gateway
-response/relay plan. Go therefore remains responsible only for ingress and
-egress network traffic.
+Composer/Laravel package discovery registers its provider and the trusted
+`gateway.hookscript.execute` companion. In the bundled Router, Composer Merge
+Plugin performs the same discovery from the extension-owned manifest.
+Alternatively, install the HookScript ext package and select `dynamic` mode in
+Planner; its `planner` entrypoint exposes the same action over
+`ext.plugin/v1`. The activation record is the single switch, so discovering
+both candidates cannot double-register or double-execute the action. A
+`hookscript` plan is dispatched to the Go guest; that guest can invoke only the
+declared PHP/Primi action and converts its result into an ordinary automation
+outcome. Go remains responsible for ingress, egress, and outcome validation.
 
 ```php
 return RoutePlan::automate(new Automation(
@@ -174,10 +193,10 @@ return RoutePlan::automate(new Automation(
 The extension supports Webhook.site-style Primi syntax and a bounded Gateway
 host interface. It does not copy Webhook.site product features such as stored
 data or unrestricted HTTP access. See
-[`pkg/webhookscript/README.md`](../pkg/webhookscript/README.md) for its complete
+[`pkg/hookscript/README.md`](../pkg/hookscript/README.md) for its complete
 capability list, limits, configuration, and runtime requirements.
 
-Without the extension, Go rejects `webhookscript` route plans instead of
+Without the extension, Go rejects `hookscript` route plans instead of
 running a partial compatibility parser.
 
 ## Security seam
@@ -248,9 +267,9 @@ a time, and the pool replaces a worker that stops. A script interrupted by an
 actor crash is left claimed for Planner's existing lease recovery; it is not
 immediately rerun because its side effects may already have happened. Actor
 execution is bounded to 110 seconds within the two-minute claim lease.
-The optional WebhookScript planner extension does not execute scheduled jobs,
-but a WebhookScript route may create a schedule for an installed Go-side
-language with `schedule([...])`.
+HookScript schedules execute through the same Go guest and declared PHP
+companion. A HookScript route may also create a schedule for any installed
+Spinner-side language with `schedule([...])`.
 
 The schedule API accepts only language identifiers registered with the
 `schedule` capability. A polling Spinner sends its active engine catalog when

@@ -11,9 +11,12 @@ use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
+use Webong\Gateway\Companion\CompanionActionActivationStore;
 use Webong\Gateway\Companion\CompanionActionExecutionStore;
-use Webong\Gateway\Companion\PruneCompanionActionExecutionsCommand;
+use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
+use Webong\Gateway\Companion\Http\CompanionExtensionController;
 use Webong\Gateway\Companion\Http\InternalCompanionActionController;
+use Webong\Gateway\Companion\PruneCompanionActionExecutionsCommand;
 use Webong\Gateway\Companion\RegisteredCompanionActions;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
@@ -156,6 +159,12 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app->make(EmailSrsPolicyStore::class), $this->app->make(EmailRegistry::class),
         ));
 
+        $this->app->singleton(CompanionActionActivationStore::class);
+        $this->app->singleton(ExtCompanionPackageCatalog::class, fn (): ExtCompanionPackageCatalog => new ExtCompanionPackageCatalog(
+            root: (string) config('gateway.companion_actions.plugin_dir', ''),
+            maxRuntimeSeconds: max(1, (int) config('gateway.companion_actions.max_runtime_seconds', 300)),
+            phpBinary: (string) config('gateway.companion_actions.php_binary', PHP_BINARY),
+        ));
         $this->app->singleton(CompanionActionRegistry::class, RegisteredCompanionActions::class);
         $this->app->singleton(CompanionActionExecutionStore::class);
 
@@ -394,6 +403,11 @@ final class GatewayServiceProvider extends ServiceProvider
         ], 'gateway-config');
 
         $this->app->booted(function (): void {
+            $companions = $this->app->make(CompanionActionRegistry::class);
+            foreach ($this->app->make(ExtCompanionPackageCatalog::class)->providers() as $provider) {
+                $companions->registerProvider($provider);
+            }
+
             $this->app['router']->get('/_internal/gateway/ready', InternalReadinessController::class);
             $this->app['router']->get('/_internal/gateway/shell/executions/{execution}', ShellSshExecutionController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
@@ -451,6 +465,11 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/deliveries/{delivery}', [DeliveryController::class, 'show']);
             $this->app['router']->get('/configurations/kinds', [ConfigurationController::class, 'kinds']);
             $this->app['router']->get('/configurations/{kind}/{id}/revisions', [ConfigurationController::class, 'revisions']);
+            $this->app['router']->get('/extensions', [CompanionExtensionController::class, 'index']);
+            $this->app['router']->post('/extensions', [CompanionExtensionController::class, 'store']);
+            $this->app['router']->get('/extensions/{extension}', [CompanionExtensionController::class, 'show']);
+            $this->app['router']->put('/extensions/{extension}', [CompanionExtensionController::class, 'replace']);
+            $this->app['router']->delete('/extensions/{extension}', [CompanionExtensionController::class, 'destroy']);
             $this->app['router']->get('/web/event-policy', [WebEventPolicyController::class, 'show']);
             $this->app['router']->post('/web/event-policy', [WebEventPolicyController::class, 'store']);
             $this->app['router']->put('/web/event-policy', [WebEventPolicyController::class, 'replace']);

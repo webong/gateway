@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\Contracts\CompanionActionRegistry;
+use Webong\Gateway\HookScript\HookScriptCompanionAction;
 use Webong\Gateway\HookScript\HookScriptExtensionServiceProvider;
 use Webong\Gateway\HookScript\HookScriptLanguage;
 use Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider;
@@ -33,8 +35,10 @@ it('discovers extension-owned Planner companions through Composer', function ():
         ->and($registry->supports(ShellLanguage::ID, AutomationCapability::ROUTE))->toBeTrue()
         ->and($registry->supports(ShellLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse();
 
-    expect($registry->target(HookScriptLanguage::ID))->toBe(AutomationExecutionTarget::PLANNER)
+    expect($registry->target(HookScriptLanguage::ID))->toBe(AutomationExecutionTarget::SPINNER)
         ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::ROUTE))->toBeTrue()
-        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse()
-        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::CREDENTIAL))->toBeTrue();
+        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::SCHEDULE))->toBeTrue()
+        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::CREDENTIAL))->toBeTrue()
+        ->and(app(CompanionActionRegistry::class)->capability(HookScriptCompanionAction::NAME)?->version)
+        ->toBe(HookScriptCompanionAction::VERSION);
 });

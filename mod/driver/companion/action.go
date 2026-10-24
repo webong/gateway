@@ -31,8 +31,9 @@ const (
 )
 
 var (
-	actionPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
-	digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	actionPattern   = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+	digestPattern   = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	pluginIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._/-]{0,255}$`)
 
 	ErrInvalidInvocation = errors.New("invalid companion action invocation")
 	ErrInvalidResult     = errors.New("invalid companion action result")
@@ -57,11 +58,14 @@ func (e *RunnerError) Error() string {
 	return e.Message
 }
 
-// Capability identifies one trusted PHP action installed in the Planner host.
+// Capability identifies one trusted PHP action enabled by the Planner host.
 type Capability struct {
-	Name    string `json:"name"`
-	Version string `json:"version,omitempty"`
-	Digest  string `json:"digest,omitempty"`
+	Name       string `json:"name"`
+	Version    string `json:"version,omitempty"`
+	Digest     string `json:"digest,omitempty"`
+	Extension  string `json:"extension,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	Generation uint64 `json:"generation,omitempty"`
 }
 
 func (c Capability) Validate() error {
@@ -77,11 +81,17 @@ func (c Capability) Validate() error {
 	if c.Digest != "" && !digestPattern.MatchString(c.Digest) {
 		return fmt.Errorf("%w: companion digest must be a lowercase SHA-256 digest", ErrInvalidInvocation)
 	}
+	if c.Extension != "" && !pluginIDPattern.MatchString(c.Extension) {
+		return fmt.Errorf("%w: companion extension is invalid", ErrInvalidInvocation)
+	}
+	if c.Mode != "" && c.Mode != "static" && c.Mode != "dynamic" {
+		return fmt.Errorf("%w: companion mode is invalid", ErrInvalidInvocation)
+	}
 	return nil
 }
 
 // Invocation is data, never source code. The action name resolves trusted PHP
-// that was installed with the Planner application.
+// from the single static or dynamic provider Planner has enabled.
 type Invocation struct {
 	ProtocolVersion  string         `json:"protocol_version"`
 	Action           string         `json:"action"`

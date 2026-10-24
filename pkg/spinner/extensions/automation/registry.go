@@ -21,7 +21,9 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/nativego"
+	pluginprocess "github.com/webong/ext/pkg/plugin-go/contract/host/process"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
 	"github.com/webong/gateway/driver/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 )
@@ -30,11 +32,38 @@ var registry = NewRegistry()
 
 // Register installs an in-process guest engine. Composition roots outside
 // Spinner call it so that Spinner never imports an engine package directly.
-func Register(engine automation.Engine) {
-	registry.Register(NewEngineAdapter(engine, EngineDescriptor(engine, contract.Identity{
+func Register(engine automation.Engine) error {
+	if engine == nil {
+		return contract.ErrInvalid
+	}
+	descriptor := EngineDescriptor(engine, contract.Identity{
 		ID:       "builtin/" + string(engine.Language()),
 		Revision: "v0",
-	})))
+	})
+	adapter := NewEngineAdapter(engine, descriptor)
+	backend, err := inprocess.New(adapter)
+	if err != nil {
+		return fmt.Errorf("open built-in %s plugin transport: %w", engine.Language(), err)
+	}
+	session, err := contract.Open(context.Background(), descriptor, contract.Options{
+		Verify:    func(context.Context, contract.Descriptor) error { return nil },
+		Connect:   func(context.Context, contract.Descriptor) (contract.Backend, error) { return backend, nil },
+		Authorize: func(context.Context, contract.Request) error { return nil },
+		Reverse:   companionextensions.DefaultHost.ReverseOptions(),
+	})
+	if err != nil {
+		_ = backend.Close()
+		return fmt.Errorf("open built-in %s plugin session: %w", engine.Language(), err)
+	}
+	wrapped, err := NewSessionEngine(session)
+	if err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = session.Close(closeCtx)
+		cancel()
+		return fmt.Errorf("wrap built-in %s plugin session: %w", engine.Language(), err)
+	}
+	registry.Register(NewEngineAdapter(wrapped, descriptor))
+	return nil
 }
 
 // Runtime returns a dispatcher containing every engine registered so far.
@@ -125,7 +154,13 @@ func loadNativeGoPlugins(ctx context.Context, dir string) error {
 			fmt.Printf("native plugin %s is not an automation guest: %v\n", e.Name(), err)
 			continue
 		}
-		Register(engine)
+		if err := Register(engine); err != nil {
+			closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = session.Close(closeCtx)
+			cancel()
+			fmt.Printf("native plugin %s registration failed: %v\n", e.Name(), err)
+			continue
+		}
 		fmt.Printf("loaded native Go plugin: %s (lang=%s)\n", e.Name(), engine.Language())
 	}
 	return nil
@@ -146,7 +181,13 @@ func loadExternalPlugins(ctx context.Context, dir string) error {
 		if !SupportsAutomation(inst.Manifest.Descriptor) {
 			continue
 		}
-		proc, err := host.Open(ctx, inst, host.Options{Reverse: companionextensions.DefaultHost.ReverseOptions()})
+		options := host.Options{Reverse: companionextensions.DefaultHost.ReverseOptions()}
+		options.Launch, err = spinnerLaunch(inst)
+		if err != nil {
+			fmt.Printf("plugin %s spinner entrypoint is invalid: %v\n", inst.Name(), err)
+			continue
+		}
+		proc, err := host.Open(ctx, inst, options)
 		if err != nil {
 			fmt.Printf("failed to load plugin %s: %v\n", inst.Name(), err)
 			continue
@@ -157,10 +198,30 @@ func loadExternalPlugins(ctx context.Context, dir string) error {
 			fmt.Printf("plugin %s is not an automation guest: %v\n", inst.Name(), err)
 			continue
 		}
-		Register(engine)
+		if err := Register(engine); err != nil {
+			_ = proc.Close()
+			fmt.Printf("plugin %s registration failed: %v\n", inst.Name(), err)
+			continue
+		}
 		fmt.Printf("loaded external plugin: %s (lang=%s)\n", inst.Name(), engine.Language())
 	}
 	return nil
+}
+
+// spinnerLaunch selects this plane's entrypoint from a combined package. A nil
+// command preserves ext's first-entrypoint behavior for legacy packages.
+func spinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
+	for _, entrypoint := range inst.Manifest.Entrypoints {
+		if entrypoint.Name != "spinner" {
+			continue
+		}
+		path, err := inst.ArtifactPath(entrypoint.Artifact)
+		if err != nil {
+			return nil, err
+		}
+		return &pluginprocess.Command{Path: path, Dir: inst.Directory}, nil
+	}
+	return nil, nil
 }
 
 // RunHistory returns the optional local run reader without exposing a concrete

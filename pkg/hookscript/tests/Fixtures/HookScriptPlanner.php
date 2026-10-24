@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Webong\Gateway\HookScript\Tests\Fixtures;
 
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\HookScript\HookScriptLanguage;
 use Webong\Gateway\Protocols\Automation;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\HookScript\HookScriptLanguage;
 
 final class HookScriptPlanner implements RoutePlanner
 {

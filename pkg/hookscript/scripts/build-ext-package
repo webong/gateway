@@ -1,0 +1,127 @@
+<?php
+
+declare(strict_types=1);
+
+/** Build a self-contained ext.package/v1 Planner companion directory. */
+
+if ($argc < 3 || $argc > 4) {
+    fwrite(STDERR, "Usage: php scripts/build-ext-package DESTINATION VERSION [REVISION]\n");
+    exit(2);
+}
+
+$source = dirname(__DIR__);
+$destination = rtrim($argv[1], DIRECTORY_SEPARATOR);
+$version = $argv[2];
+if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
+    fwrite(STDERR, "Invalid extension version.\n");
+    exit(2);
+}
+if (! is_file($source.'/vendor/autoload.php')) {
+    fwrite(STDERR, "Run composer install --no-dev in pkg/hookscript before building the ext package.\n");
+    exit(1);
+}
+if (file_exists($destination)) {
+    fwrite(STDERR, "Destination already exists.\n");
+    exit(1);
+}
+
+/** @return never */
+function failBuild(string $message): void
+{
+    fwrite(STDERR, $message."\n");
+    exit(1);
+}
+
+function copyBuildTree(string $source, string $destination): void
+{
+    if (! mkdir($destination, 0700, true) && ! is_dir($destination)) {
+        failBuild("Cannot create {$destination}.");
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+    foreach ($iterator as $entry) {
+        if ($entry->isLink()) {
+            failBuild("Refusing symbolic link {$entry->getPathname()}.");
+        }
+        $relative = substr($entry->getPathname(), strlen($source) + 1);
+        $target = $destination.DIRECTORY_SEPARATOR.$relative;
+        if ($entry->isDir()) {
+            if (! is_dir($target) && ! mkdir($target, 0700, true)) {
+                failBuild("Cannot create {$target}.");
+            }
+        } elseif ($entry->isFile()) {
+            if (! copy($entry->getPathname(), $target)) {
+                failBuild("Cannot copy {$target}.");
+            }
+            chmod($target, 0600);
+        } else {
+            failBuild("Refusing non-regular package entry {$entry->getPathname()}.");
+        }
+    }
+}
+
+function buildTreeDigest(string $directory): string
+{
+    $files = [];
+    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+        $directory,
+        FilesystemIterator::SKIP_DOTS,
+    ));
+    foreach ($iterator as $file) {
+        if ($file->isLink() || ! $file->isFile()) {
+            failBuild("Invalid tree entry {$file->getPathname()}.");
+        }
+        $files[] = str_replace('\\', '/', substr($file->getPathname(), strlen($directory) + 1));
+    }
+    sort($files, SORT_STRING);
+    $context = hash_init('sha256');
+    foreach ($files as $relative) {
+        $digest = hash_file('sha256', $directory.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative));
+        hash_update($context, './'.$relative.' '.$digest."\n");
+    }
+
+    return hash_final($context);
+}
+
+mkdir($destination, 0700, true) || failBuild("Cannot create {$destination}.");
+mkdir($destination.'/bin', 0700, true) || failBuild('Cannot create bin directory.');
+copy($source.'/bin/companion', $destination.'/bin/companion') || failBuild('Cannot copy companion entrypoint.');
+copyBuildTree($source.'/src', $destination.'/src');
+copyBuildTree($source.'/vendor', $destination.'/vendor');
+
+$artifacts = [
+    ['name' => 'planner-companion', 'path' => 'bin/companion', 'sha256' => hash_file('sha256', $destination.'/bin/companion')],
+    ['name' => 'source', 'path' => 'src', 'kind' => 'tree', 'sha256' => buildTreeDigest($destination.'/src')],
+    ['name' => 'vendor', 'path' => 'vendor', 'kind' => 'tree', 'sha256' => buildTreeDigest($destination.'/vendor')],
+];
+$revision = $argv[3] ?? hash('sha256', implode("\n", array_column($artifacts, 'sha256')));
+if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $revision) !== 1) {
+    failBuild('Invalid extension revision.');
+}
+$manifest = [
+    'apiVersion' => 'ext.package/v1',
+    'descriptor' => [
+        'apiVersion' => 'ext.plugin/v1',
+        'identity' => ['id' => 'webong/hookscript', 'revision' => $revision, 'version' => $version],
+        'contracts' => [[
+            'name' => 'gateway.companion',
+            'version' => 'v1',
+            'operations' => [['name' => 'gateway.hookscript.execute']],
+        ]],
+    ],
+    'artifacts' => $artifacts,
+    'entrypoints' => [[
+        'name' => 'planner',
+        'runtime' => 'php-jsonline',
+        'artifact' => 'planner-companion',
+        'protocols' => ['ext.plugin/v1'],
+    ]],
+];
+file_put_contents(
+    $destination.'/plugin.json',
+    json_encode($manifest, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n",
+) ?: failBuild('Cannot write plugin.json.');
+
+fwrite(STDOUT, $destination."\n");

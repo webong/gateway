@@ -8,8 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
-use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
+use Webong\Gateway\Contracts\CompanionActionRegistry;
 use Webong\Gateway\Email\CredentialScriptRegistry;
 
 final class HookScriptExtensionServiceProvider extends ServiceProvider
@@ -25,21 +24,22 @@ final class HookScriptExtensionServiceProvider extends ServiceProvider
             maxSchedules: max(1, (int) config('gateway-webhookscript.max_schedules', 8)),
             maxLogs: max(1, (int) config('gateway-webhookscript.max_logs', 100)),
         ));
-
-        $this->app->extend(RoutePlanner::class, fn (RoutePlanner $planner): RoutePlanner => new PrimiRoutePlanner(
-            planner: $planner,
-            runtime: $this->app->make(HookScriptRuntime::class),
-            schedules: $this->app->make(ScriptScheduleRegistrar::class),
-        ));
     }
 
     public function boot(): void
     {
         $this->app->make(AutomationLanguageRegistry::class)->register(
             HookScriptLanguage::ID,
-            AutomationExecutionTarget::PLANNER,
+            AutomationExecutionTarget::SPINNER,
             AutomationCapability::ROUTE,
+            AutomationCapability::SCHEDULE,
             AutomationCapability::CREDENTIAL,
+        );
+        $this->app->make(CompanionActionRegistry::class)->register(
+            HookScriptCompanionAction::NAME,
+            HookScriptCompanionAction::class,
+            version: HookScriptCompanionAction::VERSION,
+            extension: 'webong/hookscript',
         );
         $this->app->make(CredentialScriptRegistry::class)->register(
             HookScriptLanguage::ID,

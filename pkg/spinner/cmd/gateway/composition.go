@@ -19,7 +19,9 @@ func registerStatic(names []string) error {
 		if err != nil {
 			return fmt.Errorf("configure %s engine: %w", name, err)
 		}
-		automationextensions.Register(engine)
+		if err := automationextensions.Register(engine); err != nil {
+			return fmt.Errorf("register %s engine: %w", name, err)
+		}
 	}
 	return nil
 }
