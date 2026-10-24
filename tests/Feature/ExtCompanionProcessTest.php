@@ -37,6 +37,23 @@ function processInvocation(string $action, string $execution, array $input): Com
     );
 }
 
+function removeExtDirectory(string $directory): void
+{
+    if (! is_dir($directory)) {
+        return;
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($iterator as $entry) {
+        @chmod($entry->getPathname(), $entry->isDir() ? 0700 : 0600);
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+    }
+    @chmod($directory, 0700);
+    @rmdir($directory);
+}
+
 it('reuses one bounded warmed process and retires it when policy changes', function (): void {
     $projectRoot = dirname(__DIR__, 2);
     $directory = sys_get_temp_dir().'/gateway-warmed-ext-'.bin2hex(random_bytes(6));
@@ -69,11 +86,14 @@ it('reuses one bounded warmed process and retires it when policy changes', funct
         ))->serve());
         PHP;
     file_put_contents($directory.'/companion.php', str_replace('__AUTOLOAD__', $autoload, $script));
-    $state = (object) ['policy' => new CompanionExecutionPolicy(
-        mode: CompanionExecutionPolicy::WARMED,
-        maxInvocations: 2,
-        generation: 1,
-    )];
+    $state = (object) [
+        'policy' => new CompanionExecutionPolicy(
+            mode: CompanionExecutionPolicy::WARMED,
+            maxInvocations: 2,
+            generation: 1,
+        ),
+        'verifications' => 0,
+    ];
     $provider = new ExtProcessCompanionActionProvider(
         extensionId: 'example/warmed',
         revision: 'test-r1',
@@ -82,6 +102,9 @@ it('reuses one bounded warmed process and retires it when policy changes', funct
         executable: $directory.'/companion.php',
         workingDirectory: $directory,
         maxRuntimeSeconds: 10,
+        verifyGeneration: function () use ($state): void {
+            $state->verifications++;
+        },
         executionPolicy: fn (): CompanionExecutionPolicy => $state->policy,
     );
 
@@ -94,7 +117,8 @@ it('reuses one bounded warmed process and retires it when policy changes', funct
             ->and($second['calls'])->toBe(2)
             ->and($second['pid'])->toBe($first['pid'])
             ->and($third['calls'])->toBe(1)
-            ->and($third['pid'])->not->toBe($first['pid']);
+            ->and($third['pid'])->not->toBe($first['pid'])
+            ->and($state->verifications)->toBe(2);
 
         $state->policy = new CompanionExecutionPolicy(
             mode: CompanionExecutionPolicy::WARMED,
@@ -103,16 +127,19 @@ it('reuses one bounded warmed process and retires it when policy changes', funct
         );
         $reconfigured = $provider->invoke(processInvocation('test.warmed', 'warmed-4', []))->output;
         expect($reconfigured['calls'])->toBe(1)
-            ->and($reconfigured['pid'])->not->toBe($third['pid']);
+            ->and($reconfigured['pid'])->not->toBe($third['pid'])
+            ->and($state->verifications)->toBe(3);
 
         expect(fn () => $provider->invoke(processInvocation('test.warmed', 'warmed-crash', ['crash' => true])))
             ->toThrow(RuntimeException::class, 'Gateway companion process failed.');
         expect($provider->invoke(processInvocation('test.warmed', 'warmed-recovered', []))->output['calls'])
-            ->toBe(1);
+            ->toBe(1)
+            ->and($state->verifications)->toBe(4);
 
         $state->policy = new CompanionExecutionPolicy(generation: 3);
         expect($provider->invoke(processInvocation('test.warmed', 'isolated-1', []))->output['calls'])->toBe(1)
-            ->and($provider->invoke(processInvocation('test.warmed', 'isolated-2', []))->output['calls'])->toBe(1);
+            ->and($provider->invoke(processInvocation('test.warmed', 'isolated-2', []))->output['calls'])->toBe(1)
+            ->and($state->verifications)->toBe(6);
     } finally {
         unset($provider);
         @unlink($directory.'/companion.php');
@@ -158,6 +185,7 @@ it('runs the HookScript Composer companion as an ext PHP process', function (): 
 it('discovers a verified ext package and activates its dynamic Planner process', function (): void {
     $projectRoot = dirname(__DIR__, 2);
     $root = sys_get_temp_dir().'/gateway-ext-'.bin2hex(random_bytes(6));
+    $generationRoot = sys_get_temp_dir().'/gateway-ext-generations-'.bin2hex(random_bytes(6));
     $directory = $root.'/example%2fdynamic-ticket';
     mkdir($directory, 0700, true);
     $autoload = var_export($projectRoot.'/vendor/autoload.php', true);
@@ -237,12 +265,15 @@ it('discovers a verified ext package and activates its dynamic Planner process',
     $_SERVER['GATEWAY_TEST_PARENT_SECRET'] = 'must-not-leak';
 
     try {
+        $state = (object) ['policy' => new CompanionExecutionPolicy(
+            mode: CompanionExecutionPolicy::WARMED,
+            generation: 1,
+        )];
         $providers = (new ExtCompanionPackageCatalog(
             $root,
             10,
-            executionPolicy: static fn (): CompanionExecutionPolicy => new CompanionExecutionPolicy(
-                mode: CompanionExecutionPolicy::WARMED,
-            ),
+            executionPolicy: fn (): CompanionExecutionPolicy => $state->policy,
+            generationRoot: $generationRoot,
         ))->providers();
         expect($providers)->toHaveCount(2);
         $registry = app(CompanionActionRegistry::class);
@@ -276,12 +307,40 @@ it('discovers a verified ext package and activates its dynamic Planner process',
             ->and($followup->output['calls'])->toBe(2)
             ->and($followup->output['pid'])->toBe($result->output['pid']);
 
+        $generationNames = array_values(array_filter(
+            scandir($generationRoot) ?: [],
+            static fn (string $name): bool => $name !== '.' && $name !== '..',
+        ));
+        expect($generationNames)->toHaveCount(1);
+        $generation = $generationRoot.'/'.$generationNames[0];
+        expect(fileperms($generation.'/companion.php') & 0222)->toBe(0);
+
         file_put_contents($directory.'/companion.php', "\n// changed after discovery\n", FILE_APPEND);
-        expect(fn () => $registry->invoke(processInvocation(
+        $pinned = $registry->invoke(processInvocation(
             'test.dynamic-ticket',
             'dynamic-ticket-2',
+            ['subject' => 'Pinned generation'],
+        ));
+        expect($pinned->output['subject'])->toBe('Pinned generation')
+            ->and($pinned->output['calls'])->toBe(3)
+            ->and($pinned->output['pid'])->toBe($result->output['pid']);
+        expect(fn () => (new ExtCompanionPackageCatalog(
+            $root,
+            10,
+            generationRoot: $generationRoot,
+        ))->providers())->toThrow(RuntimeException::class, 'failed verification');
+
+        chmod($generation.'/companion.php', 0644);
+        file_put_contents($generation.'/companion.php', "\n// changed after preparation\n", FILE_APPEND);
+        $state->policy = new CompanionExecutionPolicy(
+            mode: CompanionExecutionPolicy::WARMED,
+            generation: 2,
+        );
+        expect(fn () => $registry->invoke(processInvocation(
+            'test.dynamic-ticket',
+            'dynamic-ticket-3',
             ['subject' => 'Must not run'],
-        )))->toThrow(RuntimeException::class, 'Ext companion package changed after discovery.');
+        )))->toThrow(RuntimeException::class, 'Prepared ext companion generation changed after verification.');
     } finally {
         putenv('GATEWAY_TEST_PARENT_SECRET');
         unset($_ENV['GATEWAY_TEST_PARENT_SECRET'], $_SERVER['GATEWAY_TEST_PARENT_SECRET']);
@@ -290,11 +349,13 @@ it('discovers a verified ext package and activates its dynamic Planner process',
         @unlink($directory.'/spinner');
         @rmdir($directory);
         @rmdir($root);
+        removeExtDirectory($generationRoot);
     }
 });
 
 it('rejects a modified ext companion artifact before registration', function (): void {
     $root = sys_get_temp_dir().'/gateway-ext-'.bin2hex(random_bytes(6));
+    $generationRoot = sys_get_temp_dir().'/gateway-ext-generations-'.bin2hex(random_bytes(6));
     $directory = $root.'/example%2ftampered';
     mkdir($directory, 0700, true);
     file_put_contents($directory.'/companion.php', '<?php exit(0);');
@@ -314,19 +375,25 @@ it('rejects a modified ext companion artifact before registration', function ():
     file_put_contents($directory.'/plugin.json', json_encode($manifest, JSON_THROW_ON_ERROR));
 
     try {
-        expect(fn () => (new ExtCompanionPackageCatalog($root, 10))->providers())
+        expect(fn () => (new ExtCompanionPackageCatalog(
+            $root,
+            10,
+            generationRoot: $generationRoot,
+        ))->providers())
             ->toThrow(RuntimeException::class);
     } finally {
         @unlink($directory.'/plugin.json');
         @unlink($directory.'/companion.php');
         @rmdir($directory);
         @rmdir($root);
+        removeExtDirectory($generationRoot);
     }
 });
 
 it('builds a combined HookScript package that Planner verifies', function (): void {
     $projectRoot = dirname(__DIR__, 2);
     $root = sys_get_temp_dir().'/gateway-built-ext-'.bin2hex(random_bytes(6));
+    $generationRoot = sys_get_temp_dir().'/gateway-built-ext-generations-'.bin2hex(random_bytes(6));
     $vendor = $root.'/fixture-vendor';
     $destination = $root.'/store/webong%2fhookscript';
     mkdir($vendor, 0700, true);
@@ -345,7 +412,11 @@ it('builds a combined HookScript package that Planner verifies', function (): vo
             ->and($manifest['descriptor']['contracts'][0]['name'])->toBe('gateway.automation')
             ->and($manifest['metadata']['gateway.companion/v1']['descriptor']['contracts'][0]['name'])
             ->toBe('gateway.companion')
-            ->and((new ExtCompanionPackageCatalog($root.'/store', 10))->providers())->toHaveCount(1);
+            ->and((new ExtCompanionPackageCatalog(
+                $root.'/store',
+                10,
+                generationRoot: $generationRoot,
+            ))->providers())->toHaveCount(1);
     } finally {
         if (is_dir($root)) {
             $iterator = new RecursiveIteratorIterator(
@@ -357,5 +428,6 @@ it('builds a combined HookScript package that Planner verifies', function (): vo
             }
             @rmdir($root);
         }
+        removeExtDirectory($generationRoot);
     }
 });

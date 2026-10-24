@@ -14,7 +14,7 @@ A Gateway extension may pair its Spinner implementation with a trusted PHP Compa
 - Repeated discovery of the same provider identity is idempotent. Two different providers for the same action and mode, or two extensions claiming the same action name, are conflicts rather than order-dependent overrides.
 - Planner's private Action Runner resolves only the enabled provider and authenticates Spinner using the existing internal trust seam. The Spinner-to-Planner adapter may be in-process or private HTTP, but it carries the same versioned invocation contract.
 - An invocation contains an action name, companion version or digest, execution ID, deadline, idempotency key, and size-bounded typed input. Its result is structured data or a declared failure; PHP output is never treated as an implicit protocol.
-- Static installation, upgrade, rollback, and removal follow the application deployment lifecycle. Dynamic installation uses the ext store and does not modify Planner's root Composer autoloader; long-running Planner workers reload only to discover a stable package-set change, not to merge its PHP classes into the application.
+- Static installation, upgrade, rollback, and removal follow the application deployment lifecycle. Dynamic installation uses the ext store and does not modify Planner's root Composer autoloader. Discovery verifies an installed package and materializes a private, digest-addressed, read-only generation; long-running Planner workers execute only that pinned generation and reload only to discover a stable package-set change, not to merge its PHP classes into the application.
 - Planner advertises only active action capabilities. Capabilities include extension identity, selected mode and activation generation so Spinner and operators can observe what is enabled.
 - Portable plugins declare every action they may invoke through the extension protocol's `gateway.companion/v1` reverse contract. Spinner supplies the runner as a host capability; plugins never receive Planner credentials.
 - Dynamic providers default to an isolated process per invocation. Planner may select bounded `warmed` execution, which reuses one process per package revision and retires it on policy generation, invocation-count, age, idle, integrity, deadline, crash, or protocol boundaries. A multi-worker pool remains outside this contract until measurements justify it.
@@ -44,7 +44,7 @@ Gateway provides a transport-neutral Action Runner contract, a multi-provider Pl
 - [x] Store provider activation in Planner's generic `extension` configuration resource.
 - [x] Expose authenticated `/extensions` management and readiness endpoints.
 - [x] Discover and verify dynamic companion entrypoints from `ext.package/v1` releases.
-- [x] Run `php-jsonline` companions with deadlines, bounded protocol messages, a scrubbed environment, and a package-integrity check before every launch.
+- [x] Run `php-jsonline` companions with deadlines, bounded protocol messages, a scrubbed environment, and a verified content-addressed generation checked before every launch.
 - [x] Route bundled and separately hosted Spinner calls through the same companion contract.
 - [x] Support named `spinner` and `planner` entrypoints in one versioned extension package.
 - [x] Prevent double registration through separate candidate slots, explicit activation, idempotent discovery, and conflict rejection.

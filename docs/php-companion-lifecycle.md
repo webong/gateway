@@ -100,8 +100,17 @@ dynamic provider:
 when its activation generation changes, its invocation count, age, or idle
 limit is reached, or it crashes, times out, changes its protocol output, or
 fails package verification. A replacement must complete the reviewed
-descriptor handshake before it receives an invocation. Package integrity is
-checked before every call, including calls served by an existing process.
+descriptor handshake before it receives an invocation.
+
+Discovery verifies the installed package and copies it into a private,
+digest-addressed generation under Planner's cache storage. Planner makes that
+generation read-only and invokes only from it. It fully verifies the prepared
+generation before an isolated launch and before starting or replacing a
+warmed process; repeated calls already served by the same warmed process do
+not rehash the complete package tree. Changing the installed source therefore
+cannot change an active provider, and the changed source must pass normal
+package verification during the next Planner discovery before it can become a
+new generation.
 
 Choose dynamic mode when the companion is portable, does not need Laravel's
 container, and should be installed or rolled back with the extension bundle.
@@ -128,7 +137,10 @@ PHP sandbox. The dynamic boundary still narrows what is passed into the code:
 
 - Planner verifies the package manifest, declared artifacts, and hashes;
 - symbolic links and unlisted package files are rejected;
-- the package digest is checked again before each process launch;
+- verified contents are copied to a private, digest-addressed, read-only
+  generation;
+- that generation's digest is checked again before each process launch, but
+  not before every request already handled by one warmed process;
 - the process receives a scrubbed environment rather than Planner's complete
   application environment;
 - the ext handshake, protocol version, descriptor, and action name must match;

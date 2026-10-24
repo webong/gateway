@@ -146,6 +146,13 @@ deadline, crash, or protocol failure discards the child. This avoids paying PHP
 startup cost for every call without introducing a multi-worker pool or moving
 lifecycle policy into deployment environment variables.
 
+Planner never executes a dynamic companion from the mutable installation
+directory. Discovery verifies the package and materializes a private,
+digest-addressed, read-only generation. Each isolated launch and each new
+warmed process fully verifies that generation. Calls handled by an existing
+warmed process skip the full-tree hash, so integrity work is paid at a process
+lifecycle boundary rather than on every invocation.
+
 ## Invoke from Spinner
 
 Spinner extensions depend on the `companion.Runner` interface from the driver

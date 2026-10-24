@@ -9,6 +9,7 @@ use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
+use Throwable;
 use Webong\Gateway\Contracts\CompanionActionProvider;
 use Webong\Gateway\Protocols\CompanionActionCapability;
 
@@ -24,6 +25,7 @@ final readonly class ExtCompanionPackageCatalog
     public function __construct(
         private string $root,
         private int $maxRuntimeSeconds,
+        private string $generationRoot,
         private int $maxOutputBytes = 1048576,
         private string $phpBinary = PHP_BINARY,
         private ?Closure $executionPolicy = null,
@@ -60,8 +62,13 @@ final readonly class ExtCompanionPackageCatalog
             }
             [$entrypoint, $artifacts] = $this->entrypoint($manifest);
             $this->verifyPackage($directory, $manifest, $artifacts);
-            $executable = $this->securePath($directory, $artifacts[$entrypoint['artifact']]['path'], false);
             $digest = $this->directoryDigest($directory);
+            $generationDirectory = $this->prepareGeneration($directory, $digest, $manifest, $artifacts);
+            $executable = $this->securePath(
+                $generationDirectory,
+                $artifacts[$entrypoint['artifact']]['path'],
+                false,
+            );
             $warmedScope = new WarmedCompanionProcessScope;
             foreach ($actions as $action) {
                 $providers[] = new ExtProcessCompanionActionProvider(
@@ -74,13 +81,13 @@ final readonly class ExtCompanionPackageCatalog
                     ),
                     descriptor: $descriptor,
                     executable: $executable,
-                    workingDirectory: $directory,
+                    workingDirectory: $generationDirectory,
                     maxRuntimeSeconds: $this->maxRuntimeSeconds,
                     maxOutputBytes: $this->maxOutputBytes,
                     phpBinary: $this->phpBinary,
-                    verifyPackage: function () use ($directory, $digest): void {
-                        if (! hash_equals($digest, $this->directoryDigest($directory))) {
-                            throw new RuntimeException('Ext companion package changed after discovery.');
+                    verifyGeneration: function () use ($generationDirectory, $digest): void {
+                        if (! hash_equals($digest, $this->directoryDigest($generationDirectory))) {
+                            throw new RuntimeException('Prepared ext companion generation changed after verification.');
                         }
                     },
                     executionPolicy: $this->executionPolicy === null
@@ -92,6 +99,137 @@ final readonly class ExtCompanionPackageCatalog
         }
 
         return $providers;
+    }
+
+    /**
+     * @param array<string, mixed> $manifest
+     * @param array<string, array<string, mixed>> $artifacts
+     */
+    private function prepareGeneration(string $source, string $digest, array $manifest, array $artifacts): string
+    {
+        $root = $this->generationDirectory();
+        $generation = $root.DIRECTORY_SEPARATOR.$digest;
+        if (is_link($generation)) {
+            throw new RuntimeException('Prepared ext companion generation cannot be a symbolic link.');
+        }
+        if (is_dir($generation)) {
+            $this->verifyPreparedGeneration($generation, $digest);
+            $this->makeReadOnly($generation);
+
+            return $generation;
+        }
+
+        $staging = $root.DIRECTORY_SEPARATOR.'.'.$digest.'.'.bin2hex(random_bytes(8));
+        if (! mkdir($staging, 0700) && ! is_dir($staging)) {
+            throw new RuntimeException('Unable to prepare ext companion generation.');
+        }
+
+        try {
+            foreach ($this->files($source) as $relative) {
+                $sourcePath = $source.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+                if (is_link($sourcePath) || ! is_file($sourcePath)) {
+                    throw new RuntimeException('Ext package changed while preparing its generation.');
+                }
+                $destination = $staging.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+                $parent = dirname($destination);
+                if (! is_dir($parent) && ! mkdir($parent, 0700, true) && ! is_dir($parent)) {
+                    throw new RuntimeException('Unable to prepare ext companion generation directory.');
+                }
+                if (! copy($sourcePath, $destination)) {
+                    throw new RuntimeException('Unable to copy ext companion generation artifact.');
+                }
+            }
+
+            if ($this->manifest($staging) !== $manifest) {
+                throw new RuntimeException('Ext package changed while preparing its generation.');
+            }
+            $this->verifyPackage($staging, $manifest, $artifacts);
+            $this->verifyPreparedGeneration($staging, $digest);
+            if (! @rename($staging, $generation)) {
+                if (! is_dir($generation) || is_link($generation)) {
+                    throw new RuntimeException('Unable to activate ext companion generation.');
+                }
+                $this->removeDirectory($staging);
+                $this->verifyPreparedGeneration($generation, $digest);
+            } else {
+                $staging = '';
+            }
+            $this->makeReadOnly($generation);
+        } catch (Throwable $exception) {
+            if ($staging !== '' && is_dir($staging)) {
+                $this->removeDirectory($staging);
+            }
+
+            throw $exception;
+        }
+
+        return $generation;
+    }
+
+    private function generationDirectory(): string
+    {
+        $root = rtrim(trim($this->generationRoot), DIRECTORY_SEPARATOR);
+        if ($root === '') {
+            throw new RuntimeException('Ext companion generation root is required.');
+        }
+        if (is_link($root)) {
+            throw new RuntimeException('Ext companion generation root cannot be a symbolic link.');
+        }
+        if (! is_dir($root) && ! mkdir($root, 0700, true) && ! is_dir($root)) {
+            throw new RuntimeException('Unable to create ext companion generation root.');
+        }
+        $sourceRoot = realpath($this->root);
+        $generationRoot = realpath($root);
+        if ($sourceRoot !== false && $generationRoot !== false && (
+            $generationRoot === $sourceRoot
+            || str_starts_with($generationRoot, rtrim($sourceRoot, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR)
+        )) {
+            throw new RuntimeException('Ext companion generation root must be outside the package store.');
+        }
+
+        return $root;
+    }
+
+    private function verifyPreparedGeneration(string $directory, string $digest): void
+    {
+        if (! hash_equals($digest, $this->directoryDigest($directory))) {
+            throw new RuntimeException('Prepared ext companion generation failed integrity verification.');
+        }
+    }
+
+    private function makeReadOnly(string $directory): void
+    {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($iterator as $entry) {
+            if (! chmod($entry->getPathname(), $entry->isDir() ? 0555 : 0444)) {
+                throw new RuntimeException('Unable to make ext companion generation read-only.');
+            }
+        }
+        if (! chmod($directory, 0555)) {
+            throw new RuntimeException('Unable to make ext companion generation read-only.');
+        }
+    }
+
+    private function removeDirectory(string $directory): void
+    {
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($iterator as $entry) {
+            if ($entry->isDir()) {
+                @chmod($entry->getPathname(), 0700);
+                @rmdir($entry->getPathname());
+            } else {
+                @chmod($entry->getPathname(), 0600);
+                @unlink($entry->getPathname());
+            }
+        }
+        @chmod($directory, 0700);
+        @rmdir($directory);
     }
 
     /** @return array<string, mixed> */

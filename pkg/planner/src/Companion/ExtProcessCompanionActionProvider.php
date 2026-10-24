@@ -34,7 +34,7 @@ final class ExtProcessCompanionActionProvider implements CompanionActionProvider
         private readonly int $maxRuntimeSeconds,
         private readonly int $maxOutputBytes = 1048576,
         private readonly string $phpBinary = PHP_BINARY,
-        private readonly ?Closure $verifyPackage = null,
+        private readonly ?Closure $verifyGeneration = null,
         private readonly ?Closure $executionPolicy = null,
         ?WarmedCompanionProcessScope $warmedScope = null,
     ) {
@@ -66,20 +66,11 @@ final class ExtProcessCompanionActionProvider implements CompanionActionProvider
 
     public function invoke(CompanionActionInvocation $invocation): CompanionActionResult
     {
-        try {
-            if ($this->verifyPackage !== null) {
-                ($this->verifyPackage)();
-            }
-        } catch (Throwable $exception) {
-            $this->stopWarmedProcess();
-
-            throw $exception;
-        }
-
         $timeout = $this->invocationTimeout($invocation);
         $policy = $this->policy();
         if ($policy->mode === CompanionExecutionPolicy::ISOLATED) {
             $this->stopWarmedProcess();
+            $this->verifyGeneration();
 
             return $this->invokeIsolated($invocation, $timeout);
         }
@@ -153,6 +144,7 @@ final class ExtProcessCompanionActionProvider implements CompanionActionProvider
 
         try {
             if ($this->warmedScope->process === null) {
+                $this->verifyGeneration();
                 $this->warmedScope->process = new WarmedCompanionProcess(
                     $this->command(),
                     $this->workingDirectory,
@@ -197,6 +189,21 @@ final class ExtProcessCompanionActionProvider implements CompanionActionProvider
     private function stopWarmedProcess(): void
     {
         $this->warmedScope->stop();
+    }
+
+    private function verifyGeneration(): void
+    {
+        if ($this->verifyGeneration === null) {
+            return;
+        }
+
+        try {
+            ($this->verifyGeneration)();
+        } catch (Throwable $exception) {
+            $this->stopWarmedProcess();
+
+            throw $exception;
+        }
     }
 
     /** @return list<string> */
