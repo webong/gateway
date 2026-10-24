@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM php:8.4-zts-bookworm AS php-source
 FROM golang:1.26-bookworm AS go-toolchain
 
@@ -53,7 +55,9 @@ COPY . /src/gateway
 WORKDIR /src/gateway/pkg/frankenphp/cmd/router
 
 ARG GATEWAY_BUILD_TAGS
-RUN CGO_ENABLED=1 \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 \
     CGO_CFLAGS="$(php-config --includes)" \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     go build -mod=readonly -tags="nobrotli,nowatcher,nomercure,${GATEWAY_BUILD_TAGS}" \
@@ -77,9 +81,14 @@ WORKDIR /src/gateway/app
 
 # Install locked dependencies without the merge plugin's post-install update.
 # Enable it for autoload generation so extension namespaces and discovery remain.
-RUN composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \
+RUN --mount=type=cache,target=/tmp/composer-cache \
+    COMPOSER_CACHE_DIR=/tmp/composer-cache \
+        composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \
     && GATEWAY_ROUTER_DATA_DIR=/tmp/router-composer-cache \
-        composer dump-autoload --no-dev --no-interaction --optimize
+        composer dump-autoload --no-dev --no-interaction --optimize \
+    && COMPOSER_CACHE_DIR=/tmp/composer-cache \
+        composer install --working-dir=/src/gateway/pkg/hookscript/companion \
+        --no-dev --no-interaction --prefer-dist --classmap-authoritative
 
 FROM php-base
 

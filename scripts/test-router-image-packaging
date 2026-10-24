@@ -41,6 +41,11 @@ if ! grep -Fq 'GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php' "$LIBRARY_DOCKER
     exit 1
 fi
 
+if ! grep -Fxq 'opcache.enable_cli=0' "$ROOT/infra/docker/router.php.ini"; then
+    echo 'The bundled PHP CLI must not build a per-invocation OPcache for companion processes.' >&2
+    exit 1
+fi
+
 for runtime_path in app pkg vendor; do
     if ! grep -Fq "COPY --from=planner-builder /src/gateway/$runtime_path /gateway/$runtime_path" "$DOCKERFILE"; then
         echo "RoadRunner Router runtime is missing $runtime_path." >&2
@@ -67,7 +72,8 @@ php -r '
     foreach ($lock["packages"] ?? [] as $package) {
         if (($package["name"] ?? null) === "webong/gateway") {
             $autoload = $package["autoload"]["psr-4"] ?? [];
-            if (($autoload["Webong\\Gateway\\Contracts\\"] ?? null) !== "mod/adapter/src/Contract/"
+            if (($autoload["Webong\\Gateway\\Companion\\"] ?? null) !== "mod/adapter/src/Companion/"
+                || ($autoload["Webong\\Gateway\\Contracts\\"] ?? null) !== "mod/adapter/src/Contract/"
                 || ($autoload["Webong\\Gateway\\Protocols\\"] ?? null) !== "mod/adapter/src/Protocol/") {
                 fwrite(STDERR, "Locked Gateway core autoload does not match mod/adapter.\n");
                 exit(1);
@@ -87,6 +93,13 @@ php -r '
         exit(1);
     }
 ' "$ROOT"
+
+if ! grep -Fq 'composer install --working-dir=/src/gateway/pkg/hookscript/companion' "$LIBRARY_DOCKERFILE"; then
+    echo 'The FrankenPHP library Router must install the minimal HookScript companion runtime.' >&2
+    exit 1
+fi
+
+composer validate --working-dir="$ROOT/pkg/hookscript/companion" --no-check-publish --strict >/dev/null
 
 composer validate --working-dir="$ROOT/app" --no-check-publish --strict >/dev/null
 

@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+IMAGE=${GATEWAY_ROUTER_IMAGE:-gateway-router:companion-smoke}
+NAME="gateway-companion-smoke-$$"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-companion-image.XXXXXX")
+PACKAGE_ROOT="$TEMP_DIR/extensions"
+PACKAGE="$PACKAGE_ROOT/webong%2fhookscript"
+FAILED=1
+
+cleanup() {
+    docker rm -f "$NAME" >/dev/null 2>&1 || true
+    if [ "$FAILED" -eq 0 ]; then
+        rm -rf "$TEMP_DIR"
+    else
+        echo "Companion image smoke diagnostics preserved at $TEMP_DIR" >&2
+    fi
+}
+trap cleanup EXIT INT TERM
+
+for command in composer curl docker go php; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+        echo "$command is required for the companion image smoke." >&2
+        exit 1
+    fi
+done
+
+if [ "${GATEWAY_ROUTER_SKIP_BUILD:-false}" != true ]; then
+    docker build -f "$ROOT/infra/docker/Gateway.router.Dockerfile" -t "$IMAGE" "$ROOT"
+fi
+
+composer install --working-dir="$ROOT/pkg/hookscript/companion" \
+    --no-dev --no-interaction --prefer-dist --classmap-authoritative
+mkdir -p "$PACKAGE_ROOT"
+php "$ROOT/pkg/hookscript/scripts/build-ext-package" "$PACKAGE" 1.0.0 smoke-r1
+
+# The release container runs as www-data and reads this bind-mounted fixture.
+find "$PACKAGE" -type d -exec chmod 0755 {} +
+find "$PACKAGE" -type f -exec chmod 0644 {} +
+chmod 0755 "$PACKAGE/bin/companion" "$PACKAGE/bin/spinner"
+
+docker run -d --name "$NAME" \
+    -e GATEWAY_COMPANION_PLUGIN_DIR=/extensions \
+    -e GATEWAY_IMAP_ADDR= \
+    -e GATEWAY_ROUTER_LISTEN=:8080 \
+    -e GATEWAY_ROUTER_TLS_LISTEN= \
+    -v "$PACKAGE_ROOT:/extensions" \
+    -p 127.0.0.1::8080 \
+    "$IMAGE" >/dev/null
+
+PORT=$(docker inspect -f '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' "$NAME")
+BASE="http://127.0.0.1:$PORT"
+for _ in $(seq 1 120); do
+    if curl -fsS --max-time 1 "$BASE/health" >/dev/null; then
+        break
+    fi
+    if [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null || true)" != true ]; then
+        docker logs "$NAME" >"$TEMP_DIR/container.log" 2>&1 || true
+        echo 'Gateway release container exited before becoming healthy.' >&2
+        exit 1
+    fi
+    sleep 0.5
+done
+curl -fsS --max-time 2 "$BASE/health" >/dev/null
+
+REGISTRY_TOKEN=$(docker exec "$NAME" sh -c '. /data/gateway.env; printf %s "$REGISTRY_TOKEN"')
+REGISTRY_AUTH="Authorization: Bearer $REGISTRY_TOKEN"
+docker cp "$ROOT/tests/Fixtures/companion-image-request.php" "$NAME:/tmp/companion-image-request.php"
+
+companion_request() {
+    docker exec "$NAME" sh -c '
+        set -a
+        . /data/gateway.env
+        set +a
+        export APP_ENV=production DB_CONNECTION=sqlite DB_DATABASE=/data/gateway.sqlite
+        export SESSION_DRIVER=file LARAVEL_STORAGE_PATH=/data/storage
+        exec php /tmp/companion-image-request.php "$@"
+    ' sh "$@"
+}
+
+assert_advertised_mode() {
+    local expected=$1
+    companion_request capability "$expected" >"$TEMP_DIR/capabilities.json"
+}
+
+invoke_hookscript() {
+    local execution=$1
+    local expected=$2
+    companion_request invoke "$execution" "$expected" >"$TEMP_DIR/result.json"
+    php -r '
+        $result = json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR);
+        $actual = $result["output"]["outcome"]["response"]["body"] ?? null;
+        if (($result["status"] ?? null) !== "succeeded" || $actual !== $argv[2]) {
+            fwrite(STDERR, "HookScript invocation did not return the expected result.\n");
+            exit(1);
+        }
+    ' "$TEMP_DIR/result.json" "$expected"
+}
+
+assert_advertised_mode static
+invoke_hookscript static-smoke static-ok
+
+curl -fsS --max-time 5 -D "$TEMP_DIR/activation.headers" -X POST \
+    -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
+    --data '{"extension":"webong/hookscript","enabled":true,"mode":"dynamic","version":"1.0.0"}' \
+    "$BASE/extensions" >"$TEMP_DIR/activation.json"
+ACTIVATION_ID=$(php -r '$v=json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR); echo $v["id"] ?? "";' "$TEMP_DIR/activation.json")
+if [ -z "$ACTIVATION_ID" ]; then
+    echo 'Planner did not create the HookScript extension activation.' >&2
+    exit 1
+fi
+
+assert_advertised_mode dynamic
+invoke_hookscript dynamic-smoke dynamic-ok
+
+curl -fsS --max-time 5 -X PUT -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
+    -H 'If-Match: "1"' \
+    --data '{"extension":"webong/hookscript","enabled":true,"mode":"static","version":"1.0.0"}' \
+    "$BASE/extensions/$ACTIVATION_ID" >"$TEMP_DIR/static-activation.json"
+assert_advertised_mode static
+invoke_hookscript static-return-smoke static-return-ok
+
+curl -fsS --max-time 5 -X PUT -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
+    -H 'If-Match: "2"' \
+    --data '{"extension":"webong/hookscript","enabled":true,"mode":"dynamic","version":"1.0.0"}' \
+    "$BASE/extensions/$ACTIVATION_ID" >"$TEMP_DIR/dynamic-activation.json"
+assert_advertised_mode dynamic
+
+docker exec -u 0 "$NAME" sh -c \
+    "printf '\\n// smoke tamper\\n' >> /extensions/webong%2fhookscript/src/HookScriptRuntime.php"
+docker exec "$NAME" grep -F '// smoke tamper' \
+    /extensions/webong%2fhookscript/src/HookScriptRuntime.php >/dev/null
+companion_request invoke tampered-smoke must-not-run >"$TEMP_DIR/tampered-result.txt" 2>&1 || true
+if ! grep -F 'Ext package artifact [source] failed verification.' "$TEMP_DIR/tampered-result.txt" >/dev/null; then
+    echo 'Tampered dynamic companion did not fail closed.' >&2
+    exit 1
+fi
+
+FAILED=0
+echo "Gateway companion release-image smoke passed with $IMAGE."
