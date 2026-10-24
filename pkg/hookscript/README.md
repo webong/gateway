@@ -19,7 +19,8 @@ Laravel package discovery registers
 `Webong\Gateway\HookScript\HookScriptExtensionServiceProvider`. The provider
 registers the language as Spinner-executed and offers the matching static PHP
 companion action. Enable the compiled Go guest with
-`GATEWAY_AUTOMATION_ENGINES=hookscript`. Route and scheduled executions cross
+`GATEWAY_AUTOMATION_ENGINES=hookscript`. The engine advertises the public
+language ID `webhookscript`. Route and scheduled executions cross
 the declared plugin reverse-call interface; credential-source execution stays
 inside Planner to avoid a Planner-to-Spinner-to-Planner callback.
 

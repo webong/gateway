@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	Language         automation.Language = "hookscript"
+	Language         automation.Language = "webhookscript"
 	CompanionAction                      = "gateway.hookscript.execute"
 	CompanionVersion                     = "1.0.0"
 )
