@@ -135,3 +135,51 @@ it('exposes extension activation and runtime status through the authenticated Pl
         ->assertOk()
         ->assertJsonPath('revision', 1);
 });
+
+it('owns bounded warmed companion execution policy through Planner', function (): void {
+    $created = $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'example/switch-provider',
+        'mode' => 'dynamic',
+        'version' => '1.0.0',
+        'enabled' => true,
+        'execution' => [
+            'mode' => 'warmed',
+            'max_invocations' => 25,
+            'max_age_seconds' => 120,
+            'idle_timeout_seconds' => 15,
+        ],
+    ])->assertCreated()
+        ->assertJsonPath('execution.mode', 'warmed')
+        ->assertJsonPath('execution.max_invocations', 25)
+        ->assertJsonPath('execution.max_age_seconds', 120)
+        ->assertJsonPath('execution.idle_timeout_seconds', 15);
+
+    $this->withToken('registry-secret')->getJson('/extensions')
+        ->assertOk()
+        ->assertJsonFragment([
+            'extension' => 'example/switch-provider',
+            'execution' => [
+                'mode' => 'warmed',
+                'max_invocations' => 25,
+                'max_age_seconds' => 120,
+                'idle_timeout_seconds' => 15,
+            ],
+        ]);
+
+    expect(app(CompanionActionActivationStore::class)
+        ->selection('example/switch-provider')->execution->generation)->toBe(1);
+    expect($created->json('revision'))->toBe(1);
+});
+
+it('rejects invalid or static warmed companion execution policies', function (array $execution, string $mode = 'dynamic'): void {
+    $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'example/invalid-execution',
+        'mode' => $mode,
+        'execution' => $execution,
+    ])->assertUnprocessable();
+})->with([
+    'old warm spelling' => [['mode' => 'warm']],
+    'string bound' => [['mode' => 'warmed', 'max_invocations' => '10']],
+    'idle above age' => [['mode' => 'warmed', 'max_age_seconds' => 10, 'idle_timeout_seconds' => 11]],
+    'warmed static provider' => [['mode' => 'warmed'], 'static'],
+]);

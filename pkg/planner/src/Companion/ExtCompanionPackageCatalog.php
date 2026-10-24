@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Companion;
 
+use Closure;
 use FilesystemIterator;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -25,6 +26,7 @@ final readonly class ExtCompanionPackageCatalog
         private int $maxRuntimeSeconds,
         private int $maxOutputBytes = 1048576,
         private string $phpBinary = PHP_BINARY,
+        private ?Closure $executionPolicy = null,
     ) {
         if (trim($this->phpBinary) === '') {
             throw new RuntimeException('Gateway dynamic companions require a PHP CLI binary.');
@@ -60,6 +62,7 @@ final readonly class ExtCompanionPackageCatalog
             $this->verifyPackage($directory, $manifest, $artifacts);
             $executable = $this->securePath($directory, $artifacts[$entrypoint['artifact']]['path'], false);
             $digest = $this->directoryDigest($directory);
+            $warmedScope = new WarmedCompanionProcessScope;
             foreach ($actions as $action) {
                 $providers[] = new ExtProcessCompanionActionProvider(
                     extensionId: $identity['id'],
@@ -80,6 +83,10 @@ final readonly class ExtCompanionPackageCatalog
                             throw new RuntimeException('Ext companion package changed after discovery.');
                         }
                     },
+                    executionPolicy: $this->executionPolicy === null
+                        ? null
+                        : fn (): CompanionExecutionPolicy => ($this->executionPolicy)($identity['id']),
+                    warmedScope: $warmedScope,
                 );
             }
         }

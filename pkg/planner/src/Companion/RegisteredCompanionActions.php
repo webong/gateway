@@ -161,6 +161,7 @@ final class RegisteredCompanionActions implements CompanionActionRegistry
                 'mode' => $selection->mode,
                 'version' => $selection->version,
                 'digest' => $selection->digest,
+                'execution' => $selection->execution->toArray(),
                 'generation' => $selection->generation,
                 'configured' => $selection->configured,
                 'state' => $state,

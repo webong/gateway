@@ -14,5 +14,6 @@ final readonly class CompanionActionActivation
         public ?string $digest,
         public int $generation,
         public bool $configured,
+        public CompanionExecutionPolicy $execution = new CompanionExecutionPolicy,
     ) {}
 }

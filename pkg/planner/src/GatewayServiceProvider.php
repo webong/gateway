@@ -165,6 +165,10 @@ final class GatewayServiceProvider extends ServiceProvider
             maxRuntimeSeconds: max(1, (int) config('gateway.companion_actions.max_runtime_seconds', 300)),
             maxOutputBytes: max(1, (int) config('gateway.companion_actions.max_output_bytes', 1048576)),
             phpBinary: (string) config('gateway.companion_actions.php_binary', PHP_BINARY),
+            executionPolicy: fn (string $extension) => $this->app
+                ->make(CompanionActionActivationStore::class)
+                ->selection($extension)
+                ->execution,
         ));
         $this->app->singleton(CompanionActionRegistry::class, RegisteredCompanionActions::class);
         $this->app->singleton(CompanionActionExecutionStore::class);

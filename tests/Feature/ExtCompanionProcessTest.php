@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Companion\CompanionActionActivationStore;
+use Webong\Gateway\Companion\CompanionExecutionPolicy;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
 use Webong\Gateway\Companion\ExtProcessCompanionActionProvider;
 use Webong\Gateway\Contracts\CompanionActionRegistry;
@@ -35,6 +36,89 @@ function processInvocation(string $action, string $execution, array $input): Com
         companionVersion: '1.0.0',
     );
 }
+
+it('reuses one bounded warmed process and retires it when policy changes', function (): void {
+    $projectRoot = dirname(__DIR__, 2);
+    $directory = sys_get_temp_dir().'/gateway-warmed-ext-'.bin2hex(random_bytes(6));
+    mkdir($directory, 0700, true);
+    $autoload = var_export($projectRoot.'/vendor/autoload.php', true);
+    $script = <<<'PHP'
+        <?php
+        declare(strict_types=1);
+        require __AUTOLOAD__;
+        use Webong\Gateway\Companion\CompanionProcessGuest;
+        use Webong\Gateway\Contracts\CompanionAction;
+        use Webong\Gateway\Protocols\CompanionActionInvocation;
+        use Webong\Gateway\Protocols\CompanionActionResult;
+        $action = new class implements CompanionAction {
+            private int $calls = 0;
+            public function handle(CompanionActionInvocation $invocation): CompanionActionResult {
+                if ($invocation->input['crash'] ?? false) {
+                    exit(9);
+                }
+                $this->calls++;
+                return CompanionActionResult::succeeded($invocation->executionId, [
+                    'calls' => $this->calls,
+                    'pid' => getmypid(),
+                ]);
+            }
+        };
+        exit((new CompanionProcessGuest(
+            getenv('GATEWAY_EXT_ID') ?: '', getenv('GATEWAY_EXT_REVISION') ?: '', '1.0.0',
+            ['test.warmed' => $action],
+        ))->serve());
+        PHP;
+    file_put_contents($directory.'/companion.php', str_replace('__AUTOLOAD__', $autoload, $script));
+    $state = (object) ['policy' => new CompanionExecutionPolicy(
+        mode: CompanionExecutionPolicy::WARMED,
+        maxInvocations: 2,
+        generation: 1,
+    )];
+    $provider = new ExtProcessCompanionActionProvider(
+        extensionId: 'example/warmed',
+        revision: 'test-r1',
+        providedCapability: new CompanionActionCapability('test.warmed', '1.0.0'),
+        descriptor: extDescriptor('example/warmed', 'test.warmed'),
+        executable: $directory.'/companion.php',
+        workingDirectory: $directory,
+        maxRuntimeSeconds: 10,
+        executionPolicy: fn (): CompanionExecutionPolicy => $state->policy,
+    );
+
+    try {
+        $first = $provider->invoke(processInvocation('test.warmed', 'warmed-1', []))->output;
+        $second = $provider->invoke(processInvocation('test.warmed', 'warmed-2', []))->output;
+        $third = $provider->invoke(processInvocation('test.warmed', 'warmed-3', []))->output;
+
+        expect($first['calls'])->toBe(1)
+            ->and($second['calls'])->toBe(2)
+            ->and($second['pid'])->toBe($first['pid'])
+            ->and($third['calls'])->toBe(1)
+            ->and($third['pid'])->not->toBe($first['pid']);
+
+        $state->policy = new CompanionExecutionPolicy(
+            mode: CompanionExecutionPolicy::WARMED,
+            maxInvocations: 2,
+            generation: 2,
+        );
+        $reconfigured = $provider->invoke(processInvocation('test.warmed', 'warmed-4', []))->output;
+        expect($reconfigured['calls'])->toBe(1)
+            ->and($reconfigured['pid'])->not->toBe($third['pid']);
+
+        expect(fn () => $provider->invoke(processInvocation('test.warmed', 'warmed-crash', ['crash' => true])))
+            ->toThrow(RuntimeException::class, 'Gateway companion process failed.');
+        expect($provider->invoke(processInvocation('test.warmed', 'warmed-recovered', []))->output['calls'])
+            ->toBe(1);
+
+        $state->policy = new CompanionExecutionPolicy(generation: 3);
+        expect($provider->invoke(processInvocation('test.warmed', 'isolated-1', []))->output['calls'])->toBe(1)
+            ->and($provider->invoke(processInvocation('test.warmed', 'isolated-2', []))->output['calls'])->toBe(1);
+    } finally {
+        unset($provider);
+        @unlink($directory.'/companion.php');
+        @rmdir($directory);
+    }
+});
 
 it('runs the HookScript Composer companion as an ext PHP process', function (): void {
     $projectRoot = dirname(__DIR__, 2);
@@ -86,22 +170,26 @@ it('discovers a verified ext package and activates its dynamic Planner process',
         use Webong\Gateway\Protocols\CompanionActionInvocation;
         use Webong\Gateway\Protocols\CompanionActionResult;
         $action = new class implements CompanionAction {
+            private int $calls = 0;
             public function handle(CompanionActionInvocation $invocation): CompanionActionResult {
+                $this->calls++;
                 return CompanionActionResult::succeeded($invocation->executionId, [
                     'provider' => 'ext-process', 'subject' => $invocation->input['subject'] ?? null,
                     'parent_secret' => getenv('GATEWAY_TEST_PARENT_SECRET'),
+                    'calls' => $this->calls, 'pid' => getmypid(),
                 ]);
             }
         };
         $version = getenv('GATEWAY_EXT_VERSION') ?: null;
         exit((new CompanionProcessGuest(
             getenv('GATEWAY_EXT_ID') ?: '', getenv('GATEWAY_EXT_REVISION') ?: '', $version,
-            ['test.dynamic-ticket' => $action],
+            ['test.dynamic-ticket' => $action, 'test.dynamic-ticket-followup' => $action],
         ))->serve());
         PHP;
     $script = str_replace('__AUTOLOAD__', $autoload, $script);
     file_put_contents($directory.'/companion.php', $script);
     $descriptor = extDescriptor('example/dynamic-ticket', 'test.dynamic-ticket');
+    $descriptor['contracts'][0]['operations'][] = ['name' => 'test.dynamic-ticket-followup'];
     $spinnerDescriptor = [
         'apiVersion' => 'ext.plugin/v1',
         'identity' => $descriptor['identity'],
@@ -149,10 +237,18 @@ it('discovers a verified ext package and activates its dynamic Planner process',
     $_SERVER['GATEWAY_TEST_PARENT_SECRET'] = 'must-not-leak';
 
     try {
-        $providers = (new ExtCompanionPackageCatalog($root, 10))->providers();
-        expect($providers)->toHaveCount(1);
+        $providers = (new ExtCompanionPackageCatalog(
+            $root,
+            10,
+            executionPolicy: static fn (): CompanionExecutionPolicy => new CompanionExecutionPolicy(
+                mode: CompanionExecutionPolicy::WARMED,
+            ),
+        ))->providers();
+        expect($providers)->toHaveCount(2);
         $registry = app(CompanionActionRegistry::class);
-        $registry->registerProvider($providers[0]);
+        foreach ($providers as $provider) {
+            $registry->registerProvider($provider);
+        }
         app(CompanionActionActivationStore::class)->create([
             'extension' => 'example/dynamic-ticket',
             'mode' => 'dynamic',
@@ -164,12 +260,21 @@ it('discovers a verified ext package and activates its dynamic Planner process',
             'dynamic-ticket-1',
             ['subject' => 'Installed once'],
         ));
+        $followup = $registry->invoke(processInvocation(
+            'test.dynamic-ticket-followup',
+            'dynamic-ticket-followup-1',
+            ['subject' => 'Same package'],
+        ));
         expect($registry->capability('test.dynamic-ticket')?->mode)->toBe('dynamic')
             ->and($result->output)->toBe([
                 'provider' => 'ext-process',
                 'subject' => 'Installed once',
                 'parent_secret' => false,
-            ]);
+                'calls' => 1,
+                'pid' => $result->output['pid'],
+            ])
+            ->and($followup->output['calls'])->toBe(2)
+            ->and($followup->output['pid'])->toBe($result->output['pid']);
 
         file_put_contents($directory.'/companion.php', "\n// changed after discovery\n", FILE_APPEND);
         expect(fn () => $registry->invoke(processInvocation(

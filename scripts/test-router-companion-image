@@ -104,16 +104,24 @@ invoke_hookscript static-smoke static-ok
 
 curl -fsS --max-time 5 -D "$TEMP_DIR/activation.headers" -X POST \
     -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
-    --data '{"extension":"webong/hookscript","enabled":true,"mode":"dynamic","version":"1.0.0"}' \
+    --data '{"extension":"webong/hookscript","enabled":true,"mode":"dynamic","version":"1.0.0","execution":{"mode":"warmed","max_invocations":100,"max_age_seconds":300,"idle_timeout_seconds":30}}' \
     "$BASE/extensions" >"$TEMP_DIR/activation.json"
 ACTIVATION_ID=$(php -r '$v=json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR); echo $v["id"] ?? "";' "$TEMP_DIR/activation.json")
 if [ -z "$ACTIVATION_ID" ]; then
     echo 'Planner did not create the HookScript extension activation.' >&2
     exit 1
 fi
+php -r '
+    $activation = json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR);
+    if (($activation["execution"]["mode"] ?? null) !== "warmed") {
+        fwrite(STDERR, "Planner did not persist warmed companion execution.\n");
+        exit(1);
+    }
+' "$TEMP_DIR/activation.json"
 
 assert_advertised_mode dynamic
-invoke_hookscript dynamic-smoke dynamic-ok
+invoke_hookscript dynamic-warmed-smoke-1 dynamic-warmed-ok-1
+invoke_hookscript dynamic-warmed-smoke-2 dynamic-warmed-ok-2
 
 curl -fsS --max-time 5 -X PUT -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
     -H 'If-Match: "1"' \
@@ -124,7 +132,7 @@ invoke_hookscript static-return-smoke static-return-ok
 
 curl -fsS --max-time 5 -X PUT -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
     -H 'If-Match: "2"' \
-    --data '{"extension":"webong/hookscript","enabled":true,"mode":"dynamic","version":"1.0.0"}' \
+    --data '{"extension":"webong/hookscript","enabled":true,"mode":"dynamic","version":"1.0.0","execution":{"mode":"warmed","max_invocations":100,"max_age_seconds":300,"idle_timeout_seconds":30}}' \
     "$BASE/extensions/$ACTIVATION_ID" >"$TEMP_DIR/dynamic-activation.json"
 assert_advertised_mode dynamic
 
