@@ -4,7 +4,7 @@
          bootstrap="../../vendor/autoload.php"
          colors="true">
     <testsuites>
-        <testsuite name="Gateway Reverb extension">
+        <testsuite name="Gateway Reverb integration">
             <directory>tests</directory>
         </testsuite>
     </testsuites>

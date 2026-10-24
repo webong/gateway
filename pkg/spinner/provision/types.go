@@ -2,7 +2,7 @@ package provision
 
 import "github.com/webong/gateway/driver"
 
-// These aliases preserve existing host integrations while extensions depend
+// These aliases preserve existing host callers while integrations depend
 // directly on the independently versioned driver module.
 type ServerSpec = driver.ServerSpec
 type LaunchSpec = driver.LaunchSpec

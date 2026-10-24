@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OUTPUT=${1:-"$ROOT/dist/gateway-integrations"}
+VERSION=${2:-v0.0.0-local}
+case "$OUTPUT" in
+    /*) ;;
+    *) OUTPUT="$(pwd)/$OUTPUT" ;;
+esac
+if [[ -e "$OUTPUT" ]]; then
+    echo "Output already exists: $OUTPUT" >&2
+    exit 1
+fi
+mkdir -p "$(dirname -- "$OUTPUT")"
+STAGE=$(mktemp -d "${OUTPUT}.tmp.XXXXXX")
+trap 'rm -rf -- "$STAGE"' EXIT
+for integration_name in centrifugo mercure reverb; do
+    GOTELEMETRY=off go -C "$ROOT/pkg/$integration_name" build -mod=readonly -trimpath \
+        -o "$STAGE/gateway-$integration_name" ./cmd/integration
+done
+GOTELEMETRY=off GOWORK=off go -C "$ROOT/pkg/spinner" run -mod=readonly ./cmd/gateway-integration \
+    catalog --dir "$STAGE" --version "$VERSION" >/dev/null
+mv "$STAGE" "$OUTPUT"
+trap - EXIT
+echo "Gateway integrations: $OUTPUT"

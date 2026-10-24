@@ -45,17 +45,17 @@ func run(check bool) error {
 		fmt.Println("Target connection checks passed. No workloads changed.")
 		return nil
 	}
-	paths, err := provision.PluginPaths()
+	paths, err := provision.IntegrationPaths()
 	if err != nil {
 		return err
 	}
-	plugins, workloads, err := provision.LoadPlugins(paths)
+	integrations, workloads, err := provision.LoadIntegrations(paths)
 	if err != nil {
 		return err
 	}
-	defer plugins.Close()
+	defer integrations.Close()
 	if len(workloads) == 0 {
-		return fmt.Errorf("configure at least one executable in GATEWAY_EXTENSION_PATHS")
+		return fmt.Errorf("configure at least one executable in GATEWAY_INTEGRATION_PATHS")
 	}
 	runtime, err := provision.Start(config.Config, plannerURL, "", client, logging.NewLogger(os.Getenv("GATEWAY_LOG_LEVEL")), workloads...)
 	if err != nil {

@@ -601,17 +601,17 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 
 	var provisioningRuntime *provision.Runtime
 	if config.Provisioning.Enabled {
-		paths, pathErr := provision.PluginPaths()
+		paths, pathErr := provision.IntegrationPaths()
 		if pathErr != nil {
 			server.workerPool.Shutdown()
 			return pathErr
 		}
-		plugins, workloads, pluginErr := provision.LoadPlugins(paths)
-		if pluginErr != nil {
+		integrations, workloads, integrationErr := provision.LoadIntegrations(paths)
+		if integrationErr != nil {
 			server.workerPool.Shutdown()
-			return pluginErr
+			return integrationErr
 		}
-		defer plugins.Close()
+		defer integrations.Close()
 		provisioningRuntime, err = provision.Start(
 			config.Provisioning.Config,
 			config.PlannerURL,
@@ -622,7 +622,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		)
 		if err != nil {
 			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to start provisioning extension: %w", err)
+			return fmt.Errorf("failed to start provisioning integrations: %w", err)
 		}
 		defer provisioningRuntime.Stop()
 		server.SetExtensionHandler(provisioningRuntime)

@@ -227,11 +227,11 @@ func loadConfig(runtime string) (*Config, error) {
 		return nil, err
 	}
 	legacyEnabled := getEnvBool("GATEWAY_REVERB_ENABLED", false) || getEnvBool("GATEWAY_MERCURE_ENABLED", false) || getEnvBool("GATEWAY_CENTRIFUGO_ENABLED", false)
-	if (legacyEnabled || os.Getenv("GATEWAY_EXTENSION_PATHS") != "") && !provisioningConfig.Enabled {
-		return nil, fmt.Errorf("executable server extensions require GATEWAY_PROVISIONING_ENABLED")
+	if (legacyEnabled || os.Getenv("GATEWAY_INTEGRATION_PATHS") != "") && !provisioningConfig.Enabled {
+		return nil, fmt.Errorf("integrations require GATEWAY_PROVISIONING_ENABLED")
 	}
-	if legacyEnabled && os.Getenv("GATEWAY_EXTENSION_PATHS") == "" {
-		return nil, fmt.Errorf("set GATEWAY_EXTENSION_PATHS to executable workload extensions; GATEWAY_*_ENABLED alone no longer loads Go code")
+	if legacyEnabled && os.Getenv("GATEWAY_INTEGRATION_PATHS") == "" {
+		return nil, fmt.Errorf("set GATEWAY_INTEGRATION_PATHS to installed integrations; GATEWAY_*_ENABLED alone no longer loads Go code")
 	}
 
 	dnsAddress := getEnv("GATEWAY_DNS_ADDR", "")

@@ -14,21 +14,21 @@ if git show-ref --verify --quiet "refs/tags/$TAG"; then
     echo "Release tag already exists: $TAG" >&2
     exit 1
 fi
-if [[ -n "$(git status --porcelain --untracked-files=all -- lib/driver)" ]]; then
-    echo 'Commit lib/driver changes before creating a release.' >&2
+if [[ -n "$(git status --porcelain --untracked-files=all -- mod/driver)" ]]; then
+    echo 'Commit mod/driver changes before creating a release.' >&2
     exit 1
 fi
 
 SOURCE=$(git rev-parse HEAD)
-LIB_TREE=$(git rev-parse "$SOURCE:lib/driver")
-git show "$SOURCE:lib/driver/go.mod" | grep -qx 'module github.com/webong/gateway/driver'
-git cat-file -e "$SOURCE:lib/driver/LICENSE"
+DRIVER_TREE=$(git rev-parse "$SOURCE:mod/driver")
+git show "$SOURCE:mod/driver/go.mod" | grep -qx 'module github.com/webong/gateway/driver'
+git cat-file -e "$SOURCE:mod/driver/LICENSE"
 
 # GitHub resolves .../gateway/driver at driver/, even though development
-# sources live in lib/driver/. Only the release commit uses this layout.
-RELEASE_TREE=$(printf '040000 tree %s\tdriver\n' "$LIB_TREE" | git mktree)
+# sources live in mod/driver/. Only the release commit uses this layout.
+RELEASE_TREE=$(printf '040000 tree %s\tdriver\n' "$DRIVER_TREE" | git mktree)
 RELEASE_COMMIT=$(git commit-tree "$RELEASE_TREE" -p "$SOURCE" \
-    -m "Release Gateway driver $VERSION" -m "Source: $SOURCE (lib/driver)")
+    -m "Release Gateway driver $VERSION" -m "Source: $SOURCE (mod/driver)")
 git tag -a "$TAG" "$RELEASE_COMMIT" -m "Gateway driver $VERSION; source $SOURCE"
 printf 'Created %s at %s\n' "$TAG" "$RELEASE_COMMIT"
 printf 'Checkout unchanged. Publish explicitly: git push upstream refs/tags/%s\n' "$TAG"

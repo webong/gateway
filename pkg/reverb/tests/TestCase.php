@@ -9,7 +9,7 @@ use Laravel\Reverb\ReverbServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Webong\Gateway\GatewayServiceProvider;
-use Webong\Gateway\Reverb\ReverbExtensionServiceProvider;
+use Webong\Gateway\Reverb\ReverbIntegrationServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
@@ -20,7 +20,7 @@ abstract class TestCase extends Orchestra
             ApplicationManagerServiceProvider::class,
             ReverbServiceProvider::class,
             GatewayServiceProvider::class,
-            ReverbExtensionServiceProvider::class,
+            ReverbIntegrationServiceProvider::class,
         ];
     }
 

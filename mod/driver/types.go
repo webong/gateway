@@ -1,4 +1,4 @@
-// Package driver defines the shared contracts between Gateway hosts and workload extensions.
+// Package driver defines the shared contracts between Gateway hosts and integrations.
 package driver
 
 import (

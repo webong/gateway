@@ -1,4 +1,4 @@
-# Gateway Mercure extension
+# Gateway Mercure integration
 
 `webong/gateway-mercure` teaches Gateway core how to configure, launch, and
 health-check Mercure.rocks Hub servers.
@@ -63,7 +63,7 @@ Enable provisioning and provide this workload executable:
 
 ```text
 GATEWAY_PROVISIONING_ENABLED=true
-GATEWAY_EXTENSION_PATHS=/absolute/path/to/gateway-mercure
+GATEWAY_INTEGRATION_PATHS=/absolute/path/to/gateway-mercure
 GATEWAY_MERCURE_BINARY=mercure
 GATEWAY_MERCURE_WORKING_DIRECTORY=.
 GATEWAY_MERCURE_CONFIG=
@@ -77,9 +77,9 @@ GATEWAY_MERCURE_KUBERNETES_CONFIG=/etc/caddy/Caddyfile
 GATEWAY_MERCURE_KUBERNETES_CONTAINER_PORT=80
 ```
 
-Build with `go -C pkg/mercure build -mod=readonly -o ../../gateway-mercure ./cmd/plugin`
-from the repository root, or use `scripts/build-gateway-extensions`. Only
-installed executable paths appear in `GATEWAY_EXTENSION_PATHS`.
+Build with `go -C pkg/mercure build -mod=readonly -o ../../gateway-mercure ./cmd/integration`
+from the repository root, or use `scripts/build-gateway-integrations`. Only
+installed executable paths appear in `GATEWAY_INTEGRATION_PATHS`.
 
 The adapter follows the official [Mercure Hub installation](https://mercure.rocks/docs/hub/install)
 and [configuration](https://mercure.rocks/docs/hub/config) contracts.

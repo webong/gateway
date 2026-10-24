@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+for entrypoint in cmd/gateway proxy cmd/provision; do
+    if [[ "$entrypoint" == cmd/gateway ]]; then
+        dependencies=$(GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" list -mod=readonly -deps .)
+    else
+        dependencies=$(GOWORK=off go -C "$ROOT/pkg/spinner" list -mod=readonly -deps "./$entrypoint")
+    fi
+    if grep -Eq '^github\.com/webong/gateway/pkg/(centrifugo|mercure|reverb)/runtime$' <<<"$dependencies"; then
+        echo "$entrypoint imports a server workload implementation." >&2
+        exit 1
+    fi
+done
+echo 'Spinner entrypoints have no compiled Integration runtime imports.'

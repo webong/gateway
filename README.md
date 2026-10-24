@@ -70,8 +70,10 @@ The monorepo publishes separate Composer packages:
   `mod/adapter/src/`.
 - `webong/gateway-planner` contains the Laravel Planner in `src/planner/`,
   including configuration, migrations, and its service provider.
-- `webong/gateway-*` extension packages own their PHP sources, autoload rules,
-  dependencies, and Planner companion providers.
+- `webong/gateway-*` extension packages own their sources, dependencies, and
+  discovery metadata. An extension may contribute one or more Integration,
+  Automation, or Companion capabilities; those capability names describe what
+  the package provides, while Extension describes the installable package.
 
 The root development project and the bundled Router host use Composer Merge
 Plugin to discover `pkg/*/composer.json`, so extension autoload paths and
@@ -98,8 +100,8 @@ unaffected by these root archive rules.
 - `pkg/roadrunner/runtime` manages PHP workers without Spinner imports;
   `pkg/roadrunner/cmd/router` assembles its bundled deployment through `mod/router`.
 - `mod/driver` is the independent `github.com/webong/gateway/driver` Go module
-  for workload and runtime-driver contracts. See its [extension and release
-  guide](mod/driver/README.md); extension authors can use it without Spinner.
+  for workload and runtime-driver contracts. See the [integration and release
+  guide](docs/integrations.md); integration authors can use it without Spinner.
 - `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.
@@ -1248,21 +1250,21 @@ registry; its Laravel migrations remain PHP-owned.
 
 ## Managed servers
 
-Gateway core owns the complete managed-server control plane. Extensions only
+Gateway core owns the complete managed-server control plane. Integrations only
 register a server-technology provider and Go workload; core composes that with
 the selected `local`, `docker`, or `kubernetes` runtime driver.
 
 Registered **deployment targets** select an explicit remote Docker context or
 Kubernetes cluster/namespace. A target-bound `gateway-provision` worker runs
 without Spinner's public traffic listener and uses a target-scoped token.
-Workload extensions are separate executables selected with
-`GATEWAY_EXTENSION_PATHS`; Spinner loads them through the versioned
-`github.com/webong/gateway/driver/workloadplugin` protocol. Build the bundled
-Reverb, Mercure and Centrifugo executables with `scripts/build-gateway-extensions`.
-Build `bin/gateway-extension` with `make build-extension-manager` to list,
+Integrations are separate executables selected with
+`GATEWAY_INTEGRATION_PATHS`; Spinner loads them through the versioned
+`github.com/webong/gateway/driver/integration` protocol. Build the bundled
+Reverb, Mercure, and Centrifugo integrations with `scripts/build-gateway-integrations`.
+Build `bin/gateway-integration` with `make build-integration-manager` to list,
 install, and verify exact versions from the generated local or trusted HTTPS
-catalog; activation remains an explicit `GATEWAY_EXTENSION_PATHS` setting.
-See [executable extensions](docs/executable-extensions.md) for the published
+catalog; activation remains an explicit `GATEWAY_INTEGRATION_PATHS` setting.
+See [integrations](docs/integrations.md) for the published
 driver SDK, protocol, and third-party authoring example.
 See [remote provisioning](docs/provisioning-targets.md) for setup, permission
 checks, compatibility, and the remaining lifecycle/routing limitations.

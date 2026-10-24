@@ -37,6 +37,14 @@ _Avoid_: Provisioning node
 A worker that reconciles managed server workloads under Planner's assignment policy.
 _Avoid_: Spinner node
 
+**Gateway Extension**:
+An installable package that contributes one or more Integration, Automation, or Companion capabilities to Gateway.
+_Avoid_: Plugin, Integration when referring to the whole package
+
+**Integration**:
+An Extension capability that teaches Gateway how to configure and run a managed application service such as Reverb, Mercure, or Centrifugo.
+_Avoid_: Workload Plugin, Workload Extension
+
 **Delivery Admin Endpoint**:
 The private authenticated listener of a Spinner Node used to inspect and redrive deliveries.
 
@@ -69,8 +77,12 @@ The Gateway product area for authoritative name-query ingress and routing.
 **Automation**:
 Configured logic that runs in response to an incoming event or a scheduled occurrence.
 
+**Companion**:
+Trusted Planner-side behavior contributed by a Gateway Extension and invoked through a declared contract. It is deployed application code, not operator-authored Automation source.
+_Avoid_: Planner Plugin, PHP Automation
+
 **PHP Companion Action**:
-Trusted, operator-installed PHP behavior paired with a Spinner extension and invoked by a stable action name inside the Planner host. It is deployed application code, not operator-authored Automation source.
+The current PHP implementation of a Companion, invoked by a stable action name inside the Planner host.
 _Avoid_: uploaded PHP script, PHP Automation
 
 **Schedule**:

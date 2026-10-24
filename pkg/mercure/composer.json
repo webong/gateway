@@ -1,6 +1,6 @@
 {
     "name": "webong/gateway-mercure",
-    "description": "Mercure Hub workload extension for Webong Gateway",
+    "description": "Mercure Hub workload integration for Webong Gateway",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -25,7 +25,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Webong\\Gateway\\Mercure\\MercureExtensionServiceProvider"
+                "Webong\\Gateway\\Mercure\\MercureIntegrationServiceProvider"
             ]
         }
     },

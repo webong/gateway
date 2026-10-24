@@ -6,7 +6,7 @@ executes the existing Reverb, Mercure, and Centrifugo workloads there. This does
 not create cloud VMs or install Docker/Kubernetes on a bare server.
 
 The design keeps the target connection in the provisioning
-module, independent of technology extensions. Extensions still import the
+module, independent of technology integrations. Integrations still import the
 public driver contracts, not Spinner implementation code.
 
 ## Register a target
@@ -108,24 +108,24 @@ Local targets only verify Planner access at this stage. These checks do not prov
 image availability, admission-policy acceptance, or data-plane reachability;
 workload startup checks those separately.
 
-Build or install an executable extension and supply its workload settings, for example:
+Build or install an executable integration and supply its workload settings, for example:
 
 ```sh
-go -C pkg/centrifugo build -mod=readonly -o /tmp/gateway-centrifugo ./cmd/plugin
-export GATEWAY_EXTENSION_PATHS=/tmp/gateway-centrifugo
+go -C pkg/centrifugo build -mod=readonly -o /tmp/gateway-centrifugo ./cmd/integration
+export GATEWAY_INTEGRATION_PATHS=/tmp/gateway-centrifugo
 export GATEWAY_CENTRIFUGO_DOCKER_IMAGE=YOUR_PINNED_CENTRIFUGO_IMAGE
 /tmp/gateway-provision
 ```
 
 For Kubernetes use `GATEWAY_CENTRIFUGO_KUBERNETES_IMAGE` instead. See each
-extension's README for image requirements and launch settings. The dedicated
+integration's README for image requirements and launch settings. The dedicated
 worker opens no inbound network listener and does not embed PHP or QuickJS.
 Credentials need only be installed on the worker, not on the public router.
 
 ### Docker-target worker image
 
 `infra/docker/Gateway.provision.Dockerfile` packages the dedicated worker,
-the three bundled executable workload extensions, the Docker client, and SSH
+the three bundled executable workload integrations, the Docker client, and SSH
 client support. Build it from the repository root:
 
 ```sh
@@ -138,7 +138,7 @@ GATEWAY_TEST_PROVISION_WORKER_IMAGE=gateway-provision:local \
 ```
 
 Give the container a private route to Planner and a stable `GATEWAY_NODE_ID`.
-The image defaults `GATEWAY_EXTENSION_PATHS` to the three bundled executables;
+The image defaults `GATEWAY_INTEGRATION_PATHS` to the three bundled executables;
 set it explicitly to a colon-separated list of absolute paths if only a subset
 is installed. Configure the matching `GATEWAY_*_DOCKER_IMAGE` values for the
 server types this worker may run. The image contains no Docker daemon and no
@@ -184,7 +184,7 @@ docker build -f infra/docker/Gateway.provision.Dockerfile --target kubernetes \
 scripts/test-provision-worker-image REGISTRY/gateway-provision-kubernetes:TAG kubernetes
 ```
 
-The image includes `kubectl` and the three executable workload extensions,
+The image includes `kubectl` and the three executable workload integrations,
 but not Docker or a public listener. Its startup adapter writes
 `/tmp/gateway-in-cluster.kubeconfig` from the Pod's mounted ServiceAccount
 token **path** and CA path; it does not copy the token into that file. The
@@ -257,7 +257,7 @@ The worker Pod uses a read-only root filesystem with a writable `/tmp` volume.
 Workload images and any application configuration still need to be supplied
 separately. This manifest does not publish or route managed workload traffic.
 
-The image's generated kubeconfig and client/extension packaging also pass a
+The image's generated kubeconfig and client/integration packaging also pass a
 read-only-root-filesystem smoke with dummy ServiceAccount paths. Its image
 declares numeric UID/GID 10001 so Kubernetes can enforce `runAsNonRoot`.
 
@@ -376,8 +376,8 @@ if traffic proxying and provisioning are intentionally colocated.
   real PHP Planner and isolated SQLite data. A second real-Planner smoke runs
   the Centrifugo workload adapter and checks the same container's HTTP health
   before and after adoption; the same flow has also passed with Centrifugo
-  loaded as an executable extension. Equivalent local-Docker recovery tests
-  also pass with Mercure and Reverb executable extensions; the Reverb test
+  loaded as an executable integration. Equivalent local-Docker recovery tests
+  also pass with Mercure and Reverb executable integrations; the Reverb test
   verifies a managed application's WebSocket handshake before and after worker
   replacement. A disposable single-node OrbStack Kubernetes cluster has now
   verified packaged-worker Centrifugo Pod adoption after a hard container
@@ -424,13 +424,13 @@ to repeat the restart with the real Centrifugo workload adapter and a locally
 available `centrifugo/centrifugo:v6` image. It checks Centrifugo HTTP health
 before and after adoption. This test registers the adapter directly in the Go
 worker. Run
-`GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY=1 GOWORK=off go -C pkg/spinner test -mod=mod ./provision -run '^TestCentrifugoPluginRecoversWithRealPlanner$' -count=1`
-to build and load the Centrifugo executable through `GATEWAY_EXTENSION_PATHS`
+`GATEWAY_TEST_CENTRIFUGO_INTEGRATION_RECOVERY=1 GOWORK=off go -C pkg/spinner test -mod=mod ./provision -run '^TestCentrifugoIntegrationRecoversWithRealPlanner$' -count=1`
+to build and load the Centrifugo executable through `GATEWAY_INTEGRATION_PATHS`
 for both worker processes and repeat the same recovery/health assertions.
 Run
-`GATEWAY_TEST_MERCURE_PLUGIN_RECOVERY=1 GOWORK=off go -C pkg/spinner test -mod=mod ./provision -run '^TestMercurePluginRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_MERCURE_INTEGRATION_RECOVERY=1 GOWORK=off go -C pkg/spinner test -mod=mod ./provision -run '^TestMercureIntegrationRecoversWithRealPlanner$' -count=1`
 for the Mercure executable and its HTTP health endpoint. Run
-`GATEWAY_TEST_REVERB_PLUGIN_RECOVERY=1 GOWORK=off go -C pkg/spinner test -mod=mod ./provision -run '^TestReverbPluginRecoversWithRealPlanner$' -count=1`
+`GATEWAY_TEST_REVERB_INTEGRATION_RECOVERY=1 GOWORK=off go -C pkg/spinner test -mod=mod ./provision -run '^TestReverbIntegrationRecoversWithRealPlanner$' -count=1`
 to build a disposable Laravel Reverb image with an isolated Planner snapshot,
 load the Reverb executable, and verify that its managed application accepts a
 WebSocket handshake before and after adoption. Reverb requires a Docker image

@@ -30,28 +30,28 @@ func TestDockerWorkerRecoversWithRealPlanner(t *testing.T) {
 	runPlannerDockerRecovery(t, false, false, "centrifugo")
 }
 
-func TestCentrifugoPluginRecoversWithRealPlanner(t *testing.T) {
-	if os.Getenv("GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY") != "1" {
-		t.Skip("set GATEWAY_TEST_CENTRIFUGO_PLUGIN_RECOVERY=1 for executable-extension recovery")
+func TestCentrifugoIntegrationRecoversWithRealPlanner(t *testing.T) {
+	if os.Getenv("GATEWAY_TEST_CENTRIFUGO_INTEGRATION_RECOVERY") != "1" {
+		t.Skip("set GATEWAY_TEST_CENTRIFUGO_INTEGRATION_RECOVERY=1 for executable integration recovery")
 	}
 	runPlannerDockerRecovery(t, true, true, "centrifugo")
 }
 
-func TestMercurePluginRecoversWithRealPlanner(t *testing.T) {
-	if os.Getenv("GATEWAY_TEST_MERCURE_PLUGIN_RECOVERY") != "1" {
-		t.Skip("set GATEWAY_TEST_MERCURE_PLUGIN_RECOVERY=1 for Mercure executable-extension recovery")
+func TestMercureIntegrationRecoversWithRealPlanner(t *testing.T) {
+	if os.Getenv("GATEWAY_TEST_MERCURE_INTEGRATION_RECOVERY") != "1" {
+		t.Skip("set GATEWAY_TEST_MERCURE_INTEGRATION_RECOVERY=1 for Mercure executable integration recovery")
 	}
 	runPlannerDockerRecovery(t, true, true, "mercure")
 }
 
-func TestReverbPluginRecoversWithRealPlanner(t *testing.T) {
-	if os.Getenv("GATEWAY_TEST_REVERB_PLUGIN_RECOVERY") != "1" {
-		t.Skip("set GATEWAY_TEST_REVERB_PLUGIN_RECOVERY=1 for Reverb executable-extension recovery")
+func TestReverbIntegrationRecoversWithRealPlanner(t *testing.T) {
+	if os.Getenv("GATEWAY_TEST_REVERB_INTEGRATION_RECOVERY") != "1" {
+		t.Skip("set GATEWAY_TEST_REVERB_INTEGRATION_RECOVERY=1 for Reverb executable integration recovery")
 	}
 	runPlannerDockerRecovery(t, true, true, "reverb")
 }
 
-func runPlannerDockerRecovery(t *testing.T, realWorkload, pluginWorkload bool, technology string) {
+func runPlannerDockerRecovery(t *testing.T, realWorkload, integrationWorkload bool, technology string) {
 	root, err := filepath.Abs("../../..")
 	if err != nil {
 		t.Fatal(err)
@@ -78,13 +78,13 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, pluginWorkload bool, t
 	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
 	defer cancel()
 	dataDir := t.TempDir()
-	pluginPath := ""
-	if pluginWorkload {
-		pluginPath = filepath.Join(dataDir, "gateway-"+technology)
-		build := exec.CommandContext(ctx, "go", "build", "-mod=mod", "-o", pluginPath, "./cmd/plugin")
-		build.Dir = filepath.Join(root, "ext", technology)
+	integrationPath := ""
+	if integrationWorkload {
+		integrationPath = filepath.Join(dataDir, "gateway-"+technology)
+		build := exec.CommandContext(ctx, "go", "build", "-mod=mod", "-o", integrationPath, "./cmd/integration")
+		build.Dir = filepath.Join(root, "pkg", technology)
 		if output, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("build %s executable extension: %v: %s", technology, err, output)
+			t.Fatalf("build %s executable integration: %v: %s", technology, err, output)
 		}
 	}
 	database := filepath.Join(dataDir, "planner.sqlite")
@@ -110,14 +110,14 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, pluginWorkload bool, t
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
 	backendURL := "http://127.0.0.1:" + strconv.Itoa(port)
-	provider := "Webong\\Gateway\\Centrifugo\\CentrifugoExtensionServiceProvider"
+	provider := "Webong\\Gateway\\Centrifugo\\CentrifugoIntegrationServiceProvider"
 	if technology == "mercure" {
-		provider = "Webong\\Gateway\\Mercure\\MercureExtensionServiceProvider"
+		provider = "Webong\\Gateway\\Mercure\\MercureIntegrationServiceProvider"
 	} else if technology == "reverb" {
 		provider = strings.Join([]string{
 			"Laravel\\Reverb\\ApplicationManagerServiceProvider",
 			"Laravel\\Reverb\\ReverbServiceProvider",
-			"Webong\\Gateway\\Reverb\\ReverbExtensionServiceProvider",
+			"Webong\\Gateway\\Reverb\\ReverbIntegrationServiceProvider",
 			"Webong\\Gateway\\Reverb\\Tests\\Fixtures\\ReverbSmokeServiceProvider",
 		}, ",")
 	}
@@ -315,10 +315,10 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, pluginWorkload bool, t
 			"GATEWAY_TEST_WORKER_CHILD=1", "GATEWAY_TEST_REAL_PLANNER=1",
 			"GATEWAY_TEST_BACKEND="+backendURL, "GATEWAY_TEST_NODE="+nodeID,
 		)
-		if pluginWorkload {
+		if integrationWorkload {
 			workerEnv = append(workerEnv,
-				"GATEWAY_TEST_EXECUTABLE_PLUGIN=1",
-				"GATEWAY_EXTENSION_PATHS="+pluginPath,
+				"GATEWAY_TEST_EXECUTABLE_INTEGRATION=1",
+				"GATEWAY_INTEGRATION_PATHS="+integrationPath,
 			)
 			if technology == "mercure" {
 				workerEnv = append(workerEnv, "GATEWAY_MERCURE_DOCKER_IMAGE="+image)

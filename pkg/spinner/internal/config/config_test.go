@@ -681,10 +681,10 @@ func TestLoadConfigRejectsRoadRunnerRuntime(t *testing.T) {
 	}
 }
 
-func TestLoadConfigAcceptsExecutableWorkloadPaths(t *testing.T) {
+func TestLoadConfigAcceptsIntegrationPaths(t *testing.T) {
 	setConfigEnv(t, "http")
 	t.Setenv("GATEWAY_PROVISIONING_ENABLED", "true")
-	t.Setenv("GATEWAY_EXTENSION_PATHS", "/opt/gateway/extensions/mercure:/opt/gateway/extensions/centrifugo")
+	t.Setenv("GATEWAY_INTEGRATION_PATHS", "/opt/gateway/integrations/mercure:/opt/gateway/integrations/centrifugo")
 
 	config, err := LoadConfig()
 	if err != nil {

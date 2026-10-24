@@ -259,18 +259,18 @@ func runDockerRecoveryWorker(t *testing.T) {
 		StopTimeout: 3 * time.Second,
 	}
 	var workload Workload = &recoveryWorkload{port: 80, image: "nginx:alpine"}
-	var plugins *PluginSet
-	if os.Getenv("GATEWAY_TEST_EXECUTABLE_PLUGIN") == "1" {
-		paths, err := PluginPaths()
+	var integrations *IntegrationSet
+	if os.Getenv("GATEWAY_TEST_EXECUTABLE_INTEGRATION") == "1" {
+		paths, err := IntegrationPaths()
 		if err != nil {
-			t.Fatalf("read executable extension paths: %v", err)
+			t.Fatalf("read executable integration paths: %v", err)
 		}
 		var workloads []Workload
-		plugins, workloads, err = LoadPlugins(paths)
+		integrations, workloads, err = LoadIntegrations(paths)
 		if err != nil {
-			t.Fatalf("load executable extension: %v", err)
+			t.Fatalf("load executable integration: %v", err)
 		}
-		defer plugins.Close()
+		defer integrations.Close()
 		if len(workloads) != 1 {
 			t.Fatalf("expected one executable workload, got %d", len(workloads))
 		}

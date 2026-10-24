@@ -1,4 +1,4 @@
-.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-router-image-packaging test-planner-octane-servers test-driver-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-planner-octane-servers test-driver-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -14,9 +14,9 @@ build:
 		CGO_LDFLAGS="$$(php-config --ldflags 2>/dev/null) $$(php-config --libs 2>/dev/null)" \
 		go -C $(GATEWAY_HOST_DIR) build $(GOFLAGS) $(GATEWAY_TAG_FLAGS) -o $(CURDIR)/bin/gateway .
 
-build-extension-manager:
+build-integration-manager:
 	mkdir -p bin
-	GOWORK=off CGO_ENABLED=0 go -C pkg/spinner build $(GOFLAGS) -o ../../bin/gateway-extension ./cmd/gateway-extension
+	GOWORK=off CGO_ENABLED=0 go -C pkg/spinner build $(GOFLAGS) -o ../../bin/gateway-integration ./cmd/gateway-integration
 
 build-with-script-extensions:
 	$(MAKE) build
@@ -40,6 +40,7 @@ test-go:
 	$(MAKE) test-router-image-packaging
 	$(MAKE) test-go-extensions
 	$(MAKE) test-automation-extension-boundaries
+	$(MAKE) test-integration-boundaries
 	$(MAKE) test-driver-release
 
 test-go-extensions:
@@ -50,6 +51,9 @@ test-runtime-module-boundaries:
 
 test-automation-extension-boundaries:
 	bash scripts/test-automation-extension-boundaries
+
+test-integration-boundaries:
+	bash scripts/test-integration-boundaries
 
 test-router-image-packaging:
 	bash scripts/test-router-image-packaging

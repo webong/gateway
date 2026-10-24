@@ -43,8 +43,8 @@ else
     fi
 fi
 
-for extension in centrifugo mercure reverb; do
-    case "$extension" in
+for integration in centrifugo mercure reverb; do
+    case "$integration" in
         centrifugo) prefix=GATEWAY_CENTRIFUGO ;;
         mercure) prefix=GATEWAY_MERCURE ;;
         reverb) prefix=GATEWAY_REVERB ;;
@@ -57,10 +57,10 @@ for extension in centrifugo mercure reverb; do
     response=$(
         printf '{"version":1,"id":1,"method":"describe"}\n' |
             docker run --rm -i --env "$image_variable=smoke:local" \
-                --entrypoint "/usr/local/libexec/gateway/gateway-$extension" "$IMAGE"
+                --entrypoint "/usr/local/libexec/gateway/integrations/gateway-$integration" "$IMAGE"
     )
-    if [[ "$response" != *'"type":"'"$extension"'"'* || "$response" != *'"'"$MODE"'"'* ]]; then
-        echo "$extension extension did not advertise $MODE support: $response" >&2
+    if [[ "$response" != *'"type":"'"$integration"'"'* || "$response" != *'"'"$MODE"'"'* ]]; then
+        echo "$integration integration did not advertise $MODE support: $response" >&2
         exit 1
     fi
 done
@@ -81,4 +81,4 @@ if [[ "$output" != *'GATEWAY_PROVISIONING_TARGET_ID and GATEWAY_PROVISIONING_TAR
     exit 1
 fi
 
-echo "Provisioning $MODE image, CLI, and executable extension checks passed."
+echo "Provisioning $MODE image, CLI, and executable integration checks passed."
