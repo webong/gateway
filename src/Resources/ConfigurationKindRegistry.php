@@ -10,7 +10,7 @@ final class ConfigurationKindRegistry
     /** @return list<string> */
     public function all(): array
     {
-        return ['webstream.private-source', 'webstream.route-policy', 'web.event-policy',
+        return ['extension', 'webstream.private-source', 'webstream.route-policy', 'web.event-policy',
             'schedule.notification', 'shell.hook-grant', 'shell.ssh-execution', 'email.submission-policy',
             'email.runtime-policy', 'email.verification-profile', 'email.srs-policy', 'email.upstream',
             'email.hosted-adapter', 'email.hosted-route', 'email.dkim-key', 'email.domain', 'email.alias',
