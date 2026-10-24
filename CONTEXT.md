@@ -69,5 +69,9 @@ The Gateway product area for authoritative name-query ingress and routing.
 **Automation**:
 Configured logic that runs in response to an incoming event or a scheduled occurrence.
 
+**PHP Companion Action**:
+Trusted, operator-installed PHP behavior paired with a Spinner extension and invoked by a stable action name inside the Planner host. It is deployed application code, not operator-authored Automation source.
+_Avoid_: uploaded PHP script, PHP Automation
+
 **Schedule**:
 A recurring time-based trigger for an Automation.

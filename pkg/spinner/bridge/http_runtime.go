@@ -15,6 +15,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+
+	"github.com/webong/gateway/driver/companion"
 )
 
 const (
@@ -110,6 +112,7 @@ func (p *HTTPPlanner) Plan(ctx context.Context, ingress IngressRequest) (RoutePl
 // a planner endpoint and a pass-through reverse proxy.
 type HTTPRuntime struct {
 	planner     *HTTPPlanner
+	companion   companion.Runner
 	passThrough *httputil.ReverseProxy
 	transport   http.RoundTripper
 }
@@ -130,6 +133,10 @@ func NewHTTPRuntime(plannerURL string, internalToken string, maxBodySize int64, 
 	if err != nil {
 		return nil, err
 	}
+	companionActions, err := NewHTTPCompanionRunner(backend.String(), client, maxBodySize, internalToken)
+	if err != nil {
+		return nil, err
+	}
 
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	proxy.Transport = client.Transport
@@ -139,9 +146,17 @@ func NewHTTPRuntime(plannerURL string, internalToken string, maxBodySize int64, 
 
 	return &HTTPRuntime{
 		planner:     planner,
+		companion:   companionActions,
 		passThrough: proxy,
 		transport:   client.Transport,
 	}, nil
+}
+
+func (r *HTTPRuntime) CompanionActions() companion.Runner {
+	if r == nil {
+		return nil
+	}
+	return r.companion
 }
 
 func (r *HTTPRuntime) Planner() Planner {

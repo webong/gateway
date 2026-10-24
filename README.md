@@ -103,6 +103,9 @@ unaffected by these root archive rules.
 - `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.
+- Trusted extensions may register named [PHP companion actions](docs/companion-actions.md)
+  in the Planner host and invoke them from Spinner through the driver interface;
+  invocation transports data, never PHP source.
 - `pkg/spinner` is the separate `github.com/webong/gateway/pkg/spinner` Go
   module; `pkg/spinner/proxy` contains its HTTP lifecycle package.
 - `cmd/gateway` is the root-module composition executable; it installs optional

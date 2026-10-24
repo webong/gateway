@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/driver/companion"
 	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
@@ -40,6 +41,7 @@ type Router struct {
 	ShutdownTimeout         time.Duration
 	DeliveryAdminServer     *http.Server
 	Automation              automation.Executor
+	CompanionActions        companion.Runner
 
 	forwarder      *forwarding.Forwarder
 	workerPool     *workers.WorkerPool

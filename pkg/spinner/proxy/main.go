@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/driver/companion"
 	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
@@ -52,6 +53,7 @@ type Server struct {
 	automation          automation.Executor
 	automationRuntime   automation.Executor
 	automationPool      *automationexecution.Executor
+	companionActions    companion.Runner
 	scheduleRegistrar   automation.ScheduleRegistrar
 	deliveryQueue       deliveryqueue.Backend
 	deliveryAdminServer *http.Server
@@ -135,6 +137,16 @@ func (s *Server) SetExtensionHandler(handler extensionRouteHandler) {
 
 func (s *Server) SetScheduleRegistrar(registrar automation.ScheduleRegistrar) {
 	s.scheduleRegistrar = registrar
+}
+
+// SetCompanionActions exposes the Planner-owned trusted action runner to
+// Spinner extensions composed by this host.
+func (s *Server) SetCompanionActions(runner companion.Runner) {
+	s.companionActions = runner
+}
+
+func (s *Server) CompanionActions() companion.Runner {
+	return s.companionActions
 }
 
 func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
@@ -539,6 +551,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		return fmt.Errorf("failed to initialize HTTP Planner runtime: %w", err)
 	}
 	defer runtime.Close()
+	server.SetCompanionActions(runtime.CompanionActions())
 	readyURL, err := url.JoinPath(config.PlannerURL, "_internal/gateway/ready")
 	if err != nil {
 		server.workerPool.Shutdown()

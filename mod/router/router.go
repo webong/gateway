@@ -53,6 +53,11 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err := automationextensions.ConfigureShellSSHHandler(planner, spinner.InternalToken); err != nil {
 		return fmt.Errorf("configure private Shell credential resolver: %w", err)
 	}
+	companionActions, err := bridge.NewPHPCompanionRunner(planner, spinner.MaxBodySize, spinner.InternalToken)
+	if err != nil {
+		return fmt.Errorf("configure trusted PHP companion actions: %w", err)
+	}
+	spinner.CompanionActions = companionActions
 
 	httpPlanner := bridge.NewPHPPlanner(planner, spinner.MaxBodySize)
 	httpPlanner.InternalToken = spinner.InternalToken
