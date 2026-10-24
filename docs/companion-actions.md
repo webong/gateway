@@ -6,6 +6,9 @@ self-contained process installed from the same ext bundle as the Go guest.
 Spinner invokes it by action name with typed JSON data; neither the public
 Planner API nor the private invocation interface accepts PHP source.
 
+For the complete installation, activation, and cross-plane lifecycle, see
+[Static and dynamic PHP companion lifecycle](php-companion-lifecycle.md).
+
 ## Register a Planner companion
 
 The companion package owns its handler and registers it from its Laravel

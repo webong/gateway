@@ -35,3 +35,22 @@ Planner's public CMS API may select an installed extension and configure a route
 ## Consequences
 
 Gateway provides a transport-neutral Action Runner contract, a multi-provider Planner registry, generic activation state, verified ext package discovery, a PHP JSON-line guest, Spinner adapters, and a least-privilege reverse-call adapter for portable plugins. Execution records use expiring leases and encrypted results; retries after an uncertain crash are at-least-once and companion handlers remain responsible for idempotent external effects. Extension packaging keeps Go and PHP processes version-compatible without requiring Spinner's shared libraries to import a PHP runtime.
+
+## Implementation status
+
+- [x] Define a framework-free companion provider interface and versioned capability metadata.
+- [x] Adapt Composer-installed Laravel handlers as `static` candidates.
+- [x] Store provider activation in Planner's generic `extension` configuration resource.
+- [x] Expose authenticated `/extensions` management and readiness endpoints.
+- [x] Discover and verify dynamic companion entrypoints from `ext.package/v1` releases.
+- [x] Run `php-jsonline` companions with deadlines, bounded protocol messages, a scrubbed environment, and a package-integrity check before every launch.
+- [x] Route bundled and separately hosted Spinner calls through the same companion contract.
+- [x] Support named `spinner` and `planner` entrypoints in one versioned extension package.
+- [x] Prevent double registration through separate candidate slots, explicit activation, idempotent discovery, and conflict rejection.
+- [x] Convert HookScript into the first extension with interchangeable static and dynamic companions.
+- [x] Cover activation switching, absence, incompatibility, duplicate discovery, real subprocess execution, and package tampering with focused regression tests.
+- [ ] Run a release-image smoke with the complete FrankenPHP build toolchain and published package layout.
+- [ ] Revisit process pooling only if production measurements show that one PHP child per dynamic invocation is too costly.
+
+The implemented lifecycle is described in
+[Static and dynamic PHP companion lifecycle](../php-companion-lifecycle.md).
