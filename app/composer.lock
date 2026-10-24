@@ -7752,7 +7752,7 @@
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "fffa0419b7bd576a7df898fdbca9b32959e43c25"
+                "reference": "9faef387a48c5bed59e73b285cf79e03095a382f"
             },
             "require": {
                 "php": "^8.3"
@@ -7787,6 +7787,7 @@
             },
             "autoload": {
                 "psr-4": {
+                    "Webong\\Gateway\\Companion\\": "mod/adapter/src/Companion/",
                     "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contract/",
                     "Webong\\Gateway\\Protocols\\": "mod/adapter/src/Protocol/"
                 }

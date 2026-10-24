@@ -9,7 +9,7 @@ use InvalidArgumentException;
 use Webong\Gateway\Contracts\CompanionAction;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 
-/** Minimal ext.plugin/v1 JSON-line guest for self-contained PHP companions. */
+/** Framework-free ext.plugin/v1 JSON-line guest for self-contained PHP companions. */
 final readonly class CompanionProcessGuest
 {
     private const string API_VERSION = 'ext.plugin/v1';
