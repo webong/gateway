@@ -21,6 +21,18 @@ if (! class_exists(CompanionProcessGuest::class)) {
     exit(1);
 }
 
+spl_autoload_register(static function (string $class): void {
+    $prefix = 'Webong\\Gateway\\HookScript\\';
+    if (! str_starts_with($class, $prefix)) {
+        return;
+    }
+
+    $file = dirname(__DIR__).'/src/'.str_replace('\\', '/', substr($class, strlen($prefix))).'.php';
+    if (is_file($file)) {
+        require $file;
+    }
+});
+
 $extension = getenv('GATEWAY_EXT_ID') ?: '';
 $revision = getenv('GATEWAY_EXT_REVISION') ?: '';
 $version = getenv('GATEWAY_EXT_VERSION');

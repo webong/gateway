@@ -1,0 +1,27 @@
+{
+    "name": "webong/gateway-hookscript-companion-runtime",
+    "description": "Minimal runtime dependencies for the dynamic HookScript companion",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "ext-mbstring": "*",
+        "ext-pcntl": "*",
+        "php": "^8.3",
+        "smuuf/primi": "^0.4",
+        "webong/gateway": "dev-main"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../../..",
+            "options": {
+                "symlink": false
+            }
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true
+    }
+}

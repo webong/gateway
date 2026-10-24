@@ -227,10 +227,15 @@ self-contained dynamic artifact with:
 
 ```bash
 cd pkg/hookscript
-composer install --no-dev --classmap-authoritative
+composer install --working-dir=companion --no-dev --classmap-authoritative
 mkdir -p /tmp/gateway-extensions
 php scripts/build-ext-package /tmp/gateway-extensions/webong%2fhookscript 1.0.0
 ```
+
+The dynamic build uses a dedicated, framework-free Composer lock under
+`pkg/hookscript/companion`. It contains the ext protocol, HookScript runtime,
+and interpreter without copying Laravel or the Planner host into each package.
+Planner still verifies the complete installed tree before every process launch.
 
 This keeps FrankenPHP and PHP hosting details out of the Go extension while
 preserving Go-owned ingress, egress, scheduling, and outcome validation.
