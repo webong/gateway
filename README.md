@@ -148,9 +148,10 @@ supplies a Planner application, SQLite persistence, migrations, and local
 management commands. Choose embedded RoadRunner or FrankenPHP; the Docker
 image is optional. No existing Laravel application is required.
 
-Build the Go-only Spinner image from the root `Dockerfile` when Planner is
-deployed separately. Set `GATEWAY_PLANNER_URL` to its private HTTP
-address. The Go-only image contains no PHP or Planner application.
+Build the standalone Spinner image from
+`infra/docker/Gateway.spinner.Dockerfile` when Planner is deployed separately.
+Set `GATEWAY_PLANNER_URL` to its private HTTP
+address. The standalone image contains no Planner application.
 
 ## Choose a Spinner host runtime
 
@@ -563,7 +564,8 @@ itself remains a deployment decision.
 Build the Gateway router image with:
 
 ```bash
-docker build -t webong/gateway-spinner:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile \
+  -t webong/gateway-spinner:local .
 ```
 
 The image runs as an unprivileged `gateway` user and exposes the Go router's

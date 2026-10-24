@@ -5,8 +5,8 @@ For a single-service deployment such as Zorvia's Mail integration, use the
 Spinner and Planner, one private `/data` volume, HTTPS on 8443, and TLS IMAP on
 993. Planner APIs own the mailbox
 connections and policies. No separate PHP Planner or PostgreSQL service is
-needed for a single local replica. Do not point this deployment at the
-Go-only `webong/gateway:sha-545d432` image.
+needed for a single local replica. Do not point this deployment at a
+standalone Spinner image.
 
 ## Published image tags
 
@@ -61,15 +61,13 @@ uses standard Caddy and does not invoke FrankenPHP.
 ## Spinner image
 
 ```bash
-docker pull webong/gateway:sha-545d432
-# Or build the same router locally from this checkout:
-docker build -t webong/gateway:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile \
+  -t gateway-spinner:local .
 ```
 
-The published `webong/gateway` image contains the Go Spinner/router for
-`linux/amd64` and `linux/arm64`, not the PHP Planner. Pin a release tag (or its
-digest) in Compose; `latest` may move. Both processes must share a private
-network and the same `GATEWAY_INTERNAL_TOKEN`.
+The standalone Spinner image does not contain the PHP Planner application.
+Deploy both services on a private network with the same
+`GATEWAY_INTERNAL_TOKEN`.
 
 The image runs as the unprivileged `gateway` user and exposes:
 
@@ -93,7 +91,7 @@ services:
     # Do not publish this service's ports.
 
   gateway:
-    image: webong/gateway:sha-545d432
+    image: gateway-spinner:local
     environment:
       GATEWAY_RUNTIME: http
       GATEWAY_PLANNER_URL: http://planner:8080

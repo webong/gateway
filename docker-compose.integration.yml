@@ -22,7 +22,9 @@ services:
       PROXY_URL: http://gateway:5001
 
   gateway:
-    build: .
+    build:
+      context: .
+      dockerfile: infra/docker/Gateway.spinner.Dockerfile
     depends_on:
       - planner
       - relay

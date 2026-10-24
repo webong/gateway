@@ -85,6 +85,7 @@ For a container image, the Docker build supplies the PHP toolchain that the
 
 ```bash
 docker build \
+  -f infra/docker/Gateway.spinner.Dockerfile \
   --build-arg GATEWAY_BUILD_TAGS=nowatcher \
   -t gateway-with-scripts .
 ```

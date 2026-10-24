@@ -20,7 +20,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: spinner
-          # Replace with the published Go-only image for your cluster.
+          # Replace with the published standalone Spinner image for your cluster.
           image: gateway-spinner:local
           imagePullPolicy: IfNotPresent
           ports:

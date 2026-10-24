@@ -212,9 +212,9 @@ to `127.0.0.1:5052` by default and points its bundled Planner there. It
 combines the handler and optional SMTP app spools without publishing the admin
 port. See [delivery operations](deliveries.md) before overriding that address.
 
-Keep the `/data` volume when replacing the container. The Go-only Spinner
-remains available from the root `Dockerfile` for separate deployment with a
-Laravel Planner over private HTTP. The existing FrankenPHP SMTP module has
+Keep the `/data` volume when replacing the container. The standalone Spinner
+remains available from `infra/docker/Gateway.spinner.Dockerfile` for separate
+deployment with a Laravel Planner over private HTTP. The existing FrankenPHP SMTP module has
 its own configuration example in `infra/caddy/Caddyfile.frankenphp.example`.
 
 For Kubernetes, use the separate [Router and Spinner manifests](kubernetes.md).

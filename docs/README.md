@@ -16,7 +16,7 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 - [Gateway Router](router.md): run Spinner and the bundled Planner together,
   natively or in the optional FrankenPHP image.
 - [Distributed getting started](getting-started.md): install the Planner in a
-  Laravel app and run a Go-only Spinner.
+  Laravel app and run a standalone Spinner.
 - [Deployment](deployment.md): run Spinner with a private Planner and TLS.
 - [Kubernetes deployments](kubernetes.md): combined Router or separate Spinner and standalone Planner images, plus provisioning-worker manifests and opt-in Email, DNS, and TLS edge overlays.
 - [Deployment targets](provisioning-targets.md): run Docker or Kubernetes workload workers for managed realtime services.

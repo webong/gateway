@@ -1,6 +1,6 @@
 # Distributed getting started
 
-This guide deploys the Go-only Spinner with a Planner package in an existing
+This guide deploys the standalone Spinner with a Planner package in an existing
 Laravel application. For one image containing both modules, see
 [Gateway Router](router.md).
 

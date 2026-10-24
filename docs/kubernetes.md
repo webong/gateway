@@ -6,7 +6,7 @@ Email, DNS, and TLS edge overlays:
 | Configuration | Container | Planner | Persistent state |
 | --- | --- | --- | --- |
 | [`infra/kubernetes/router`](../infra/kubernetes/router) | Combined Router image from `infra/docker/Gateway.router.Dockerfile` | Bundled in-process through the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
-| [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Go-only image from the root `Dockerfile` | Separate Laravel service at `GATEWAY_PLANNER_URL` | None for the default HTTP transport |
+| [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Standalone image from `infra/docker/Gateway.spinner.Dockerfile` | Separate Laravel service at `GATEWAY_PLANNER_URL` | None for the default HTTP transport |
 | [`infra/kubernetes/planner`](../infra/kubernetes/planner) | Standalone PHP-FPM/Laravel Octane image from `infra/docker/Gateway.planner.Dockerfile`; select PHP-FPM, FrankenPHP, Swoole, or RoadRunner with `GATEWAY_PLANNER_SERVER` | Runs the Planner and registration API | External PostgreSQL; ephemeral local cache/storage |
 | [`infra/kubernetes/provision`](../infra/kubernetes/provision) | Dedicated target worker from the `kubernetes` target of `infra/docker/Gateway.provision.Dockerfile` | Separate private Planner connection | Planner target state; no local worker database |
 
@@ -44,7 +44,7 @@ prevents startup. Do not scale this SQLite configuration beyond one replica.
 
 ## Standalone Planner and Spinner
 
-The standalone Planner gives the Go-only Spinner a private HTTP backend. Both
+The standalone Planner gives the standalone Spinner a private HTTP backend. Both
 are parts of Gateway: Spinner serves public protocol traffic, while Planner
 handles registration and desired state. The Planner image serves Laravel on
 port 8080; it does not include the Go router. Run its migration Job against a
@@ -65,7 +65,7 @@ apply the migration Job once per version before the services:
 
 ```sh
 docker build -f infra/docker/Gateway.planner.Dockerfile -t REGISTRY/planner:TAG .
-docker build -f Dockerfile -t REGISTRY/spinner:TAG .
+docker build -f infra/docker/Gateway.spinner.Dockerfile -t REGISTRY/spinner:TAG .
 docker push REGISTRY/planner:TAG
 docker push REGISTRY/spinner:TAG
 kubectl create namespace gateway
@@ -99,7 +99,7 @@ management proxy in a disposable OrbStack namespace:
 
 ```sh
 docker build -f infra/docker/Gateway.planner.Dockerfile -t gateway-planner:local .
-docker build -t gateway-spinner:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile -t gateway-spinner:local .
 docker build -f infra/docker/Gateway.tls-edge.Dockerfile -t gateway-tls-edge:local .
 bash scripts/test-kubernetes-planner
 bash scripts/test-kubernetes-planner --with-dns
@@ -161,7 +161,7 @@ while Spinner is HTTP-unready; configure their exposure and health separately.
 ## Spinner alone
 
 ```sh
-docker build -f Dockerfile -t REGISTRY/spinner:TAG .
+docker build -f infra/docker/Gateway.spinner.Dockerfile -t REGISTRY/spinner:TAG .
 docker push REGISTRY/spinner:TAG
 kubectl create namespace gateway
 # Set image: REGISTRY/spinner:TAG and your Planner URL in
@@ -216,7 +216,8 @@ recipient decisions through a temporary NodePort, then repeats after one of
 two Spinner Pods is deleted:
 
 ```sh
-docker build -t gateway-email-spinner-smoke:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile \
+  -t gateway-email-spinner-smoke:local .
 docker build -f infra/docker/planner-fixture.Dockerfile \
   -t gateway-k8s-planner-smoke:local .
 bash scripts/test-kubernetes-email
@@ -281,7 +282,8 @@ A disposable OrbStack test can exercise the full local path with PostgreSQL
 and a recording SMTP relay fixture:
 
 ```sh
-docker build -t gateway-email-spinner-smoke:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile \
+  -t gateway-email-spinner-smoke:local .
 docker build -f infra/docker/planner-fixture.Dockerfile \
   -t gateway-k8s-planner-smoke:local .
 docker build -f infra/docker/email-relay-fixture.Dockerfile \
@@ -299,7 +301,7 @@ external relay policy, or public deliverability.
 ## Authoritative DNS overlay
 
 `infra/kubernetes/spinner-dns` adds Gateway's authoritative DNS listener to
-the Go-only Spinner configuration. It opens UDP and TCP port 5353 in Spinner
+the standalone Spinner configuration. It opens UDP and TCP port 5353 in Spinner
 and provides a separate `spinner-dns` Service on port 53 for both protocols.
 The Service is ClusterIP by default; applying the overlay does not expose DNS
 outside the cluster. The Planner overlay enables the DNS API and the Spinner
@@ -336,7 +338,8 @@ TCP answers through temporary NodePorts, and rechecks after a Spinner Pod is
 deleted:
 
 ```sh
-docker build -t gateway-dns-spinner-smoke:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile \
+  -t gateway-dns-spinner-smoke:local .
 docker build -f infra/docker/planner-fixture.Dockerfile \
   -t gateway-k8s-planner-smoke:local .
 bash scripts/test-kubernetes-dns

@@ -213,7 +213,8 @@ docker build -f infra/docker/Gateway.provision.Dockerfile --target kubernetes \
   -t gateway-provision-k8s-smoke:local .
 docker build -f infra/docker/planner-fixture.Dockerfile \
   -t gateway-k8s-planner-smoke:local .
-docker build -t gateway-k8s-router-smoke:local .
+docker build -f infra/docker/Gateway.spinner.Dockerfile \
+  -t gateway-k8s-router-smoke:local .
 docker build -f infra/docker/Gateway.tls-edge.Dockerfile \
   -t gateway-tls-edge:local .
 bash scripts/test-kubernetes-provisioning
