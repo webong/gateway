@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"strings"
+
 	"github.com/webong/gateway/driver/automation"
 	golang "github.com/webong/gateway/pkg/golang/runtime"
 	hookscript "github.com/webong/gateway/pkg/hookscript/runtime"
@@ -18,13 +21,16 @@ import (
 // its planner runtime, and PHP automation belongs to the standalone host.
 // HookScript remains a Go guest and reaches only its declared Planner companion.
 func registerStaticEngines() error {
-	for _, plugin := range []func() (automation.Engine, error){
+	plugins := []func() (automation.Engine, error){
 		javascript.Plugin,
 		lua.Plugin,
-		shell.Plugin,
 		golang.Plugin,
 		hookscript.Plugin,
-	} {
+	}
+	if shellEnabled() {
+		plugins = append(plugins, shell.Plugin)
+	}
+	for _, plugin := range plugins {
 		engine, err := plugin()
 		if err != nil {
 			return err
@@ -34,4 +40,13 @@ func registerStaticEngines() error {
 		}
 	}
 	return nil
+}
+
+func shellEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_SHELL_ENABLED"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
