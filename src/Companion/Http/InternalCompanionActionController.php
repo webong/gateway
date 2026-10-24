@@ -50,6 +50,10 @@ final readonly class InternalCompanionActionController
             if (! hash_equals($action, $invocation->action)) {
                 throw new InvalidArgumentException('Companion action path does not match the invocation.');
             }
+            $maxRuntime = max(1, (int) config('gateway.companion_actions.max_runtime_seconds', 300));
+            if ($invocation->deadline > now('UTC')->addSeconds($maxRuntime)->toDateTimeImmutable()) {
+                throw new InvalidArgumentException('Companion action deadline exceeds the runtime ceiling.');
+            }
             $result = $this->executions->execute($invocation);
         } catch (CompanionActionNotFound) {
             return response()->json(['message' => 'Companion action not found.'], Response::HTTP_NOT_FOUND);
