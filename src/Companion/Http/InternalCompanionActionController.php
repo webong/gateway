@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Companion\CompanionActionExecutionStore;
+use Webong\Gateway\Companion\CompanionArtifactReconciler;
 use Webong\Gateway\Companion\CompanionActionIdempotencyConflict;
 use Webong\Gateway\Companion\CompanionActionIncompatible;
 use Webong\Gateway\Companion\CompanionActionNotFound;
@@ -23,11 +24,17 @@ final readonly class InternalCompanionActionController
         private InternalRequestAuthenticator $authenticator,
         private CompanionActionRegistry $actions,
         private CompanionActionExecutionStore $executions,
+        private CompanionArtifactReconciler $artifacts,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
         $this->authenticator->authorizeOrHide($request);
+        try {
+            $this->artifacts->reconcile();
+        } catch (\RuntimeException) {
+            return response()->json(['message' => 'Companion extension artifacts are unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
 
         return response()->json([
             'protocol_version' => CompanionActionInvocation::VERSION,
@@ -41,6 +48,11 @@ final readonly class InternalCompanionActionController
     public function execute(Request $request, string $action): JsonResponse
     {
         $this->authenticator->authorizeOrHide($request);
+        try {
+            $this->artifacts->reconcile();
+        } catch (\RuntimeException) {
+            return response()->json(['message' => 'Companion extension artifacts are unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
+        }
         if (strlen($request->getContent()) > (int) config('gateway.companion_actions.max_input_bytes', 262144)) {
             return response()->json(['message' => 'Companion action invocation is too large.'], Response::HTTP_REQUEST_ENTITY_TOO_LARGE);
         }

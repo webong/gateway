@@ -64,6 +64,11 @@ final class ExtProcessCompanionActionProvider implements CompanionActionProvider
         return $this->providedCapability;
     }
 
+    public function close(): void
+    {
+        $this->stopWarmedProcess();
+    }
+
     public function invoke(CompanionActionInvocation $invocation): CompanionActionResult
     {
         $timeout = $this->invocationTimeout($invocation);

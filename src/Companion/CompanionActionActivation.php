@@ -12,6 +12,8 @@ final readonly class CompanionActionActivation
         public string $mode,
         public ?string $version,
         public ?string $digest,
+        /** @var array{url: string, sha256: string}|null */
+        public ?array $artifact,
         public int $generation,
         public bool $configured,
         public CompanionExecutionPolicy $execution = new CompanionExecutionPolicy,

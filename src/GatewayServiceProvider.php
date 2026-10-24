@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 use Webong\Gateway\Accounts\AccountStore;
@@ -12,9 +13,12 @@ use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
 use Webong\Gateway\Companion\CompanionActionActivationStore;
+use Webong\Gateway\Companion\CompanionArtifactReconciler;
 use Webong\Gateway\Companion\CompanionActionExecutionStore;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
+use Webong\Gateway\Companion\ExtensionArtifactInstaller;
 use Webong\Gateway\Companion\Http\CompanionExtensionController;
+use Webong\Gateway\Companion\Http\InternalExtensionDistributionController;
 use Webong\Gateway\Companion\Http\InternalCompanionActionController;
 use Webong\Gateway\Companion\PruneCompanionActionExecutionsCommand;
 use Webong\Gateway\Companion\RegisteredCompanionActions;
@@ -169,9 +173,15 @@ final class GatewayServiceProvider extends ServiceProvider
                 ->make(CompanionActionActivationStore::class)
                 ->selection($extension)
                 ->execution,
-            generationRoot: storage_path('framework/cache/gateway/companion-generations'),
+            generationRoot: (string) config('gateway.companion_actions.generation_root', storage_path('framework/cache/gateway/companion-generations')),
         ));
-        $this->app->singleton(CompanionActionRegistry::class, RegisteredCompanionActions::class);
+        $this->app->singleton(RegisteredCompanionActions::class);
+        $this->app->alias(RegisteredCompanionActions::class, CompanionActionRegistry::class);
+        $this->app->singleton(ExtensionArtifactInstaller::class, fn (): ExtensionArtifactInstaller => new ExtensionArtifactInstaller(
+            (string) config('gateway.companion_actions.plugin_dir', ''),
+            $this->app->make(HttpFactory::class),
+        ));
+        $this->app->singleton(CompanionArtifactReconciler::class);
         $this->app->singleton(CompanionActionExecutionStore::class);
 
         foreach (ExtensionProviderRegistry::providers() as $provider) {
@@ -409,10 +419,8 @@ final class GatewayServiceProvider extends ServiceProvider
         ], 'gateway-config');
 
         $this->app->booted(function (): void {
-            $companions = $this->app->make(CompanionActionRegistry::class);
-            foreach ($this->app->make(ExtCompanionPackageCatalog::class)->providers() as $provider) {
-                $companions->registerProvider($provider);
-            }
+            $companions = $this->app->make(RegisteredCompanionActions::class);
+            $companions->replaceDynamicProviders($this->app->make(ExtCompanionPackageCatalog::class)->providers());
 
             $this->app['router']->get('/_internal/gateway/ready', InternalReadinessController::class);
             $this->app['router']->get('/_internal/gateway/shell/executions/{execution}', ShellSshExecutionController::class);
@@ -420,6 +428,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']->get('/_internal/gateway/companion-actions', [InternalCompanionActionController::class, 'index']);
             $this->app['router']->post('/_internal/gateway/companion-actions/{action}/executions', [InternalCompanionActionController::class, 'execute']);
+            $this->app['router']->get('/_internal/gateway/extensions', InternalExtensionDistributionController::class);
             $this->app['router']->get('/_internal/gateway/dns/zones', InternalDnsZoneController::class);
             $this->app['router']->get('/_internal/gateway/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
             $this->app['router']->get('/_internal/gateway/email/hosted-adapters/{name}', InternalHostedMailAdapterController::class);
