@@ -163,6 +163,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->singleton(ExtCompanionPackageCatalog::class, fn (): ExtCompanionPackageCatalog => new ExtCompanionPackageCatalog(
             root: (string) config('gateway.companion_actions.plugin_dir', ''),
             maxRuntimeSeconds: max(1, (int) config('gateway.companion_actions.max_runtime_seconds', 300)),
+            maxOutputBytes: max(1, (int) config('gateway.companion_actions.max_output_bytes', 1048576)),
             phpBinary: (string) config('gateway.companion_actions.php_binary', PHP_BINARY),
         ));
         $this->app->singleton(CompanionActionRegistry::class, RegisteredCompanionActions::class);

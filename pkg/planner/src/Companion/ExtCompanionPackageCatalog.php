@@ -23,6 +23,7 @@ final readonly class ExtCompanionPackageCatalog
     public function __construct(
         private string $root,
         private int $maxRuntimeSeconds,
+        private int $maxOutputBytes = 1048576,
         private string $phpBinary = PHP_BINARY,
     ) {
         if (trim($this->phpBinary) === '') {
@@ -72,6 +73,7 @@ final readonly class ExtCompanionPackageCatalog
                     executable: $executable,
                     workingDirectory: $directory,
                     maxRuntimeSeconds: $this->maxRuntimeSeconds,
+                    maxOutputBytes: $this->maxOutputBytes,
                     phpBinary: $this->phpBinary,
                     verifyPackage: function () use ($directory, $digest): void {
                         if (! hash_equals($digest, $this->directoryDigest($directory))) {
