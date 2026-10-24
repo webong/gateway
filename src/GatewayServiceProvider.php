@@ -169,6 +169,7 @@ final class GatewayServiceProvider extends ServiceProvider
                 ->make(CompanionActionActivationStore::class)
                 ->selection($extension)
                 ->execution,
+            generationRoot: storage_path('framework/cache/gateway/companion-generations'),
         ));
         $this->app->singleton(CompanionActionRegistry::class, RegisteredCompanionActions::class);
         $this->app->singleton(CompanionActionExecutionStore::class);
