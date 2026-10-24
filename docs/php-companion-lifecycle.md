@@ -88,8 +88,20 @@ with `GATEWAY_COMPANION_PHP_BINARY`.
 
 Dynamic packages are self-contained. Their Composer `vendor/` tree is part of
 the reviewed artifact, and their protocol executable serves the action through
-newline-delimited JSON. The first version launches a fresh child process for
-each invocation. It does not maintain a shared worker pool.
+newline-delimited JSON. Planner supports two execution policies for a selected
+dynamic provider:
+
+- `isolated` starts a fresh process for every invocation and remains the
+  default;
+- `warmed` reuses one process for one installed package revision within a
+  Planner worker.
+
+`warmed` is deliberately not a multi-process pool. Planner retires the process
+when its activation generation changes, its invocation count, age, or idle
+limit is reached, or it crashes, times out, changes its protocol output, or
+fails package verification. A replacement must complete the reviewed
+descriptor handshake before it receives an invocation. Package integrity is
+checked before every call, including calls served by an existing process.
 
 Choose dynamic mode when the companion is portable, does not need Laravel's
 container, and should be installed or rolled back with the extension bundle.
@@ -157,9 +169,21 @@ Content-Type: application/json
   "extension": "webong/hookscript",
   "enabled": true,
   "mode": "dynamic",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "execution": {
+    "mode": "warmed",
+    "max_invocations": 100,
+    "max_age_seconds": 300,
+    "idle_timeout_seconds": 30
+  }
 }
 ```
+
+Omit `execution` to use `isolated`. The limits are desired state owned by
+Planner, not deployment environment variables. `warmed` is rejected for a
+static provider. It is most useful with a long-running Planner such as Octane;
+a short-lived PHP-FPM request cannot preserve a child beyond the lifetime of
+the PHP process that owns it.
 
 Use `GET /extensions` to inspect the desired mode, discovered candidate,
 readiness, active capabilities, and activation generation before routing work
@@ -167,13 +191,12 @@ to it.
 
 ## Current boundary
 
-The registry, activation API, package verification, dynamic PHP guest,
-Spinner reverse call, combined-package entrypoint selection, HookScript
-integration, and focused regression coverage are implemented. A production
-image smoke under the complete FrankenPHP build toolchain is still required
-before claiming release-environment proof. Process pooling is also deliberately
-deferred until dynamic-companion traffic demonstrates that per-invocation
-startup is a material cost.
+The registry, activation API, package verification, isolated and bounded
+warmed execution, dynamic PHP guest, Spinner reverse call, combined-package
+entrypoint selection, HookScript integration, and focused regression coverage
+are implemented. Multi-worker process pooling remains deliberately deferred
+until production traffic demonstrates that one warmed worker per package
+revision is insufficient.
 
 See [PHP companion actions](companion-actions.md) for the programming contract
 and [ADR 0004](adr/0004-invoke-trusted-php-companion-actions-through-planner.md)

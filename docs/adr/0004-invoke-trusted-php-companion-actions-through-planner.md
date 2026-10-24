@@ -17,6 +17,7 @@ A Gateway extension may pair its Spinner implementation with a trusted PHP Compa
 - Static installation, upgrade, rollback, and removal follow the application deployment lifecycle. Dynamic installation uses the ext store and does not modify Planner's root Composer autoloader; long-running Planner workers reload only to discover a stable package-set change, not to merge its PHP classes into the application.
 - Planner advertises only active action capabilities. Capabilities include extension identity, selected mode and activation generation so Spinner and operators can observe what is enabled.
 - Portable plugins declare every action they may invoke through the extension protocol's `gateway.companion/v1` reverse contract. Spinner supplies the runner as a host capability; plugins never receive Planner credentials.
+- Dynamic providers default to an isolated process per invocation. Planner may select bounded `warmed` execution, which reuses one process per package revision and retires it on policy generation, invocation-count, age, idle, integrity, deadline, crash, or protocol boundaries. A multi-worker pool remains outside this contract until measurements justify it.
 
 ## Trust boundary
 
@@ -49,8 +50,9 @@ Gateway provides a transport-neutral Action Runner contract, a multi-provider Pl
 - [x] Prevent double registration through separate candidate slots, explicit activation, idempotent discovery, and conflict rejection.
 - [x] Convert HookScript into the first extension with interchangeable static and dynamic companions.
 - [x] Cover activation switching, absence, incompatibility, duplicate discovery, real subprocess execution, and package tampering with focused regression tests.
-- [ ] Run a release-image smoke with the complete FrankenPHP build toolchain and published package layout.
-- [ ] Revisit process pooling only if production measurements show that one PHP child per dynamic invocation is too costly.
+- [x] Support Planner-owned isolated and bounded warmed execution without adding a multi-worker pool.
+- [x] Run a release-image smoke with the complete FrankenPHP build toolchain and published package layout.
+- [ ] Revisit multi-worker pooling only if production measurements show that one warmed worker per package revision is insufficient.
 
 The implemented lifecycle is described in
 [Static and dynamic PHP companion lifecycle](../php-companion-lifecycle.md).

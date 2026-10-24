@@ -123,7 +123,13 @@ For example:
   "enabled": true,
   "mode": "dynamic",
   "version": "1.0.0",
-  "digest": "optional-package-sha256"
+  "digest": "optional-package-sha256",
+  "execution": {
+    "mode": "warmed",
+    "max_invocations": 100,
+    "max_age_seconds": 300,
+    "idle_timeout_seconds": 30
+  }
 }
 ```
 
@@ -131,6 +137,14 @@ An extension without an activation resource retains its static candidate for
 backward compatibility. Selecting `dynamic` never silently falls back to
 `static` if the process is absent or incompatible. Repeated discovery of the
 same candidate is idempotent; different candidates for one mode are rejected.
+
+Dynamic companions default to `execution.mode: isolated`, which launches a
+fresh child for every invocation. `warmed` keeps one child per package revision
+inside a long-running Planner worker and bounds reuse by invocation count,
+absolute age, and idle time. Any policy revision, package-integrity failure,
+deadline, crash, or protocol failure discards the child. This avoids paying PHP
+startup cost for every call without introducing a multi-worker pool or moving
+lifecycle policy into deployment environment variables.
 
 ## Invoke from Spinner
 
@@ -235,7 +249,8 @@ php scripts/build-ext-package /tmp/gateway-extensions/webong%2fhookscript 1.0.0
 The dynamic build uses a dedicated, framework-free Composer lock under
 `pkg/hookscript/companion`. It contains the ext protocol, HookScript runtime,
 and interpreter without copying Laravel or the Planner host into each package.
-Planner still verifies the complete installed tree before every process launch.
+Planner still verifies the complete installed tree before every invocation,
+including invocations handled by a warmed process.
 
 This keeps FrankenPHP and PHP hosting details out of the Go extension while
 preserving Go-owned ingress, egress, scheduling, and outcome validation.
