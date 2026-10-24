@@ -12,13 +12,35 @@ fi
 
 # Official Go image tags omit a trailing patch zero (1.26.0 -> 1.26).
 IMAGE_VERSION=${WORKSPACE_VERSION%.0}
-EXPECTED="FROM golang:${IMAGE_VERSION}-bookworm AS router-builder"
+EXPECTED="FROM golang:${IMAGE_VERSION}-alpine AS router-builder"
 DOCKERFILE="$ROOT/infra/docker/RoadRunner.router.Dockerfile"
 
 if ! grep -Fx "$EXPECTED" "$DOCKERFILE" >/dev/null; then
     echo "RoadRunner Router must build with the go.work toolchain: $EXPECTED" >&2
     exit 1
 fi
+
+if ! grep -Fx 'FROM php:8.4-cli-alpine AS php-base' "$DOCKERFILE" >/dev/null; then
+    echo 'RoadRunner Router must use the Alpine PHP runtime.' >&2
+    exit 1
+fi
+
+if ! grep -Fq -- '-ldflags="-s -w"' "$DOCKERFILE"; then
+    echo 'RoadRunner Router binary must omit symbol and debug tables.' >&2
+    exit 1
+fi
+
+if grep -Fq 'COPY --from=planner-builder /src/gateway /gateway' "$DOCKERFILE"; then
+    echo 'RoadRunner Router must not copy the complete build workspace into the runtime image.' >&2
+    exit 1
+fi
+
+for runtime_path in app pkg vendor; do
+    if ! grep -Fq "COPY --from=planner-builder /src/gateway/$runtime_path /gateway/$runtime_path" "$DOCKERFILE"; then
+        echo "RoadRunner Router runtime is missing $runtime_path." >&2
+        exit 1
+    fi
+done
 
 php -r '
     $root = $argv[1];
