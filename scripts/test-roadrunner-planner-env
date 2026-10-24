@@ -33,6 +33,7 @@ GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED=true \
 GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR=selector-live \
 GATEWAY_EMAIL_MANAGED_SPF_VALUE='v=spf1 include:_spf.example.test -all' \
 GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR='App\Email\MailboxAuthenticator' \
+GATEWAY_ROUTER_PHP_WORKERS=4 \
     "$ROOT/scripts/router-start" roadrunner >/dev/null
 
 CONFIG="$TEST_DIR/router.rr.yaml"
@@ -65,6 +66,7 @@ assert_config_contains '    GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED: "true"'
 assert_config_contains '    GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR: "selector-live"'
 assert_config_contains '    GATEWAY_EMAIL_MANAGED_SPF_VALUE: "v=spf1 include:_spf.example.test -all"'
 assert_config_contains '    GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR: "App\\Email\\MailboxAuthenticator"'
+assert_config_contains '    num_workers: 4'
 
 if ! grep -Fx 'GATEWAY_EMAIL_DKIM_RESOLVER_URL=http://127.0.0.1:5053' "$TEST_DIR/runtime.env" >/dev/null; then
     echo 'Bundled Spinner is missing its private Planner DKIM resolver URL.' >&2

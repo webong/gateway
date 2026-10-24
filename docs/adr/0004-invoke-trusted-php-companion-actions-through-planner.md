@@ -17,7 +17,7 @@ A Gateway extension may pair its Spinner implementation with a trusted PHP Compa
 - Static installation, upgrade, rollback, and removal follow the application deployment lifecycle. Dynamic installation uses the ext store and does not modify Planner's root Composer autoloader. Discovery verifies an installed package and materializes a private, digest-addressed, read-only generation; long-running Planner workers execute only that pinned generation and reload only to discover a stable package-set change, not to merge its PHP classes into the application.
 - Planner advertises only active action capabilities. Capabilities include extension identity, selected mode and activation generation so Spinner and operators can observe what is enabled.
 - Portable plugins declare every action they may invoke through the extension protocol's `gateway.companion/v1` reverse contract. Spinner supplies the runner as a host capability; plugins never receive Planner credentials.
-- Dynamic providers default to an isolated process per invocation. Planner may select bounded `warmed` execution, which reuses one process per package revision and retires it on policy generation, invocation-count, age, idle, integrity, deadline, crash, or protocol boundaries. A multi-worker pool remains outside this contract until measurements justify it.
+- Dynamic providers default to an isolated process per invocation. Planner may select bounded `warmed` execution, which reuses one process per package revision and Planner worker and retires it on policy generation, invocation-count, age, idle, integrity, deadline, crash, or protocol boundaries. Deployment runtimes may provide a bounded pool of persistent Planner workers; each worker retains an independent Laravel container and companion child, and the companion contract exposes no scheduler or pool internals.
 
 ## Trust boundary
 
@@ -50,9 +50,9 @@ Gateway provides a transport-neutral Action Runner contract, a multi-provider Pl
 - [x] Prevent double registration through separate candidate slots, explicit activation, idempotent discovery, and conflict rejection.
 - [x] Convert HookScript into the first extension with interchangeable static and dynamic companions.
 - [x] Cover activation switching, absence, incompatibility, duplicate discovery, real subprocess execution, and package tampering with focused regression tests.
-- [x] Support Planner-owned isolated and bounded warmed execution without adding a multi-worker pool.
+- [x] Support Planner-owned isolated and bounded warmed execution without adding a pool to the companion provider.
 - [x] Run a release-image smoke with the complete FrankenPHP build toolchain and published package layout.
-- [ ] Revisit multi-worker pooling only if production measurements show that one warmed worker per package revision is insufficient.
+- [x] Support opt-in runtime-level pooling through `GATEWAY_ROUTER_PHP_WORKERS`, with one independently bounded warmed child per package revision and Planner worker.
 
 The implemented lifecycle is described in
 [Static and dynamic PHP companion lifecycle](../php-companion-lifecycle.md).

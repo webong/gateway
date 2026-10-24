@@ -143,8 +143,10 @@ fresh child for every invocation. `warmed` keeps one child per package revision
 inside a long-running Planner worker and bounds reuse by invocation count,
 absolute age, and idle time. Any policy revision, package-integrity failure,
 deadline, crash, or protocol failure discards the child. This avoids paying PHP
-startup cost for every call without introducing a multi-worker pool or moving
-lifecycle policy into deployment environment variables.
+startup cost for every call. A bundled Router may run multiple persistent
+Planner workers with `GATEWAY_ROUTER_PHP_WORKERS`; each worker owns one isolated
+warmed child, so concurrency does not expose a scheduler through the companion
+contract or move lifecycle policy into deployment environment variables.
 
 Planner never executes a dynamic companion from the mutable installation
 directory. Discovery verifies the package and materializes a private,

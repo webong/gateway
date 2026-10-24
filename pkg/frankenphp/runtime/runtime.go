@@ -7,15 +7,22 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dunglas/frankenphp"
 )
 
+const (
+	plannerWorkerName     = "gateway-planner"
+	plannerWorkerCountEnv = "GATEWAY_ROUTER_PHP_WORKERS"
+)
+
 // Runtime owns one process-wide FrankenPHP lifecycle and serves the Planner
 // front controller as an in-process HTTP handler.
 type Runtime struct {
-	publicDir string
+	publicDir  string
+	workerName string
 }
 
 func Start(appDir string) (*Runtime, error) {
@@ -27,10 +34,37 @@ func Start(appDir string) (*Runtime, error) {
 	if info, err := os.Stat(index); err != nil || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("Planner front controller is missing: %s", index)
 	}
-	if err := frankenphp.Init(); err != nil {
+	workerScript := filepath.Join(publicDir, "public", "frankenphp-worker.php")
+	if info, err := os.Stat(workerScript); err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("Planner FrankenPHP worker is missing: %s", workerScript)
+	}
+	workerCount, err := plannerWorkerCount()
+	if err != nil {
+		return nil, err
+	}
+	if err := frankenphp.Init(frankenphp.WithWorkers(
+		plannerWorkerName,
+		workerScript,
+		workerCount,
+		frankenphp.WithWorkerRequestOptions(
+			frankenphp.WithRequestDocumentRoot(publicDir, false),
+		),
+	)); err != nil {
 		return nil, fmt.Errorf("initialize embedded FrankenPHP: %w", err)
 	}
-	return &Runtime{publicDir: publicDir}, nil
+	return &Runtime{publicDir: publicDir, workerName: plannerWorkerName}, nil
+}
+
+func plannerWorkerCount() (int, error) {
+	raw := strings.TrimSpace(os.Getenv(plannerWorkerCountEnv))
+	if raw == "" {
+		return 1, nil
+	}
+	count, err := strconv.Atoi(raw)
+	if err != nil || count < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", plannerWorkerCountEnv)
+	}
+	return count, nil
 }
 
 func (r *Runtime) ServeHTTP(w http.ResponseWriter, request *http.Request) {
@@ -49,6 +83,7 @@ func (r *Runtime) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	prepared, err := frankenphp.NewRequestWithContext(request,
 		frankenphp.WithRequestDocumentRoot(r.publicDir, false),
 		frankenphp.WithRequestEnv(map[string]string{"REQUEST_URI": requestURI}),
+		frankenphp.WithWorkerName(r.workerName),
 	)
 	if err != nil {
 		http.Error(w, "Planner request preparation failed", http.StatusInternalServerError)

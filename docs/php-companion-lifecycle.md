@@ -96,11 +96,16 @@ dynamic provider:
 - `warmed` reuses one process for one installed package revision within a
   Planner worker.
 
-`warmed` is deliberately not a multi-process pool. Planner retires the process
-when its activation generation changes, its invocation count, age, or idle
-limit is reached, or it crashes, times out, changes its protocol output, or
-fails package verification. A replacement must complete the reviewed
-descriptor handshake before it receives an invocation.
+One Planner worker deliberately owns only one warmed child per package
+revision. Deployment runtimes provide concurrency by running multiple
+persistent Planner workers, each with an isolated Laravel container and warmed
+child. The combined Router and RoadRunner deployments set that capacity with
+`GATEWAY_ROUTER_PHP_WORKERS`: `1` disables multi-worker pooling, while values
+greater than `1` enable it. Planner retires a worker's child when its activation
+generation changes, its invocation count, age, or idle limit is reached, or it
+crashes, times out, changes its protocol output, or fails package verification.
+A replacement must complete the reviewed descriptor handshake before it
+receives an invocation.
 
 Discovery verifies the installed package and copies it into a private,
 digest-addressed generation under Planner's cache storage. Planner makes that
@@ -206,9 +211,9 @@ to it.
 The registry, activation API, package verification, isolated and bounded
 warmed execution, dynamic PHP guest, Spinner reverse call, combined-package
 entrypoint selection, HookScript integration, and focused regression coverage
-are implemented. Multi-worker process pooling remains deliberately deferred
-until production traffic demonstrates that one warmed worker per package
-revision is insufficient.
+are implemented. Runtime-level pooling is opt-in through the bundled Router's
+PHP worker count; the companion provider itself stays synchronous and exposes
+no scheduler or pool internals.
 
 See [PHP companion actions](companion-actions.md) for the programming contract
 and [ADR 0004](adr/0004-invoke-trusted-php-companion-actions-through-planner.md)
