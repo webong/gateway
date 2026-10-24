@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-/** Build a self-contained ext.package/v1 Planner companion directory. */
+/** Build a self-contained combined Spinner and Planner ext.package/v1 directory. */
 
 if ($argc < 3 || $argc > 4) {
     fwrite(STDERR, "Usage: php scripts/build-ext-package DESTINATION VERSION [REVISION]\n");
@@ -11,12 +11,19 @@ if ($argc < 3 || $argc > 4) {
 
 $source = dirname(__DIR__);
 $destination = rtrim($argv[1], DIRECTORY_SEPARATOR);
+$vendorSource = (string) (getenv('GATEWAY_HOOKSCRIPT_VENDOR_DIR') ?: $source.'/vendor');
+$identity = 'webong/hookscript';
+$installedName = str_replace('/', '%2f', $identity);
+if (basename($destination) !== $installedName) {
+    fwrite(STDERR, "Destination directory must be named {$installedName}.\n");
+    exit(2);
+}
 $version = $argv[2];
 if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
     fwrite(STDERR, "Invalid extension version.\n");
     exit(2);
 }
-if (! is_file($source.'/vendor/autoload.php')) {
+if (! is_file($vendorSource.'/autoload.php')) {
     fwrite(STDERR, "Run composer install --no-dev in pkg/hookscript before building the ext package.\n");
     exit(1);
 }
@@ -85,13 +92,31 @@ function buildTreeDigest(string $directory): string
     return hash_final($context);
 }
 
+/** @param list<string> $command */
+function runBuildCommand(array $command, string $directory): void
+{
+    $pipes = [];
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $pipes, $directory);
+    if (! is_resource($process)) {
+        failBuild('Cannot start the HookScript Spinner build.');
+    }
+    fclose($pipes[0]);
+    if (proc_close($process) !== 0) {
+        failBuild('Cannot build the HookScript Spinner guest.');
+    }
+}
+
 mkdir($destination, 0700, true) || failBuild("Cannot create {$destination}.");
 mkdir($destination.'/bin', 0700, true) || failBuild('Cannot create bin directory.');
 copy($source.'/bin/companion', $destination.'/bin/companion') || failBuild('Cannot copy companion entrypoint.');
+runBuildCommand(['go', 'build', '-trimpath', '-ldflags=-s -w', '-o', $destination.'/bin/spinner', './cmd/spinner'], $source);
 copyBuildTree($source.'/src', $destination.'/src');
-copyBuildTree($source.'/vendor', $destination.'/vendor');
+copyBuildTree($vendorSource, $destination.'/vendor');
+chmod($destination.'/bin/spinner', 0700);
+chmod($destination.'/bin/companion', 0700);
 
 $artifacts = [
+    ['name' => 'spinner-guest', 'path' => 'bin/spinner', 'sha256' => hash_file('sha256', $destination.'/bin/spinner')],
     ['name' => 'planner-companion', 'path' => 'bin/companion', 'sha256' => hash_file('sha256', $destination.'/bin/companion')],
     ['name' => 'source', 'path' => 'src', 'kind' => 'tree', 'sha256' => buildTreeDigest($destination.'/src')],
     ['name' => 'vendor', 'path' => 'vendor', 'kind' => 'tree', 'sha256' => buildTreeDigest($destination.'/vendor')],
@@ -100,24 +125,48 @@ $revision = $argv[3] ?? hash('sha256', implode("\n", array_column($artifacts, 's
 if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $revision) !== 1) {
     failBuild('Invalid extension revision.');
 }
+$packageIdentity = ['id' => $identity, 'revision' => $revision, 'version' => $version];
+$companionDescriptor = [
+    'apiVersion' => 'ext.plugin/v1',
+    'identity' => $packageIdentity,
+    'contracts' => [[
+        'name' => 'gateway.companion',
+        'version' => 'v1',
+        'operations' => [['name' => 'gateway.hookscript.execute']],
+    ]],
+];
 $manifest = [
     'apiVersion' => 'ext.package/v1',
     'descriptor' => [
         'apiVersion' => 'ext.plugin/v1',
-        'identity' => ['id' => 'webong/hookscript', 'revision' => $revision, 'version' => $version],
+        'identity' => $packageIdentity,
         'contracts' => [[
+            'name' => 'gateway.automation',
+            'version' => 'v1',
+            'operations' => [['name' => 'execute', 'surface' => 'hookscript']],
+        ]],
+        'reverse' => [[
             'name' => 'gateway.companion',
             'version' => 'v1',
             'operations' => [['name' => 'gateway.hookscript.execute']],
         ]],
     ],
+    'metadata' => ['gateway.companion/v1' => ['descriptor' => $companionDescriptor]],
     'artifacts' => $artifacts,
-    'entrypoints' => [[
-        'name' => 'planner',
-        'runtime' => 'php-jsonline',
-        'artifact' => 'planner-companion',
-        'protocols' => ['ext.plugin/v1'],
-    ]],
+    'entrypoints' => [
+        [
+            'name' => 'spinner',
+            'runtime' => 'process',
+            'artifact' => 'spinner-guest',
+            'protocols' => ['ext.plugin/v1'],
+        ],
+        [
+            'name' => 'planner',
+            'runtime' => 'php-jsonline',
+            'artifact' => 'planner-companion',
+            'protocols' => ['ext.plugin/v1'],
+        ],
+    ],
 ];
 file_put_contents(
     $destination.'/plugin.json',
