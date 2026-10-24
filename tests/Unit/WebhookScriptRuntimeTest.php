@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\HookScript\HookScriptExecutionException;
 use Webong\Gateway\HookScript\HookScriptRuntime;
+use Symfony\Component\Process\Process;
 
 function webhookScriptRequest(
     string $query = 'product=apple',
@@ -21,6 +22,34 @@ function webhookScriptRequest(
         body: $body,
     );
 }
+
+it('does not leak vendor deprecations while loading the interpreter', function (): void {
+    $autoload = dirname(__DIR__, 4).'/vendor/autoload.php';
+    $process = new Process([PHP_BINARY, '-d', 'error_reporting=-1', '-r', <<<'PHP'
+        require $argv[1];
+        set_error_handler(static function (int $severity, string $message): bool {
+            if (in_array($severity, [E_DEPRECATED, E_USER_DEPRECATED], true)) {
+                fwrite(STDERR, $message."\n");
+            }
+
+            return true;
+        });
+        $request = new Webong\Gateway\Protocols\IngressRequest(
+            deliveryId: 'delivery-1',
+            method: 'POST',
+            host: 'hooks.example.test',
+            path: '/incoming',
+            rawQuery: '',
+            headers: [],
+            body: '',
+        );
+        (new Webong\Gateway\HookScript\HookScriptRuntime)->execute("respond('ok');", $request);
+        PHP, $autoload]);
+
+    $process->mustRun();
+
+    expect($process->getErrorOutput())->toBe('');
+});
 
 it('executes Webhook.site-style Primi syntax', function (): void {
     $outcome = (new HookScriptRuntime)->execute(<<<'PRIMI'

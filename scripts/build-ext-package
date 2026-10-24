@@ -11,7 +11,7 @@ if ($argc < 3 || $argc > 4) {
 
 $source = dirname(__DIR__);
 $destination = rtrim($argv[1], DIRECTORY_SEPARATOR);
-$vendorSource = (string) (getenv('GATEWAY_HOOKSCRIPT_VENDOR_DIR') ?: $source.'/vendor');
+$vendorSource = (string) (getenv('GATEWAY_HOOKSCRIPT_VENDOR_DIR') ?: $source.'/companion/vendor');
 $identity = 'webong/hookscript';
 $installedName = str_replace('/', '%2f', $identity);
 if (basename($destination) !== $installedName) {
@@ -24,7 +24,7 @@ if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
     exit(2);
 }
 if (! is_file($vendorSource.'/autoload.php')) {
-    fwrite(STDERR, "Run composer install --no-dev in pkg/hookscript before building the ext package.\n");
+    fwrite(STDERR, "Run composer install --no-dev in pkg/hookscript/companion before building the ext package.\n");
     exit(1);
 }
 if (file_exists($destination)) {
