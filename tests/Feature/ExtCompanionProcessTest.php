@@ -9,6 +9,7 @@ use Webong\Gateway\Contracts\CompanionActionRegistry;
 use Webong\Gateway\Protocols\CompanionActionCapability;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 use Webong\Gateway\Protocols\CompanionActionResult;
+use Symfony\Component\Process\Process;
 
 function extDescriptor(string $id, string $action, string $revision = 'test-r1'): array
 {
@@ -215,5 +216,41 @@ it('rejects a modified ext companion artifact before registration', function ():
         @unlink($directory.'/companion.php');
         @rmdir($directory);
         @rmdir($root);
+    }
+});
+
+it('builds a combined HookScript package that Planner verifies', function (): void {
+    $projectRoot = dirname(__DIR__, 2);
+    $root = sys_get_temp_dir().'/gateway-built-ext-'.bin2hex(random_bytes(6));
+    $vendor = $root.'/fixture-vendor';
+    $destination = $root.'/store/webong%2fhookscript';
+    mkdir($vendor, 0700, true);
+    file_put_contents($vendor.'/autoload.php', "<?php\n");
+    $build = new Process(
+        [PHP_BINARY, $projectRoot.'/pkg/hookscript/scripts/build-ext-package', $destination, '1.0.0', 'test-builder-r1'],
+        $projectRoot.'/pkg/hookscript',
+        ['GATEWAY_HOOKSCRIPT_VENDOR_DIR' => $vendor],
+        timeout: 120,
+    );
+
+    try {
+        $build->mustRun();
+        $manifest = json_decode((string) file_get_contents($destination.'/plugin.json'), true, 128, JSON_THROW_ON_ERROR);
+        expect(array_column($manifest['entrypoints'], 'name'))->toBe(['spinner', 'planner'])
+            ->and($manifest['descriptor']['contracts'][0]['name'])->toBe('gateway.automation')
+            ->and($manifest['metadata']['gateway.companion/v1']['descriptor']['contracts'][0]['name'])
+            ->toBe('gateway.companion')
+            ->and((new ExtCompanionPackageCatalog($root.'/store', 10))->providers())->toHaveCount(1);
+    } finally {
+        if (is_dir($root)) {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST,
+            );
+            foreach ($iterator as $entry) {
+                $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+            }
+            @rmdir($root);
+        }
     }
 });

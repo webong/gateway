@@ -228,7 +228,8 @@ self-contained dynamic artifact with:
 ```bash
 cd pkg/hookscript
 composer install --no-dev --classmap-authoritative
-php scripts/build-ext-package /tmp/webong-hookscript 1.0.0
+mkdir -p /tmp/gateway-extensions
+php scripts/build-ext-package /tmp/gateway-extensions/webong%2fhookscript 1.0.0
 ```
 
 This keeps FrankenPHP and PHP hosting details out of the Go extension while

@@ -142,7 +142,8 @@ Build a local dynamic package with:
 ```bash
 cd pkg/hookscript
 composer install --no-dev --classmap-authoritative
-php scripts/build-ext-package /tmp/webong-hookscript 1.0.0
+mkdir -p /tmp/gateway-extensions
+php scripts/build-ext-package /tmp/gateway-extensions/webong%2fhookscript 1.0.0
 ```
 
 After installing that directory in the configured ext store, enable it through
