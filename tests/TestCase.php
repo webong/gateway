@@ -7,13 +7,13 @@ namespace Webong\Gateway\Mercure\Tests;
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Webong\Gateway\GatewayServiceProvider;
-use Webong\Gateway\Mercure\MercureExtensionServiceProvider;
+use Webong\Gateway\Mercure\MercureIntegrationServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
     protected function getPackageProviders($app): array
     {
-        return [GatewayServiceProvider::class, MercureExtensionServiceProvider::class];
+        return [GatewayServiceProvider::class, MercureIntegrationServiceProvider::class];
     }
 
     protected function defineEnvironment($app): void

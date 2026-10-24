@@ -8,7 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Mercure\ServerTypes\MercureServerType;
 use Webong\Gateway\Servers\ServerTypeRegistry;
 
-final class MercureExtensionServiceProvider extends ServiceProvider
+final class MercureIntegrationServiceProvider extends ServiceProvider
 {
     public function register(): void
     {

@@ -3,6 +3,6 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Contracts\ExtensionProviderRegistry;
-use Webong\Gateway\Mercure\MercureExtensionServiceProvider;
+use Webong\Gateway\Mercure\MercureIntegrationServiceProvider;
 
-ExtensionProviderRegistry::register(MercureExtensionServiceProvider::class);
+ExtensionProviderRegistry::register(MercureIntegrationServiceProvider::class);
