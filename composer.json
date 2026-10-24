@@ -1,6 +1,6 @@
 {
     "name": "webong/gateway-centrifugo",
-    "description": "Centrifugo workload extension for Webong Gateway",
+    "description": "Centrifugo workload integration for Webong Gateway",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -25,7 +25,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Webong\\Gateway\\Centrifugo\\CentrifugoExtensionServiceProvider"
+                "Webong\\Gateway\\Centrifugo\\CentrifugoIntegrationServiceProvider"
             ]
         }
     },

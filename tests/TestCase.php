@@ -6,14 +6,14 @@ namespace Webong\Gateway\Centrifugo\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
-use Webong\Gateway\Centrifugo\CentrifugoExtensionServiceProvider;
+use Webong\Gateway\Centrifugo\CentrifugoIntegrationServiceProvider;
 use Webong\Gateway\GatewayServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
     protected function getPackageProviders($app): array
     {
-        return [GatewayServiceProvider::class, CentrifugoExtensionServiceProvider::class];
+        return [GatewayServiceProvider::class, CentrifugoIntegrationServiceProvider::class];
     }
 
     protected function defineEnvironment($app): void

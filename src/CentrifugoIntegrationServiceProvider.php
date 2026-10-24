@@ -8,7 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Centrifugo\ServerTypes\CentrifugoServerType;
 use Webong\Gateway\Servers\ServerTypeRegistry;
 
-final class CentrifugoExtensionServiceProvider extends ServiceProvider
+final class CentrifugoIntegrationServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
