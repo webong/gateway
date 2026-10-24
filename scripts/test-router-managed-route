@@ -19,7 +19,8 @@ trap cleanup EXIT
 docker network create "$NETWORK" >/dev/null
 docker volume create "$VOLUME" >/dev/null
 docker run -d --name "$BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp \
-    --entrypoint php "$IMAGE" -S 0.0.0.0:9090 /gateway/tests/Fixtures/managed-route-container-backend.php >/dev/null
+    --mount "type=bind,source=$PWD/tests/Fixtures,target=/fixtures,readonly" \
+    --entrypoint php "$IMAGE" -S 0.0.0.0:9090 /fixtures/managed-route-container-backend.php >/dev/null
 BACKEND_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$BACKEND")
 if [[ ! "$BACKEND_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Could not resolve the managed backend's Docker IPv4 address." >&2
@@ -29,7 +30,7 @@ fi
 docker run -d --name "$WEBSOCKET_BACKEND" --network "$NETWORK" --read-only --tmpfs /tmp:exec \
     -e GOCACHE=/tmp/gocache \
     --mount "type=bind,source=$PWD/tools/managed-route-websocket-fixture/main.go,target=/fixture.go,readonly" \
-    --entrypoint go golang:1.24-bookworm run /fixture.go server >/dev/null
+    --entrypoint go golang:1.26-alpine run /fixture.go server >/dev/null
 WEBSOCKET_IP=$(docker inspect -f "{{(index .NetworkSettings.Networks \"$NETWORK\").IPAddress}}" "$WEBSOCKET_BACKEND")
 if [[ ! "$WEBSOCKET_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Could not resolve the WebSocket backend's Docker IPv4 address." >&2
@@ -38,6 +39,8 @@ fi
 
 docker run -d --name "$ROUTER" --network "$NETWORK" --read-only --tmpfs /tmp \
     -p 127.0.0.1::8080 --mount "type=volume,source=$VOLUME,target=/data" \
+    --mount "type=bind,source=$PWD/tests/Fixtures,target=/fixtures,readonly" \
+    -e GATEWAY_ROUTER_LISTEN=0.0.0.0:8080 \
     -e GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED=true \
     -e "GATEWAY_PROVISIONING_ROUTE_CIDRS=$BACKEND_IP/32,$WEBSOCKET_IP/32" "$IMAGE" >/dev/null
 ADDRESS=$(docker port "$ROUTER" 8080/tcp)
@@ -77,14 +80,14 @@ for ((attempt=0; attempt<60; attempt++)); do
     sleep 1
 done
 
-docker exec "$ROUTER" php /gateway/tests/Fixtures/managed-route-container-seed.php "$BACKEND_IP" "$WEBSOCKET_IP"
+docker exec "$ROUTER" php /fixtures/managed-route-container-seed.php "$BACKEND_IP" "$WEBSOCKET_IP"
 RESULT=$(curl --max-time 5 -sS -i -X POST -H 'Host: managed.example.test' \
     "http://$ADDRESS/managed/event?source=container")
 if [[ "$RESULT" != *'201 Created'* || "$RESULT" != *'X-Gateway-Managed-Smoke: reached'* || "$RESULT" != *'POST /managed/event?source=container'* ]]; then
     printf 'Managed backend was not reached through the packaged Router:\n%s\n' "$RESULT" >&2
     exit 1
 fi
-GOTELEMETRY=off go run -mod=mod tools/managed-route-websocket-fixture/main.go client "$ADDRESS"
+GOTELEMETRY=off GOWORK=off go run -mod=mod tools/managed-route-websocket-fixture/main.go client "$ADDRESS"
 PRIVATE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
     "http://$ADDRESS/_internal/provisioning/routes/resolve?hostname=managed.example.test&path=%2Fmanaged")
 if [[ "$PRIVATE_STATUS" != 404 ]]; then
