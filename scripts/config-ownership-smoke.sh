@@ -74,7 +74,7 @@ done
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/pkg/spinner/cmd/gateway"
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
 
 mkdir -p "$HOOKS_DIR/github"
 cat > "$HOOKS_DIR/github/deploy" <<'HOOK'

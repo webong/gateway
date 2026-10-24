@@ -55,9 +55,9 @@ fi
 
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/pkg/spinner/cmd/gateway"
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
 go -C "$ROOT/pkg/roadrunner/cmd/router" build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RR_BIN" .
-go build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" "$ROOT/tools/websocket-smoke"
+GOWORK=off go -C "$ROOT/tools" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./websocket-smoke
 
 (
 	cd "$APP_PATH"

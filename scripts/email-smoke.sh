@@ -56,9 +56,9 @@ fi
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build "$GO_BUILD_FLAGS" -o "$GO_BIN" "$ROOT/pkg/spinner/cmd/gateway"
-go build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" "$ROOT/tools/smtp-smoke"
-go build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/tools/email-relay-smoke"
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GO_BIN" .
+GOWORK=off go -C "$ROOT/tools" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./smtp-smoke
+GOWORK=off go -C "$ROOT/tools" build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" ./email-relay-smoke
 
 (
     cd "$APP_PATH"

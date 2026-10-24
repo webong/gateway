@@ -766,10 +766,10 @@ retention window and backup policy that match your obligations.
 Local operators can inspect and export an item without a public API:
 
 ```sh
-go run -mod=mod ./pkg/spinner/cmd/email-quarantine list -path /var/mod/gateway/email-quarantine
-go run -mod=mod ./pkg/spinner/cmd/email-quarantine show -path /var/mod/gateway/email-quarantine -id ID
-go run -mod=mod ./pkg/spinner/cmd/email-quarantine export -path /var/mod/gateway/email-quarantine -id ID -output /absolute/review.eml
-go run -mod=mod ./pkg/spinner/cmd/email-quarantine delete -path /var/mod/gateway/email-quarantine -id ID
+GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine list -path /var/mod/gateway/email-quarantine
+GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine show -path /var/mod/gateway/email-quarantine -id ID
+GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine export -path /var/mod/gateway/email-quarantine -id ID -output /absolute/review.eml
+GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine delete -path /var/mod/gateway/email-quarantine -id ID
 ```
 
 There is no automatic release, spam verdict, or tenant-facing quarantine.
@@ -785,7 +785,7 @@ then run:
 ```sh
 docker run --rm -d --name gateway-clamd-test -p 127.0.0.1:13310:3310 clamav/clamav-debian:stable
 docker inspect --format '{{.State.Health.Status}}' gateway-clamd-test
-GATEWAY_TEST_CLAMD_ADDR=127.0.0.1:13310 go test -mod=mod ./pkg/spinner/bridge/smtp -run 'TestClamdScannerAgainstRealService|TestSMTPRealClamdQuarantine' -count=1 -v
+GATEWAY_TEST_CLAMD_ADDR=127.0.0.1:13310 GOWORK=off go -C pkg/spinner test -mod=mod ./bridge/smtp -run 'TestClamdScannerAgainstRealService|TestSMTPRealClamdQuarantine' -count=1 -v
 docker stop gateway-clamd-test
 ```
 

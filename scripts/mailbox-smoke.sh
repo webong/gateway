@@ -29,12 +29,12 @@ pop3_addr="$(docker port "$pop3_id" 31995/tcp)"
 GATEWAY_TEST_IMAP_UPSTREAM_ADDR="$imap_addr" \
 GATEWAY_TEST_IMAP_CA_FILE="${temp_dir}/imap-ca.pem" \
 GATEWAY_TEST_IMAP_UPSTREAM_PASSWORD="$smoke_password" \
-  go test -mod=mod -count=1 -run '^TestExternalIMAPInteroperability$' ./pkg/spinner/bridge/imap
+  go -C pkg/spinner test -mod=mod -count=1 -run '^TestExternalIMAPInteroperability$' ./bridge/imap
 
 GATEWAY_TEST_POP3_UPSTREAM_ADDR="$pop3_addr" \
 GATEWAY_TEST_POP3_CA_FILE="${temp_dir}/pop3-ca.pem" \
 GATEWAY_TEST_POP3_UPSTREAM_PASSWORD="$smoke_password" \
-  go test -mod=mod -count=1 -run '^TestExternalPOP3Interoperability$' ./pkg/spinner/bridge/pop3
+  go -C pkg/spinner test -mod=mod -count=1 -run '^TestExternalPOP3Interoperability$' ./bridge/pop3
 
 GATEWAY_TEST_IMAP_UPSTREAM_ADDR="$imap_addr" \
 GATEWAY_TEST_IMAP_CA_FILE="${temp_dir}/imap-ca.pem" \

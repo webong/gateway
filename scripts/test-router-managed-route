@@ -87,7 +87,7 @@ if [[ "$RESULT" != *'201 Created'* || "$RESULT" != *'X-Gateway-Managed-Smoke: re
     printf 'Managed backend was not reached through the packaged Router:\n%s\n' "$RESULT" >&2
     exit 1
 fi
-GOTELEMETRY=off GOWORK=off go run -mod=mod tools/managed-route-websocket-fixture/main.go client "$ADDRESS"
+GOTELEMETRY=off GOWORK=off go -C tools run -mod=mod ./managed-route-websocket-fixture client "$ADDRESS"
 PRIVATE_STATUS=$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' -H 'Host: managed.example.test' \
     "http://$ADDRESS/_internal/provisioning/routes/resolve?hostname=managed.example.test&path=%2Fmanaged")
 if [[ "$PRIVATE_STATUS" != 404 ]]; then

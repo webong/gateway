@@ -76,7 +76,7 @@ parent-zone authoritative server. Check the delegation and query each node
 directly over both transports:
 
 ```sh
-go run -mod=mod ./tools/dns-delegation-check \
+GOWORK=off go -C tools run -mod=mod ./dns-delegation-check \
   -zone hooks.example.com \
   -parent PARENT_NS_IP \
   -parent-zone example.com \

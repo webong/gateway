@@ -1,7 +1,7 @@
 /.rr.yaml
 /vendor/
 /bin/
+/dns-delegation-fixture
 /.gateway-router-data/
 /dist/
-/pkg/roadrunner/cmd/router/router
 .DS_Store

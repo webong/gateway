@@ -17,7 +17,15 @@ require (
 	github.com/webong/gateway/pkg/spinner v0.0.0
 )
 
-require ergo.services/ergo v1.999.330 // indirect
+require (
+	ergo.services/ergo v1.999.330 // indirect
+	github.com/buke/quickjs-go v0.7.7 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
+)
 
 replace github.com/webong/gateway/driver => ../../mod/driver
 

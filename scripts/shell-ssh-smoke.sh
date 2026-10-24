@@ -73,7 +73,7 @@ done
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/pkg/spinner/cmd/gateway"
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
 go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
 
 # --- Disposable forced-command OpenSSH server ------------------------------

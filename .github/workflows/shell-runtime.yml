@@ -8,8 +8,13 @@ on:
       - 'mod/driver/**'
       - 'pkg/spinner/bridge/**'
       - 'pkg/spinner/extensions/automation/**'
-      - 'go.mod'
-      - 'go.sum'
+      - 'tools/spinner/**'
+      - 'pkg/shell/go.mod'
+      - 'pkg/shell/go.sum'
+      - 'pkg/spinner/go.mod'
+      - 'pkg/spinner/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
   pull_request:
     paths:
       - '.github/workflows/shell-runtime.yml'
@@ -17,8 +22,13 @@ on:
       - 'mod/driver/**'
       - 'pkg/spinner/bridge/**'
       - 'pkg/spinner/extensions/automation/**'
-      - 'go.mod'
-      - 'go.sum'
+      - 'tools/spinner/**'
+      - 'pkg/shell/go.mod'
+      - 'pkg/shell/go.sum'
+      - 'pkg/spinner/go.mod'
+      - 'pkg/spinner/go.sum'
+      - 'go.work'
+      - 'go.work.sum'
 
 jobs:
   powershell:
@@ -30,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: tools/spinner/go.mod
           cache: true
       - name: Verify PowerShell is installed
         shell: pwsh
@@ -38,7 +48,7 @@ jobs:
           $command = Get-Command pwsh -ErrorAction Stop
           Write-Host "PowerShell executable: $($command.Source)"
       - name: Test shell runtime with PowerShell
-        run: go test -mod=mod -count=1 ./pkg/shell/runtime
+        run: GOWORK=off go -C pkg/shell test -mod=readonly -count=1 ./runtime
       - name: Test Shell bridge behavior
         if: runner.os == 'Linux'
-        run: go test -mod=mod -count=1 ./pkg/spinner/bridge -run 'TestRoutePlanAllowsOnlyGeneratedShellNotifications|TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput|TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion|TestEdgeStreamsPlannerSelectedShellHook'
+        run: GOWORK=off go -C tools/spinner test -mod=readonly -count=1 ./bridge -run 'TestRoutePlanAllowsOnlyGeneratedShellNotifications|TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput|TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion|TestEdgeStreamsPlannerSelectedShellHook'

@@ -110,7 +110,7 @@ if [[ "$php_internal_status" != "404" ]]; then
 fi
 
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" "$ROOT/pkg/spinner/cmd/gateway"
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags=gateway_smoke "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
 
 GATEWAY_RUNTIME=http \
 GATEWAY_PLANNER_URL="$PHP_URL" \
@@ -403,7 +403,7 @@ if [[ "$benchmark_requests" =~ ^[1-9][0-9]*$ ]]; then
     benchmark_concurrency="${GATEWAY_HTTP_BENCHMARK_CONCURRENCY:-20}"
     (
         cd "$ROOT"
-        go run -mod=mod ./tools/benchmark \
+        GOWORK=off go -C "$ROOT/tools" run -mod=mod ./benchmark \
             -url "$RELAY_URL/http-smoke/registry-ingress" \
             -requests "$benchmark_requests" \
             -concurrency "$benchmark_concurrency" \

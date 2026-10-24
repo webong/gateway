@@ -232,7 +232,7 @@ Laravel `RoutePlanner` implementations.
 
 ### RoadRunner configuration
 
-Copy `.rr.yaml.example` to `.rr.yaml` and set the PHP worker command. Use the
+Copy `infra/roadrunner/Gateway.router.rr.yaml.example` to `.rr.yaml` and set the PHP worker command. Use the
 Laravel worker executable (`vendor/bin/roadrunner-worker`), not
 `artisan octane:start`; the latter starts a separate RoadRunner process and
 would create a second front door. The configuration must enable the custom

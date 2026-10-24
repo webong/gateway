@@ -54,9 +54,9 @@ fi
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build "$GO_BUILD_FLAGS" -o "$GO_BIN" "$ROOT/pkg/spinner/cmd/gateway"
-go build "$GO_BUILD_FLAGS" -o "$CHECK_BIN" "$ROOT/tools/dns-delegation-check"
-go build "$GO_BUILD_FLAGS" -o "$DELEGATION_BIN" "$ROOT/tools/dns-delegation-fixture"
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GO_BIN" .
+GOWORK=off go -C "$ROOT/tools" build "$GO_BUILD_FLAGS" -o "$CHECK_BIN" ./dns-delegation-check
+GOWORK=off go -C "$ROOT/tools" build "$GO_BUILD_FLAGS" -o "$DELEGATION_BIN" ./dns-delegation-fixture
 
 (
     cd "$APP_PATH"
