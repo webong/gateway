@@ -14,6 +14,7 @@ fi
 IMAGE_VERSION=${WORKSPACE_VERSION%.0}
 EXPECTED="FROM golang:${IMAGE_VERSION}-alpine AS router-builder"
 DOCKERFILE="$ROOT/infra/docker/RoadRunner.router.Dockerfile"
+LIBRARY_DOCKERFILE="$ROOT/infra/docker/Gateway.router.Dockerfile"
 
 if ! grep -Fx "$EXPECTED" "$DOCKERFILE" >/dev/null; then
     echo "RoadRunner Router must build with the go.work toolchain: $EXPECTED" >&2
@@ -32,6 +33,11 @@ fi
 
 if grep -Fq 'COPY --from=planner-builder /src/gateway /gateway' "$DOCKERFILE"; then
     echo 'RoadRunner Router must not copy the complete build workspace into the runtime image.' >&2
+    exit 1
+fi
+
+if ! grep -Fq 'GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php' "$LIBRARY_DOCKERFILE"; then
+    echo 'The FrankenPHP library Router must name its bundled PHP CLI for dynamic companions.' >&2
     exit 1
 fi
 

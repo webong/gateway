@@ -92,6 +92,7 @@ ENV GATEWAY_ROUTER_DATA_DIR=/data \
     GATEWAY_ROUTER_TLS_LISTEN=:8443 \
     GATEWAY_ROUTER_TLS_NAME=gateway \
     GATEWAY_IMAP_ADDR=:993 \
+    GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php \
     GATEWAY_ROUTER_LIBRARY_BIN=/usr/local/bin/gateway-router-library
 RUN mkdir -p /data/cache /data/storage/framework/cache/data \
     /data/storage/framework/sessions /data/storage/framework/views \
