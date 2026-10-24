@@ -9,7 +9,6 @@ import (
 	plugin_hookscript "github.com/webong/gateway/pkg/hookscript/runtime"
 	plugin_javascript "github.com/webong/gateway/pkg/javascript/runtime"
 	plugin_lua "github.com/webong/gateway/pkg/lua/runtime"
-	plugin_php "github.com/webong/gateway/pkg/php/runtime"
 	plugin_shell "github.com/webong/gateway/pkg/shell/runtime"
 )
 
@@ -19,6 +18,5 @@ var staticPlugins = map[string]func() (automation.Engine, error){
 	"hookscript": plugin_hookscript.Plugin,
 	"javascript": plugin_javascript.Plugin,
 	"lua": plugin_lua.Plugin,
-	"php": plugin_php.Plugin,
 	"shell": plugin_shell.Plugin,
 }

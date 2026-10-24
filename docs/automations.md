@@ -94,20 +94,18 @@ for a third-party Spinner extension that has not shipped a Planner companion.
 It registers the listed languages as Spinner-executed route and schedule
 capabilities, but Spinner must still advertise the engine at runtime.
 
-For a container image, the Docker build supplies the PHP toolchain that the
-standalone `php` guest needs. HookScript itself no longer embeds a PHP runtime
-in Go. Pass optional FrankenPHP build tags with
-`GATEWAY_BUILD_TAGS` (they no longer select automation engines):
+The standard Spinner image contains no PHP runtime. HookScript invokes its
+trusted PHP companion in Planner, while JavaScript, Lua, Shell, and Go execute
+through their installed Spinner guests. A custom composition root may add
+other engines and their runtime dependencies explicitly:
 
 ```bash
 docker build \
   -f infra/docker/Gateway.spinner.Dockerfile \
-  --build-arg GATEWAY_BUILD_TAGS=nowatcher \
   -t gateway-with-scripts .
 ```
 
-The same tags work with direct `go build` commands and the FrankenPHP image
-build. A valid route plan whose language is not installed fails closed with
+A valid route plan whose language is not installed fails closed with
 HTTP 502; Gateway never falls back to evaluating source in another runtime.
 Laravel selects the language and source in its `RoutePlan`; the installed Go
 extension owns compilation, execution limits, and its script capability

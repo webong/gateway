@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CADDY_IMAGE=${1:-gateway-frankenphp:module-test}
+CADDY_IMAGE=${1:?Usage: scripts/test-caddy-managed-route CADDY_IMAGE [PLANNER_FIXTURE_IMAGE]}
 PLANNER_IMAGE=${2:-gateway-planner-fixture:local}
 SUFFIX="$$-$RANDOM"
 NETWORK="gateway-caddy-route-$SUFFIX"

@@ -1474,12 +1474,10 @@ over TCP, and checks cross-zone rejection and recorded query history. It uses
 `dig` and a temporary SQLite database; it does not prove public delegation or
 redundant nameserver operation.
 
-Verify the Caddy module and, when Docker is available, build a FrankenPHP
-image containing Gateway's HTTP, SMTP, POP3, and IMAP modules:
+Verify the optional Caddy integration module:
 
 ```bash
 make test-frankenphp
-GATEWAY_FRANKENPHP_BUILD=1 make test-frankenphp
 ```
 
 Set `GATEWAY_OCTANE_APP_PATH` when testing an application-owned Laravel host

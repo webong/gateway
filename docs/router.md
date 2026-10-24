@@ -242,8 +242,8 @@ those instance IPs are reachable, and give workloads dedicated hostnames.
 See [deployment targets](provisioning-targets.md#route-managed-workloads-from-a-separate-spinner)
 for the routing and security constraints. The packaged RoadRunner and
 FrankenPHP-library Routers have a multi-container managed HTTP/WebSocket smoke.
-The custom FrankenPHP/Caddy module has a separate-Caddy-and-Planner fixture
-smoke, but not a single-image managed-route deployment check.
+The optional FrankenPHP/Caddy integration can be tested against a separately
+hosted Planner, but Gateway does not publish a dedicated image for it.
 
 ### RoadRunner Docker image
 
@@ -301,7 +301,7 @@ mail delivery.
 Choose either Router image for a deployment; do not run both against the same
 SQLite volume concurrently. The existing single-replica Kubernetes Router
 configuration can use this image by changing its image reference. The default
-Docker image definition remains the FrankenPHP variant.
+Docker image definition remains the neutral combined Router image.
 
 Run `bash scripts/test-roadrunner-container gateway-router:roadrunner-local`
 to check health, non-root execution, private-route isolation, management CLI,
@@ -312,11 +312,10 @@ and echoed message, private-route isolation, destination allowlisting, and
 stale-instance fail-closed behavior. This requires Docker and a local Go
 toolchain. The same script accepts the FrankenPHP-library Router image. It
 deletes its temporary containers, network, and volume.
-For the custom Caddy module, build `infra/docker/FrankenPHP.gateway.Dockerfile`
-and `infra/docker/planner-fixture.Dockerfile`, then run
-`bash scripts/test-caddy-managed-route CADDY_IMAGE PLANNER_FIXTURE_IMAGE`.
-That fixture verifies the Caddy handler against a separate Laravel Planner
-container, not the combined Router image.
+The `scripts/test-caddy-managed-route` fixture remains available to consumers
+that compile the optional Caddy module into their own host image. It verifies
+that host against a separate Laravel Planner container, not the combined
+Router image.
 For the shared-delivery variant, build this image and run
 `scripts/test-router-shared-postgres gateway-router:roadrunner-local`. That
 disposable test runs two Router containers plus PostgreSQL and verifies
