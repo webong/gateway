@@ -1,4 +1,4 @@
-.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-router-image-packaging test-driver-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-extension-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-router-image-packaging test-planner-octane-servers test-driver-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -53,6 +53,9 @@ test-automation-extension-boundaries:
 
 test-router-image-packaging:
 	bash scripts/test-router-image-packaging
+
+test-planner-octane-servers:
+	bash scripts/test-planner-octane-servers
 
 test-driver-release:
 	bash scripts/test-driver-release

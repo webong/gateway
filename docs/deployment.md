@@ -46,6 +46,13 @@ service, Kubernetes ClusterIP, loopback listener, or private-VPC service.
 Spinner uses `GATEWAY_PLANNER_URL` and `GATEWAY_INTERNAL_TOKEN` to
 call `POST /_internal/gateway/plan` privately.
 
+The standalone Planner image is a Laravel Octane host. Choose its application
+server with `GATEWAY_PLANNER_SERVER=frankenphp|swoole|roadrunner`; the image
+contains all three server prerequisites and defaults to FrankenPHP. This is a
+deployment choice only: Spinner continues to use the same private HTTP Planner
+contract and does not import or detect the selected PHP server. RoadRunner RPC
+and FrankenPHP's admin listener remain private to the Planner container.
+
 ## Spinner image
 
 ```bash

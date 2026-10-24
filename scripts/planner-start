@@ -11,10 +11,13 @@ if [ "${DB_CONNECTION:-}" != pgsql ] || [ -z "${DB_URL:-}" ]; then
 fi
 
 DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-/data/planner}
+APP_DIR=${GATEWAY_PLANNER_APP_DIR:-/gateway/app}
 mkdir -p "$DATA_DIR/cache" "$DATA_DIR/storage/framework/cache/data" \
     "$DATA_DIR/storage/framework/sessions" "$DATA_DIR/storage/framework/views"
+mkdir -p "$DATA_DIR/storage/logs"
 export GATEWAY_ROUTER_DATA_DIR="$DATA_DIR"
 export LARAVEL_STORAGE_PATH="$DATA_DIR/storage"
+export COMPOSER_VENDOR_DIR=${COMPOSER_VENDOR_DIR:-/gateway/vendor}
 export APP_SERVICES_CACHE="$DATA_DIR/cache/services.php"
 export APP_PACKAGES_CACHE="$DATA_DIR/cache/packages.php"
 export APP_CONFIG_CACHE="$DATA_DIR/cache/config.php"
@@ -23,12 +26,66 @@ export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
 
 case "${1:-serve}" in
     migrate)
-        php /gateway/app/artisan migrate --realpath \
+        php "$APP_DIR/artisan" migrate --realpath \
             --path=/gateway/vendor/webong/proxy/database/migrations --force
-        exec php /gateway/app/artisan migrate --force
+        exec php "$APP_DIR/artisan" migrate --force
         ;;
     serve)
-        exec frankenphp run --config /etc/caddy/Caddyfile
+        SERVER=${GATEWAY_PLANNER_SERVER:-frankenphp}
+        HOST=${GATEWAY_PLANNER_HOST:-0.0.0.0}
+        PORT=${GATEWAY_PLANNER_PORT:-8080}
+        WORKERS=${GATEWAY_PLANNER_WORKERS:-auto}
+        MAX_REQUESTS=${GATEWAY_PLANNER_MAX_REQUESTS:-500}
+
+        case "$SERVER" in
+            frankenphp)
+                if ! command -v frankenphp >/dev/null 2>&1; then
+                    echo 'Octane/FrankenPHP requires the frankenphp executable.' >&2
+                    exit 1
+                fi
+                ;;
+            swoole)
+                if ! php -r 'exit(extension_loaded("swoole") || extension_loaded("openswoole") ? 0 : 1);'; then
+                    echo 'Octane/Swoole requires the swoole or openswoole PHP extension.' >&2
+                    exit 1
+                fi
+                ;;
+            roadrunner)
+                if [ ! -x "$APP_DIR/rr" ] && ! command -v rr >/dev/null 2>&1; then
+                    echo 'Octane/RoadRunner requires the rr executable.' >&2
+                    exit 1
+                fi
+                ;;
+            *)
+                echo 'GATEWAY_PLANNER_SERVER must be frankenphp, swoole, or roadrunner.' >&2
+                exit 2
+                ;;
+        esac
+
+        php "$APP_DIR/artisan" migrate --realpath \
+            --path=/gateway/vendor/webong/proxy/database/migrations --force
+        php "$APP_DIR/artisan" migrate --force
+
+        set -- php "$APP_DIR/artisan" octane:start \
+            "--server=$SERVER" "--host=$HOST" "--port=$PORT" \
+            "--workers=$WORKERS" "--max-requests=$MAX_REQUESTS"
+        case "$SERVER" in
+            frankenphp)
+                set -- "$@" \
+                    "--admin-port=${GATEWAY_PLANNER_ADMIN_PORT:-2019}"
+                ;;
+            roadrunner)
+                RR_CONFIG="$DATA_DIR/octane.rr.yaml"
+                if [ ! -f "$RR_CONFIG" ]; then
+                    printf 'version: "3"\n' > "$RR_CONFIG"
+                fi
+                set -- "$@" \
+                    "--rpc-host=${GATEWAY_PLANNER_RPC_HOST:-127.0.0.1}" \
+                    "--rpc-port=${GATEWAY_PLANNER_RPC_PORT:-6001}" \
+                    "--rr-config=$RR_CONFIG"
+                ;;
+        esac
+        exec "$@"
         ;;
     *)
         echo 'Usage: gateway-planner-start [migrate|serve]' >&2

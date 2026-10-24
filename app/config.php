@@ -3,6 +3,14 @@
 declare(strict_types=1);
 
 return [
+    'octane' => [
+        'server' => env('OCTANE_SERVER', 'frankenphp'),
+        'roadrunner' => [
+            // The Planner host keeps Composer dependencies beside app/, not
+            // inside it as a conventional Laravel application would.
+            'command' => '../vendor/bin/roadrunner-worker',
+        ],
+    ],
     'cache' => [
         'default' => 'file',
         'stores' => [

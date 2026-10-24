@@ -7,7 +7,7 @@ Email, DNS, and TLS edge overlays:
 | --- | --- | --- | --- |
 | [`infra/kubernetes/router`](../infra/kubernetes/router) | Combined Router image from `infra/docker/Gateway.router.Dockerfile` | Bundled in-process through the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
 | [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Go-only image from the root `Dockerfile` | Separate Laravel service at `GATEWAY_PLANNER_URL` | None for the default HTTP transport |
-| [`infra/kubernetes/planner`](../infra/kubernetes/planner) | Standalone Laravel/FrankenPHP image from `infra/docker/Gateway.planner.Dockerfile` | Runs the Planner and registration API | External PostgreSQL; ephemeral local cache/storage |
+| [`infra/kubernetes/planner`](../infra/kubernetes/planner) | Standalone Laravel Octane image from `infra/docker/Gateway.planner.Dockerfile`; select FrankenPHP, Swoole, or RoadRunner with `GATEWAY_PLANNER_SERVER` | Runs the Planner and registration API | External PostgreSQL; ephemeral local cache/storage |
 | [`infra/kubernetes/provision`](../infra/kubernetes/provision) | Dedicated target worker from the `kubernetes` target of `infra/docker/Gateway.provision.Dockerfile` | Separate private Planner connection | Planner target state; no local worker database |
 
 Build the image you need, publish it to a registry reachable by your cluster,

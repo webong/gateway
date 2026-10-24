@@ -39,6 +39,7 @@ $app = Application::configure(basePath: __DIR__)
     ->create();
 
 $app->useAppPath(__DIR__);
+$app->usePublicPath(__DIR__.'/public');
 $app->useStoragePath(rtrim($dataDirectory, '/').'/storage');
 
 // Laravel's cache commands reload bootstrap/app.php. Keep that compatibility

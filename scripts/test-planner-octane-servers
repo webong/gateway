@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-octane.XXXXXX")
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/app"
+touch "$TEMP_DIR/app/artisan" "$TEMP_DIR/app/rr"
+chmod +x "$TEMP_DIR/app/rr"
+
+cat > "$TEMP_DIR/bin/php" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$GATEWAY_TEST_COMMAND_LOG"
+exit 0
+SH
+cat > "$TEMP_DIR/bin/frankenphp" <<'SH'
+#!/bin/sh
+exit 0
+SH
+chmod +x "$TEMP_DIR/bin/php" "$TEMP_DIR/bin/frankenphp"
+
+for server in frankenphp swoole roadrunner; do
+    log="$TEMP_DIR/$server.log"
+    PATH="$TEMP_DIR/bin:$PATH" \
+    APP_KEY=test REGISTRY_TOKEN=test GATEWAY_INTERNAL_TOKEN=test \
+    DB_CONNECTION=pgsql DB_URL=postgresql://gateway:test@database/gateway \
+    GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/data-$server" \
+    GATEWAY_PLANNER_APP_DIR="$TEMP_DIR/app" \
+    GATEWAY_PLANNER_SERVER="$server" \
+    GATEWAY_TEST_COMMAND_LOG="$log" \
+        sh "$ROOT/scripts/planner-start" serve
+
+    if ! grep -Fq "octane:start --server=$server --host=0.0.0.0 --port=8080" "$log"; then
+        echo "Planner did not launch Octane/$server." >&2
+        exit 1
+    fi
+done
+
+if ! grep -Fq -- '--admin-port=2019' "$TEMP_DIR/frankenphp.log"; then
+    echo 'Octane/FrankenPHP did not keep its admin listener separate.' >&2
+    exit 1
+fi
+if ! grep -Fq -- '--rpc-host=127.0.0.1 --rpc-port=6001' "$TEMP_DIR/roadrunner.log"; then
+    echo 'Octane/RoadRunner did not keep RPC on loopback.' >&2
+    exit 1
+fi
+
+if GATEWAY_PLANNER_SERVER=invalid APP_KEY=test REGISTRY_TOKEN=test \
+    GATEWAY_INTERNAL_TOKEN=test DB_CONNECTION=pgsql DB_URL=postgresql://database/gateway \
+    GATEWAY_PLANNER_APP_DIR="$TEMP_DIR/app" GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/invalid" \
+    PATH="$TEMP_DIR/bin:$PATH" sh "$ROOT/scripts/planner-start" serve >/dev/null 2>&1; then
+    echo 'Planner accepted an unsupported Octane server.' >&2
+    exit 1
+fi
+
+echo 'Planner launcher supports Octane/FrankenPHP, Octane/Swoole, and Octane/RoadRunner.'
