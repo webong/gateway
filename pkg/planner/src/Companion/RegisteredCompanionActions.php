@@ -74,6 +74,24 @@ final class RegisteredCompanionActions implements CompanionActionRegistry
         ksort($this->actions);
     }
 
+    /** @param iterable<CompanionActionProvider> $providers */
+    public function replaceDynamicProviders(iterable $providers): void
+    {
+        foreach ($this->actions as $name => $candidates) {
+            $dynamic = $candidates['dynamic'] ?? null;
+            if ($dynamic !== null && method_exists($dynamic, 'close')) {
+                $dynamic->close();
+            }
+            unset($this->actions[$name]['dynamic']);
+            if ($this->actions[$name] === []) {
+                unset($this->actions[$name]);
+            }
+        }
+        foreach ($providers as $provider) {
+            $this->registerProvider($provider);
+        }
+    }
+
     public function capabilities(): array
     {
         $capabilities = [];

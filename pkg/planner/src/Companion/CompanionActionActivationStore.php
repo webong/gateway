@@ -39,7 +39,7 @@ final readonly class CompanionActionActivationStore
         if ($row === null) {
             // Existing Composer packages remain active until an operator opts
             // the extension into dynamic process hosting through Planner.
-            return new CompanionActionActivation($extension, true, 'static', null, null, 0, false);
+            return new CompanionActionActivation($extension, true, 'static', null, null, null, 0, false);
         }
 
         $companion = $row->document['companion'] ?? null;
@@ -57,6 +57,7 @@ final readonly class CompanionActionActivationStore
             mode: $companion['mode'],
             version: $companion['version'] ?? null,
             digest: $companion['digest'] ?? null,
+            artifact: $companion['artifact'] ?? null,
             generation: $row->revision,
             configured: true,
             execution: CompanionExecutionPolicy::fromDocument(
@@ -96,11 +97,11 @@ final readonly class CompanionActionActivationStore
 
     /**
      * @param array<string, mixed> $input
-     * @return array{string, bool, array{companion: array{mode: string, version?: string, digest?: string, execution: array<string, mixed>}}}
+     * @return array{string, bool, array{companion: array{mode: string, version?: string, digest?: string, artifact?: array{url: string, sha256: string}, execution: array<string, mixed>}}}
      */
     private function validated(array $input): array
     {
-        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest', 'execution']) !== []) {
+        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest', 'artifact', 'execution']) !== []) {
             throw new InvalidArgumentException('Invalid Gateway extension activation.');
         }
         $extension = $input['extension'] ?? null;
@@ -108,11 +109,13 @@ final readonly class CompanionActionActivationStore
         $mode = $input['mode'] ?? null;
         $version = $input['version'] ?? null;
         $digest = $input['digest'] ?? null;
+        $artifact = $input['artifact'] ?? null;
         $execution = $input['execution'] ?? null;
         if (! is_string($extension) || ! is_bool($enabled) || ! is_string($mode)
             || ! in_array($mode, ['static', 'dynamic'], true)
             || ($version !== null && (! is_string($version) || trim($version) === '' || strlen($version) > 64))
             || ($digest !== null && (! is_string($digest) || preg_match('/\A[a-f0-9]{64}\z/D', $digest) !== 1))
+            || ! $this->validArtifact($artifact, $mode, $version)
             || ($execution !== null && ! is_array($execution))) {
             throw new InvalidArgumentException('Invalid Gateway extension activation.');
         }
@@ -129,8 +132,30 @@ final readonly class CompanionActionActivationStore
         if ($digest !== null) {
             $companion['digest'] = $digest;
         }
+        if ($artifact !== null) {
+            $companion['artifact'] = ['url' => $artifact['url'], 'sha256' => $artifact['sha256']];
+        }
 
         return [$extension, $enabled, ['companion' => $companion]];
+    }
+
+    private function validArtifact(mixed $artifact, string $mode, mixed $version): bool
+    {
+        if ($artifact === null) {
+            return true;
+        }
+        if ($mode !== 'dynamic' || ! is_string($version) || trim($version) === ''
+            || ! is_array($artifact) || count($artifact) !== 2
+            || array_diff(array_keys($artifact), ['url', 'sha256']) !== []
+            || ! is_string($artifact['url']) || ! is_string($artifact['sha256'])
+            || preg_match('/\A[a-f0-9]{64}\z/D', $artifact['sha256']) !== 1) {
+            return false;
+        }
+        $url = parse_url($artifact['url']);
+
+        return is_array($url) && ($url['scheme'] ?? null) === 'https'
+            && is_string($url['host'] ?? null) && $url['host'] !== ''
+            && ! isset($url['user']) && ! isset($url['pass']) && ! isset($url['fragment']);
     }
 
     private function validateExtension(string $extension): void

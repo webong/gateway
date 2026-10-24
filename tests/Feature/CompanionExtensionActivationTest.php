@@ -43,7 +43,7 @@ it('keeps existing extensions static until Planner enables the dynamic candidate
         ->and($registry->invoke(extensionInvocation())->output['ticket_id'])->toBe('ticket-1')
         ->and(CreateTicketCompanionAction::$calls)->toBe(1);
 
-    app(CompanionActionActivationStore::class)->create([
+    $activation = app(CompanionActionActivationStore::class)->create([
         'extension' => 'example/switch-provider',
         'mode' => 'dynamic',
         'version' => '1.0.0',
@@ -58,6 +58,17 @@ it('keeps existing extensions static until Planner enables the dynamic candidate
             'subject' => 'Switch me',
         ])
         ->and(CreateTicketCompanionAction::$calls)->toBe(1);
+
+    app(CompanionActionActivationStore::class)->replace($activation->id, [
+        'extension' => 'example/switch-provider',
+        'mode' => 'static',
+        'version' => '1.0.0',
+        'enabled' => true,
+    ], $activation->revision);
+
+    expect($registry->capability('test.switch-provider')?->mode)->toBe('static')
+        ->and($registry->invoke(extensionInvocation('extension-execution-3'))->output['ticket_id'])->toBe('ticket-2')
+        ->and(CreateTicketCompanionAction::$calls)->toBe(2);
 });
 
 it('makes repeated discovery idempotent but refuses two different providers for one mode', function (): void {
@@ -134,6 +145,111 @@ it('exposes extension activation and runtime status through the authenticated Pl
     $this->withToken('registry-secret')->getJson('/extensions/'.$created->json('id'))
         ->assertOk()
         ->assertJsonPath('revision', 1);
+});
+
+it('stores a pinned extension artifact as Planner-owned desired state', function (): void {
+    $created = $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'example/switch-provider',
+        'mode' => 'dynamic',
+        'version' => '1.0.0',
+        'artifact' => [
+            'sha256' => str_repeat('a', 64),
+            'url' => 'https://extensions.example.test/switch-provider-1.0.0.tar.gz',
+        ],
+    ])->assertCreated()
+        ->assertJsonPath('artifact.url', 'https://extensions.example.test/switch-provider-1.0.0.tar.gz')
+        ->assertJsonPath('artifact.sha256', str_repeat('a', 64));
+
+    $selection = app(CompanionActionActivationStore::class)
+        ->selection('example/switch-provider');
+
+    expect($selection->artifact)->toBe([
+        'url' => 'https://extensions.example.test/switch-provider-1.0.0.tar.gz',
+        'sha256' => str_repeat('a', 64),
+    ]);
+
+    $this->withToken('registry-secret')->getJson('/extensions/'.$created->json('id'))
+        ->assertOk()
+        ->assertJsonPath('artifact.sha256', str_repeat('a', 64));
+});
+
+it('rejects unpinned, non-HTTPS or static extension artifacts', function (array $input): void {
+    $this->withToken('registry-secret')->postJson('/extensions', $input)
+        ->assertUnprocessable();
+})->with([
+    'missing version' => [[
+        'extension' => 'example/artifact',
+        'mode' => 'dynamic',
+        'artifact' => [
+            'url' => 'https://extensions.example.test/artifact.tar.gz',
+            'sha256' => str_repeat('a', 64),
+        ],
+    ]],
+    'http URL' => [[
+        'extension' => 'example/artifact',
+        'mode' => 'dynamic',
+        'version' => '1.0.0',
+        'artifact' => [
+            'url' => 'http://extensions.example.test/artifact.tar.gz',
+            'sha256' => str_repeat('a', 64),
+        ],
+    ]],
+    'invalid digest' => [[
+        'extension' => 'example/artifact',
+        'mode' => 'dynamic',
+        'version' => '1.0.0',
+        'artifact' => [
+            'url' => 'https://extensions.example.test/artifact.tar.gz',
+            'sha256' => 'not-a-digest',
+        ],
+    ]],
+    'static artifact' => [[
+        'extension' => 'example/artifact',
+        'mode' => 'static',
+        'version' => '1.0.0',
+        'artifact' => [
+            'url' => 'https://extensions.example.test/artifact.tar.gz',
+            'sha256' => str_repeat('a', 64),
+        ],
+    ]],
+]);
+
+it('serves enabled extension artifact desired state only to private plane reconcilers', function (): void {
+    app(CompanionActionActivationStore::class)->create([
+        'extension' => 'example/switch-provider',
+        'mode' => 'dynamic',
+        'version' => '1.0.0',
+        'digest' => str_repeat('b', 64),
+        'artifact' => [
+            'url' => 'https://extensions.example.test/switch-provider-1.0.0.tar.gz',
+            'sha256' => str_repeat('a', 64),
+        ],
+    ]);
+    app(CompanionActionActivationStore::class)->create([
+        'extension' => 'example/disabled-provider',
+        'mode' => 'dynamic',
+        'version' => '1.0.0',
+        'enabled' => false,
+        'artifact' => [
+            'url' => 'https://extensions.example.test/disabled-provider-1.0.0.tar.gz',
+            'sha256' => str_repeat('c', 64),
+        ],
+    ]);
+
+    $this->getJson('/_internal/gateway/extensions')->assertNotFound();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->getJson('/_internal/gateway/extensions')
+        ->assertOk()
+        ->assertExactJson(['data' => [[
+            'extension' => 'example/switch-provider',
+            'version' => '1.0.0',
+            'digest' => str_repeat('b', 64),
+            'artifact' => [
+                'url' => 'https://extensions.example.test/switch-provider-1.0.0.tar.gz',
+                'sha256' => str_repeat('a', 64),
+            ],
+            'revision' => 1,
+        ]]]);
 });
 
 it('owns bounded warmed companion execution policy through Planner', function (): void {
