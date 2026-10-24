@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"strings"
 
@@ -40,6 +41,13 @@ func registerStaticEngines() error {
 		}
 	}
 	return nil
+}
+
+// loadDynamicEngines installs process and native guests selected at deploy
+// time. Bundled Routers use the same extension store contract as standalone
+// Spinner; the composition root, rather than Spinner's core, owns loading.
+func loadDynamicEngines(ctx context.Context) error {
+	return automationextensions.LoadAll(ctx)
 }
 
 func shellEnabled() bool {

@@ -18,6 +18,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := loadDynamicEngines(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := router.Run(ctx, func(appDir string) (router.Planner, error) {
 		return php.Start(appDir)
 	}); err != nil {

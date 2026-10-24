@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestShellEngineIsOptIn(t *testing.T) {
 	for value, expected := range map[string]bool{
@@ -12,5 +15,13 @@ func TestShellEngineIsOptIn(t *testing.T) {
 				t.Fatalf("shellEnabled() = %v, want %v", actual, expected)
 			}
 		})
+	}
+}
+
+func TestDynamicEngineLoadingUsesDeploymentDirectories(t *testing.T) {
+	t.Setenv("GATEWAY_PLUGIN_DIR", t.TempDir())
+	t.Setenv("GATEWAY_PLUGIN_DIR_NATIVE", "")
+	if err := loadDynamicEngines(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
