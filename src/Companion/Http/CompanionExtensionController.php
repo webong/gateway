@@ -114,6 +114,7 @@ final readonly class CompanionExtensionController
             'mode' => $companion['mode'],
             'version' => $companion['version'] ?? null,
             'digest' => $companion['digest'] ?? null,
+            'execution' => $companion['execution'] ?? ['mode' => 'isolated'],
             'revision' => $row->revision,
         ];
     }

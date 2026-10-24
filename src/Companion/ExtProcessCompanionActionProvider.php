@@ -10,32 +10,38 @@ use InvalidArgumentException;
 use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
+use Throwable;
 use Webong\Gateway\Contracts\CompanionActionProvider;
 use Webong\Gateway\Protocols\CompanionActionCapability;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 use Webong\Gateway\Protocols\CompanionActionResult;
 
 /** Process-backed companion using ext.plugin/v1 JSON lines over stdin/stdout. */
-final readonly class ExtProcessCompanionActionProvider implements CompanionActionProvider
+final class ExtProcessCompanionActionProvider implements CompanionActionProvider
 {
     private const string API_VERSION = 'ext.plugin/v1';
 
+    private readonly WarmedCompanionProcessScope $warmedScope;
+
     /** @param array<string, mixed> $descriptor */
     public function __construct(
-        private string $extensionId,
-        private string $revision,
-        private CompanionActionCapability $providedCapability,
-        private array $descriptor,
-        private string $executable,
-        private string $workingDirectory,
-        private int $maxRuntimeSeconds,
-        private int $maxOutputBytes = 1048576,
-        private string $phpBinary = PHP_BINARY,
-        private ?Closure $verifyPackage = null,
+        private readonly string $extensionId,
+        private readonly string $revision,
+        private readonly CompanionActionCapability $providedCapability,
+        private readonly array $descriptor,
+        private readonly string $executable,
+        private readonly string $workingDirectory,
+        private readonly int $maxRuntimeSeconds,
+        private readonly int $maxOutputBytes = 1048576,
+        private readonly string $phpBinary = PHP_BINARY,
+        private readonly ?Closure $verifyPackage = null,
+        private readonly ?Closure $executionPolicy = null,
+        ?WarmedCompanionProcessScope $warmedScope = null,
     ) {
         if ($maxRuntimeSeconds < 1 || $maxOutputBytes < 1 || trim($phpBinary) === '' || ! is_file($executable) || ! is_dir($workingDirectory)) {
             throw new InvalidArgumentException('Invalid ext companion process configuration.');
         }
+        $this->warmedScope = $warmedScope ?? new WarmedCompanionProcessScope;
     }
 
     public function extension(): string
@@ -60,34 +66,33 @@ final readonly class ExtProcessCompanionActionProvider implements CompanionActio
 
     public function invoke(CompanionActionInvocation $invocation): CompanionActionResult
     {
-        if ($this->verifyPackage !== null) {
-            ($this->verifyPackage)();
-        }
-        $remaining = (float) $invocation->deadline->format('U.u') - microtime(true);
-        if ($remaining <= 0) {
-            throw new InvalidArgumentException('Gateway companion action deadline has expired.');
-        }
-        $timeout = min((float) $this->maxRuntimeSeconds, $remaining);
-        $requestId = 'invoke-'.substr(hash('sha256', $invocation->executionId), 0, 24);
-        $input = $this->encode([
-            'apiVersion' => self::API_VERSION,
-            'id' => 'hello',
-            'plugin' => ['id' => '', 'revision' => ''],
-            'contract' => ['name' => '', 'version' => ''],
-            'operation' => 'plugin.hello',
-            'deadline' => $this->deadline($timeout),
-        ])."\n".$this->encode([
-            'apiVersion' => self::API_VERSION,
-            'id' => $requestId,
-            'plugin' => $this->descriptor['identity'],
-            'contract' => ['name' => 'gateway.companion', 'version' => CompanionActionInvocation::VERSION],
-            'operation' => $invocation->action,
-            'deadline' => $invocation->deadline->format(DATE_RFC3339_EXTENDED),
-            'payload' => $invocation->toArray(),
-        ])."\n";
+        try {
+            if ($this->verifyPackage !== null) {
+                ($this->verifyPackage)();
+            }
+        } catch (Throwable $exception) {
+            $this->stopWarmedProcess();
 
+            throw $exception;
+        }
+
+        $timeout = $this->invocationTimeout($invocation);
+        $policy = $this->policy();
+        if ($policy->mode === CompanionExecutionPolicy::ISOLATED) {
+            $this->stopWarmedProcess();
+
+            return $this->invokeIsolated($invocation, $timeout);
+        }
+
+        return $this->invokeWarmed($invocation, $timeout, $policy);
+    }
+
+    private function invokeIsolated(CompanionActionInvocation $invocation, float $timeout): CompanionActionResult
+    {
+        $requestId = $this->requestId($invocation);
+        $input = $this->helloFrame($timeout)."\n".$this->invocationFrame($invocation, $requestId)."\n";
         $process = new Process(
-            [$this->phpBinary, '-d', 'display_errors=stderr', '-d', 'html_errors=0', $this->executable],
+            $this->command(),
             $this->workingDirectory,
             $this->processEnvironment(),
             $input,
@@ -99,20 +104,19 @@ final readonly class ExtProcessCompanionActionProvider implements CompanionActio
         $process->disableOutput();
         try {
             $exitCode = $process->run(function (string $type, string $buffer) use (&$output, &$outputBytes, &$outputExceeded): void {
-                if ($type !== Process::OUT) {
-                    return;
-                }
                 $outputBytes += strlen($buffer);
                 if ($outputBytes > $this->maxOutputBytes) {
                     $outputExceeded = true;
 
                     return;
                 }
-                $output .= $buffer;
+                if ($type === Process::OUT) {
+                    $output .= $buffer;
+                }
             });
         } catch (ProcessTimedOutException $exception) {
             throw new RuntimeException('Gateway companion process timed out.', previous: $exception);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             throw new RuntimeException('Gateway companion process failed.', previous: $exception);
         }
         if ($outputExceeded) {
@@ -126,11 +130,138 @@ final readonly class ExtProcessCompanionActionProvider implements CompanionActio
         if (! is_array($lines) || count($lines) !== 2) {
             throw new RuntimeException('Gateway companion process returned an invalid frame count.');
         }
-        $hello = $this->decodeResponse($lines[0], 'hello');
+        $this->validateHello($lines[0]);
+
+        return $this->result($lines[1], $requestId);
+    }
+
+    private function invokeWarmed(
+        CompanionActionInvocation $invocation,
+        float $timeout,
+        CompanionExecutionPolicy $policy,
+    ): CompanionActionResult {
+        $now = microtime(true);
+        if ($this->warmedScope->process !== null && (
+            $this->warmedScope->policyKey !== $policy->key()
+            || ! $this->warmedScope->process->isRunning()
+            || $this->warmedScope->process->invocations >= $policy->maxInvocations
+            || $now - $this->warmedScope->process->startedAt >= $policy->maxAgeSeconds
+            || $now - $this->warmedScope->process->lastUsedAt >= $policy->idleTimeoutSeconds
+        )) {
+            $this->stopWarmedProcess();
+        }
+
+        try {
+            if ($this->warmedScope->process === null) {
+                $this->warmedScope->process = new WarmedCompanionProcess(
+                    $this->command(),
+                    $this->workingDirectory,
+                    $this->processEnvironment(),
+                );
+                $this->warmedScope->policyKey = $policy->key();
+                $this->validateHello($this->warmedScope->process->exchange(
+                    $this->helloFrame($timeout),
+                    $timeout,
+                    $this->maxOutputBytes,
+                ));
+            }
+
+            $requestId = $this->requestId($invocation);
+            $response = $this->warmedScope->process->exchange(
+                $this->invocationFrame($invocation, $requestId),
+                $this->invocationTimeout($invocation),
+                $this->maxOutputBytes,
+            );
+            $this->warmedScope->process->invocations++;
+
+            return $this->result($response, $requestId);
+        } catch (Throwable $exception) {
+            $this->stopWarmedProcess();
+
+            throw $exception;
+        }
+    }
+
+    private function policy(): CompanionExecutionPolicy
+    {
+        $policy = $this->executionPolicy === null
+            ? new CompanionExecutionPolicy
+            : ($this->executionPolicy)();
+        if (! $policy instanceof CompanionExecutionPolicy) {
+            throw new RuntimeException('Gateway companion execution policy is invalid.');
+        }
+
+        return $policy;
+    }
+
+    private function stopWarmedProcess(): void
+    {
+        $this->warmedScope->stop();
+    }
+
+    /** @return list<string> */
+    private function command(): array
+    {
+        return [
+            $this->phpBinary,
+            '-d', 'display_errors=stderr',
+            '-d', 'html_errors=0',
+            '-d', 'opcache.enable_cli=0',
+            $this->executable,
+        ];
+    }
+
+    private function helloFrame(float $timeout): string
+    {
+        return $this->encode([
+            'apiVersion' => self::API_VERSION,
+            'id' => 'hello',
+            'plugin' => ['id' => '', 'revision' => ''],
+            'contract' => ['name' => '', 'version' => ''],
+            'operation' => 'plugin.hello',
+            'deadline' => $this->deadline($timeout),
+        ]);
+    }
+
+    private function invocationFrame(CompanionActionInvocation $invocation, string $requestId): string
+    {
+        return $this->encode([
+            'apiVersion' => self::API_VERSION,
+            'id' => $requestId,
+            'plugin' => $this->descriptor['identity'],
+            'contract' => ['name' => 'gateway.companion', 'version' => CompanionActionInvocation::VERSION],
+            'operation' => $invocation->action,
+            'deadline' => $invocation->deadline->format(DATE_RFC3339_EXTENDED),
+            'payload' => $invocation->toArray(),
+        ]);
+    }
+
+    private function requestId(CompanionActionInvocation $invocation): string
+    {
+        return 'invoke-'.substr(hash('sha256', $invocation->executionId), 0, 24);
+    }
+
+    private function invocationTimeout(CompanionActionInvocation $invocation): float
+    {
+        $remaining = (float) $invocation->deadline->format('U.u') - microtime(true);
+        if ($remaining <= 0) {
+            throw new InvalidArgumentException('Gateway companion action deadline has expired.');
+        }
+
+        return min((float) $this->maxRuntimeSeconds, $remaining);
+    }
+
+    private function validateHello(string $line): void
+    {
+        $hello = $this->decodeResponse($line, 'hello');
         if (($hello['payload'] ?? null) != $this->descriptor) {
             throw new RuntimeException('Gateway companion process handshake did not match its reviewed descriptor.');
         }
-        $response = $this->decodeResponse($lines[1], $requestId);
+    }
+
+    private function result(string $line, string $requestId): CompanionActionResult
+    {
+        $response = $this->decodeResponse($line, $requestId);
         if (! is_array($response['payload'] ?? null)) {
             throw new RuntimeException('Gateway companion process returned an invalid result payload.');
         }
@@ -190,4 +321,5 @@ final readonly class ExtProcessCompanionActionProvider implements CompanionActio
 
         return $response;
     }
+
 }

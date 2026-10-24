@@ -46,6 +46,10 @@ final readonly class CompanionActionActivationStore
         if (! is_array($companion)) {
             throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid companion configuration.");
         }
+        $execution = $companion['execution'] ?? null;
+        if ($execution !== null && ! is_array($execution)) {
+            throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid companion execution policy.");
+        }
 
         return new CompanionActionActivation(
             extension: $extension,
@@ -55,6 +59,10 @@ final readonly class CompanionActionActivationStore
             digest: $companion['digest'] ?? null,
             generation: $row->revision,
             configured: true,
+            execution: CompanionExecutionPolicy::fromDocument(
+                $execution,
+                $row->revision,
+            ),
         );
     }
 
@@ -88,11 +96,11 @@ final readonly class CompanionActionActivationStore
 
     /**
      * @param array<string, mixed> $input
-     * @return array{string, bool, array{companion: array{mode: string, version?: string, digest?: string}}}
+     * @return array{string, bool, array{companion: array{mode: string, version?: string, digest?: string, execution: array<string, mixed>}}}
      */
     private function validated(array $input): array
     {
-        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest']) !== []) {
+        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest', 'execution']) !== []) {
             throw new InvalidArgumentException('Invalid Gateway extension activation.');
         }
         $extension = $input['extension'] ?? null;
@@ -100,15 +108,21 @@ final readonly class CompanionActionActivationStore
         $mode = $input['mode'] ?? null;
         $version = $input['version'] ?? null;
         $digest = $input['digest'] ?? null;
+        $execution = $input['execution'] ?? null;
         if (! is_string($extension) || ! is_bool($enabled) || ! is_string($mode)
             || ! in_array($mode, ['static', 'dynamic'], true)
             || ($version !== null && (! is_string($version) || trim($version) === '' || strlen($version) > 64))
-            || ($digest !== null && (! is_string($digest) || preg_match('/\A[a-f0-9]{64}\z/D', $digest) !== 1))) {
+            || ($digest !== null && (! is_string($digest) || preg_match('/\A[a-f0-9]{64}\z/D', $digest) !== 1))
+            || ($execution !== null && ! is_array($execution))) {
             throw new InvalidArgumentException('Invalid Gateway extension activation.');
         }
         $this->validateExtension($extension);
+        $policy = CompanionExecutionPolicy::fromDocument($execution);
+        if ($mode !== 'dynamic' && $policy->mode !== CompanionExecutionPolicy::ISOLATED) {
+            throw new InvalidArgumentException('Only dynamic Gateway companions may use warmed execution.');
+        }
 
-        $companion = ['mode' => $mode];
+        $companion = ['mode' => $mode, 'execution' => $policy->toArray()];
         if ($version !== null) {
             $companion['version'] = $version;
         }
