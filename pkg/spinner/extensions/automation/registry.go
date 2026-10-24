@@ -16,12 +16,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/nativego"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	"github.com/webong/gateway/driver/automation"
+	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 )
 
 var registry = NewRegistry()
@@ -98,9 +100,28 @@ func loadNativeGoPlugins(ctx context.Context, dir string) error {
 			fmt.Printf("failed to load native plugin %s: %v\n", path, err)
 			continue
 		}
-		engine, err := NewEndpointEngine(ctx, backend)
+		descriptor, err := backend.Handshake(ctx)
 		if err != nil {
 			_ = backend.Close()
+			fmt.Printf("native plugin %s handshake failed: %v\n", e.Name(), err)
+			continue
+		}
+		session, err := contract.Open(ctx, descriptor, contract.Options{
+			Verify:    func(context.Context, contract.Descriptor) error { return nil },
+			Connect:   func(context.Context, contract.Descriptor) (contract.Backend, error) { return backend, nil },
+			Authorize: func(context.Context, contract.Request) error { return nil },
+			Reverse:   companionextensions.DefaultHost.ReverseOptions(),
+		})
+		if err != nil {
+			_ = backend.Close()
+			fmt.Printf("native plugin %s session failed: %v\n", e.Name(), err)
+			continue
+		}
+		engine, err := NewSessionEngine(session)
+		if err != nil {
+			closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = session.Close(closeCtx)
+			cancel()
 			fmt.Printf("native plugin %s is not an automation guest: %v\n", e.Name(), err)
 			continue
 		}
@@ -125,7 +146,7 @@ func loadExternalPlugins(ctx context.Context, dir string) error {
 		if !SupportsAutomation(inst.Manifest.Descriptor) {
 			continue
 		}
-		proc, err := host.Open(ctx, inst, host.Options{})
+		proc, err := host.Open(ctx, inst, host.Options{Reverse: companionextensions.DefaultHost.ReverseOptions()})
 		if err != nil {
 			fmt.Printf("failed to load plugin %s: %v\n", inst.Name(), err)
 			continue

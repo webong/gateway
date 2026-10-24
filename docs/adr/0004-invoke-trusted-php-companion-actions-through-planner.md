@@ -13,6 +13,7 @@ A Gateway extension may pair its Spinner implementation with a trusted PHP Compa
 - An invocation contains an action name, companion version or digest, execution ID, deadline, idempotency key, and size-bounded typed input. Its result is structured data or a declared failure; PHP output is never treated as an implicit protocol.
 - Installation, upgrade, rollback, and removal happen through deployment and package lifecycle. A long-running PHP host is reloaded when its installed companion set changes.
 - Planner advertises registered action capabilities and versions so Spinner fails closed rather than invoking an absent or incompatible companion.
+- Portable plugins declare every action they may invoke through the extension protocol's `gateway.companion/v1` reverse contract. Spinner supplies the runner as a host capability; plugins never receive Planner credentials.
 
 ## Trust boundary
 
@@ -28,4 +29,4 @@ Planner's public CMS API may configure a route to a registered action, but it ca
 
 ## Consequences
 
-Gateway needs a transport-neutral Action Runner contract, Planner-side action registry and capability advertisement, Spinner invocation client, and lifecycle tests covering missing or mismatched companions, timeouts, retries, duplicate execution IDs, worker reloads, and structured failures. Extension packaging must keep the Go and PHP companions version-compatible without requiring Spinner's shared libraries to import a PHP runtime.
+Gateway provides a transport-neutral Action Runner contract, Planner-side action registry and capability advertisement, Spinner adapters, and a least-privilege reverse-call adapter for portable plugins. Execution records use expiring leases and encrypted results; retries after an uncertain crash are at-least-once and companion handlers remain responsible for idempotent external effects. Extension packaging keeps Go and PHP companions version-compatible without requiring Spinner's shared libraries to import a PHP runtime.

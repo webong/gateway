@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\AutomationCapability;
-use Webong\Gateway\Contract\AutomationExecutionTarget;
-use Webong\Gateway\Contract\AutomationLanguageRegistry;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationExecutionTarget;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\HookScript\HookScriptExtensionServiceProvider;
+use Webong\Gateway\HookScript\HookScriptLanguage;
 use Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider;
 use Webong\Gateway\JavaScript\JavaScriptLanguage;
 use Webong\Gateway\Lua\LuaExtensionServiceProvider;
 use Webong\Gateway\Lua\LuaLanguage;
 use Webong\Gateway\Shell\ShellExtensionServiceProvider;
 use Webong\Gateway\Shell\ShellLanguage;
-use Webong\Gateway\WebhookScript\WebhookScriptExtensionServiceProvider;
-use Webong\Gateway\WebhookScript\WebhookScriptLanguage;
 
 it('discovers extension-owned Planner companions through Composer', function (): void {
     $registry = app(AutomationLanguageRegistry::class);
@@ -20,7 +20,7 @@ it('discovers extension-owned Planner companions through Composer', function ():
     expect(app()->providerIsLoaded(JavaScriptExtensionServiceProvider::class))->toBeTrue()
         ->and(app()->providerIsLoaded(LuaExtensionServiceProvider::class))->toBeTrue()
         ->and(app()->providerIsLoaded(ShellExtensionServiceProvider::class))->toBeTrue()
-        ->and(app()->providerIsLoaded(WebhookScriptExtensionServiceProvider::class))->toBeTrue();
+        ->and(app()->providerIsLoaded(HookScriptExtensionServiceProvider::class))->toBeTrue();
 
     foreach ([JavaScriptLanguage::ID, LuaLanguage::ID] as $language) {
         expect($registry->target($language))->toBe(AutomationExecutionTarget::SPINNER)
@@ -33,8 +33,8 @@ it('discovers extension-owned Planner companions through Composer', function ():
         ->and($registry->supports(ShellLanguage::ID, AutomationCapability::ROUTE))->toBeTrue()
         ->and($registry->supports(ShellLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse();
 
-    expect($registry->target(WebhookScriptLanguage::ID))->toBe(AutomationExecutionTarget::PLANNER)
-        ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::ROUTE))->toBeTrue()
-        ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse()
-        ->and($registry->supports(WebhookScriptLanguage::ID, AutomationCapability::CREDENTIAL))->toBeTrue();
+    expect($registry->target(HookScriptLanguage::ID))->toBe(AutomationExecutionTarget::PLANNER)
+        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::ROUTE))->toBeTrue()
+        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::SCHEDULE))->toBeFalse()
+        ->and($registry->supports(HookScriptLanguage::ID, AutomationCapability::CREDENTIAL))->toBeTrue();
 });

@@ -139,6 +139,21 @@ func NewProcessEngine(_ context.Context, proc *host.Process, desc contract.Descr
 	return &processEngine{process: proc, lang: lang}, nil
 }
 
+// NewSessionEngine wraps a native in-process plugin Session. Unlike a raw
+// endpoint, Session supplies reviewed reverse host calls such as companion
+// actions while preserving the same automation.Engine interface.
+func NewSessionEngine(session *contract.Session) (automation.Engine, error) {
+	if session == nil {
+		return nil, contract.ErrInvalid
+	}
+	desc := session.Descriptor()
+	lang, err := engineLanguage(desc)
+	if err != nil {
+		return nil, err
+	}
+	return &sessionEngine{session: session, lang: lang}, nil
+}
+
 type endpointEngine struct {
 	endpoint contract.Endpoint
 	identity contract.Identity
@@ -184,6 +199,31 @@ func (e *endpointEngine) Execute(ctx context.Context, source string, input autom
 type processEngine struct {
 	process *host.Process
 	lang    automation.Language
+}
+
+type sessionEngine struct {
+	session *contract.Session
+	lang    automation.Language
+}
+
+func (e *sessionEngine) Language() automation.Language { return e.lang }
+
+func (e *sessionEngine) Execute(ctx context.Context, source string, input automation.Input) (automation.Outcome, error) {
+	payload, err := json.Marshal(ExecuteRequest{
+		Language: string(e.lang), Source: source, Event: input.Event, Variables: input.Variables,
+	})
+	if err != nil {
+		return automation.Outcome{}, err
+	}
+	raw, err := e.session.Call(ctx, AutomationContract, "execute", payload)
+	if err != nil {
+		return automation.Outcome{}, err
+	}
+	var out ExecuteResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return automation.Outcome{}, err
+	}
+	return out.Outcome, nil
 }
 
 func (e *processEngine) Language() automation.Language { return e.lang }
@@ -239,3 +279,4 @@ func remoteError(id, code string, err error) contract.Response {
 var _ contract.Endpoint = (*EngineAdapter)(nil)
 var _ automation.Engine = (*endpointEngine)(nil)
 var _ automation.Engine = (*processEngine)(nil)
+var _ automation.Engine = (*sessionEngine)(nil)

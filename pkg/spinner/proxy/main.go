@@ -27,6 +27,7 @@ import (
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
@@ -143,6 +144,7 @@ func (s *Server) SetScheduleRegistrar(registrar automation.ScheduleRegistrar) {
 // Spinner extensions composed by this host.
 func (s *Server) SetCompanionActions(runner companion.Runner) {
 	s.companionActions = runner
+	companionextensions.Configure(runner)
 }
 
 func (s *Server) CompanionActions() companion.Runner {

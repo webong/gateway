@@ -12,6 +12,7 @@ use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
 use Webong\Gateway\Companion\CompanionActionExecutionStore;
+use Webong\Gateway\Companion\PruneCompanionActionExecutionsCommand;
 use Webong\Gateway\Companion\Http\InternalCompanionActionController;
 use Webong\Gateway\Companion\RegisteredCompanionActions;
 use Webong\Gateway\Contracts\AutomationCapability;
@@ -370,6 +371,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
         if ($this->app->runningInConsole()) {
             $this->commands([PruneEventsCommand::class, PruneEmailSubmissionUsageCommand::class,
+                PruneCompanionActionExecutionsCommand::class,
                 SendEmailDeliveryStatusEventsCommand::class, SendScheduleNotificationsCommand::class]);
         }
 

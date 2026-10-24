@@ -24,6 +24,7 @@ function companionInvocation(array $replace = []): array
         'companion_version' => '1.0.0',
         'execution_id' => 'execution-1',
         'idempotency_key' => 'message-1',
+        'deadline' => now('UTC')->addMinute()->toRfc3339String(),
         'input' => ['subject' => 'Help'],
     ], $replace);
 }
@@ -58,7 +59,9 @@ it('advertises installed companion capabilities and executes typed input', funct
 
     expect(CreateTicketCompanionAction::$calls)->toBe(1)
         ->and(DB::table('companion_action_executions')->where('execution_id', 'execution-1')->value('status'))
-        ->toBe('succeeded');
+        ->toBe('succeeded')
+        ->and(DB::table('companion_action_executions')->where('execution_id', 'execution-1')->value('result'))
+        ->not->toContain('ticket-1');
 });
 
 it('replays a completed idempotent execution without running PHP again', function (): void {
@@ -100,6 +103,9 @@ it('reports an already claimed execution without running it twice', function ():
         'idempotency_hash' => hash('sha256', 'message-1'),
         'request_hash' => $invocation->fingerprint(),
         'status' => 'running',
+        'attempts' => 1,
+        'claim_token' => 'old-claim-token-000000000000000',
+        'lease_expires_at' => now('UTC')->addMinute(),
         'result' => null,
         'started_at' => now('UTC'),
         'completed_at' => null,
@@ -114,6 +120,57 @@ it('reports an already claimed execution without running it twice', function ():
         ->assertJsonPath('status', 'in_progress');
 
     expect(CreateTicketCompanionAction::$calls)->toBe(0);
+});
+
+it('reclaims a crashed execution after its lease expires', function (): void {
+    $invocation = CompanionActionInvocation::fromArray(companionInvocation());
+    DB::table('companion_action_executions')->insert([
+        'execution_id' => 'execution-1',
+        'action' => 'email.create-ticket',
+        'companion_version' => '1.0.0',
+        'companion_digest' => null,
+        'idempotency_hash' => hash('sha256', 'message-1'),
+        'request_hash' => $invocation->fingerprint(),
+        'status' => 'running',
+        'attempts' => 1,
+        'claim_token' => 'expired-claim-token-000000000000',
+        'lease_expires_at' => now('UTC')->subSecond(),
+        'result' => null,
+        'started_at' => now('UTC')->subMinute(),
+        'completed_at' => null,
+        'created_at' => now('UTC')->subMinute(),
+        'updated_at' => now('UTC')->subMinute(),
+    ]);
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/companion-actions/email.create-ticket/executions', companionInvocation([
+            'execution_id' => 'replacement-execution',
+        ]))
+        ->assertOk()
+        ->assertJsonPath('execution_id', 'execution-1')
+        ->assertJsonPath('status', 'succeeded');
+
+    $row = DB::table('companion_action_executions')->first();
+    expect(CreateTicketCompanionAction::$calls)->toBe(1)
+        ->and($row->attempts)->toBe(2)
+        ->and($row->claim_token)->toBeNull()
+        ->and($row->lease_expires_at)->toBeNull();
+});
+
+it('enforces deadlines and prunes the durable idempotency window', function (): void {
+    $endpoint = '/_internal/gateway/companion-actions/email.create-ticket/executions';
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->postJson($endpoint, companionInvocation([
+        'deadline' => now('UTC')->addMinutes(6)->toRfc3339String(),
+    ]))->assertUnprocessable();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->postJson($endpoint, companionInvocation([
+        'deadline' => null,
+    ]))->assertUnprocessable();
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')->postJson($endpoint, companionInvocation())->assertOk();
+    DB::table('companion_action_executions')->update(['updated_at' => now('UTC')->subDays(31)]);
+    $this->artisan('gateway:prune-companion-actions')->assertSuccessful();
+
+    expect(DB::table('companion_action_executions')->count())->toBe(0);
 });
 
 it('does not expose raw PHP installation through the invocation interface', function (): void {

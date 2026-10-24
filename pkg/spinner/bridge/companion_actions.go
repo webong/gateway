@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/webong/gateway/driver/companion"
 )
 
 const companionActionsPath = "/_internal/gateway/companion-actions"
+const defaultCompanionTimeout = 30 * time.Second
 
 type companionRequester interface {
 	Do(*http.Request) (*http.Response, error)
@@ -71,6 +73,8 @@ func NewPHPCompanionRunner(handler http.Handler, maxBodySize int64, internalToke
 }
 
 func (r *companionRunner) Capabilities(ctx context.Context) ([]companion.Capability, error) {
+	ctx, cancel := companionCallContext(ctx, nil)
+	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create companion capability request: %w", err)
@@ -106,6 +110,9 @@ func (r *companionRunner) Capabilities(ctx context.Context) ([]companion.Capabil
 }
 
 func (r *companionRunner) Invoke(ctx context.Context, invocation companion.Invocation) (companion.Result, error) {
+	ctx, cancel := companionCallContext(ctx, invocation.Deadline)
+	defer cancel()
+	invocation = invocationWithDeadline(ctx, invocation)
 	if err := invocation.Validate(); err != nil {
 		return companion.Result{}, err
 	}
@@ -154,7 +161,45 @@ func requireCompanionSuccess(response *http.Response, maxBodySize int64) error {
 	if message == "" {
 		message = http.StatusText(response.StatusCode)
 	}
-	return fmt.Errorf("companion action runner returned status %d: %s", response.StatusCode, message)
+	code, retryable := companion.ErrorUnavailable, response.StatusCode >= http.StatusInternalServerError
+	switch response.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		code = companion.ErrorDenied
+	case http.StatusNotFound:
+		code = companion.ErrorNotFound
+	case http.StatusConflict:
+		code = companion.ErrorIncompatible
+	case http.StatusRequestEntityTooLarge:
+		code = companion.ErrorTooLarge
+	case http.StatusUnprocessableEntity:
+		code = companion.ErrorInvalid
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		retryable = true
+	}
+	return &companion.RunnerError{Code: code, Message: message, Retryable: retryable}
+}
+
+func companionCallContext(ctx context.Context, requested *time.Time) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(defaultCompanionTimeout)
+	if existing, ok := ctx.Deadline(); ok && existing.Before(deadline) {
+		deadline = existing
+	}
+	if requested != nil && requested.Before(deadline) {
+		deadline = *requested
+	}
+	return context.WithDeadline(ctx, deadline)
+}
+
+func invocationWithDeadline(ctx context.Context, invocation companion.Invocation) companion.Invocation {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(defaultCompanionTimeout)
+	}
+	if invocation.Deadline == nil || deadline.Before(*invocation.Deadline) {
+		deadline = deadline.UTC()
+		invocation.Deadline = &deadline
+	}
+	return invocation
 }
 
 func decodeCompanionJSON(reader io.Reader, maxBodySize int64, target any) error {
@@ -185,9 +230,21 @@ func readCompanionBody(reader io.Reader, maxBodySize int64) ([]byte, error) {
 type inProcessRequester struct{ handler http.Handler }
 
 func (r inProcessRequester) Do(request *http.Request) (*http.Response, error) {
-	recorder := httptest.NewRecorder()
-	r.handler.ServeHTTP(recorder, request)
-	return recorder.Result(), nil
+	type response struct {
+		value *http.Response
+	}
+	completed := make(chan response, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		r.handler.ServeHTTP(recorder, request)
+		completed <- response{value: recorder.Result()}
+	}()
+	select {
+	case result := <-completed:
+		return result.value, nil
+	case <-request.Context().Done():
+		return nil, request.Context().Err()
+	}
 }
 
 var _ companion.Runner = (*HTTPCompanionRunner)(nil)

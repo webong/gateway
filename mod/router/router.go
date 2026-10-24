@@ -17,6 +17,7 @@ import (
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
@@ -58,6 +59,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		return fmt.Errorf("configure trusted PHP companion actions: %w", err)
 	}
 	spinner.CompanionActions = companionActions
+	companionextensions.Configure(companionActions)
 
 	httpPlanner := bridge.NewPHPPlanner(planner, spinner.MaxBodySize)
 	httpPlanner.InternalToken = spinner.InternalToken

@@ -13,6 +13,7 @@ import (
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	"github.com/webong/gateway/pkg/spinner/transport"
 	"github.com/webong/gateway/router"
 )
@@ -58,6 +59,18 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				http.Error(writer, "Planner Shell credential control is unavailable", http.StatusServiceUnavailable)
 			})
 		}
+		companionActions, companionErr := bridge.NewPHPCompanionRunner(next, spinner.MaxBodySize, spinner.InternalToken)
+		if companionErr != nil {
+			select {
+			case ready <- plannerReady{err: companionErr}:
+			default:
+			}
+			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				http.Error(writer, "Planner companion actions are unavailable", http.StatusServiceUnavailable)
+			})
+		}
+		spinner.CompanionActions = companionActions
+		companionextensions.Configure(companionActions)
 		planner := bridge.NewPHPPlanner(next, spinner.MaxBodySize)
 		planner.InternalToken = spinner.InternalToken
 		protocolPlanner := bridge.NewPHPProtocolPlanner(next, spinner.MaxBodySize)

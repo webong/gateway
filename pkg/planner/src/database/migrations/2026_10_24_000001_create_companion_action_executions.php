@@ -18,13 +18,18 @@ return new class extends Migration
             $table->char('idempotency_hash', 64);
             $table->char('request_hash', 64);
             $table->string('status', 16);
-            $table->json('result')->nullable();
+            $table->unsignedInteger('attempts')->default(1);
+            $table->char('claim_token', 32)->nullable();
+            $table->timestampTz('lease_expires_at')->nullable();
+            // Results may contain application data and are encrypted by Planner.
+            $table->text('result')->nullable();
             $table->timestampTz('started_at');
             $table->timestampTz('completed_at')->nullable();
             $table->timestampsTz();
 
             $table->unique(['action', 'idempotency_hash']);
             $table->index(['action', 'status', 'started_at']);
+            $table->index(['status', 'lease_expires_at']);
         });
     }
 

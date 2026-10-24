@@ -3,9 +3,11 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/webong/gateway/driver/companion"
 )
@@ -88,7 +90,48 @@ func TestCompanionRunnerRejectsPlannerErrorsAndOversizedDocuments(t *testing.T) 
 			}
 			if _, err := runner.Capabilities(context.Background()); err == nil {
 				t.Fatal("expected capability request to fail")
+			} else if name == "private error" {
+				var runnerError *companion.RunnerError
+				if !errors.As(err, &runnerError) || runnerError.Code != companion.ErrorIncompatible {
+					t.Fatalf("expected typed incompatibility, got %v", err)
+				}
 			}
 		})
+	}
+}
+
+func TestPHPCompanionRunnerBoundsWaitAndSendsDeadline(t *testing.T) {
+	seenDeadline := make(chan time.Time, 1)
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		var invocation companion.Invocation
+		if err := json.NewDecoder(request.Body).Decode(&invocation); err != nil {
+			t.Errorf("decode invocation: %v", err)
+			return
+		}
+		if invocation.Deadline != nil {
+			seenDeadline <- *invocation.Deadline
+		}
+		<-request.Context().Done()
+	})
+	runner, err := NewPHPCompanionRunner(handler, 4096, "private-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	_, err = runner.Invoke(ctx, companion.Invocation{
+		ProtocolVersion: companion.ProtocolVersion, Action: "email.create-ticket", CompanionVersion: "1.0.0",
+		ExecutionID: "execution-1", IdempotencyKey: "message-1", Input: map[string]any{},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected caller deadline, got %v", err)
+	}
+	select {
+	case deadline := <-seenDeadline:
+		if deadline.After(time.Now().Add(time.Second)) {
+			t.Fatalf("invocation deadline did not inherit caller bound: %s", deadline)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Planner did not receive a deadline")
 	}
 }

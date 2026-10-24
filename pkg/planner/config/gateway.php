@@ -107,6 +107,9 @@ return [
         // Deployment safety ceiling. Planner accepts invocation data only;
         // companion PHP is installed through the package lifecycle.
         'max_input_bytes' => 262144,
+        'max_runtime_seconds' => 300,
+        // Idempotency is guaranteed inside this operational retention window.
+        'retention_days' => 30,
     ],
 
     'shell' => [

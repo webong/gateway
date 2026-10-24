@@ -15,10 +15,19 @@ const ProtocolVersion = "v1"
 
 type Status string
 
+type ErrorCode string
+
 const (
 	StatusSucceeded  Status = "succeeded"
 	StatusFailed     Status = "failed"
 	StatusInProgress Status = "in_progress"
+
+	ErrorUnavailable  ErrorCode = "companion_unavailable"
+	ErrorNotFound     ErrorCode = "companion_not_found"
+	ErrorIncompatible ErrorCode = "companion_incompatible"
+	ErrorDenied       ErrorCode = "companion_denied"
+	ErrorInvalid      ErrorCode = "companion_invalid"
+	ErrorTooLarge     ErrorCode = "companion_too_large"
 )
 
 var (
@@ -28,6 +37,25 @@ var (
 	ErrInvalidInvocation = errors.New("invalid companion action invocation")
 	ErrInvalidResult     = errors.New("invalid companion action result")
 )
+
+// RunnerError is a transport-independent failure to invoke Planner. Declared
+// action failures remain Result values; this type is reserved for admission,
+// compatibility and availability failures around the action.
+type RunnerError struct {
+	Code      ErrorCode
+	Message   string
+	Retryable bool
+}
+
+func (e *RunnerError) Error() string {
+	if e == nil {
+		return "companion action runner failed"
+	}
+	if strings.TrimSpace(e.Message) == "" {
+		return string(e.Code)
+	}
+	return e.Message
+}
 
 // Capability identifies one trusted PHP action installed in the Planner host.
 type Capability struct {
@@ -87,7 +115,10 @@ func (i Invocation) Validate() error {
 	if strings.TrimSpace(i.IdempotencyKey) == "" || len(i.IdempotencyKey) > 255 {
 		return fmt.Errorf("%w: idempotency key is required and cannot exceed 255 bytes", ErrInvalidInvocation)
 	}
-	if i.Deadline != nil && !i.Deadline.After(time.Now()) {
+	if i.Deadline == nil {
+		return fmt.Errorf("%w: deadline is required", ErrInvalidInvocation)
+	}
+	if !i.Deadline.After(time.Now()) {
 		return fmt.Errorf("%w: deadline has expired", ErrInvalidInvocation)
 	}
 	if i.Input == nil {
