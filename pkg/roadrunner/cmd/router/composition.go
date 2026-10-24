@@ -19,8 +19,9 @@ import (
 // engine package itself.
 //
 // The PHP engine is intentionally absent: the RoadRunner build has no libphp,
-// and PHP automation belongs to the standalone host. HookScript remains a Go
-// guest and reaches only its declared Planner companion.
+// and raw PHP automation belongs only in an explicitly composed host.
+// HookScript remains bundled here until combined Router hosts gain the same
+// live artifact reconciler as separately hosted Spinner.
 func registerStaticEngines() error {
 	plugins := []func() (automation.Engine, error){
 		javascript.Plugin,

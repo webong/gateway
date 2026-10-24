@@ -7,7 +7,7 @@ Spinner builds on that interface and owns transport and network policy. Spinner
 is a plugin host: each host binary is a composition root that registers the
 guest engines it ships with, or loads them at runtime. The standalone host's
 static set is `pkg/spinner/cmd/gateway/plugins.txt`.
-JavaScript, Lua, Shell, and HookScript are separate language extensions.
+JavaScript, Lua, Shell, Go, and HookScript are separate language extensions.
 JavaScript, Lua, and WebhookScript can also shape synchronous credential-source
 requests for application-managed mail connections.
 
@@ -47,8 +47,10 @@ export GATEWAY_PLUGIN_DIR_NATIVE=/opt/gateway/plugins/native   # .so guests
 export GATEWAY_PLUGIN_DIR=/opt/gateway/plugins                # ext plugin store
 ```
 
-Bundled Router binaries are separate composition roots and ship with the
-engines they need (JavaScript, Lua, Shell, Go, and HookScript). A route plan
+Bundled Router binaries are separate composition roots. The default standalone
+Spinner includes JavaScript, Lua, Shell, and Go but installs HookScript from its
+combined extension release. Existing bundled Router compositions still carry
+the HookScript Go guest and use Planner for its PHP companion. A route plan
 whose language is not registered fails closed with HTTP 502; Gateway never
 falls back to evaluating source in another runtime.
 
@@ -67,17 +69,19 @@ the root package does not duplicate extension namespaces or provider names.
 Installing a published extension package continues to work through ordinary
 Composer and Laravel package discovery.
 
-For dynamic mode, install a reviewed `ext.package/v1` release in the ext store.
+For dynamic mode, publish a reviewed `ext.package/v1` release as a
+gzip-compressed tar archive over HTTPS and record its URL, version and SHA-256
+in the `/extensions` resource.
 The package may carry both the Spinner guest entrypoint and a `planner`
 entrypoint using the `php-jsonline` runtime. Its top-level descriptor describes
 the Spinner process; `metadata["gateway.companion/v1"].descriptor` describes
 the PHP process with the same package identity. Each process therefore exposes
-only the contracts it actually serves. Planner discovers its entrypoint from
-`GATEWAY_COMPANION_PLUGIN_DIR` (or `GATEWAY_PLUGIN_DIR` when both planes share
-the store), while Spinner selects the entrypoint named `spinner`. Older
-single-plane packages without that name retain the ext host's first-entrypoint
-behavior. The Planner extension resource selects `static` or `dynamic`; it
-never runs both and never silently falls back between them.
+only the contracts it actually serves. Planner pulls into
+`GATEWAY_COMPANION_PLUGIN_DIR` and selects `planner`; Spinner pulls into its
+separate `GATEWAY_PLUGIN_DIR` and selects `spinner`. Named packages without the
+entrypoint for the current plane are rejected. The Planner extension resource
+selects `static` or `dynamic`; it never runs both and never silently falls back
+between them.
 
 Planner does not contain a built-in language list. Each extension's Laravel
 provider registers its execution target and route, schedule, or credential

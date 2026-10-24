@@ -18,9 +18,11 @@ composer require webong/gateway-hookscript
 Laravel package discovery registers
 `Webong\Gateway\HookScript\HookScriptExtensionServiceProvider`. The provider
 registers the language as Spinner-executed and offers the matching static PHP
-companion action. Enable the compiled Go guest with
-`GATEWAY_AUTOMATION_ENGINES=hookscript`. The engine advertises the public
-language ID `webhookscript`. Route and scheduled executions cross
+companion action. For a source-built custom Spinner, add the Go module to that
+composition and enable it there. The default Spinner intentionally does not
+compile HookScript; production installs should use the combined dynamic
+package described below. The engine advertises the public language ID
+`webhookscript`. Route and scheduled executions cross
 the declared plugin reverse-call interface; credential-source execution stays
 inside Planner to avoid a Planner-to-Spinner-to-Planner callback.
 
@@ -42,9 +44,9 @@ composer install --no-dev --classmap-authoritative
 php scripts/build-ext-package /tmp/webong-hookscript 1.0.0
 ```
 
-Install that directory into the ext store mounted at
-`GATEWAY_COMPANION_PLUGIN_DIR`. The package declares a `planner` entrypoint
-using `php-jsonline` and serves `ext.plugin/v1` from `bin/companion`. When
+Archive that directory as a gzip-compressed tar file and publish it over HTTPS.
+The package declares a Go `spinner` entrypoint and a `planner` entrypoint using
+`php-jsonline`; Planner serves the latter through `bin/companion`. When
 Planner runs under PHP-FPM, set `GATEWAY_COMPANION_PHP_BINARY` to the PHP CLI
 executable used to launch that entrypoint.
 
@@ -59,9 +61,18 @@ Content-Type: application/json
   "extension": "webong/hookscript",
   "enabled": true,
   "mode": "dynamic",
-  "version": "1.0.0"
+  "version": "1.0.0",
+  "artifact": {
+    "url": "https://extensions.example.com/webong-hookscript-1.0.0.tar.gz",
+    "sha256": "<sha256-of-the-tar-gz>"
+  }
 }
 ```
+
+Planner and every separately hosted Spinner pull the archive independently.
+Planner installs only the PHP entrypoint; Spinner installs only the Go
+entrypoint. Installing HookScript therefore does not add PHP to Spinner and
+does not require rebuilding its image.
 
 Static and dynamic candidates may both be discovered. The activation resource
 selects exactly one, and `GET /extensions` reports its mode, generation,

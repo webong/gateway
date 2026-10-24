@@ -19,8 +19,9 @@ import (
 // engine package itself.
 //
 // The PHP engine is intentionally absent: this Router already runs PHP through
-// its planner runtime, and PHP automation belongs to the standalone host.
-// HookScript remains a Go guest and reaches only its declared Planner companion.
+// its planner runtime, and raw PHP automation belongs only in an explicitly
+// composed host. HookScript remains bundled here until combined Router hosts
+// gain the same live artifact reconciler as separately hosted Spinner.
 func registerStaticEngines() error {
 	plugins := []func() (automation.Engine, error){
 		javascript.Plugin,

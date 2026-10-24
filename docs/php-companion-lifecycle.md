@@ -35,13 +35,17 @@ closed instead of falling back to the other mode.
 
 ## End-to-end flow
 
-1. An operator installs a static Composer package, a dynamic ext package, or
-   both.
-2. Planner discovers the available candidates. Discovery does not activate
-   them.
-3. The operator creates or updates an `/extensions` resource choosing
-   `static` or `dynamic`, with optional version and digest pins.
-4. Planner advertises only the active action capability, including its
+1. An operator installs a static Composer package, or publishes a combined
+   dynamic ext package at an HTTPS artifact URL.
+2. The operator creates or updates an `/extensions` resource choosing
+   `static` or `dynamic`. Dynamic desired state includes the release version,
+   artifact URL, and archive SHA-256; it may also pin the verified extracted
+   package digest.
+3. Planner and Spinner independently pull and verify that archive. Planner
+   selects only the named `planner` entrypoint; Spinner selects only the named
+   `spinner` entrypoint.
+4. Planner discovers the installed candidate and advertises only the active
+   action capability, including its
    extension, mode, and activation generation.
 5. A Spinner guest requests one exact action through `companion.Runner`.
 6. A bundled Router uses the in-process adapter. A separately deployed Spinner
@@ -81,10 +85,19 @@ The package declares:
   `metadata["gateway.companion/v1"].descriptor`;
 - the same package identity, version, and revision for both planes.
 
-Planner reads dynamic packages from `GATEWAY_COMPANION_PLUGIN_DIR`, or from
-`GATEWAY_PLUGIN_DIR` when both planes intentionally share one ext store. It
-uses a PHP CLI executable; PHP-FPM deployments must identify that executable
-with `GATEWAY_COMPANION_PHP_BINARY`.
+Planner stores its local verified copy in `GATEWAY_COMPANION_PLUGIN_DIR`.
+Spinner stores its independent copy in `GATEWAY_PLUGIN_DIR`; the standard
+Spinner image maps that cache to `/data/extensions`. These are deployment-owned
+caches, not the source of desired state. Planner's generic `/extensions`
+resource is the source of truth, and its private authenticated
+`/_internal/gateway/extensions` projection is what separately hosted Spinner
+instances reconcile. Spinner polls that projection while Planner reconciles
+before private capability discovery or invocation.
+
+Planner uses a PHP CLI executable only for its `planner` entrypoint; PHP-FPM
+deployments must identify that executable with
+`GATEWAY_COMPANION_PHP_BINARY`. Spinner neither contains PHP nor knows that the
+companion implementation is PHP.
 
 Dynamic packages are self-contained. Their Composer `vendor/` tree is part of
 the reviewed artifact, and their protocol executable serves the action through
@@ -187,6 +200,10 @@ Content-Type: application/json
   "enabled": true,
   "mode": "dynamic",
   "version": "1.0.0",
+  "artifact": {
+    "url": "https://extensions.example.com/webong-hookscript-1.0.0.tar.gz",
+    "sha256": "<sha256-of-the-tar-gz>"
+  },
   "execution": {
     "mode": "warmed",
     "max_invocations": 100,
@@ -202,18 +219,26 @@ static provider. It is most useful with a long-running Planner such as Octane;
 a short-lived PHP-FPM request cannot preserve a child beyond the lifetime of
 the PHP process that owns it.
 
+The URL must be HTTPS, must not contain credentials or a fragment, and the
+SHA-256 is required. The optional top-level `digest` is distinct:
+`artifact.sha256` pins the bytes in transit, while `digest` pins the verified
+extracted package.
+
 Use `GET /extensions` to inspect the desired mode, discovered candidate,
 readiness, active capabilities, and activation generation before routing work
 to it.
 
 ## Current boundary
 
-The registry, activation API, package verification, isolated and bounded
-warmed execution, dynamic PHP guest, Spinner reverse call, combined-package
-entrypoint selection, HookScript integration, and focused regression coverage
-are implemented. Runtime-level pooling is opt-in through the bundled Router's
-PHP worker count; the companion provider itself stays synchronous and exposes
-no scheduler or pool internals.
+The registry, activation API, Planner-owned artifact desired state, independent
+plane reconciliation, package verification, isolated and bounded warmed
+execution, dynamic PHP guest, Spinner reverse call, combined-package entrypoint
+selection, HookScript integration, and focused regression coverage are
+implemented. The default Spinner binary and image contain neither PHP nor the
+HookScript guest; HookScript can be installed after startup without rebuilding
+Spinner. Runtime-level pooling is opt-in through the bundled Router's PHP
+worker count; the companion provider itself stays synchronous and exposes no
+scheduler or pool internals.
 
 See [PHP companion actions](companion-actions.md) for the programming contract
 and [ADR 0004](adr/0004-invoke-trusted-php-companion-actions-through-planner.md)

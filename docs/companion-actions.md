@@ -84,10 +84,12 @@ An ext package can also declare a self-contained PHP JSON-line process:
 }
 ```
 
-Set `GATEWAY_COMPANION_PLUGIN_DIR` to the deployment-owned ext store location.
+Set `GATEWAY_COMPANION_PLUGIN_DIR` to Planner's deployment-owned ext cache.
 Planner verifies the manifest and every declared file/tree artifact, rejects
 unlisted files and symbolic links, completes the exact ext handshake, and
 starts the PHP process with protocol output isolated from PHP diagnostics.
+For separately hosted services this directory is populated by Planner's
+reconciler from `/extensions`; it is not a directory shared with Spinner.
 Dynamic mode requires `proc_open` and a PHP CLI executable. CLI and Octane
 deployments normally use the `PHP_BINARY` default. PHP-FPM deployments must set
 `GATEWAY_COMPANION_PHP_BINARY` to their CLI executable, for example
@@ -124,6 +126,10 @@ For example:
   "mode": "dynamic",
   "version": "1.0.0",
   "digest": "optional-package-sha256",
+  "artifact": {
+    "url": "https://extensions.example.com/example-email-ticket-1.0.0.tar.gz",
+    "sha256": "required-archive-sha256"
+  },
   "execution": {
     "mode": "warmed",
     "max_invocations": 100,
@@ -205,7 +211,9 @@ One extension release can contain two operator-reviewed entrypoints:
   and
 - a self-contained Composer-powered PHP process providing those actions.
 
-Planner CMS is the desired-state owner. Spinner and Planner each reconcile the
+Planner CMS is the desired-state owner. Its activation document stores the
+artifact URL, version and archive digest. Spinner and Planner each download and
+verify the release into their own local cache, then reconcile only the named
 entrypoint intended for their plane from the same reviewed package identity.
 The action's registered version and package digest are the rollout compatibility
 check. Spinner never copies PHP source in an invocation. Static Composer
@@ -234,6 +242,7 @@ idempotency window.
 
 The private endpoints are:
 
+- `GET /_internal/gateway/extensions`
 - `GET /_internal/gateway/companion-actions`
 - `POST /_internal/gateway/companion-actions/{action}/executions`
 
@@ -255,11 +264,16 @@ mkdir -p /tmp/gateway-extensions
 php scripts/build-ext-package /tmp/gateway-extensions/webong%2fhookscript 1.0.0
 ```
 
+Archive that package directory as a gzip-compressed tar file, publish it over
+HTTPS, and put its URL and SHA-256 in the dynamic `/extensions` activation.
+The running PHP-free Spinner then installs the Go `spinner` entrypoint while
+Planner installs and executes the PHP `planner` entrypoint.
+
 The dynamic build uses a dedicated, framework-free Composer lock under
 `pkg/hookscript/companion`. It contains the ext protocol, HookScript runtime,
 and interpreter without copying Laravel or the Planner host into each package.
-Planner still verifies the complete installed tree before every invocation,
-including invocations handled by a warmed process.
+Planner verifies the complete installed tree before each isolated launch and
+before starting or replacing a warmed process.
 
 This keeps FrankenPHP and PHP hosting details out of the Go extension while
 preserving Go-owned ingress, egress, scheduling, and outcome validation.
