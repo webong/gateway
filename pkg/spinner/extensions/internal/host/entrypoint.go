@@ -1,6 +1,6 @@
-// Package packagehost contains package lifecycle helpers shared by Spinner
-// capability hosts. It knows ext.package/v1, never product extensions.
-package packagehost
+// Package host contains package lifecycle helpers shared by Spinner extension
+// hosts. It knows ext.package/v1, never product extensions.
+package host
 
 import (
 	"encoding/json"

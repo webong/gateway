@@ -1,4 +1,4 @@
-package runtimeextensions
+package integrationextensions
 
 import (
 	"context"
@@ -17,9 +17,9 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	runtimecontract "github.com/webong/gateway/arranger/integration"
+	integrationcontract "github.com/webong/gateway/arranger/integration"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
-	"github.com/webong/gateway/pkg/spinner/extensions/packagehost"
+	extensionhost "github.com/webong/gateway/pkg/spinner/extensions/internal/host"
 )
 
 type mounted struct {
@@ -65,7 +65,7 @@ func (r *Registry) RegisterHTTPMount(identity, prefix string, handler http.Handl
 }
 
 func Supports(descriptor plugin.Descriptor) bool {
-	_, err := descriptor.Lookup(runtimecontract.RuntimeContract, runtimecontract.OperationStart)
+	_, err := descriptor.Lookup(integrationcontract.RuntimeContract, integrationcontract.OperationStart)
 	return err == nil
 }
 
@@ -80,7 +80,7 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 	if registry == nil {
 		registry = DefaultRegistry
 	}
-	launch, err := packagehost.SpinnerLaunch(inst)
+	launch, err := extensionhost.SpinnerLaunch(inst)
 	if err != nil {
 		return fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
@@ -92,12 +92,12 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 		return err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	var advertisement runtimecontract.RuntimeStartResponse
-	err = proc.Call(callCtx, plugin.Method(runtimecontract.RuntimeContract, runtimecontract.OperationStart), DefaultHost.StartRequest(configuration), &advertisement)
+	var advertisement integrationcontract.RuntimeStartResponse
+	err = proc.Call(callCtx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStart), DefaultHost.StartRequest(configuration), &advertisement)
 	cancel()
 	if err != nil {
 		_ = proc.Close()
-		return fmt.Errorf("start Spinner runtime: %w", err)
+		return fmt.Errorf("start Spinner integration: %w", err)
 	}
 	mounts := make([]httpMount, 0, len(advertisement.HTTP))
 	seenPrefixes := make(map[string]bool, len(advertisement.HTTP))
@@ -105,17 +105,17 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 		prefix, err := validHTTPPrefix(advertised.Prefix)
 		if err != nil || seenPrefixes[prefix] {
 			_ = proc.Close()
-			return errors.New("Spinner runtime advertised an invalid or duplicate HTTP prefix")
+			return errors.New("Spinner integration advertised an invalid or duplicate HTTP prefix")
 		}
 		seenPrefixes[prefix] = true
 		target, err := url.Parse(advertised.Address)
 		if err != nil || target.Scheme != "http" || target.User != nil || target.Path != "" || target.RawQuery != "" || target.Fragment != "" || !loopback(target.Host) {
 			_ = proc.Close()
-			return errors.New("Spinner runtime advertised an invalid private HTTP endpoint")
+			return errors.New("Spinner integration advertised an invalid private HTTP endpoint")
 		}
 		reverseProxy := httputil.NewSingleHostReverseProxy(target)
 		reverseProxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, _ error) {
-			http.Error(writer, "Gateway extension runtime is unavailable", http.StatusBadGateway)
+			http.Error(writer, "Gateway integration is unavailable", http.StatusBadGateway)
 		}
 		mounts = append(mounts, httpMount{prefix: prefix, proxy: reverseProxy})
 	}

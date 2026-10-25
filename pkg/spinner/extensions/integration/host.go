@@ -1,7 +1,7 @@
-// Package runtimeextensions hosts installable Spinner runtime entrypoints.
-// It depends only on Arranger and ext contracts; product extensions remain
-// independently built processes.
-package runtimeextensions
+// Package integrationextensions hosts installable Spinner integration
+// entrypoints. It depends only on Arranger and ext contracts; product
+// extensions remain independently built processes.
+package integrationextensions
 
 import (
 	"bytes"
@@ -25,7 +25,7 @@ type Executor interface {
 	integration.GatewayExecutor
 }
 
-// Services are the host capabilities an installed runtime may call. The
+// Services are the host capabilities an installed integration may call. The
 // descriptor still has to declare every exact reverse operation.
 type Services struct {
 	Planner         integration.Planner
@@ -66,7 +66,7 @@ func (h *Host) StartRequest(configuration json.RawMessage) integration.RuntimeSt
 	return request
 }
 
-// ReverseOptions combines the runtime host services with an optional existing
+// ReverseOptions combines the integration host services with an optional existing
 // reverse host such as Companion Actions.
 func (h *Host) ReverseOptions(fallback *plugin.ReverseOptions) *plugin.ReverseOptions {
 	return &plugin.ReverseOptions{

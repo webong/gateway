@@ -13,7 +13,7 @@ import (
 	mdns "github.com/miekg/dns"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	protocol "github.com/webong/gateway/arranger/integration"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
 
 type runtimeProtocolPlanner func(context.Context, protocol.GatewayEvent) (protocol.GatewayDecision, error)
@@ -56,7 +56,7 @@ func TestDNSCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		ProtocolPlanner: runtimeProtocolPlanner(func(_ context.Context, event protocol.GatewayEvent) (protocol.GatewayDecision, error) {
 			if event.Protocol != protocol.ProtocolDNS || event.Route != "/hook" || event.Attributes["data"] != "value" {
 				return protocol.GatewayDecision{}, fmt.Errorf("unexpected DNS event: %+v", event)
@@ -68,8 +68,8 @@ func TestDNSCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		}),
 		Executor: runtimeExecutor{},
 	})
-	registry := runtimeextensions.NewRegistry()
-	if err := runtimeextensions.LoadExternalInstalledWithConfiguration(t.Context(), registry, installed, configuration); err != nil {
+	registry := integrationextensions.NewRegistry()
+	if err := integrationextensions.LoadExternalInstalledWithConfiguration(t.Context(), registry, installed, configuration); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { registry.Unregister("webong/dns") })

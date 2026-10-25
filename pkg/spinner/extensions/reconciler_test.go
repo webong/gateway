@@ -1,4 +1,4 @@
-package automationextensions
+package extensions
 
 import (
 	"archive/tar"
@@ -24,8 +24,37 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
+	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
+
+type testEngine struct{ language automation.Language }
+
+func (e testEngine) Language() automation.Language { return e.language }
+
+func (e testEngine) Execute(context.Context, string, automation.Input) (automation.Outcome, error) {
+	return automation.Outcome{Response: &automation.Response{Status: http.StatusNoContent}}, nil
+}
+
+type testCompanionRunner struct{}
+
+func testRegistries(automations *automationextensions.Registry) Registries {
+	return Registries{Automation: automations, Integration: integrationextensions.NewRegistry()}
+}
+
+func (testCompanionRunner) Capabilities(context.Context) ([]companion.Capability, error) {
+	return []companion.Capability{{Name: "gateway.hookscript.execute", Version: "1.0.0"}}, nil
+}
+
+func (testCompanionRunner) Invoke(_ context.Context, invocation companion.Invocation) (companion.Result, error) {
+	return companion.Result{
+		ProtocolVersion: companion.ProtocolVersion,
+		ExecutionID:     invocation.ExecutionID,
+		Status:          companion.StatusSucceeded,
+		Output:          map[string]any{"executed": true},
+	}, nil
+}
 
 func TestArtifactGuestProcess(t *testing.T) {
 	if os.Getenv("GATEWAY_TEST_EXTENSION_GUEST") != "1" {
@@ -42,7 +71,7 @@ func TestArtifactGuestProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	guest, err := plugin.NewGuest(manifest.Descriptor, plugin.GuestOptions{Handler: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
-		var input ExecuteRequest
+		var input automationextensions.ExecuteRequest
 		if err := json.Unmarshal(request.Payload, &input); err != nil {
 			return nil, err
 		}
@@ -62,7 +91,7 @@ func TestArtifactGuestProcess(t *testing.T) {
 		if err := json.Unmarshal(response, &result); err != nil {
 			return nil, err
 		}
-		return json.Marshal(ExecuteResponse{Outcome: automation.Outcome{Variables: result.Output}})
+		return json.Marshal(automationextensions.ExecuteResponse{Outcome: automation.Outcome{Variables: result.Output}})
 	}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -76,13 +105,13 @@ func TestArtifactGuestProcess(t *testing.T) {
 }
 
 func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
-	plugins := NewRegistry()
+	plugins := automationextensions.NewRegistry()
 	runtime := plugins.Runtime()
 	if runtime.Supports("webhookscript") {
 		t.Fatal("HookScript was present before the desired artifact was reconciled")
 	}
 
-	companionextensions.Configure(staticTestRunner{})
+	companionextensions.Configure(testCompanionRunner{})
 	t.Cleanup(func() { companionextensions.Configure(nil) })
 	archive := hookScriptTestArchive(t)
 	archiveDigest := sha256.Sum256(archive)
@@ -117,7 +146,7 @@ func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	reconciler, err := NewArtifactReconciler(server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), plugins)
+	reconciler, err := NewArtifactReconciler(server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), testRegistries(plugins))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +186,7 @@ func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
 }
 
 func TestArtifactReconcilerRejectsTamperedDistributionBeforeLoadingGuest(t *testing.T) {
-	plugins := NewRegistry()
+	plugins := automationextensions.NewRegistry()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/_internal/gateway/extensions" {
 			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]any{{
@@ -177,7 +206,7 @@ func TestArtifactReconcilerRejectsTamperedDistributionBeforeLoadingGuest(t *test
 		}, nil
 	})
 	reconciler, err := NewArtifactReconciler(
-		server.URL, "private-token", t.TempDir(), server.Client(), artifactClient, plugins,
+		server.URL, "private-token", t.TempDir(), server.Client(), artifactClient, testRegistries(plugins),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -192,27 +221,27 @@ func TestArtifactReconcilerRejectsTamperedDistributionBeforeLoadingGuest(t *test
 
 func TestDesiredExtensionRequiresObjectShapedBoundedConfiguration(t *testing.T) {
 	base := DesiredExtension{
-		Extension: "example/runtime", Version: "1.0.0", Revision: 1,
-		Artifact: DesiredArtifact{URL: "https://extensions.example.test/runtime.tar.gz", SHA256: strings.Repeat("a", 64)},
+		Extension: "example/integration", Version: "1.0.0", Revision: 1,
+		Artifact: DesiredArtifact{URL: "https://extensions.example.test/integration.tar.gz", SHA256: strings.Repeat("a", 64)},
 	}
 	base.Configuration = json.RawMessage(`{"listener":{"address":"127.0.0.1:0"}}`)
 	base.ConfigurationSHA256 = digestConfiguration(base.Configuration)
 	if !validDesiredExtension(base) {
-		t.Fatal("valid runtime configuration was rejected")
+		t.Fatal("valid extension configuration was rejected")
 	}
 	base.ConfigurationSHA256 = strings.Repeat("0", 64)
 	if validDesiredExtension(base) {
-		t.Fatal("runtime configuration with a mismatched digest was accepted")
+		t.Fatal("extension configuration with a mismatched digest was accepted")
 	}
 	base.Configuration = json.RawMessage(`["not","an","object"]`)
 	base.ConfigurationSHA256 = digestConfiguration(base.Configuration)
 	if validDesiredExtension(base) {
-		t.Fatal("list-shaped runtime configuration was accepted")
+		t.Fatal("list-shaped extension configuration was accepted")
 	}
 	base.Configuration = json.RawMessage("{")
 	base.ConfigurationSHA256 = digestConfiguration(base.Configuration)
 	if validDesiredExtension(base) {
-		t.Fatal("malformed runtime configuration was accepted")
+		t.Fatal("malformed extension configuration was accepted")
 	}
 }
 
@@ -256,9 +285,9 @@ func TestExtractExtensionArchiveAcceptsConventionalRootDirectoryEntry(t *testing
 }
 
 func TestArtifactReconcilerRemovesCachedGuestThatIsNoLongerDesired(t *testing.T) {
-	plugins := NewRegistry()
-	engine := lateEngine{language: "webhookscript"}
-	plugins.Register(NewEngineAdapter(engine, EngineDescriptor(engine, plugin.Identity{
+	plugins := automationextensions.NewRegistry()
+	engine := testEngine{language: "webhookscript"}
+	plugins.Register(automationextensions.NewEngineAdapter(engine, automationextensions.EngineDescriptor(engine, plugin.Identity{
 		ID: "webong/hookscript", Revision: "cached-r1", Version: "1.0.0",
 	})))
 	if !plugins.Runtime().Supports("webhookscript") {
@@ -269,7 +298,7 @@ func TestArtifactReconcilerRemovesCachedGuestThatIsNoLongerDesired(t *testing.T)
 	}))
 	t.Cleanup(server.Close)
 	reconciler, err := NewArtifactReconciler(
-		server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), plugins,
+		server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), testRegistries(plugins),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -283,9 +312,9 @@ func TestArtifactReconcilerRemovesCachedGuestThatIsNoLongerDesired(t *testing.T)
 }
 
 func TestStartArtifactReconciliationCompletesInitialPassBeforeReturning(t *testing.T) {
-	plugins := NewRegistry()
-	engine := lateEngine{language: "webhookscript"}
-	plugins.Register(NewEngineAdapter(engine, EngineDescriptor(engine, plugin.Identity{
+	plugins := automationextensions.NewRegistry()
+	engine := testEngine{language: "webhookscript"}
+	plugins.Register(automationextensions.NewEngineAdapter(engine, automationextensions.EngineDescriptor(engine, plugin.Identity{
 		ID: "webong/hookscript", Revision: "cached-r1", Version: "1.0.0",
 	})))
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -295,7 +324,7 @@ func TestStartArtifactReconciliationCompletesInitialPassBeforeReturning(t *testi
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	if err := StartArtifactReconciliation(
-		ctx, server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), plugins,
+		ctx, server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), testRegistries(plugins),
 		time.Hour, nil,
 	); err != nil {
 		t.Fatal(err)
@@ -306,9 +335,9 @@ func TestStartArtifactReconciliationCompletesInitialPassBeforeReturning(t *testi
 }
 
 func TestArtifactReconcilerClosesCachedGuestsWhenPlannerDesiredStateIsUnavailable(t *testing.T) {
-	plugins := NewRegistry()
-	engine := lateEngine{language: "webhookscript"}
-	plugins.Register(NewEngineAdapter(engine, EngineDescriptor(engine, plugin.Identity{
+	plugins := automationextensions.NewRegistry()
+	engine := testEngine{language: "webhookscript"}
+	plugins.Register(automationextensions.NewEngineAdapter(engine, automationextensions.EngineDescriptor(engine, plugin.Identity{
 		ID: "webong/hookscript", Revision: "cached-r1", Version: "1.0.0",
 	})))
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -316,7 +345,7 @@ func TestArtifactReconcilerClosesCachedGuestsWhenPlannerDesiredStateIsUnavailabl
 	}))
 	t.Cleanup(server.Close)
 	reconciler, err := NewArtifactReconciler(
-		server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), plugins,
+		server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), testRegistries(plugins),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +378,7 @@ func hookScriptTestArchive(t *testing.T) []byte {
 		APIVersion: plugin.APIVersion,
 		Identity:   plugin.Identity{ID: "webong/hookscript", Revision: "test-r1", Version: "1.0.0"},
 		Contracts: []plugin.Contract{{
-			ContractRef: AutomationContract,
+			ContractRef: automationextensions.AutomationContract,
 			Operations:  []plugin.Operation{{Name: "execute", Surface: "webhookscript"}},
 		}},
 		Reverse: []plugin.Contract{{

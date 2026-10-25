@@ -11,7 +11,7 @@ import (
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	"github.com/webong/gateway/arranger/integration"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
 
 type runtimePlanner func(context.Context, integration.IngressRequest) (integration.RoutePlan, error)
@@ -50,8 +50,8 @@ func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	registry := runtimeextensions.NewRegistry()
-	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+	registry := integrationextensions.NewRegistry()
+	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		Planner: runtimePlanner(func(_ context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
 			return integration.RoutePlan{
 				Version: integration.ProtocolVersion, Action: integration.ActionRespond,
@@ -61,7 +61,7 @@ func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		Executor: runtimeExecutor{},
 		Start:    integration.RuntimeStartRequest{MaxBodySize: 1024},
 	})
-	if err := runtimeextensions.LoadExternalInstalled(context.Background(), registry, installed); err != nil {
+	if err := integrationextensions.LoadExternalInstalled(context.Background(), registry, installed); err != nil {
 		t.Fatal(err)
 	}
 	defer registry.Unregister("webong/web")

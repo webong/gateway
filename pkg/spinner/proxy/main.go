@@ -22,10 +22,11 @@ import (
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
+	spinnerextensions "github.com/webong/gateway/pkg/spinner/extensions"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	automationexecution "github.com/webong/gateway/pkg/spinner/extensions/automation/execution"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
@@ -504,7 +505,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to initialize HTTP protocol planner: %w", err)
 	}
-	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		Planner: runtime.Planner(), ProtocolPlanner: protocolPlanner, PassThrough: runtime.PassThrough(),
 		Executor: server.NewGatewayExecutor(), Automation: server.automation, Schedules: control,
 		Start: runtimecontract.RuntimeStartRequest{
@@ -519,14 +520,16 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		reconcileCtx, cancelReconcile := context.WithCancel(context.Background())
 		defer cancelReconcile()
-		if err := automationextensions.StartArtifactReconciliation(
+		if err := spinnerextensions.StartArtifactReconciliation(
 			reconcileCtx, config.PlannerURL, config.InternalToken, pluginDir,
-			client, artifactClient, automationextensions.Runtime(), 15*time.Second, logger.Error,
+			client, artifactClient, spinnerextensions.Registries{
+				Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
+			}, 15*time.Second, logger.Error,
 		); err != nil {
 			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
 		}
 	}
-	server.SetRelayHandler(runtime.Handler(runtimeextensions.DefaultRegistry.Handler()))
+	server.SetRelayHandler(runtime.Handler(integrationextensions.DefaultRegistry.Handler()))
 	if config.ProvisioningRouteProxy {
 		managedRouter, routeErr := provision.NewRemoteRouter(config.PlannerURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)
 		if routeErr != nil {

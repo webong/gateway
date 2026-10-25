@@ -14,9 +14,10 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
+	spinnerextensions "github.com/webong/gateway/pkg/spinner/extensions"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	"github.com/webong/gateway/pkg/spinner/router"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
@@ -79,7 +80,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		protocolPlanner := bridge.NewPHPProtocolPlanner(next, spinner.MaxBodySize)
 		protocolPlanner.InternalToken = spinner.InternalToken
 		control, controlErr := transport.EmbeddedScheduleControl(next, spinner, engine)
-		runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+		integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: next,
 			Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
 			Start: runtimecontract.RuntimeStartRequest{
@@ -97,9 +98,11 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			}
 			plannerClient := &http.Client{Transport: routerHandlerTransport{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			extensionErr = automationextensions.StartArtifactReconciliation(
+			extensionErr = spinnerextensions.StartArtifactReconciliation(
 				ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
-				plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+				plannerClient, artifactClient, spinnerextensions.Registries{
+					Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
+				}, 15*time.Second, log.Printf,
 			)
 		})
 		if extensionErr != nil {
@@ -116,7 +119,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				http.Error(writer, "Planner schedule control is unavailable", http.StatusServiceUnavailable)
 			})
 		}
-		return router.NewHandler(next, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(next)...)
+		return router.NewHandler(next, integrationextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(next)...)
 	})
 	if err != nil {
 		return err

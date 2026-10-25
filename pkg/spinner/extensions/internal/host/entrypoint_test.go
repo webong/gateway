@@ -1,4 +1,4 @@
-package automationextensions
+package host
 
 import (
 	"crypto/sha256"
@@ -32,7 +32,7 @@ func TestSpinnerLaunchSelectsNamedEntrypointFromCombinedPackage(t *testing.T) {
 		},
 	}
 
-	launch, err := spinnerLaunch(installed)
+	launch, err := SpinnerLaunch(installed)
 	if err != nil {
 		t.Fatalf("select Spinner entrypoint: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestSpinnerLaunchSelectsNamedEntrypointFromCombinedPackage(t *testing.T) {
 }
 
 func TestSpinnerLaunchKeepsLegacyFirstEntrypointFallback(t *testing.T) {
-	launch, err := spinnerLaunch(store.Installed{})
+	launch, err := SpinnerLaunch(store.Installed{})
 	if err != nil {
 		t.Fatalf("select legacy entrypoint: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSpinnerLaunchRejectsPackageBuiltForAnotherPlatform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = spinnerLaunch(store.Installed{Manifest: packagekit.Manifest{
+	_, err = SpinnerLaunch(store.Installed{Manifest: packagekit.Manifest{
 		Metadata: map[string]json.RawMessage{"gateway.spinner/v1": metadata},
 	}})
 	if err == nil || !strings.Contains(err.Error(), "does not match host") {

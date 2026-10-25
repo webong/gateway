@@ -1,4 +1,4 @@
-package runtimeextensions
+package integrationextensions
 
 import (
 	"context"
@@ -17,7 +17,7 @@ func (f plannerFunc) Plan(ctx context.Context, request integration.IngressReques
 	return f(ctx, request)
 }
 
-func TestRuntimeHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
+func TestIntegrationHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
 	host := NewHost()
 	host.Configure(Services{Planner: plannerFunc(func(_ context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
 		return integration.RoutePlan{Version: integration.ProtocolVersion, Action: integration.ActionRespond, Metadata: map[string]string{"path": request.Path}, ImmediateResponse: &integration.Response{StatusCode: http.StatusNoContent}}, nil
@@ -44,7 +44,7 @@ func TestRuntimeHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
 	}
 }
 
-func TestRuntimeHostRejectsInternalPlannerPassThrough(t *testing.T) {
+func TestIntegrationHostRejectsInternalPlannerPassThrough(t *testing.T) {
 	host := NewHost()
 	host.Configure(Services{PassThrough: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("internal request reached Planner")
@@ -59,13 +59,13 @@ func TestRuntimeHostRejectsInternalPlannerPassThrough(t *testing.T) {
 	}
 }
 
-func TestRuntimeHostClonesPlannerOwnedConfiguration(t *testing.T) {
+func TestIntegrationHostClonesPlannerOwnedConfiguration(t *testing.T) {
 	host := NewHost()
 	configuration := json.RawMessage(`{"listener":{"address":"127.0.0.1:0"}}`)
 	request := host.StartRequest(configuration)
 	configuration[2] = 'X'
 
 	if string(request.Configuration) != `{"listener":{"address":"127.0.0.1:0"}}` {
-		t.Fatalf("runtime configuration was not isolated from the desired-state buffer: %s", request.Configuration)
+		t.Fatalf("integration configuration was not isolated from the desired-state buffer: %s", request.Configuration)
 	}
 }

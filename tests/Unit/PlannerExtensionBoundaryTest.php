@@ -91,9 +91,15 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
 
     expect($root.'/mod/arranger/integration/traffic_contract.go')->toBeFile()
         ->and($root.'/pkg/spinner/extensions/integration/catalog')->toBeDirectory()
+        ->and($root.'/pkg/spinner/extensions/integration/host.go')->toBeFile()
+        ->and($root.'/pkg/spinner/extensions/reconciler.go')->toBeFile()
+        ->and($root.'/pkg/spinner/extensions/internal/host')->toBeDirectory()
         ->and($root.'/pkg/spinner/extensions/automation/execution')->toBeDirectory()
         ->and($root.'/pkg/spinner/schedules')->toBeDirectory()
         ->and($root.'/pkg/spinner/automation')->not->toBeDirectory()
+        ->and($root.'/pkg/spinner/extensions/runtime')->not->toBeDirectory()
+        ->and($root.'/pkg/spinner/extensions/packagehost')->not->toBeDirectory()
+        ->and($root.'/pkg/spinner/extensions/automation/distribution.go')->not->toBeFile()
         ->and($root.'/pkg/spinner/extensions/integrations')->not->toBeDirectory()
         ->and($root.'/pkg/spinner/integrations')->not->toBeDirectory()
         ->and($root.'/pkg/web/spinner/websocket')->toBeDirectory()
@@ -119,6 +125,15 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
     expect(file_get_contents($root.'/pkg/spinner/spinnerapi/api.go'))
         ->not->toContain('ParseWebstreamPrivateNetworks')
         ->not->toContain('ParseHTTPPrivateNetworks');
+
+    $automationHostSource = '';
+    $automationHostFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/pkg/spinner/extensions/automation'));
+    foreach ($automationHostFiles as $file) {
+        if ($file->isFile() && $file->getExtension() === 'go') {
+            $automationHostSource .= file_get_contents($file->getPathname());
+        }
+    }
+    expect($automationHostSource)->not->toContain('github.com/webong/gateway/pkg/spinner/extensions/integration');
 
     foreach (['dns', 'websocket', 'webstream', 'smtp', 'smtpout', 'imap', 'pop3'] as $legacy) {
         expect($root."/pkg/spinner/bridge/{$legacy}")->not->toBeDirectory();

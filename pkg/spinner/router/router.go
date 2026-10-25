@@ -16,9 +16,10 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/integration"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
+	spinnerextensions "github.com/webong/gateway/pkg/spinner/extensions"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
@@ -74,7 +75,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err != nil {
 		return err
 	}
-	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		Planner: httpPlanner, ProtocolPlanner: protocolPlanner, PassThrough: planner,
 		Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
 		Start: integration.RuntimeStartRequest{
@@ -88,9 +89,11 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
 		plannerClient := &http.Client{Transport: handlerRoundTripper{handler: planner}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		if err := automationextensions.StartArtifactReconciliation(
+		if err := spinnerextensions.StartArtifactReconciliation(
 			ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
-			plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+			plannerClient, artifactClient, spinnerextensions.Registries{
+				Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
+			}, 15*time.Second, log.Printf,
 		); err != nil {
 			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
 		}
@@ -111,7 +114,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err != nil {
 		return err
 	}
-	handler := NewHandler(planner, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(planner)...)
+	handler := NewHandler(planner, integrationextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(planner)...)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"

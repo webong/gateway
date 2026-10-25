@@ -19,7 +19,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
 
 type recordingExecutor struct {
@@ -173,7 +173,7 @@ func TestCaddyHandlerUsesNextForPlanningAndPassThrough(t *testing.T) {
 		_, _ = w.Write([]byte("Laravel application"))
 		return nil
 	})
-	if err := runtimeextensions.DefaultRegistry.RegisterHTTP("test/caddy-web", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	if err := integrationextensions.DefaultRegistry.RegisterHTTP("test/caddy-web", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/owned/by/subscriber" {
 			executor.Enqueue(bridge.Delivery{URL: "https://subscriber.example.test/receive"})
 			w.WriteHeader(http.StatusAccepted)
@@ -183,7 +183,7 @@ func TestCaddyHandlerUsesNextForPlanningAndPassThrough(t *testing.T) {
 	})); err != nil {
 		t.Fatal(err)
 	}
-	defer runtimeextensions.DefaultRegistry.Unregister("test/caddy-web")
+	defer integrationextensions.DefaultRegistry.Unregister("test/caddy-web")
 
 	owned := httptest.NewRecorder()
 	ownedRequest := httptest.NewRequest(http.MethodPost, "/owned/by/subscriber", strings.NewReader(`{"event":"created"}`))

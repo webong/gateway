@@ -1,4 +1,4 @@
-package runtimeextensions
+package integrationextensions
 
 import (
 	"net/http"

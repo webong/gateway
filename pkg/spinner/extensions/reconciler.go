@@ -1,4 +1,6 @@
-package automationextensions
+// Package extensions reconciles Planner-owned extension desired state with
+// Spinner's role-specific extension hosts.
+package extensions
 
 import (
 	"archive/tar"
@@ -20,7 +22,8 @@ import (
 	"time"
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
 
 const (
@@ -43,6 +46,23 @@ type DesiredExtension struct {
 	Revision            int             `json:"revision"`
 }
 
+// Registries are the role-specific hosts updated by one desired-state pass.
+// A nil role uses the process default for that role.
+type Registries struct {
+	Automation  *automationextensions.Registry
+	Integration *integrationextensions.Registry
+}
+
+func (r Registries) withDefaults() Registries {
+	if r.Automation == nil {
+		r.Automation = automationextensions.Runtime()
+	}
+	if r.Integration == nil {
+		r.Integration = integrationextensions.DefaultRegistry
+	}
+	return r
+}
+
 // ArtifactReconciler independently materializes Spinner's entrypoint from
 // Planner-owned extension desired state. It never receives Planner PHP source.
 type ArtifactReconciler struct {
@@ -55,7 +75,7 @@ type ArtifactReconciler struct {
 	artifacts interface {
 		Do(*http.Request) (*http.Response, error)
 	}
-	plugins *Registry
+	registries Registries
 
 	mu     sync.Mutex
 	loaded map[string]string
@@ -70,12 +90,12 @@ func StartArtifactReconciliation(
 	plannerClient, artifactClient interface {
 		Do(*http.Request) (*http.Response, error)
 	},
-	plugins *Registry,
+	registries Registries,
 	interval time.Duration,
 	logError func(string, ...any),
 ) error {
 	reconciler, err := NewArtifactReconciler(
-		plannerURL, token, storeDir, plannerClient, artifactClient, plugins,
+		plannerURL, token, storeDir, plannerClient, artifactClient, registries,
 	)
 	if err != nil {
 		return err
@@ -114,7 +134,7 @@ func NewArtifactReconciler(
 	plannerClient, artifactClient interface {
 		Do(*http.Request) (*http.Response, error)
 	},
-	plugins *Registry,
+	registries Registries,
 ) (*ArtifactReconciler, error) {
 	base, err := url.Parse(strings.TrimSpace(plannerURL))
 	if err != nil || base.Scheme == "" || base.Host == "" || strings.TrimSpace(token) == "" || strings.TrimSpace(storeDir) == "" {
@@ -126,12 +146,10 @@ func NewArtifactReconciler(
 	if artifactClient == nil {
 		artifactClient = http.DefaultClient
 	}
-	if plugins == nil {
-		plugins = registry
-	}
+	registries = registries.withDefaults()
 	return &ArtifactReconciler{
 		plannerURL: strings.TrimRight(base.String(), "/"), token: token, storeDir: storeDir,
-		planner: plannerClient, artifacts: artifactClient, plugins: plugins, loaded: map[string]string{},
+		planner: plannerClient, artifacts: artifactClient, registries: registries, loaded: map[string]string{},
 	}, nil
 }
 
@@ -153,7 +171,7 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 		desiredIDs[extension.Extension] = true
 		installed, err := r.materialize(ctx, packages, extension)
 		if err != nil {
-			r.plugins.UnregisterExtension(extension.Extension)
+			r.registries.Automation.UnregisterExtension(extension.Extension)
 			delete(r.loaded, extension.Extension)
 			return fmt.Errorf("reconcile extension %s: %w", extension.Extension, err)
 		}
@@ -161,45 +179,45 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 		if r.loaded[extension.Extension] == loadedRevision {
 			continue
 		}
-		if err := loadExternalInstalled(ctx, r.plugins, installed); err != nil {
-			r.plugins.UnregisterExtension(extension.Extension)
-			runtimeextensions.DefaultRegistry.Unregister(extension.Extension)
+		if err := automationextensions.LoadExternalInstalled(ctx, r.registries.Automation, installed); err != nil {
+			r.registries.Automation.UnregisterExtension(extension.Extension)
+			r.registries.Integration.Unregister(extension.Extension)
 			delete(r.loaded, extension.Extension)
 			return fmt.Errorf("launch Spinner entrypoint: %w", err)
 		}
-		if err := runtimeextensions.LoadExternalInstalledWithConfiguration(ctx, runtimeextensions.DefaultRegistry, installed, extension.Configuration); err != nil {
-			r.plugins.UnregisterExtension(extension.Extension)
-			runtimeextensions.DefaultRegistry.Unregister(extension.Extension)
+		if err := integrationextensions.LoadExternalInstalledWithConfiguration(ctx, r.registries.Integration, installed, extension.Configuration); err != nil {
+			r.registries.Automation.UnregisterExtension(extension.Extension)
+			r.registries.Integration.Unregister(extension.Extension)
 			delete(r.loaded, extension.Extension)
-			return fmt.Errorf("launch Spinner runtime entrypoint: %w", err)
+			return fmt.Errorf("launch Spinner integration entrypoint: %w", err)
 		}
 		r.loaded[extension.Extension] = loadedRevision
 	}
-	for _, extension := range r.plugins.ExternalExtensions() {
+	for _, extension := range r.registries.Automation.ExternalExtensions() {
 		if desiredIDs[extension] {
 			continue
 		}
-		r.plugins.UnregisterExtension(extension)
-		runtimeextensions.DefaultRegistry.Unregister(extension)
+		r.registries.Automation.UnregisterExtension(extension)
+		r.registries.Integration.Unregister(extension)
 		delete(r.loaded, extension)
 	}
-	for _, extension := range runtimeextensions.DefaultRegistry.ExternalExtensions() {
+	for _, extension := range r.registries.Integration.ExternalExtensions() {
 		if desiredIDs[extension] {
 			continue
 		}
-		runtimeextensions.DefaultRegistry.Unregister(extension)
+		r.registries.Integration.Unregister(extension)
 		delete(r.loaded, extension)
 	}
 	return nil
 }
 
 func (r *ArtifactReconciler) closeExternalExtensions() {
-	for _, extension := range r.plugins.ExternalExtensions() {
-		r.plugins.UnregisterExtension(extension)
+	for _, extension := range r.registries.Automation.ExternalExtensions() {
+		r.registries.Automation.UnregisterExtension(extension)
 		delete(r.loaded, extension)
 	}
-	for _, extension := range runtimeextensions.DefaultRegistry.ExternalExtensions() {
-		runtimeextensions.DefaultRegistry.Unregister(extension)
+	for _, extension := range r.registries.Integration.ExternalExtensions() {
+		r.registries.Integration.Unregister(extension)
 		delete(r.loaded, extension)
 	}
 }
@@ -239,7 +257,7 @@ func (r *ArtifactReconciler) desired(ctx context.Context) ([]DesiredExtension, e
 
 func validDesiredExtension(extension DesiredExtension) bool {
 	artifact, err := url.Parse(extension.Artifact.URL)
-	return err == nil && validRuntimeConfiguration(extension.Configuration) && validSHA256(extension.ConfigurationSHA256) &&
+	return err == nil && validExtensionConfiguration(extension.Configuration) && validSHA256(extension.ConfigurationSHA256) &&
 		extension.ConfigurationSHA256 == digestConfiguration(extension.Configuration) && extension.Extension != "" && extension.Version != "" && extension.Revision > 0 &&
 		artifact.Scheme == "https" && artifact.Host != "" && artifact.User == nil && artifact.Fragment == "" &&
 		validSHA256(extension.Artifact.SHA256) &&
@@ -251,7 +269,7 @@ func digestConfiguration(configuration json.RawMessage) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func validRuntimeConfiguration(configuration json.RawMessage) bool {
+func validExtensionConfiguration(configuration json.RawMessage) bool {
 	if len(configuration) == 0 {
 		return true
 	}

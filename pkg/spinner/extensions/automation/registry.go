@@ -21,12 +21,11 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/nativego"
-	pluginprocess "github.com/webong/ext/pkg/plugin-go/contract/host/process"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
 	"github.com/webong/gateway/arranger/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
-	"github.com/webong/gateway/pkg/spinner/extensions/packagehost"
+	extensionhost "github.com/webong/gateway/pkg/spinner/extensions/internal/host"
 )
 
 var registry = NewRegistry()
@@ -179,18 +178,20 @@ func loadExternalPlugins(ctx context.Context, dir string) error {
 		return fmt.Errorf("list plugins: %w", err)
 	}
 	for _, inst := range installed {
-		if err := loadExternalInstalled(ctx, registry, inst); err != nil {
+		if err := LoadExternalInstalled(ctx, registry, inst); err != nil {
 			fmt.Printf("failed to load plugin %s: %v\n", inst.Name(), err)
 		}
 	}
 	return nil
 }
 
-func loadExternalInstalled(ctx context.Context, target *Registry, inst store.Installed) error {
+// LoadExternalInstalled starts an installed package that declares the
+// Automation contract and registers its engine with target.
+func LoadExternalInstalled(ctx context.Context, target *Registry, inst store.Installed) error {
 	if !SupportsAutomation(inst.Manifest.Descriptor) {
 		return nil
 	}
-	launch, err := spinnerLaunch(inst)
+	launch, err := extensionhost.SpinnerLaunch(inst)
 	if err != nil {
 		return fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
@@ -209,12 +210,6 @@ func loadExternalInstalled(ctx context.Context, target *Registry, inst store.Ins
 	target.Register(NewEngineAdapter(engine, inst.Manifest.Descriptor))
 	fmt.Printf("loaded external plugin: %s (lang=%s)\n", inst.Name(), engine.Language())
 	return nil
-}
-
-// spinnerLaunch selects this plane's entrypoint from a combined package. A nil
-// command preserves ext's first-entrypoint behavior for legacy packages.
-func spinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
-	return packagehost.SpinnerLaunch(inst)
 }
 
 // RunHistory returns the optional local run reader without exposing a concrete

@@ -32,8 +32,9 @@ import (
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
+	spinnerextensions "github.com/webong/gateway/pkg/spinner/extensions"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
-	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	"github.com/webong/gateway/pkg/spinner/networkpolicy"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/spinnerapi"
@@ -336,7 +337,7 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 	protocolPlanner := bridge.NewPHPProtocolPlanner(&caddyHTTPAdapter{handler: next}, g.MaxBodySize)
 	protocolPlanner.InternalToken = g.InternalToken
 	g.runtimeOnce.Do(func() {
-		executor, ok := g.executor.(runtimeextensions.Executor)
+		executor, ok := g.executor.(integrationextensions.Executor)
 		if !ok {
 			g.runtimeErr = fmt.Errorf("gateway transport does not provide protocol delivery")
 			return
@@ -345,7 +346,7 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 			g.runtimeErr = err
 			return
 		}
-		runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+		integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: &caddyHTTPAdapter{handler: next},
 			Executor: executor, Automation: automationextensions.Runtime(),
 			Start: runtimecontract.RuntimeStartRequest{
@@ -364,15 +365,17 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		g.runtimeCancel = cancel
 		plannerClient := &http.Client{Transport: caddyRoundTripper{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		g.runtimeErr = automationextensions.StartArtifactReconciliation(
+		g.runtimeErr = spinnerextensions.StartArtifactReconciliation(
 			ctx, "http://gateway.internal", g.InternalToken, pluginDir,
-			plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+			plannerClient, artifactClient, spinnerextensions.Registries{
+				Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
+			}, 15*time.Second, log.Printf,
 		)
 	})
 	if g.runtimeErr != nil {
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("gateway extension reconciliation: %w", g.runtimeErr))
 	}
-	runtimeextensions.DefaultRegistry.Handler().ServeHTTP(w, r)
+	integrationextensions.DefaultRegistry.Handler().ServeHTTP(w, r)
 
 	return nil
 }
