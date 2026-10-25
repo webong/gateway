@@ -1,0 +1,48 @@
+{
+    "identity": "webong/web",
+    "spinner": "./cmd/spinner",
+    "contracts": [
+        {
+            "name": "gateway.runtime",
+            "version": "v1",
+            "operations": [
+                {"name": "start", "surface": "spinner"}
+            ]
+        }
+    ],
+    "reverse": [
+        {
+            "name": "gateway.planner",
+            "version": "v1",
+            "operations": [
+                {"name": "plan-http"},
+                {"name": "plan-event"},
+                {"name": "pass-through"}
+            ]
+        },
+        {
+            "name": "gateway.delivery",
+            "version": "v1",
+            "operations": [
+                {"name": "deliver"},
+                {"name": "enqueue"},
+                {"name": "enqueue-gateway"},
+                {"name": "durable"}
+            ]
+        },
+        {
+            "name": "gateway.automation-host",
+            "version": "v1",
+            "operations": [
+                {"name": "execute"}
+            ]
+        },
+        {
+            "name": "gateway.schedule",
+            "version": "v1",
+            "operations": [
+                {"name": "register"}
+            ]
+        }
+    ]
+}
