@@ -3,11 +3,11 @@ package example
 import (
 	"testing"
 
-	"github.com/webong/gateway/arranger"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 func TestIntegrationUsesPublishedArrangerContracts(t *testing.T) {
-	spec := arranger.ServerSpec{AssignmentID: "a", ID: "s", Type: "example", Hostname: "example.test", Driver: arranger.DriverLocal, DesiredState: arranger.DesiredRunning, Replicas: 1, Revision: 1}
+	spec := integration.ServerSpec{AssignmentID: "a", ID: "s", Type: "example", Hostname: "example.test", Driver: integration.DriverLocal, DesiredState: integration.DesiredRunning, Replicas: 1, Revision: 1}
 	if err := spec.Validate(); err != nil {
 		t.Fatal(err)
 	}

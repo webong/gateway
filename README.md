@@ -96,9 +96,9 @@ unaffected by these root archive rules.
 
 ## Repository layout
 
-- `mod/arranger/router` owns the runtime-neutral public and private HTTP routing
-  policy. Capabilities inject their routes and private-request policies; the
-  package does not depend on Spinner or a PHP runtime.
+- `mod/arranger/integration` owns Integration traffic contracts, the installable
+  Spinner process adapter, and runtime-neutral public/private HTTP routing.
+  Extensions inject behavior without depending on Spinner or a PHP runtime.
 - `pkg/spinner/router` assembles Spinner and an injected in-process Planner
   runtime for bundled hosts.
 - `pkg/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
@@ -106,10 +106,10 @@ unaffected by these root archive rules.
   `pkg/roadrunner/cmd/router` assembles its bundled deployment through the
   shared Arranger routing policy and Spinner host components.
 - `mod/arranger` is the independent `github.com/webong/gateway/arranger` Go
-  module. Its `Extension` interface and automation, companion, and integration
-  packages are the complete authoring surface for installable Gateway
-  extensions. See the [integration and release guide](docs/integrations.md);
-  extension authors can use it without Spinner.
+  module. Its automation, companion, and integration packages are the complete
+  authoring surface for installable Gateway Extensions; its root package only
+  documents that shared lifecycle. Extension authors can use it without Spinner;
+  see the [integration and release guide](docs/integrations.md).
 - `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.

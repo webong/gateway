@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	if err := integration.Serve(example.Extension{}, os.Stdin, os.Stdout); err != nil {
+	if err := integration.ServeProvisioner(example.Extension{}, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

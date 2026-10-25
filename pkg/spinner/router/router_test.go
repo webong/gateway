@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	arrangerrouter "github.com/webong/gateway/arranger/router"
+	arrangerrouter "github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
 
@@ -221,7 +221,7 @@ func TestRouterHandlerRoutesOnlyHooksToSpinner(t *testing.T) {
 		{path: "/hooks/order", want: "edge"},
 		{path: "/hooks2/order", want: "planner"},
 		{path: "/registry/endpoints", want: "planner"},
-		{path: "/email/worker-ingress/route-1", want: "404 page not found\n"},
+		{path: "/email/worker-ingress/route-1", want: "planner"},
 		{path: "/_internal/gateway/plan", want: "404 page not found\n"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
@@ -257,28 +257,19 @@ func TestInternalControlOnlyForwardsCapabilityOwnedRoutes(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(r.URL.Path))
 	})
-	control := arrangerrouter.NewInternalControlHandler(planner, InternalPlannerRequest)
+	extensionPolicy := func(request *http.Request) bool {
+		return request.Method == http.MethodPost && request.URL.Path == "/_internal/example/action"
+	}
+	control := arrangerrouter.NewInternalControlHandler(planner, InternalRequestPolicy(extensionPolicy))
 	for _, test := range []struct {
 		method string
 		path   string
 		want   int
 	}{
 		{method: http.MethodGet, path: "/_internal/provisioning/targets/target-1", want: http.StatusOK},
-		{method: http.MethodGet, path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp", want: http.StatusOK},
-		{method: http.MethodGet, path: "/_internal/gateway/email/dkim/example.test", want: http.StatusOK},
-		{method: http.MethodHead, path: "/_internal/gateway/email/dkim/example.test", want: http.StatusOK},
-		{method: http.MethodGet, path: "/_internal/gateway/email/hosted-adapters/provider.primary", want: http.StatusOK},
-		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-plan", want: http.StatusOK},
-		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-attempts/delivery-1", want: http.StatusOK},
-		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-attempts/delivery-1/reserve", want: http.StatusOK},
-		{method: http.MethodGet, path: "/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/imap", want: http.StatusNotFound},
-		{method: http.MethodGet, path: "/_internal/gateway/mailbox-connections/not-a-uuid/smtp", want: http.StatusNotFound},
+		{method: http.MethodPost, path: "/_internal/example/action", want: http.StatusOK},
+		{method: http.MethodGet, path: "/_internal/example/action", want: http.StatusNotFound},
 		{method: http.MethodGet, path: "/_internal/provisioning2/targets/target-1", want: http.StatusNotFound},
-		{method: http.MethodGet, path: "/_internal/gateway/email/dkim/example.test/private", want: http.StatusNotFound},
-		{method: http.MethodPost, path: "/_internal/gateway/email/dkim/example.test", want: http.StatusNotFound},
-		{method: http.MethodHead, path: "/_internal/gateway/email/hosted-adapters/provider.primary", want: http.StatusNotFound},
-		{method: http.MethodGet, path: "/_internal/gateway/email/outbound-plan", want: http.StatusNotFound},
-		{method: http.MethodPost, path: "/_internal/gateway/email/outbound-attempts/delivery-1/unknown", want: http.StatusNotFound},
 		{method: http.MethodGet, path: "/_internal/gateway/plan", want: http.StatusNotFound},
 		{method: http.MethodGet, path: "/registry/endpoints", want: http.StatusNotFound},
 	} {
@@ -297,10 +288,24 @@ func TestInternalControlOnlyForwardsCapabilityOwnedRoutes(t *testing.T) {
 		t.Fatalf("Planner authentication was bypassed: %d", response.Code)
 	}
 	response = httptest.NewRecorder()
-	control.ServeHTTP(response, httptest.NewRequest(http.MethodPost,
-		"/_internal/gateway/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp", nil))
+	control.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/_internal/example/action", nil))
 	if response.Code != http.StatusNotFound {
-		t.Fatalf("private mailbox credential endpoint accepted POST: %d", response.Code)
+		t.Fatalf("extension policy accepted the wrong method: %d", response.Code)
+	}
+}
+
+func TestRouterHandlerMountsHostProvidedPublicRoutes(t *testing.T) {
+	planner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("planner")) })
+	extension := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("extension")) })
+	handler := NewHandler(planner, planner, nil, nil, nil, arrangerrouter.PublicRoute{
+		Prefix:  "/extension",
+		Handler: extension,
+	})
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/extension/resource", nil))
+	if response.Code != http.StatusOK || response.Body.String() != "extension" {
+		t.Fatalf("host-provided route returned %d %q", response.Code, response.Body.String())
 	}
 }
 

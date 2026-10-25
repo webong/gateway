@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	arranger "github.com/webong/gateway/arranger"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 func TestWorkloadBuildsReverbLaunchSpecsForGenericDrivers(t *testing.T) {
@@ -15,7 +15,7 @@ func TestWorkloadBuildsReverbLaunchSpecsForGenericDrivers(t *testing.T) {
 	})
 	spec := validReverbServerSpec()
 
-	local, err := workload.Launch(spec, arranger.DriverLocal, "127.0.0.1", 12000)
+	local, err := workload.Launch(spec, integration.DriverLocal, "127.0.0.1", 12000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestWorkloadBuildsReverbLaunchSpecsForGenericDrivers(t *testing.T) {
 	assertContainsAll(t, strings.Join(local.Arguments, " "), "reverb:start", "--host=127.0.0.1", "--port=12000", "--path=/socket")
 	assertContainsAll(t, strings.Join(local.Environment, " "), "GATEWAY_REVERB_SERVER_ID=server-1", "REVERB_SCALING_ENABLED=true", "REDIS_PASSWORD=secret")
 
-	docker, err := workload.Launch(spec, arranger.DriverDocker, "ignored", 0)
+	docker, err := workload.Launch(spec, integration.DriverDocker, "ignored", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestWorkloadBuildsReverbLaunchSpecsForGenericDrivers(t *testing.T) {
 		t.Fatalf("unexpected Docker launch: %+v", docker)
 	}
 
-	kubernetes, err := workload.Launch(spec, arranger.DriverKubernetes, "ignored", 0)
+	kubernetes, err := workload.Launch(spec, integration.DriverKubernetes, "ignored", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,10 +57,10 @@ func TestWorkloadValidatesOnlyReverbConfiguration(t *testing.T) {
 	}
 }
 
-func validReverbServerSpec() arranger.ServerSpec {
-	return arranger.ServerSpec{
+func validReverbServerSpec() integration.ServerSpec {
+	return integration.ServerSpec{
 		ID: "server-1", Type: "reverb", Name: "primary", Hostname: "socket.example.test", Path: "/socket",
-		Driver: arranger.DriverLocal, DesiredState: arranger.DesiredRunning, Replicas: 1, Revision: 1,
+		Driver: integration.DriverLocal, DesiredState: integration.DesiredRunning, Replicas: 1, Revision: 1,
 		Configuration: []byte(`{
 			"max_request_size":10000,
 			"scaling_enabled":true,

@@ -17,7 +17,7 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	"github.com/webong/gateway/pkg/spinner/extensions/packagehost"
 )
@@ -65,7 +65,7 @@ func (r *Registry) RegisterHTTPMount(identity, prefix string, handler http.Handl
 }
 
 func Supports(descriptor plugin.Descriptor) bool {
-	_, err := descriptor.Lookup(runtimecontract.Contract, runtimecontract.OperationStart)
+	_, err := descriptor.Lookup(runtimecontract.RuntimeContract, runtimecontract.OperationStart)
 	return err == nil
 }
 
@@ -92,8 +92,8 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 		return err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	var advertisement runtimecontract.StartResponse
-	err = proc.Call(callCtx, plugin.Method(runtimecontract.Contract, runtimecontract.OperationStart), DefaultHost.StartRequest(configuration), &advertisement)
+	var advertisement runtimecontract.RuntimeStartResponse
+	err = proc.Call(callCtx, plugin.Method(runtimecontract.RuntimeContract, runtimecontract.OperationStart), DefaultHost.StartRequest(configuration), &advertisement)
 	cancel()
 	if err != nil {
 		_ = proc.Close()

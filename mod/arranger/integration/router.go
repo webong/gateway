@@ -1,6 +1,4 @@
-// Package router defines runtime-neutral HTTP routing policy shared by Gateway
-// hosts. Runtime adapters compose concrete handlers around this policy.
-package router
+package integration
 
 import (
 	"net/http"

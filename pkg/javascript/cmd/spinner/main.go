@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	extensionautomation "github.com/webong/gateway/arranger/automation/extension"
+	extensionautomation "github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/pkg/javascript/runtime"
 )
 

@@ -26,7 +26,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/webong/gateway/arranger/automation"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailspinner "github.com/webong/gateway/pkg/email/spinner"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
@@ -347,7 +347,7 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
 			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: &caddyHTTPAdapter{handler: next},
 			Executor: executor, Automation: automationextensions.Runtime(),
-			Start: runtimecontract.StartRequest{
+			Start: runtimecontract.RuntimeStartRequest{
 				MaxBodySize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout),
 				WebSocketMaxConnections: g.WebSocketMaxConnections, WebSocketMaxDuration: time.Duration(g.WebSocketMaxDuration),
 				WebstreamHeartbeat: 15 * time.Second, WebstreamRetry: 3 * time.Second,

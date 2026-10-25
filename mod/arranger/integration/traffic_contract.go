@@ -1,7 +1,4 @@
-// Package protocol contains the language-neutral boundary between Gateway
-// Extensions' Spinner runtimes and Planner policy. It does not know how either
-// plane hosts or stores an Extension.
-package protocol
+package integration
 
 import (
 	"context"

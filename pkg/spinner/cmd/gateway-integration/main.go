@@ -197,7 +197,7 @@ func probe(path, specPath, driver, host string, port int) error {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > integration.MaxMessageBytes {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > integration.ProvisionMaxMessageBytes {
 		return fmt.Errorf("server specification must be a bounded regular file")
 	}
 	decoder := json.NewDecoder(file)

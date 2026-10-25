@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	if err := integration.Serve(reverb.NewWorkload(reverb.LoadConfig()), os.Stdin, os.Stdout); err != nil {
+	if err := integration.ServeProvisioner(reverb.NewWorkload(reverb.LoadConfig()), os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

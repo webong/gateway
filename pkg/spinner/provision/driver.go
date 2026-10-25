@@ -12,14 +12,14 @@ type Starter interface {
 
 type DriverRegistry struct {
 	drivers   map[string]Driver
-	workloads map[string]Extension
+	workloads map[string]Provisioner
 }
 
 type driverPreparer interface {
 	PrepareDesired(context.Context, map[string]ServerSpec) error
 }
 
-func NewDriverRegistry(drivers map[string]Driver, workloads []Extension) (*DriverRegistry, error) {
+func NewDriverRegistry(drivers map[string]Driver, workloads []Provisioner) (*DriverRegistry, error) {
 	configured := make(map[string]Driver, len(drivers))
 	for name, driver := range drivers {
 		if driver == nil {
@@ -30,7 +30,7 @@ func NewDriverRegistry(drivers map[string]Driver, workloads []Extension) (*Drive
 	if len(configured) == 0 {
 		return nil, fmt.Errorf("at least one provisioning runtime driver is required")
 	}
-	configuredWorkloads := make(map[string]Extension, len(workloads))
+	configuredWorkloads := make(map[string]Provisioner, len(workloads))
 	for _, workload := range workloads {
 		if workload == nil || workload.Type() == "" {
 			return nil, fmt.Errorf("provisioning workload type is required")

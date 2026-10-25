@@ -2,12 +2,20 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+EXT_SOURCE=$(GOWORK=off go -C "$ROOT/mod/arranger" list -m -f '{{.Dir}}' github.com/webong/ext/pkg/plugin-go/contract)
+if [[ ! -d "$EXT_SOURCE" ]]; then
+    echo 'The resolved webong/ext contract module is required.' >&2
+    exit 1
+fi
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-arranger-release.XXXXXX")
 trap 'rm -rf -- "$TEST_DIR"' EXIT
 mkdir -p "$TEST_DIR/repository/mod" "$TEST_DIR/repository/scripts"
+mkdir -p "$TEST_DIR/ext/pkg/plugin-go"
 cp -R "$ROOT/mod/arranger" "$TEST_DIR/repository/mod/arranger"
 cp "$ROOT/scripts/release-arranger" "$TEST_DIR/repository/scripts/"
 cp -R "$ROOT/mod/arranger/testdata/integration" "$TEST_DIR/integration"
+cp -R "$EXT_SOURCE" "$TEST_DIR/ext/pkg/plugin-go/contract"
+chmod -R u+w "$TEST_DIR/ext/pkg/plugin-go/contract"
 
 # Do not inherit the caller's repository/index, hooks, or Git configuration.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
@@ -19,6 +27,14 @@ git -C "$TEST_DIR/repository" config commit.gpgsign false
 git -C "$TEST_DIR/repository" config tag.gpgsign false
 git -C "$TEST_DIR/repository" add .
 git -C "$TEST_DIR/repository" commit -qm 'Arranger release fixture'
+git -C "$TEST_DIR/ext" init -q
+git -C "$TEST_DIR/ext" config user.name 'Gateway release test'
+git -C "$TEST_DIR/ext" config user.email 'gateway-test@example.invalid'
+git -C "$TEST_DIR/ext" config commit.gpgsign false
+git -C "$TEST_DIR/ext" config tag.gpgsign false
+git -C "$TEST_DIR/ext" add .
+git -C "$TEST_DIR/ext" commit -qm 'Ext contract release fixture'
+git -C "$TEST_DIR/ext" tag pkg/plugin-go/contract/v0.6.0
 SOURCE=$(git -C "$TEST_DIR/repository" rev-parse HEAD)
 bash "$TEST_DIR/repository/scripts/release-arranger" v0.1.0
 test "$(git -C "$TEST_DIR/repository" rev-parse HEAD)" = "$SOURCE"
@@ -41,9 +57,11 @@ rm -- "$TEST_DIR/repository/mod/arranger/uncommitted.go"
 
 # Exercise Go's actual GitHub module/tag/subdirectory resolution, redirected
 # to the isolated fixture. No local replace, network access, or Spinner source.
-export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_COUNT=2
 export GIT_CONFIG_KEY_0="url.file://$TEST_DIR/repository.insteadOf"
 export GIT_CONFIG_VALUE_0=https://github.com/webong/gateway
+export GIT_CONFIG_KEY_1="url.file://$TEST_DIR/ext.insteadOf"
+export GIT_CONFIG_VALUE_1=https://github.com/webong/ext
 export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0
 export GOPROXY=direct GOSUMDB=off GOPRIVATE=github.com/webong/gateway/arranger
 export GOMODCACHE="$TEST_DIR/modules" GOWORK=off GOTOOLCHAIN=local
@@ -55,5 +73,5 @@ if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)' <<<"$dependencies"; 
     echo 'Published Arranger consumer unexpectedly depends on Spinner.' >&2
     exit 1
 fi
-grep -qx 'github.com/webong/gateway/arranger' <<<"$dependencies"
+grep -qx 'github.com/webong/gateway/arranger/integration' <<<"$dependencies"
 echo 'Published-path executable integration passed through Arranger without Spinner.'

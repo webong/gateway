@@ -1,4 +1,4 @@
-package extension
+package automation
 
 import (
 	"context"
@@ -7,14 +7,13 @@ import (
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/gateway/arranger/automation"
 )
 
 type testEngine struct{}
 
-func (testEngine) Language() automation.Language { return "test" }
-func (testEngine) Execute(_ context.Context, source string, input automation.Input) (automation.Outcome, error) {
-	return automation.Outcome{Variables: map[string]any{"source": source, "event": input.Event["id"]}}, nil
+func (testEngine) Language() Language { return "test" }
+func (testEngine) Execute(_ context.Context, source string, input Input) (Outcome, error) {
+	return Outcome{Variables: map[string]any{"source": source, "event": input.Event["id"]}}, nil
 }
 
 func TestGuestUsesDescriptorIdentityAndEngineLanguage(t *testing.T) {
@@ -26,7 +25,7 @@ func TestGuestUsesDescriptorIdentityAndEngineLanguage(t *testing.T) {
 			Operations:  []plugin.Operation{{Name: "execute", Surface: "test"}},
 		}},
 	}
-	guest, err := Guest(descriptor, func() (automation.Engine, error) { return testEngine{}, nil })
+	guest, err := Guest(descriptor, func() (Engine, error) { return testEngine{}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +57,7 @@ func TestGuestRejectsUndeclaredLanguage(t *testing.T) {
 		APIVersion: plugin.APIVersion,
 		Identity:   plugin.Identity{ID: "example/test", Revision: "r1"},
 		Contracts:  []plugin.Contract{{ContractRef: automationContract, Operations: []plugin.Operation{{Name: "execute", Surface: "other"}}}},
-	}, func() (automation.Engine, error) { return testEngine{}, nil })
+	}, func() (Engine, error) { return testEngine{}, nil })
 	if err == nil {
 		t.Fatal("undeclared automation language was accepted")
 	}

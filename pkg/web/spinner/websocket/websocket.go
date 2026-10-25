@@ -15,7 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 const (

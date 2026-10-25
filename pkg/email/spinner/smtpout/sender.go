@@ -15,7 +15,7 @@ import (
 
 	"github.com/emersion/go-sasl"
 	smtpclient "github.com/emersion/go-smtp"
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/email/spinner/mailnet"
 )
 

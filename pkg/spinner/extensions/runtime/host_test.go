@@ -8,24 +8,23 @@ import (
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/gateway/arranger/protocol"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	"github.com/webong/gateway/arranger/integration"
 )
 
-type plannerFunc func(context.Context, protocol.IngressRequest) (protocol.RoutePlan, error)
+type plannerFunc func(context.Context, integration.IngressRequest) (integration.RoutePlan, error)
 
-func (f plannerFunc) Plan(ctx context.Context, request protocol.IngressRequest) (protocol.RoutePlan, error) {
+func (f plannerFunc) Plan(ctx context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
 	return f(ctx, request)
 }
 
 func TestRuntimeHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
 	host := NewHost()
-	host.Configure(Services{Planner: plannerFunc(func(_ context.Context, request protocol.IngressRequest) (protocol.RoutePlan, error) {
-		return protocol.RoutePlan{Version: protocol.ProtocolVersion, Action: protocol.ActionRespond, Metadata: map[string]string{"path": request.Path}, ImmediateResponse: &protocol.Response{StatusCode: http.StatusNoContent}}, nil
+	host.Configure(Services{Planner: plannerFunc(func(_ context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
+		return integration.RoutePlan{Version: integration.ProtocolVersion, Action: integration.ActionRespond, Metadata: map[string]string{"path": request.Path}, ImmediateResponse: &integration.Response{StatusCode: http.StatusNoContent}}, nil
 	})})
-	payload, _ := json.Marshal(protocol.IngressRequest{Method: http.MethodPost, Path: "/hooks/example"})
+	payload, _ := json.Marshal(integration.IngressRequest{Method: http.MethodPost, Path: "/hooks/example"})
 	request := plugin.Request{
-		Contract: runtimecontract.PlannerContract, Operation: runtimecontract.OperationPlanHTTP,
+		Contract: integration.PlannerContract, Operation: integration.OperationPlanHTTP,
 		Deadline: time.Now().Add(time.Second), Payload: payload,
 	}
 	if err := host.authorize(request); err != nil {
@@ -35,11 +34,11 @@ func TestRuntimeHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var plan protocol.RoutePlan
+	var plan integration.RoutePlan
 	if err := json.Unmarshal(result, &plan); err != nil || plan.Metadata["path"] != "/hooks/example" {
 		t.Fatalf("unexpected plan: %+v err=%v", plan, err)
 	}
-	request.Operation = runtimecontract.OperationPassThrough
+	request.Operation = integration.OperationPassThrough
 	if err := host.authorize(request); err == nil {
 		t.Fatal("host authorized an unconfigured pass-through service")
 	}
@@ -50,9 +49,9 @@ func TestRuntimeHostRejectsInternalPlannerPassThrough(t *testing.T) {
 	host.Configure(Services{PassThrough: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("internal request reached Planner")
 	})})
-	payload, _ := json.Marshal(runtimecontract.HTTPRequest{Method: http.MethodGet, Scheme: "http", Host: "gateway.test", Path: "/_internal/gateway/ready"})
+	payload, _ := json.Marshal(integration.PassThroughRequest{Method: http.MethodGet, Scheme: "http", Host: "gateway.test", Path: "/_internal/gateway/ready"})
 	_, err := host.handle(context.Background(), plugin.Request{
-		Contract: runtimecontract.PlannerContract, Operation: runtimecontract.OperationPassThrough,
+		Contract: integration.PlannerContract, Operation: integration.OperationPassThrough,
 		Deadline: time.Now().Add(time.Second), Payload: payload,
 	})
 	if err == nil {

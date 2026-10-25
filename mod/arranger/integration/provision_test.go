@@ -1,16 +1,16 @@
-package arranger_test
+package integration_test
 
 import (
 	"encoding/json"
 	"reflect"
 	"testing"
 
-	"github.com/webong/gateway/arranger"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 func TestPlannerAssignmentRemainsCompatible(t *testing.T) {
 	const assignment = `{"assignment_id":"assignment-1","id":"server-1","type":"custom","name":"Example","hostname":"example.test","path":"/events","driver":"docker","desired_state":"running","replicas":2,"revision":3,"configuration":{"port":8080}}`
-	var spec arranger.ServerSpec
+	var spec integration.ServerSpec
 	if err := json.Unmarshal([]byte(assignment), &spec); err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestPlannerAssignmentRemainsCompatible(t *testing.T) {
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("assignment changed on round trip: %s", encoded)
 	}
-	for _, runtime := range []string{arranger.DriverLocal, arranger.DriverDocker, arranger.DriverKubernetes} {
+	for _, runtime := range []string{integration.DriverLocal, integration.DriverDocker, integration.DriverKubernetes} {
 		spec.Driver = runtime
 		if err := spec.Validate(); err != nil {
 			t.Fatalf("%s: %v", runtime, err)
@@ -44,13 +44,13 @@ func TestPlannerAssignmentRemainsCompatible(t *testing.T) {
 }
 
 func TestAssignmentRequiresIdentityAndRevision(t *testing.T) {
-	valid := arranger.ServerSpec{AssignmentID: "assignment-1", ID: "server-1", Type: "custom", Hostname: "example.test", Driver: arranger.DriverLocal, DesiredState: arranger.DesiredStopped, Replicas: 1, Revision: 1}
-	for name, change := range map[string]func(*arranger.ServerSpec){
-		"assignment": func(s *arranger.ServerSpec) { s.AssignmentID = "" },
-		"server":     func(s *arranger.ServerSpec) { s.ID = "" },
-		"revision":   func(s *arranger.ServerSpec) { s.Revision = 0 },
-		"replicas":   func(s *arranger.ServerSpec) { s.Replicas = 0 },
-		"state":      func(s *arranger.ServerSpec) { s.DesiredState = "unknown" },
+	valid := integration.ServerSpec{AssignmentID: "assignment-1", ID: "server-1", Type: "custom", Hostname: "example.test", Driver: integration.DriverLocal, DesiredState: integration.DesiredStopped, Replicas: 1, Revision: 1}
+	for name, change := range map[string]func(*integration.ServerSpec){
+		"assignment": func(s *integration.ServerSpec) { s.AssignmentID = "" },
+		"server":     func(s *integration.ServerSpec) { s.ID = "" },
+		"revision":   func(s *integration.ServerSpec) { s.Revision = 0 },
+		"replicas":   func(s *integration.ServerSpec) { s.Replicas = 0 },
+		"state":      func(s *integration.ServerSpec) { s.DesiredState = "unknown" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := valid

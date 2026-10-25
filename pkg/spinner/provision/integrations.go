@@ -38,9 +38,9 @@ func IntegrationPaths() ([]string, error) {
 // reconciler has stopped so no workload call uses a closed process.
 type IntegrationSet struct{ integrations []*IntegrationWorkload }
 
-func LoadIntegrations(paths []string) (*IntegrationSet, []Extension, error) {
+func LoadIntegrations(paths []string) (*IntegrationSet, []Provisioner, error) {
 	set := &IntegrationSet{}
-	workloads := make([]Extension, 0, len(paths))
+	workloads := make([]Provisioner, 0, len(paths))
 	types := make(map[string]bool)
 	for _, path := range paths {
 		candidate, err := OpenIntegration(path)
@@ -108,11 +108,11 @@ func OpenIntegration(path string) (*IntegrationWorkload, error) {
 		return nil, fmt.Errorf("start integration %q: %w", path, err)
 	}
 	loaded := &IntegrationWorkload{cmd: cmd, stdin: stdin, scanner: bufio.NewScanner(stdout), done: make(chan struct{}), drivers: make(map[string]bool)}
-	loaded.scanner.Buffer(make([]byte, 64*1024), integration.MaxMessageBytes)
+	loaded.scanner.Buffer(make([]byte, 64*1024), integration.ProvisionMaxMessageBytes)
 	go func() { loaded.waitErr = cmd.Wait(); close(loaded.done) }()
 	ctx, cancel := context.WithTimeout(context.Background(), integrationCallTimeout)
 	defer cancel()
-	response, err := loaded.call(ctx, integration.Request{Method: "describe"})
+	response, err := loaded.call(ctx, integration.ProvisionRequest{Method: "describe"})
 	if err != nil {
 		loaded.Close()
 		return nil, fmt.Errorf("describe integration %q: %w", path, err)
@@ -138,14 +138,14 @@ func (p *IntegrationWorkload) Supports(driver string) bool { return p.drivers[dr
 func (p *IntegrationWorkload) Validate(spec ServerSpec) error {
 	ctx, cancel := context.WithTimeout(context.Background(), integrationCallTimeout)
 	defer cancel()
-	_, err := p.call(ctx, integration.Request{Method: "validate", Spec: &spec})
+	_, err := p.call(ctx, integration.ProvisionRequest{Method: "validate", Spec: &spec})
 	return err
 }
 
 func (p *IntegrationWorkload) Launch(spec ServerSpec, runtime, host string, port int) (LaunchSpec, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), integrationCallTimeout)
 	defer cancel()
-	response, err := p.call(ctx, integration.Request{Method: "launch", Spec: &spec, Runtime: runtime, Host: host, Port: port})
+	response, err := p.call(ctx, integration.ProvisionRequest{Method: "launch", Spec: &spec, Runtime: runtime, Host: host, Port: port})
 	if err != nil {
 		return LaunchSpec{}, err
 	}
@@ -155,23 +155,23 @@ func (p *IntegrationWorkload) Launch(spec ServerSpec, runtime, host string, port
 	return *response.Launch, nil
 }
 
-func (p *IntegrationWorkload) call(ctx context.Context, request integration.Request) (integration.Response, error) {
+func (p *IntegrationWorkload) call(ctx context.Context, request integration.ProvisionRequest) (integration.ProvisionResponse, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	select {
 	case <-p.done:
-		return integration.Response{}, fmt.Errorf("integration exited: %v", p.waitErr)
+		return integration.ProvisionResponse{}, fmt.Errorf("integration exited: %v", p.waitErr)
 	default:
 	}
 	p.nextID++
 	request.ID = p.nextID
-	request.Version = integration.Version
-	encoded, err := integration.Encode(request)
+	request.Version = integration.ProvisionVersion
+	encoded, err := integration.EncodeProvisionRequest(request)
 	if err != nil {
-		return integration.Response{}, err
+		return integration.ProvisionResponse{}, err
 	}
 	type result struct {
-		response integration.Response
+		response integration.ProvisionResponse
 		err      error
 	}
 	received := make(chan result, 1)
@@ -188,25 +188,25 @@ func (p *IntegrationWorkload) call(ctx context.Context, request integration.Requ
 			received <- result{err: err}
 			return
 		}
-		var response integration.Response
+		var response integration.ProvisionResponse
 		err := json.Unmarshal(p.scanner.Bytes(), &response)
 		received <- result{response: response, err: err}
 	}()
 	select {
 	case <-ctx.Done():
 		_ = p.cmd.Process.Kill()
-		return integration.Response{}, ctx.Err()
+		return integration.ProvisionResponse{}, ctx.Err()
 	case result := <-received:
 		if result.err != nil {
 			_ = p.cmd.Process.Kill()
-			return integration.Response{}, fmt.Errorf("read integration response: %w", result.err)
+			return integration.ProvisionResponse{}, fmt.Errorf("read integration response: %w", result.err)
 		}
-		if result.response.Version != integration.Version || result.response.ID != request.ID {
+		if result.response.Version != integration.ProvisionVersion || result.response.ID != request.ID {
 			_ = p.cmd.Process.Kill()
-			return integration.Response{}, fmt.Errorf("integration returned incompatible response")
+			return integration.ProvisionResponse{}, fmt.Errorf("integration returned incompatible response")
 		}
 		if result.response.Error != "" {
-			return integration.Response{}, fmt.Errorf("integration: %s", result.response.Error)
+			return integration.ProvisionResponse{}, fmt.Errorf("integration: %s", result.response.Error)
 		}
 		return result.response, nil
 	}
@@ -221,4 +221,4 @@ func (p *IntegrationWorkload) Close() {
 	<-p.done
 }
 
-var _ Extension = (*IntegrationWorkload)(nil)
+var _ Provisioner = (*IntegrationWorkload)(nil)

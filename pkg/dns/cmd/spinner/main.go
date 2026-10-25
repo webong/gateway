@@ -12,7 +12,7 @@ import (
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	dns "github.com/webong/gateway/pkg/dns/spinner"
 )
 
@@ -28,27 +28,27 @@ type configuration struct {
 }
 
 func main() {
-	if err := runtimecontract.Serve(context.Background(), runtimecontract.StarterFunc(start)); err != nil {
+	if err := runtimecontract.ServeRuntime(context.Background(), runtimecontract.RuntimeStarterFunc(start)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func start(_ context.Context, request runtimecontract.StartRequest, caller plugin.ReverseCaller) (runtimecontract.StartResponse, error) {
+func start(_ context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
 	var configured configuration
 	if len(request.Configuration) == 0 {
-		return runtimecontract.StartResponse{}, errors.New("DNS runtime configuration is required")
+		return runtimecontract.RuntimeStartResponse{}, errors.New("DNS runtime configuration is required")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(request.Configuration))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&configured); err != nil {
-		return runtimecontract.StartResponse{}, fmt.Errorf("decode DNS runtime configuration: %w", err)
+		return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("decode DNS runtime configuration: %w", err)
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return runtimecontract.StartResponse{}, errors.New("DNS runtime configuration contains trailing data")
+		return runtimecontract.RuntimeStartResponse{}, errors.New("DNS runtime configuration contains trailing data")
 	}
 
-	host := runtimecontract.NewHost(caller, nil)
+	host := runtimecontract.NewRuntimeHost(caller, nil)
 	server, err := dns.NewServer(dns.Config{
 		Address: configured.Address, Zones: configured.Zones,
 		PlannerTimeout: durationMS(configured.PlannerTimeoutMS),
@@ -57,7 +57,7 @@ func start(_ context.Context, request runtimecontract.StartRequest, caller plugi
 		RateLimit:          configured.QueriesPerSecond, RateBurst: configured.QueryBurst,
 	}, host.ProtocolPlanner(), host.Executor())
 	if err != nil {
-		return runtimecontract.StartResponse{}, err
+		return runtimecontract.RuntimeStartResponse{}, err
 	}
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, dns.ErrServerClosed) {
@@ -65,7 +65,7 @@ func start(_ context.Context, request runtimecontract.StartRequest, caller plugi
 		}
 	}()
 
-	return runtimecontract.StartResponse{}, nil
+	return runtimecontract.RuntimeStartResponse{}, nil
 }
 
 func durationMS(value int) time.Duration {

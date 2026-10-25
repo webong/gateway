@@ -6,27 +6,25 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/webong/gateway/arranger"
 )
 
-// Serve handles one JSON request per line on stdin and writes one response per
-// line to stdout. Extensions must write diagnostics to stderr only.
-func Serve(extension arranger.Extension, input io.Reader, output io.Writer) error {
+// ServeProvisioner handles one JSON request per line on stdin and writes one
+// response per line to stdout. Extensions must write diagnostics to stderr only.
+func ServeProvisioner(extension Provisioner, input io.Reader, output io.Writer) error {
 	if extension == nil || strings.TrimSpace(extension.Type()) == "" {
 		return fmt.Errorf("integration requires a named extension")
 	}
 	scanner := bufio.NewScanner(input)
-	scanner.Buffer(make([]byte, 64*1024), MaxMessageBytes)
+	scanner.Buffer(make([]byte, 64*1024), ProvisionMaxMessageBytes)
 	encoder := json.NewEncoder(output)
 	for scanner.Scan() {
-		var request Request
-		response := Response{Version: Version}
+		var request ProvisionRequest
+		response := ProvisionResponse{Version: ProvisionVersion}
 		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
 			response.Error = "invalid integration request"
 		} else {
 			response.ID = request.ID
-			response = handle(extension, request)
+			response = handleProvision(extension, request)
 		}
 		if err := encoder.Encode(response); err != nil {
 			return err
@@ -35,16 +33,16 @@ func Serve(extension arranger.Extension, input io.Reader, output io.Writer) erro
 	return scanner.Err()
 }
 
-func handle(extension arranger.Extension, request Request) Response {
-	response := Response{Version: Version, ID: request.ID}
-	if request.Version != Version {
+func handleProvision(extension Provisioner, request ProvisionRequest) ProvisionResponse {
+	response := ProvisionResponse{Version: ProvisionVersion, ID: request.ID}
+	if request.Version != ProvisionVersion {
 		response.Error = "unsupported integration protocol version"
 		return response
 	}
 	switch request.Method {
 	case "describe":
 		response.Type = extension.Type()
-		for _, candidate := range []string{arranger.DriverLocal, arranger.DriverDocker, arranger.DriverKubernetes} {
+		for _, candidate := range []string{DriverLocal, DriverDocker, DriverKubernetes} {
 			if extension.Supports(candidate) {
 				response.Drivers = append(response.Drivers, candidate)
 			}
@@ -72,15 +70,15 @@ func handle(extension arranger.Extension, request Request) Response {
 	return response
 }
 
-// Encode is shared by tests and hosts that need to validate line size before
-// writing a request to an integration.
-func Encode(request Request) ([]byte, error) {
+// EncodeProvisionRequest is shared by tests and hosts that need to validate
+// line size before writing a request to an integration provisioner.
+func EncodeProvisionRequest(request ProvisionRequest) ([]byte, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	if len(data)+1 > MaxMessageBytes {
-		return nil, fmt.Errorf("integration request exceeds %d bytes", MaxMessageBytes)
+	if len(data)+1 > ProvisionMaxMessageBytes {
+		return nil, fmt.Errorf("integration request exceeds %d bytes", ProvisionMaxMessageBytes)
 	}
 	return append(data, '\n'), nil
 }

@@ -16,7 +16,7 @@ func TestDriverRegistryDispatchesByServerDriverAndWorkload(t *testing.T) {
 		DriverLocal:      local,
 		DriverDocker:     docker,
 		DriverKubernetes: kubernetes,
-	}, []Extension{workload})
+	}, []Provisioner{workload})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestDriverRegistryDispatchesByServerDriverAndWorkload(t *testing.T) {
 
 	spec := validServerSpec()
 	spec.Driver = DriverDocker
-	localOnly, err := NewDriverRegistry(map[string]Driver{DriverLocal: local}, []Extension{workload})
+	localOnly, err := NewDriverRegistry(map[string]Driver{DriverLocal: local}, []Provisioner{workload})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestDriverRegistryPreparesOnlyDesiredAssignmentsPerRuntime(t *testing.T) {
 	kubernetes := &recordingRuntimeDriver{}
 	registry, err := NewDriverRegistry(map[string]Driver{
 		DriverDocker: docker, DriverKubernetes: kubernetes,
-	}, []Extension{&fakeWorkload{workloadType: "test"}})
+	}, []Provisioner{&fakeWorkload{workloadType: "test"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestPersistentDriversRemoveOnlyStaleResourcesOwnedByNode(t *testing.T) {
 
 type recordingRuntimeDriver struct {
 	starts   int
-	workload Extension
+	workload Provisioner
 	prepared map[string]ServerSpec
 }
 
@@ -215,7 +215,7 @@ func (d *recordingRuntimeDriver) PrepareDesired(_ context.Context, desired map[s
 	return nil
 }
 
-func (d *recordingRuntimeDriver) Start(_ context.Context, _ ServerSpec, _ string, workload Extension) (Process, error) {
+func (d *recordingRuntimeDriver) Start(_ context.Context, _ ServerSpec, _ string, workload Provisioner) (Process, error) {
 	d.starts++
 	d.workload = workload
 	return &fakeProcess{done: make(chan struct{})}, nil

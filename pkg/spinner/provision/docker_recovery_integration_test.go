@@ -258,14 +258,14 @@ func runDockerRecoveryWorker(t *testing.T) {
 		PollInterval:          200 * time.Millisecond, StartTimeout: 10 * time.Second,
 		StopTimeout: 3 * time.Second,
 	}
-	var workload Extension = &recoveryWorkload{port: 80, image: "nginx:alpine"}
+	var workload Provisioner = &recoveryWorkload{port: 80, image: "nginx:alpine"}
 	var integrations *IntegrationSet
 	if os.Getenv("GATEWAY_TEST_EXECUTABLE_INTEGRATION") == "1" {
 		paths, err := IntegrationPaths()
 		if err != nil {
 			t.Fatalf("read executable integration paths: %v", err)
 		}
-		var workloads []Extension
+		var workloads []Provisioner
 		integrations, workloads, err = LoadIntegrations(paths)
 		if err != nil {
 			t.Fatalf("load executable integration: %v", err)

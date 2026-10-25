@@ -1,6 +1,4 @@
-// Package arranger defines the shared contracts used to author Gateway
-// extensions without depending on Spinner's implementation packages.
-package arranger
+package integration
 
 import (
 	"encoding/json"
@@ -70,10 +68,10 @@ type LaunchSpec struct {
 	ContainerName    string
 }
 
-// Extension describes a technology independently of the host that runs it.
+// Provisioner describes a managed technology independently of the host that runs it.
 // Validate checks technology configuration; Launch returns a specification
 // without starting processes. The host selects the runtime and executes it.
-type Extension interface {
+type Provisioner interface {
 	Type() string
 	Supports(runtime string) bool
 	Validate(spec ServerSpec) error

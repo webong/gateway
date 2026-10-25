@@ -15,7 +15,7 @@ import (
 	"time"
 
 	smtpclient "github.com/emersion/go-smtp"
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 )
 

@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/email/spinner/mailnet"
 )
 

@@ -132,7 +132,7 @@ Third-party Go language extensions implement `automation.Engine` from
 not on Spinner. Their optional PHP companion
 depends on the framework-free interfaces under `mod/adapter`, not Planner's
 implementation source. Its thin `cmd/spinner` entrypoint uses
-`github.com/webong/gateway/arranger/automation/extension` and ships that process in an
+`github.com/webong/gateway/arranger/automation` and ships that process in an
 `ext.package/v1` archive. Native `.so` loading remains available for
 deployment-specific experiments, but first-party releases use supervised
 process packages so installation does not depend on the host's Go ABI.

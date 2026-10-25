@@ -1,4 +1,4 @@
-package runtime
+package integration
 
 import (
 	"bytes"
@@ -11,62 +11,63 @@ import (
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/arranger/automation"
-	"github.com/webong/gateway/arranger/protocol"
 )
 
-// Host exposes only the capabilities declared by an Extension's descriptor.
+// RuntimeHost exposes only the capabilities declared by an Extension's descriptor.
 // It contains no address or credential for Planner.
-type Host struct {
+type RuntimeHost struct {
 	caller    plugin.ReverseCaller
 	languages []automation.Language
 }
 
-type Executor interface {
-	protocol.Executor
-	protocol.GatewayExecutor
+type RuntimeExecutor interface {
+	Executor
+	GatewayExecutor
 }
 
-func NewHost(caller plugin.ReverseCaller, languages []automation.Language) *Host {
-	return &Host{caller: caller, languages: append([]automation.Language(nil), languages...)}
+func NewRuntimeHost(caller plugin.ReverseCaller, languages []automation.Language) *RuntimeHost {
+	return &RuntimeHost{caller: caller, languages: append([]automation.Language(nil), languages...)}
 }
 
-func (h *Host) Planner() protocol.Planner                 { return plannerClient{caller: h.caller} }
-func (h *Host) ProtocolPlanner() protocol.ProtocolPlanner { return plannerClient{caller: h.caller} }
-func (h *Host) Executor() Executor                        { return deliveryClient{caller: h.caller} }
-func (h *Host) PassThrough() http.Handler                 { return passThroughClient{caller: h.caller} }
-func (h *Host) Automation() automation.Executor {
+func (h *RuntimeHost) Planner() Planner                 { return plannerClient{caller: h.caller} }
+func (h *RuntimeHost) ProtocolPlanner() ProtocolPlanner { return plannerClient{caller: h.caller} }
+func (h *RuntimeHost) Executor() RuntimeExecutor        { return deliveryClient{caller: h.caller} }
+func (h *RuntimeHost) PassThrough() http.Handler        { return passThroughClient{caller: h.caller} }
+func (h *RuntimeHost) Automation() automation.Executor {
 	return automationClient{caller: h.caller, languages: append([]automation.Language(nil), h.languages...)}
 }
-func (h *Host) Schedules() automation.ScheduleRegistrar { return scheduleClient{caller: h.caller} }
+func (h *RuntimeHost) Schedules() automation.ScheduleRegistrar {
+	return scheduleClient{caller: h.caller}
+}
 
 type plannerClient struct{ caller plugin.ReverseCaller }
 
-func (p plannerClient) Plan(ctx context.Context, input protocol.IngressRequest) (protocol.RoutePlan, error) {
-	var result protocol.RoutePlan
+func (p plannerClient) Plan(ctx context.Context, input IngressRequest) (RoutePlan, error) {
+	var result RoutePlan
 	err := call(ctx, p.caller, PlannerContract, OperationPlanHTTP, input, &result)
 	return result, err
 }
 
-func (p plannerClient) PlanEvent(ctx context.Context, input protocol.GatewayEvent) (protocol.GatewayDecision, error) {
-	var result protocol.GatewayDecision
+func (p plannerClient) PlanEvent(ctx context.Context, input GatewayEvent) (GatewayDecision, error) {
+	var result GatewayDecision
 	err := call(ctx, p.caller, PlannerContract, OperationPlanEvent, input, &result)
 	return result, err
 }
 
 type deliveryClient struct{ caller plugin.ReverseCaller }
 
-func (d deliveryClient) Deliver(ctx context.Context, input protocol.Delivery) (protocol.Response, error) {
+func (d deliveryClient) Deliver(ctx context.Context, input Delivery) (Response, error) {
 	var result DeliveryResponse
 	err := call(ctx, d.caller, DeliveryContract, OperationDeliver, input, &result)
 	return result.Response, err
 }
 
-func (d deliveryClient) Enqueue(input protocol.Delivery) bool {
+func (d deliveryClient) Enqueue(input Delivery) bool {
 	var result EnqueueResponse
 	return call(context.Background(), d.caller, DeliveryContract, OperationEnqueue, input, &result) == nil && result.Accepted
 }
 
-func (d deliveryClient) EnqueueGateway(input protocol.GatewayDelivery) bool {
+func (d deliveryClient) EnqueueGateway(input GatewayDelivery) bool {
 	var result EnqueueResponse
 	return call(context.Background(), d.caller, DeliveryContract, OperationEnqueueGateway, input, &result) == nil && result.Accepted
 }
@@ -121,8 +122,8 @@ func (p passThroughClient) ServeHTTP(writer http.ResponseWriter, request *http.R
 	if request.TLS != nil {
 		scheme = "https"
 	}
-	var result HTTPResponse
-	err = call(request.Context(), p.caller, PlannerContract, OperationPassThrough, HTTPRequest{
+	var result PassThroughResponse
+	err = call(request.Context(), p.caller, PlannerContract, OperationPassThrough, PassThroughRequest{
 		Method: request.Method, Scheme: scheme, Host: request.Host, Path: request.URL.Path,
 		RawQuery: request.URL.RawQuery, Headers: request.Header.Clone(), Body: body, RemoteAddr: request.RemoteAddr,
 	}, &result)

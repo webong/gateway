@@ -16,8 +16,8 @@ A Gateway Extension is the installable package and lifecycle boundary. An extens
 ## Consequences
 
 - Extension remains the umbrella term for packages, installation, discovery, identity, versioning, and activation.
-- Arranger is the single independently versioned Go authoring module. Its root `Extension` interface and its Automation, Companion, and Integration packages form the extension development interface. Its Router package holds runtime-neutral HTTP routing policy so routing does not require a second shared Go module.
-- Spinner owns bundled host assembly and capability-specific route policies. Arranger Router accepts those policies as injected contracts and remains independent of Spinner and runtime adapters.
+- Arranger is the single independently versioned Go authoring module. Its Automation, Companion, and Integration packages are the complete extension development interface; the root package only documents that shared model and does not define a fourth capability. Integration owns managed-service provisioning, the traffic vocabulary, the installable Spinner process contract, and runtime-neutral HTTP routing policy rather than exposing separate Router, Protocol, and Runtime packages.
+- Spinner owns bundled host assembly and capability-specific route policies. Arranger Integration accepts those policies through injected interfaces and remains independent of Spinner and runtime adapters.
 - Local, Docker, and Kubernetes drivers remain Spinner implementation details; they execute an Extension's launch plan but are not a second public authoring module.
 - Integration replaces Workload Plugin and Workload Extension in managed-service APIs, binaries, configuration, scripts, and documentation.
 - Automation and Companion retain their distinct names and contracts.

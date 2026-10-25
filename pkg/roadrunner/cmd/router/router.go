@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
@@ -82,7 +82,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
 			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: next,
 			Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
-			Start: runtimecontract.StartRequest{
+			Start: runtimecontract.RuntimeStartRequest{
 				MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
 				WebSocketMaxConnections: spinner.WebSocketMaxConnections, WebSocketMaxDuration: spinner.WebSocketMaxDuration,
 				WebstreamHeartbeat: spinner.WebstreamHeartbeat, WebstreamRetry: spinner.WebstreamRetry,
@@ -116,7 +116,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				http.Error(writer, "Planner schedule control is unavailable", http.StatusServiceUnavailable)
 			})
 		}
-		return router.NewHandler(next, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed)
+		return router.NewHandler(next, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(next)...)
 	})
 	if err != nil {
 		return err
@@ -165,7 +165,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				<-done
 				return fmt.Errorf("listen for private Planner control: %w", listenErr)
 			}
-			controlServer = router.NewInternalControlServer(prepared.handler)
+			controlServer = router.NewInternalControlServer(prepared.handler, transport.InternalRequestPolicies()...)
 			go func() {
 				if serveErr := controlServer.Serve(controlListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 					listenerErrors <- fmt.Errorf("private Planner control listener: %w", serveErr)

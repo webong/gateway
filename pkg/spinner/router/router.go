@@ -14,9 +14,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
-	arrangerrouter "github.com/webong/gateway/arranger/router"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
-	emailspinner "github.com/webong/gateway/pkg/email/spinner"
+	"github.com/webong/gateway/arranger/integration"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
@@ -79,7 +77,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
 		Planner: httpPlanner, ProtocolPlanner: protocolPlanner, PassThrough: planner,
 		Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
-		Start: runtimecontract.StartRequest{
+		Start: integration.RuntimeStartRequest{
 			MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
 			WebSocketMaxConnections: spinner.WebSocketMaxConnections, WebSocketMaxDuration: spinner.WebSocketMaxDuration,
 			WebstreamHeartbeat: spinner.WebstreamHeartbeat, WebstreamRetry: spinner.WebstreamRetry,
@@ -109,12 +107,11 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			return err
 		}
 	}
-	workerIngress := spinner.WorkerIngressHandler(planner)
 	managed, err := ManagedRouteProxy(spinner)
 	if err != nil {
 		return err
 	}
-	handler := NewHandler(planner, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed, workerIngress)
+	handler := NewHandler(planner, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(planner)...)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -131,7 +128,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			_ = listener.Close()
 			return fmt.Errorf("listen for private Planner control: %w", err)
 		}
-		controlServer = NewInternalControlServer(planner)
+		controlServer = NewInternalControlServer(planner, transport.InternalRequestPolicies()...)
 	}
 	server := &http.Server{
 		Handler:           handler,
@@ -251,7 +248,7 @@ func (transport handlerRoundTripper) RoundTrip(request *http.Request) (*http.Res
 	}
 }
 
-type ManagedRouteHandler = arrangerrouter.ManagedRouteHandler
+type ManagedRouteHandler = integration.ManagedRouteHandler
 
 // ingressStatus records only the HTTP outcome; credentials and MIME stay out of logs.
 type ingressStatus struct {
@@ -271,35 +268,32 @@ func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 	return provision.NewRemoteRouter("http://planner.internal", spinner.InternalToken, nil, spinner.ProvisioningRouteCIDRs)
 }
 
-func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler, workerIngress ...http.Handler) http.Handler {
+func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler, routes ...integration.PublicRoute) http.Handler {
 	hooks := edge
-	workerIngressHandler := http.NotFoundHandler()
-	if len(workerIngress) != 0 && workerIngress[0] != nil {
-		workerIngressHandler = loggedWorkerIngress(workerIngress[0])
+	mounted := append([]integration.PublicRoute(nil), routes...)
+	for index := range mounted {
+		if mounted[index].Handler != nil {
+			mounted[index].Handler = loggedPublicRoute(mounted[index].Handler)
+		}
 	}
-	return arrangerrouter.NewHandler(planner, hooks, managed, arrangerrouter.PublicRoute{
-		Prefix:  emailspinner.WorkerIngressPrefix,
-		Handler: workerIngressHandler,
-	})
+	return integration.NewHandler(planner, hooks, managed, mounted...)
 }
 
-func loggedWorkerIngress(handler http.Handler) http.Handler {
+func loggedPublicRoute(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		outcome := &ingressStatus{ResponseWriter: w, code: http.StatusOK}
-		defer func() { log.Printf("worker ingress method=%s status=%d", r.Method, outcome.code) }()
+		defer func() { log.Printf("extension route method=%s path=%s status=%d", r.Method, r.URL.Path, outcome.code) }()
 		handler.ServeHTTP(outcome, r)
 	})
 }
 
-var internalPlannerRequest = arrangerrouter.AnyInternalRequest(
-	provision.InternalPlannerRequest,
-	emailspinner.InternalPlannerRequest,
-)
+// InternalRequestPolicy combines Router core's provisioning route with
+// capability-owned policies supplied by the host. Router never imports a
+// concrete extension to discover its private Planner surface.
+func InternalRequestPolicy(policies ...integration.InternalRequestPolicy) integration.InternalRequestPolicy {
+	return integration.AnyInternalRequest(append([]integration.InternalRequestPolicy{provision.InternalPlannerRequest}, policies...)...)
+}
 
-// InternalPlannerRequest allows only private routes required by capabilities
-// compiled into Spinner. Each capability owns its own route policy.
-func InternalPlannerRequest(request *http.Request) bool { return internalPlannerRequest(request) }
-
-func NewInternalControlServer(planner http.Handler) *http.Server {
-	return arrangerrouter.NewInternalControlServer(planner, InternalPlannerRequest)
+func NewInternalControlServer(planner http.Handler, policies ...integration.InternalRequestPolicy) *http.Server {
+	return integration.NewInternalControlServer(planner, InternalRequestPolicy(policies...))
 }

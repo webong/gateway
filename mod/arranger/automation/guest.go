@@ -1,7 +1,6 @@
-// Package extension exposes Gateway automation engines through the portable
-// ext.plugin/v1 process contract. Extension binaries use this adapter without
-// depending on Spinner's implementation packages.
-package extension
+// Package automation defines Gateway's automation capability and exposes
+// automation engines through the portable ext.plugin/v1 process contract.
+package automation
 
 import (
 	"context"
@@ -12,13 +11,12 @@ import (
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
-	"github.com/webong/gateway/arranger/automation"
 )
 
 var automationContract = plugin.ContractRef{Name: "gateway.automation", Version: "v1"}
 
 // Factory constructs one extension-owned automation engine.
-type Factory func() (automation.Engine, error)
+type Factory func() (Engine, error)
 
 type packageManifest struct {
 	Descriptor plugin.Descriptor `json:"descriptor"`
@@ -32,7 +30,7 @@ type executeRequest struct {
 }
 
 type executeResponse struct {
-	Outcome automation.Outcome `json:"outcome"`
+	Outcome Outcome `json:"outcome"`
 }
 
 // Serve starts an automation extension from the plugin.json in its working
@@ -74,7 +72,7 @@ func Guest(descriptor plugin.Descriptor, factory Factory) (*plugin.Guest, error)
 		if input.Language != "" && input.Language != language {
 			return nil, fmt.Errorf("automation language %q does not match extension language %q", input.Language, language)
 		}
-		outcome, err := engine.Execute(ctx, input.Source, automation.Input{Event: input.Event, Variables: input.Variables})
+		outcome, err := engine.Execute(ctx, input.Source, Input{Event: input.Event, Variables: input.Variables})
 		if err != nil {
 			return nil, err
 		}

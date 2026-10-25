@@ -1,4 +1,4 @@
-package runtime
+package integration
 
 import (
 	"context"
@@ -19,27 +19,27 @@ func TestGuestStartsOnceWithSessionScopedHost(t *testing.T) {
 	descriptor := plugin.Descriptor{
 		APIVersion: plugin.APIVersion,
 		Identity:   plugin.Identity{ID: "example/web", Revision: "r1"},
-		Contracts:  []plugin.Contract{{ContractRef: Contract, Operations: []plugin.Operation{{Name: OperationStart, Surface: "spinner"}}}},
+		Contracts:  []plugin.Contract{{ContractRef: RuntimeContract, Operations: []plugin.Operation{{Name: OperationStart, Surface: "spinner"}}}},
 		Reverse:    []plugin.Contract{{ContractRef: PlannerContract, Operations: []plugin.Operation{{Name: OperationPlanEvent}}}},
 	}
 	started := 0
-	guest, err := Guest(descriptor, StarterFunc(func(_ context.Context, request StartRequest, caller plugin.ReverseCaller) (StartResponse, error) {
+	guest, err := RuntimeGuest(descriptor, RuntimeStarterFunc(func(_ context.Context, request RuntimeStartRequest, caller plugin.ReverseCaller) (RuntimeStartResponse, error) {
 		started++
 		if request.MaxBodySize != 1024 || string(request.Configuration) != `{"listener":{"address":"127.0.0.1:0"}}` || caller == nil {
 			t.Fatalf("unexpected start request: %+v caller=%v", request, caller)
 		}
-		return StartResponse{HTTP: []HTTPMount{{Prefix: "/", Address: "http://127.0.0.1:1234"}}}, nil
+		return RuntimeStartResponse{HTTP: []HTTPMount{{Prefix: "/", Address: "http://127.0.0.1:1234"}}}, nil
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, _ := json.Marshal(StartRequest{
+	payload, _ := json.Marshal(RuntimeStartRequest{
 		Configuration: json.RawMessage(`{"listener":{"address":"127.0.0.1:0"}}`),
 		MaxBodySize:   1024,
 	})
 	request := plugin.Request{
 		APIVersion: plugin.APIVersion, ID: "request-1", Plugin: descriptor.Identity,
-		Contract: Contract, Operation: OperationStart, Surface: "spinner",
+		Contract: RuntimeContract, Operation: OperationStart, Surface: "spinner",
 		Deadline: time.Now().Add(time.Second), Payload: payload,
 	}
 	ctx := plugin.WithSessionReverse(context.Background(), reverseCallerFunc(func(context.Context, plugin.ContractRef, string, json.RawMessage) (json.RawMessage, error) {
@@ -49,7 +49,7 @@ func TestGuestStartsOnceWithSessionScopedHost(t *testing.T) {
 	if err != nil || response.Error != nil {
 		t.Fatalf("start runtime: response=%+v err=%v", response, err)
 	}
-	var result StartResponse
+	var result RuntimeStartResponse
 	if err := json.Unmarshal(response.Payload, &result); err != nil || len(result.HTTP) != 1 || result.HTTP[0].Address != "http://127.0.0.1:1234" || result.HTTP[0].Prefix != "/" {
 		t.Fatalf("unexpected advertisement: %+v err=%v", result, err)
 	}
@@ -60,12 +60,12 @@ func TestGuestStartsOnceWithSessionScopedHost(t *testing.T) {
 }
 
 func TestGuestRequiresDeclaredRuntimeContract(t *testing.T) {
-	_, err := Guest(plugin.Descriptor{
+	_, err := RuntimeGuest(plugin.Descriptor{
 		APIVersion: plugin.APIVersion,
 		Identity:   plugin.Identity{ID: "example/web", Revision: "r1"},
 		Contracts:  []plugin.Contract{{ContractRef: plugin.ContractRef{Name: "example.other", Version: "v1"}, Operations: []plugin.Operation{{Name: "run"}}}},
-	}, StarterFunc(func(context.Context, StartRequest, plugin.ReverseCaller) (StartResponse, error) {
-		return StartResponse{}, nil
+	}, RuntimeStarterFunc(func(context.Context, RuntimeStartRequest, plugin.ReverseCaller) (RuntimeStartResponse, error) {
+		return RuntimeStartResponse{}, nil
 	}))
 	if err == nil {
 		t.Fatal("guest accepted a descriptor without gateway.runtime/v1")

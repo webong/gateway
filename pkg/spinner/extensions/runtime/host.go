@@ -17,25 +17,24 @@ import (
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/arranger/automation"
-	"github.com/webong/gateway/arranger/protocol"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 type Executor interface {
-	protocol.Executor
-	protocol.GatewayExecutor
+	integration.Executor
+	integration.GatewayExecutor
 }
 
 // Services are the host capabilities an installed runtime may call. The
 // descriptor still has to declare every exact reverse operation.
 type Services struct {
-	Planner         protocol.Planner
-	ProtocolPlanner protocol.ProtocolPlanner
+	Planner         integration.Planner
+	ProtocolPlanner integration.ProtocolPlanner
 	PassThrough     http.Handler
 	Executor        Executor
 	Automation      automation.Executor
 	Schedules       automation.ScheduleRegistrar
-	Start           runtimecontract.StartRequest
+	Start           integration.RuntimeStartRequest
 }
 
 // Host is late-bound so a package can be launched before an embedded Planner
@@ -61,7 +60,7 @@ func (h *Host) current() Services {
 	return h.services
 }
 
-func (h *Host) StartRequest(configuration json.RawMessage) runtimecontract.StartRequest {
+func (h *Host) StartRequest(configuration json.RawMessage) integration.RuntimeStartRequest {
 	request := h.current().Start
 	request.Configuration = append(json.RawMessage(nil), configuration...)
 	return request
@@ -96,31 +95,31 @@ func (h *Host) ReverseOptions(fallback *plugin.ReverseOptions) *plugin.ReverseOp
 }
 
 func (h *Host) owns(ref plugin.ContractRef) bool {
-	return ref == runtimecontract.PlannerContract || ref == runtimecontract.DeliveryContract ||
-		ref == runtimecontract.AutomationContract || ref == runtimecontract.ScheduleContract
+	return ref == integration.PlannerContract || ref == integration.DeliveryContract ||
+		ref == integration.AutomationContract || ref == integration.ScheduleContract
 }
 
 func (h *Host) authorize(request plugin.Request) error {
 	services := h.current()
 	switch request.Contract {
-	case runtimecontract.PlannerContract:
-		if request.Operation == runtimecontract.OperationPlanHTTP && services.Planner != nil ||
-			request.Operation == runtimecontract.OperationPlanEvent && services.ProtocolPlanner != nil ||
-			request.Operation == runtimecontract.OperationPassThrough && services.PassThrough != nil {
+	case integration.PlannerContract:
+		if request.Operation == integration.OperationPlanHTTP && services.Planner != nil ||
+			request.Operation == integration.OperationPlanEvent && services.ProtocolPlanner != nil ||
+			request.Operation == integration.OperationPassThrough && services.PassThrough != nil {
 			return nil
 		}
-	case runtimecontract.DeliveryContract:
-		if services.Executor != nil && (request.Operation == runtimecontract.OperationDeliver ||
-			request.Operation == runtimecontract.OperationEnqueue || request.Operation == runtimecontract.OperationEnqueueGateway ||
-			request.Operation == runtimecontract.OperationDurable) {
+	case integration.DeliveryContract:
+		if services.Executor != nil && (request.Operation == integration.OperationDeliver ||
+			request.Operation == integration.OperationEnqueue || request.Operation == integration.OperationEnqueueGateway ||
+			request.Operation == integration.OperationDurable) {
 			return nil
 		}
-	case runtimecontract.AutomationContract:
-		if services.Automation != nil && request.Operation == runtimecontract.OperationExecuteAutomation {
+	case integration.AutomationContract:
+		if services.Automation != nil && request.Operation == integration.OperationExecuteAutomation {
 			return nil
 		}
-	case runtimecontract.ScheduleContract:
-		if services.Schedules != nil && request.Operation == runtimecontract.OperationRegisterSchedules {
+	case integration.ScheduleContract:
+		if services.Schedules != nil && request.Operation == integration.OperationRegisterSchedules {
 			return nil
 		}
 	}
@@ -130,12 +129,12 @@ func (h *Host) authorize(request plugin.Request) error {
 func (h *Host) handle(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
 	services := h.current()
 	switch request.Contract {
-	case runtimecontract.PlannerContract:
+	case integration.PlannerContract:
 		return handlePlanner(ctx, services, request)
-	case runtimecontract.DeliveryContract:
+	case integration.DeliveryContract:
 		return handleDelivery(ctx, services, request)
-	case runtimecontract.AutomationContract:
-		var input runtimecontract.AutomationRequest
+	case integration.AutomationContract:
+		var input integration.AutomationRequest
 		if err := decode(request.Payload, &input); err != nil {
 			return nil, plugin.ErrInvalid
 		}
@@ -143,9 +142,9 @@ func (h *Host) handle(ctx context.Context, request plugin.Request) (json.RawMess
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(runtimecontract.AutomationResponse{Outcome: outcome})
-	case runtimecontract.ScheduleContract:
-		var input runtimecontract.ScheduleRequest
+		return json.Marshal(integration.AutomationResponse{Outcome: outcome})
+	case integration.ScheduleContract:
+		var input integration.ScheduleRequest
 		if err := decode(request.Payload, &input); err != nil || strings.TrimSpace(input.Origin) == "" {
 			return nil, plugin.ErrInvalid
 		}
@@ -160,8 +159,8 @@ func (h *Host) handle(ctx context.Context, request plugin.Request) (json.RawMess
 
 func handlePlanner(ctx context.Context, services Services, request plugin.Request) (json.RawMessage, error) {
 	switch request.Operation {
-	case runtimecontract.OperationPlanHTTP:
-		var input protocol.IngressRequest
+	case integration.OperationPlanHTTP:
+		var input integration.IngressRequest
 		if err := decode(request.Payload, &input); err != nil {
 			return nil, plugin.ErrInvalid
 		}
@@ -170,8 +169,8 @@ func handlePlanner(ctx context.Context, services Services, request plugin.Reques
 			return nil, err
 		}
 		return json.Marshal(result)
-	case runtimecontract.OperationPlanEvent:
-		var input protocol.GatewayEvent
+	case integration.OperationPlanEvent:
+		var input integration.GatewayEvent
 		if err := decode(request.Payload, &input); err != nil {
 			return nil, plugin.ErrInvalid
 		}
@@ -180,8 +179,8 @@ func handlePlanner(ctx context.Context, services Services, request plugin.Reques
 			return nil, err
 		}
 		return json.Marshal(result)
-	case runtimecontract.OperationPassThrough:
-		var input runtimecontract.HTTPRequest
+	case integration.OperationPassThrough:
+		var input integration.PassThroughRequest
 		if err := decode(request.Payload, &input); err != nil || input.Method == "" || input.Path == "" || pathUnder(input.Path, "/_internal") {
 			return nil, plugin.ErrInvalid
 		}
@@ -207,7 +206,7 @@ func handlePlanner(ctx context.Context, services Services, request plugin.Reques
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(runtimecontract.HTTPResponse{Status: response.StatusCode, Headers: response.Header.Clone(), Body: body})
+		return json.Marshal(integration.PassThroughResponse{Status: response.StatusCode, Headers: response.Header.Clone(), Body: body})
 	default:
 		return nil, plugin.ErrUnsupported
 	}
@@ -215,8 +214,8 @@ func handlePlanner(ctx context.Context, services Services, request plugin.Reques
 
 func handleDelivery(ctx context.Context, services Services, request plugin.Request) (json.RawMessage, error) {
 	switch request.Operation {
-	case runtimecontract.OperationDeliver:
-		var input protocol.Delivery
+	case integration.OperationDeliver:
+		var input integration.Delivery
 		if err := decode(request.Payload, &input); err != nil || input.Validate() != nil {
 			return nil, plugin.ErrInvalid
 		}
@@ -224,22 +223,22 @@ func handleDelivery(ctx context.Context, services Services, request plugin.Reque
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(runtimecontract.DeliveryResponse{Response: response})
-	case runtimecontract.OperationEnqueue:
-		var input protocol.Delivery
+		return json.Marshal(integration.DeliveryResponse{Response: response})
+	case integration.OperationEnqueue:
+		var input integration.Delivery
 		if err := decode(request.Payload, &input); err != nil || input.Validate() != nil {
 			return nil, plugin.ErrInvalid
 		}
-		return json.Marshal(runtimecontract.EnqueueResponse{Accepted: services.Executor.Enqueue(input)})
-	case runtimecontract.OperationEnqueueGateway:
-		var input protocol.GatewayDelivery
+		return json.Marshal(integration.EnqueueResponse{Accepted: services.Executor.Enqueue(input)})
+	case integration.OperationEnqueueGateway:
+		var input integration.GatewayDelivery
 		if err := decode(request.Payload, &input); err != nil || input.Validate() != nil {
 			return nil, plugin.ErrInvalid
 		}
-		return json.Marshal(runtimecontract.EnqueueResponse{Accepted: services.Executor.EnqueueGateway(input)})
-	case runtimecontract.OperationDurable:
-		durable, ok := services.Executor.(protocol.DurableGatewayExecutor)
-		return json.Marshal(runtimecontract.DurableResponse{Enabled: ok && durable.DurableGatewayDeliveries()})
+		return json.Marshal(integration.EnqueueResponse{Accepted: services.Executor.EnqueueGateway(input)})
+	case integration.OperationDurable:
+		durable, ok := services.Executor.(integration.DurableGatewayExecutor)
+		return json.Marshal(integration.DurableResponse{Enabled: ok && durable.DurableGatewayDeliveries()})
 	default:
 		return nil, plugin.ErrUnsupported
 	}

@@ -42,7 +42,7 @@ type Runtime struct {
 	once    sync.Once
 }
 
-func Start(config Config, backendURL, internalToken string, client *http.Client, logger Logger, workloads ...Extension) (*Runtime, error) {
+func Start(config Config, backendURL, internalToken string, client *http.Client, logger Logger, workloads ...Provisioner) (*Runtime, error) {
 	if config.TargetID != "" {
 		internalToken = config.TargetToken
 	}
@@ -206,7 +206,7 @@ func supportedDrivers(drivers map[string]Driver) []string {
 	return keys
 }
 
-func hasDriver(workloads []Extension, driver string) bool {
+func hasDriver(workloads []Provisioner, driver string) bool {
 	for _, workload := range workloads {
 		if workload != nil && workload.Supports(driver) {
 			return true

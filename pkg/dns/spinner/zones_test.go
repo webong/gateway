@@ -10,7 +10,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 func TestServerReplacesZonesAtomically(t *testing.T) {

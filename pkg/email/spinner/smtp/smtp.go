@@ -23,7 +23,7 @@ import (
 	"github.com/emersion/go-sasl"
 	smtpserver "github.com/emersion/go-smtp"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 var ErrServerClosed = errors.New("SMTP server closed")

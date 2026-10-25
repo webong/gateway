@@ -1,11 +1,11 @@
-package router_test
+package integration_test
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/webong/gateway/arranger/router"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 func TestInternalControlIsDenyByDefaultAndPreservesPlannerAuthorization(t *testing.T) {
@@ -16,7 +16,7 @@ func TestInternalControlIsDenyByDefaultAndPreservesPlannerAuthorization(t *testi
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	})
-	allowed := router.AnyInternalRequest(
+	allowed := integration.AnyInternalRequest(
 		func(request *http.Request) bool { return request.URL.Path == "/_internal/example/read" },
 		func(request *http.Request) bool { return request.URL.Path == "/_internal/example/write" },
 	)
@@ -25,7 +25,7 @@ func TestInternalControlIsDenyByDefaultAndPreservesPlannerAuthorization(t *testi
 		name   string
 		path   string
 		token  string
-		policy router.InternalRequestPolicy
+		policy integration.InternalRequestPolicy
 		want   int
 	}{
 		{name: "nil policy", path: "/_internal/example/read", token: "worker-secret", want: http.StatusNotFound},
@@ -38,7 +38,7 @@ func TestInternalControlIsDenyByDefaultAndPreservesPlannerAuthorization(t *testi
 			request := httptest.NewRequest(http.MethodPost, test.path, nil)
 			request.Header.Set("X-Gateway-Internal", test.token)
 			response := httptest.NewRecorder()
-			router.NewInternalControlHandler(planner, test.policy).ServeHTTP(response, request)
+			integration.NewInternalControlHandler(planner, test.policy).ServeHTTP(response, request)
 			if response.Code != test.want {
 				t.Fatalf("status = %d, want %d", response.Code, test.want)
 			}
@@ -60,7 +60,7 @@ func TestPublicHandlerKeepsCapabilitiesInjected(t *testing.T) {
 	planner := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { _, _ = writer.Write([]byte("planner")) })
 	hooks := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { _, _ = writer.Write([]byte("hooks")) })
 	ingress := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { _, _ = writer.Write([]byte("ingress")) })
-	handler := router.NewHandler(planner, hooks, managedRoute{}, router.PublicRoute{
+	handler := integration.NewHandler(planner, hooks, managedRoute{}, integration.PublicRoute{
 		Prefix: "/transport/ingress", Handler: ingress,
 	})
 

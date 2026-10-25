@@ -32,7 +32,7 @@ bin/gateway-integration probe \
 ```
 
 `probe` starts the selected integration on the current host, sends `describe`,
-validates one complete `driver.ServerSpec` JSON file, and checks the launch
+validates one complete `integration.ServerSpec` JSON file, and checks the launch
 specification for the selected driver. For `local`, pass the intended `--host`
 and `--port`; Docker and Kubernetes probes derive the container port from the
 integration. The command prints no launch environment because it may contain
@@ -131,8 +131,9 @@ workload secrets needed to construct launch settings.
 
 ## Third-party Go module
 
-Authors depend on `github.com/webong/gateway/arranger`, not the Spinner module.
-Implement `arranger.Extension`, then serve it from a tiny `main` package:
+Authors depend on `github.com/webong/gateway/arranger/integration`, not the
+Spinner module. Implement `integration.Provisioner`, then serve it from a tiny
+`main` package:
 
 ```go
 package main
@@ -146,7 +147,7 @@ import (
 )
 
 func main() {
-    if err := integration.Serve(workload.New(), os.Stdin, os.Stdout); err != nil {
+    if err := integration.ServeProvisioner(workload.New(), os.Stdin, os.Stdout); err != nil {
         log.Fatal(err)
     }
 }
@@ -161,7 +162,7 @@ The host starts an explicitly configured executable and exchanges newline
 delimited JSON over stdin/stdout. Protocol version 1 supports `describe`,
 `validate`, and `launch`; `describe` advertises the workload type and supported
 local/Docker/Kubernetes drivers. Requests and responses carry matching IDs and
-have an 8 MiB limit. The integration returns an `arranger.LaunchSpec`; Gateway
+have an 8 MiB limit. The integration returns an `integration.LaunchSpec`; Gateway
 core still owns process/container/Pod creation, reconciliation, and routing.
 
 The protocol version is checked at startup. The manager handles catalog-based,

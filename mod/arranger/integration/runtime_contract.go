@@ -1,7 +1,4 @@
-// Package runtime defines the process contract used by an Extension's
-// Spinner entrypoint. It lets the core host supervise traffic capabilities
-// without compiling their implementations.
-package runtime
+package integration
 
 import (
 	"context"
@@ -11,7 +8,6 @@ import (
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/arranger/automation"
-	"github.com/webong/gateway/arranger/protocol"
 )
 
 const (
@@ -31,16 +27,16 @@ const (
 )
 
 var (
-	Contract           = plugin.ContractRef{Name: "gateway.runtime", Version: "v1"}
+	RuntimeContract    = plugin.ContractRef{Name: "gateway.runtime", Version: "v1"}
 	PlannerContract    = plugin.ContractRef{Name: "gateway.planner", Version: "v1"}
 	DeliveryContract   = plugin.ContractRef{Name: "gateway.delivery", Version: "v1"}
 	AutomationContract = plugin.ContractRef{Name: "gateway.automation-host", Version: "v1"}
 	ScheduleContract   = plugin.ContractRef{Name: "gateway.schedule", Version: "v1"}
 )
 
-// StartRequest contains host-owned ceilings. Product routing and policy stay
+// RuntimeStartRequest contains host-owned ceilings. Product routing and policy stay
 // in Planner; the process receives no Planner URL or internal credential.
-type StartRequest struct {
+type RuntimeStartRequest struct {
 	Configuration           json.RawMessage       `json:"configuration,omitempty"`
 	MaxBodySize             int64                 `json:"maxBodySize"`
 	PlannerTimeout          time.Duration         `json:"plannerTimeout"`
@@ -60,13 +56,13 @@ type HTTPMount struct {
 	Address string `json:"address"`
 }
 
-// StartResponse advertises data endpoints opened by the extension process.
+// RuntimeStartResponse advertises data endpoints opened by the extension process.
 // Multiple Extensions can coexist because HTTP ownership is prefix-scoped.
-type StartResponse struct {
+type RuntimeStartResponse struct {
 	HTTP []HTTPMount `json:"http,omitempty"`
 }
 
-type HTTPRequest struct {
+type PassThroughRequest struct {
 	Method     string      `json:"method"`
 	Scheme     string      `json:"scheme,omitempty"`
 	Host       string      `json:"host"`
@@ -77,7 +73,7 @@ type HTTPRequest struct {
 	RemoteAddr string      `json:"remoteAddr,omitempty"`
 }
 
-type HTTPResponse struct {
+type PassThroughResponse struct {
 	Status  int         `json:"status"`
 	Headers http.Header `json:"headers,omitempty"`
 	Body    []byte      `json:"body,omitempty"`
@@ -98,7 +94,7 @@ type ScheduleRequest struct {
 }
 
 type DeliveryResponse struct {
-	Response protocol.Response `json:"response"`
+	Response Response `json:"response"`
 }
 
 type EnqueueResponse struct {
@@ -109,15 +105,15 @@ type DurableResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
-// Starter opens extension-owned listeners after the host has verified and
+// RuntimeStarter opens extension-owned listeners after the host has verified and
 // launched the selected package revision.
-type Starter interface {
-	Start(context.Context, StartRequest, plugin.ReverseCaller) (StartResponse, error)
+type RuntimeStarter interface {
+	Start(context.Context, RuntimeStartRequest, plugin.ReverseCaller) (RuntimeStartResponse, error)
 }
 
-type StarterFunc func(context.Context, StartRequest, plugin.ReverseCaller) (StartResponse, error)
+type RuntimeStarterFunc func(context.Context, RuntimeStartRequest, plugin.ReverseCaller) (RuntimeStartResponse, error)
 
-func (f StarterFunc) Start(ctx context.Context, request StartRequest, caller plugin.ReverseCaller) (StartResponse, error) {
+func (f RuntimeStarterFunc) Start(ctx context.Context, request RuntimeStartRequest, caller plugin.ReverseCaller) (RuntimeStartResponse, error) {
 	return f(ctx, request, caller)
 }
 

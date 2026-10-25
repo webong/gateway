@@ -14,7 +14,7 @@ import (
 
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
 	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
 	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
@@ -507,7 +507,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
 		Planner: runtime.Planner(), ProtocolPlanner: protocolPlanner, PassThrough: runtime.PassThrough(),
 		Executor: server.NewGatewayExecutor(), Automation: server.automation, Schedules: control,
-		Start: runtimecontract.StartRequest{
+		Start: runtimecontract.RuntimeStartRequest{
 			MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout,
 			WebSocketMaxConnections: config.WebSocketMaxConnections, WebSocketMaxDuration: config.WebSocketMaxDuration,
 			WebstreamHeartbeat: config.WebstreamHeartbeat, WebstreamRetry: config.WebstreamRetry,

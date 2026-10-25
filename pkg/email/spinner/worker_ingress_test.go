@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 )
 
 type workerQueue struct {

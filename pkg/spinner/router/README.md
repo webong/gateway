@@ -5,7 +5,7 @@ injected in-process Planner. Bundled host commands supply their own PHP adapter;
 this package contains no RoadRunner or FrankenPHP runtime dependency.
 
 Runtime-neutral public routing and deny-by-default private-control policy live
-in `github.com/webong/gateway/arranger/router`. Spinner capabilities contribute
+in `github.com/webong/gateway/arranger/integration`. Spinner capabilities contribute
 their own narrow private Planner request policies rather than adding product
 routes to the shared Router.
 

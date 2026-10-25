@@ -12,7 +12,7 @@ import (
 
 	"github.com/emersion/go-msgauth/dkim"
 	smtpserver "github.com/emersion/go-smtp"
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 func TestGatewayAdapterDeliversResolvedSMTPMessage(t *testing.T) {

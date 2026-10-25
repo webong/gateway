@@ -12,7 +12,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 )
 

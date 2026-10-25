@@ -1,4 +1,4 @@
-package router
+package integration
 
 import (
 	"net/http"

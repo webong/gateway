@@ -9,21 +9,21 @@ import (
 	"os"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	web "github.com/webong/gateway/pkg/web/spinner"
 	"github.com/webong/gateway/pkg/web/spinner/websocket"
 	"github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 func main() {
-	if err := runtimecontract.Serve(context.Background(), runtimecontract.StarterFunc(start)); err != nil {
+	if err := runtimecontract.ServeRuntime(context.Background(), runtimecontract.RuntimeStarterFunc(start)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func start(_ context.Context, request runtimecontract.StartRequest, caller plugin.ReverseCaller) (runtimecontract.StartResponse, error) {
-	host := runtimecontract.NewHost(caller, request.AutomationLanguages)
+func start(_ context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
+	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
 	edge := web.NewEdge(host.Planner(), host.Executor(), request.MaxBodySize).
 		SetAutomationExecutor(host.Automation()).
 		SetScheduleRegistrar(host.Schedules()).
@@ -49,7 +49,7 @@ func start(_ context.Context, request runtimecontract.StartRequest, caller plugi
 	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return runtimecontract.StartResponse{}, err
+		return runtimecontract.RuntimeStartResponse{}, err
 	}
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: request.PlannerTimeout}
 	go func() {
@@ -57,7 +57,7 @@ func start(_ context.Context, request runtimecontract.StartRequest, caller plugi
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}()
-	return runtimecontract.StartResponse{HTTP: []runtimecontract.HTTPMount{{
+	return runtimecontract.RuntimeStartResponse{HTTP: []runtimecontract.HTTPMount{{
 		Prefix: "/", Address: "http://" + listener.Addr().String(),
 	}}}, nil
 }

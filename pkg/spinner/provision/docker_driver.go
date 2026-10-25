@@ -130,7 +130,7 @@ func (d *DockerDriver) owns(labels map[string]string) bool {
 		labels["gateway.provisioning.target"] == d.config.TargetID
 }
 
-func (d *DockerDriver) Start(ctx context.Context, spec ServerSpec, instanceID string, workload Extension) (Process, error) {
+func (d *DockerDriver) Start(ctx context.Context, spec ServerSpec, instanceID string, workload Provisioner) (Process, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}

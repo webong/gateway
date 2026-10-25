@@ -3,7 +3,7 @@
 // so Gateway Extensions do not depend on Spinner's implementation module.
 package gateway
 
-import protocol "github.com/webong/gateway/arranger/protocol"
+import protocol "github.com/webong/gateway/arranger/integration"
 
 const (
 	ProtocolVersion = protocol.ProtocolVersion

@@ -29,7 +29,7 @@ func NewLocalDriver(config LocalDriverConfig) (*LocalDriver, error) {
 	return &LocalDriver{config: config}, nil
 }
 
-func (d *LocalDriver) Start(ctx context.Context, spec ServerSpec, _ string, workload Extension) (Process, error) {
+func (d *LocalDriver) Start(ctx context.Context, spec ServerSpec, _ string, workload Provisioner) (Process, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}

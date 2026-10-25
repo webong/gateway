@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 // GatewayAdapter translates one resolved SMTP delivery into a relay

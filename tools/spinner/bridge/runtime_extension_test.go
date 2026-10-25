@@ -10,24 +10,23 @@ import (
 	"testing"
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	protocol "github.com/webong/gateway/arranger/protocol"
-	runtimecontract "github.com/webong/gateway/arranger/runtime"
+	"github.com/webong/gateway/arranger/integration"
 	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 )
 
-type runtimePlanner func(context.Context, protocol.IngressRequest) (protocol.RoutePlan, error)
+type runtimePlanner func(context.Context, integration.IngressRequest) (integration.RoutePlan, error)
 
-func (f runtimePlanner) Plan(ctx context.Context, request protocol.IngressRequest) (protocol.RoutePlan, error) {
+func (f runtimePlanner) Plan(ctx context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
 	return f(ctx, request)
 }
 
 type runtimeExecutor struct{}
 
-func (runtimeExecutor) Deliver(context.Context, protocol.Delivery) (protocol.Response, error) {
-	return protocol.Response{}, nil
+func (runtimeExecutor) Deliver(context.Context, integration.Delivery) (integration.Response, error) {
+	return integration.Response{}, nil
 }
-func (runtimeExecutor) Enqueue(protocol.Delivery) bool               { return true }
-func (runtimeExecutor) EnqueueGateway(protocol.GatewayDelivery) bool { return true }
+func (runtimeExecutor) Enqueue(integration.Delivery) bool               { return true }
+func (runtimeExecutor) EnqueueGateway(integration.GatewayDelivery) bool { return true }
 
 func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
@@ -53,14 +52,14 @@ func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 
 	registry := runtimeextensions.NewRegistry()
 	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
-		Planner: runtimePlanner(func(_ context.Context, request protocol.IngressRequest) (protocol.RoutePlan, error) {
-			return protocol.RoutePlan{
-				Version: protocol.ProtocolVersion, Action: protocol.ActionRespond,
-				ImmediateResponse: &protocol.Response{StatusCode: http.StatusCreated, Body: []byte("runtime:" + request.Path)},
+		Planner: runtimePlanner(func(_ context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
+			return integration.RoutePlan{
+				Version: integration.ProtocolVersion, Action: integration.ActionRespond,
+				ImmediateResponse: &integration.Response{StatusCode: http.StatusCreated, Body: []byte("runtime:" + request.Path)},
 			}, nil
 		}),
 		Executor: runtimeExecutor{},
-		Start:    runtimecontract.StartRequest{MaxBodySize: 1024},
+		Start:    integration.RuntimeStartRequest{MaxBodySize: 1024},
 	})
 	if err := runtimeextensions.LoadExternalInstalled(context.Background(), registry, installed); err != nil {
 		t.Fatal(err)

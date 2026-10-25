@@ -4,9 +4,9 @@
 an HTTP middleware function and imports no Spinner or Gateway implementation.
 The independent `cmd/router` module owns the RoadRunner Router composition:
 Spinner middleware, automation selection, private Planner control, and optional
-SMTP/DNS listeners. `mod/arranger/router` provides runtime-neutral request
-routing and deny-by-default private control policy; it contains no Spinner or
-RoadRunner lifecycle code.
+SMTP/DNS listeners. `mod/arranger/integration` provides the shared traffic
+contract, installable runtime adapter, request routing, and deny-by-default
+private control policy; it contains no Spinner or RoadRunner lifecycle code.
 
 From the repository root:
 
