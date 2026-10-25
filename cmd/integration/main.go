@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	if err := integration.Serve(centrifugo.NewWorkload(centrifugo.LoadConfig()), os.Stdin, os.Stdout); err != nil {
+	if err := integration.ServeProvisioner(centrifugo.NewWorkload(centrifugo.LoadConfig()), os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
