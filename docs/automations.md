@@ -4,10 +4,9 @@ Gateway Automations run small, bounded ingress logic after Laravel has matched
 and authorized a route. The standalone Gateway Driver module owns the
 language-neutral execution interface, dispatcher, and output validation.
 Spinner builds on that interface and owns transport and network policy. Spinner
-is a plugin host: each host binary is a composition root that registers the
-guest engines it ships with, or loads them at runtime. The standalone host's
-static set is `pkg/spinner/cmd/gateway/plugins.txt`.
-JavaScript, Lua, Shell, Go, and HookScript are separate language extensions.
+is a plugin host, but no Gateway host binary compiles a concrete automation
+engine. JavaScript, Lua, Shell, Go, PHP, and HookScript are separately built,
+verified, installed, activated, upgraded, and removed extension packages.
 JavaScript, Lua, and WebhookScript can also shape synchronous credential-source
 requests for application-managed mail connections.
 
@@ -16,7 +15,7 @@ JavaScript / Lua / Shell: public event -> Laravel route plan -> installed Go ext
 HookScript: public event -> Laravel route plan -> Go extension -> declared PHP companion -> Go network I/O
 ```
 
-## Optional Go language extensions
+## Installable language extensions
 
 - [`pkg/javascript`](../pkg/javascript/README.md) adds `javascript` using the
   pinned QuickJS-NG adapter.
@@ -29,33 +28,48 @@ HookScript: public event -> Laravel route plan -> Go extension -> declared PHP c
   declared reverse-call interface. Planner may host that companion statically
   through Composer or dynamically as an ext process.
 
-Engines are never imported by Spinner. Select the static guests for the
-standalone host by editing `pkg/spinner/cmd/gateway/plugins.txt`, then
-regenerate the composition map:
+Engines are never imported by Spinner, FrankenPHP Router, or RoadRunner Router.
+Build one ordinary automation package with:
 
 ```bash
-# add or remove a line: <language> <go import path>
-$EDITOR pkg/spinner/cmd/gateway/plugins.txt
-go generate ./pkg/spinner/cmd/gateway/...
-make build
+scripts/build-gateway-automation-extension \
+  pkg/lua /tmp/extensions/webong%2flua 1.0.0
 ```
 
-Guests that are not compiled in can still be loaded at runtime:
+Build the complete first-party set, including the combined HookScript package,
+with:
 
 ```bash
-export GATEWAY_PLUGIN_DIR_NATIVE=/opt/gateway/plugins/native   # .so guests
-export GATEWAY_PLUGIN_DIR=/opt/gateway/plugins                # ext plugin store
+scripts/build-gateway-automation-extensions dist/gateway-automations 1.0.0
 ```
 
-Bundled Router binaries are separate composition roots. The default standalone
-Spinner includes JavaScript, Lua, Shell, and Go but installs HookScript from its
-combined extension release. Existing bundled Router compositions still carry
-the HookScript Go guest and use Planner for its PHP companion. A route plan
-whose language is not registered fails closed with HTTP 502; Gateway never
-falls back to evaluating source in another runtime.
+That command produces both the inspectable package directories and their
+installable `.tar.gz` release artifacts. Each artifact records the Spinner
+guest's `GOOS` and `GOARCH`; build on the target platform (or set `GOOS` and
+`GOARCH` for engines that support cross-compilation). Spinner rejects a
+platform mismatch before starting the guest instead of surfacing a process
+protocol error.
 
-For static mode, install the matching Planner companion package in the Laravel
-application:
+Each package declares a named `spinner` process entrypoint and
+`gateway.automation/v1` metadata. HookScript additionally declares a named
+`planner` companion entrypoint. Turn any built package directory into the
+canonical gzip-compressed tar artifact with:
+
+```bash
+scripts/archive-gateway-extension \
+  dist/gateway-automations/webong%2flua \
+  dist/webong-lua-1.0.0.tar.gz
+```
+
+The archiver suppresses host-specific macOS metadata so the artifact contains
+exactly one reviewed package root. Publish that archive, then create a pinned dynamic `/extensions`
+resource containing its HTTPS URL, version, and SHA-256. Planner reads the
+verified package metadata as its language capability catalog, while every
+Spinner or bundled Router independently pulls and launches only the `spinner`
+entrypoint from its own `GATEWAY_PLUGIN_DIR` cache.
+
+Composer packages remain available only as an explicit static Planner adapter
+for applications that deliberately bind extension behavior into Laravel:
 
 ```bash
 composer require webong/gateway-javascript webong/gateway-lua
@@ -69,7 +83,7 @@ the root package does not duplicate extension namespaces or provider names.
 Installing a published extension package continues to work through ordinary
 Composer and Laravel package discovery.
 
-For dynamic mode, publish a reviewed `ext.package/v1` release as a
+For the normal installable mode, publish a reviewed `ext.package/v1` release as a
 gzip-compressed tar archive over HTTPS and record its URL, version and SHA-256
 in the `/extensions` resource.
 The package may carry both the Spinner guest entrypoint and a `planner`
@@ -83,31 +97,29 @@ entrypoint for the current plane are rejected. The Planner extension resource
 selects `static` or `dynamic`; it never runs both and never silently falls back
 between them.
 
-Planner does not contain a built-in language list. Each extension's Laravel
-provider registers its execution target and route, schedule, or credential
-capabilities. A
-framework-free `ExtensionProviderRegistry` in `mod/adapter` carries the
-Composer-discovered provider class names into Planner, while the
-`AutomationLanguageRegistry` carries their capabilities. Spinner independently
-advertises the engines present in the running binary with each plan and
-schedule-claim request. Planner therefore fails closed unless both the
-companion package and the matching Go engine are present.
+Planner does not contain a built-in language list. Installable packages declare
+their execution target and route, schedule, or credential capabilities in
+`metadata["gateway.automation/v1"]`; Planner accepts that metadata only from an
+enabled, pinned, locally verified package. Composer-discovered providers remain
+the static adapter for provided applications. Spinner independently advertises
+the engines present in the running host with each plan and schedule-claim
+request. Planner therefore fails closed unless both planes have reconciled a
+compatible release.
 
-`GATEWAY_AUTOMATION_LANGUAGES` remains an explicit deployment-policy fallback
-for a third-party Spinner extension that has not shipped a Planner companion.
-It registers the listed languages as Spinner-executed route and schedule
-capabilities, but Spinner must still advertise the engine at runtime.
+Each plane owns a distinct verified cache even when both run in the bundled
+Router image: Spinner uses `GATEWAY_PLUGIN_DIR`, while Planner uses
+`GATEWAY_COMPANION_PLUGIN_DIR`. They may download the same package release, but
+they never share installation receipts or mutate the same package directory.
 
-The standard Spinner image contains no PHP runtime. HookScript invokes its
-trusted PHP companion in Planner, while JavaScript, Lua, Shell, and Go execute
-through their installed Spinner guests. A custom composition root may add
-other engines and their runtime dependencies explicitly:
+`GATEWAY_AUTOMATION_LANGUAGES` remains a compatibility fallback for a legacy
+third-party guest without package metadata. New extensions must declare their
+capabilities in the package rather than requiring deployment environment edits.
 
-```bash
-docker build \
-  -f infra/docker/Gateway.spinner.Dockerfile \
-  -t gateway-with-scripts .
-```
+The standard Spinner image contains neither PHP nor any scripting runtime.
+HookScript invokes its trusted PHP companion in Planner, while JavaScript, Lua,
+Shell, Go, and the optional PHP automation runtime execute through installed
+Spinner entrypoints. Installing or upgrading one never rebuilds a Gateway host
+image.
 
 A valid route plan whose language is not installed fails closed with
 HTTP 502; Gateway never falls back to evaluating source in another runtime.
@@ -119,11 +131,11 @@ Third-party Go language extensions implement `automation.Engine` from
 `github.com/webong/gateway/driver/automation`. They depend only on the
 standard-library Driver module, not on Spinner. Their optional PHP companion
 depends on the framework-free interfaces under `mod/adapter`, not Planner's
-implementation source. A composition root (for example
-`pkg/spinner/cmd/gateway`) calls `automationextensions.Register` with the guest
-engine; Spinner itself does not import extension modules. External guests can
-also be discovered from `GATEWAY_PLUGIN_DIR_NATIVE` (`.so`) or
-`GATEWAY_PLUGIN_DIR` (ext plugin store) at runtime.
+implementation source. Its thin `cmd/spinner` entrypoint uses
+`github.com/webong/gateway/extension/automation` and ships that process in an
+`ext.package/v1` archive. Native `.so` loading remains available for
+deployment-specific experiments, but first-party releases use supervised
+process packages so installation does not depend on the host's Go ABI.
 
 ```php
 use Webong\Gateway\Protocol\Automation;
@@ -170,10 +182,9 @@ composer require webong/gateway-hookscript
 ```
 
 Composer/Laravel package discovery registers its provider and the trusted
-`gateway.hookscript.execute` companion. In the bundled Router, Composer Merge
-Plugin performs the same discovery from the extension-owned manifest.
-Alternatively, install the HookScript ext package and select `dynamic` mode in
-Planner; its `planner` entrypoint exposes the same action over
+`gateway.hookscript.execute` companion. The bundled Router does not preinstall
+that provider. Install the combined HookScript ext package and select `dynamic`
+mode in Planner; its `planner` entrypoint exposes the same action over
 `ext.plugin/v1`. The activation record is the single switch, so discovering
 both candidates cannot double-register or double-execute the action. A
 `hookscript` plan is dispatched to the Go guest; that guest can invoke only the
@@ -203,10 +214,13 @@ running a partial compatibility parser.
 
 ## Security seam
 
-Scripts cannot access files, processes, packages, databases, raw sockets, or
-arbitrary HTTP clients. Forwarding returns a delivery plan to Go; the router
-then applies Gateway's URL validation, SSRF protections, timeouts, queue
-capacity, retries, and audit behavior.
+JavaScript, Lua, and HookScript cannot access files, processes, packages,
+databases, raw sockets, or arbitrary HTTP clients. Forwarding returns a
+delivery plan to Go; the router then applies Gateway's URL validation, SSRF
+protections, timeouts, queue capacity, retries, and audit behavior. Shell and
+PHP are deliberately trusted local-code extensions. Installing either grants
+its supervised process the operating-system permissions of the Gateway
+service account; do not expose those languages to untrusted authors.
 
 The JavaScript extension runs QuickJS per request with extension-owned memory,
 stack, and execution-time limits. The Lua extension receives a deadline-bound

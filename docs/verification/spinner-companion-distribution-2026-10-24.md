@@ -1,5 +1,9 @@
 # Spinner companion distribution verification — 2026-10-24
 
+> Historical result: the static automation composition described below was
+> removed on 2026-10-25. Current Gateway hosts contain no concrete automation
+> runtimes; see `docs/automations.md` for the installable package lifecycle.
+
 This record covers an uncommitted local tree on `main`, based on `a3cf487`, on
 an ARM64 OrbStack Docker host. It does not describe a pushed commit, published
 image, or deployed environment.

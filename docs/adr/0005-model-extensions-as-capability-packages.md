@@ -18,3 +18,6 @@ A Gateway Extension is the installable package and lifecycle boundary. An extens
 - Integration replaces Workload Plugin and Workload Extension in managed-service APIs, binaries, configuration, scripts, and documentation.
 - Automation and Companion retain their distinct names and contracts.
 - One extension may provide any subset of the three capabilities; a capability is not required to have its own independently versioned package.
+- Gateway host binaries do not compile first-party capability implementations. Automation and Integration entrypoints are installable processes; Companion entrypoints are independently reconciled by Planner.
+- A package that contributes Automation declares its languages and route, schedule, or credential capabilities in `gateway.automation/v1` metadata. Planner trusts that declaration only after the pinned package has been installed and verified.
+- Standalone Spinner, FrankenPHP Router, and RoadRunner Router reconcile the same Planner-owned artifact desired state and select only their named `spinner` entrypoint.
