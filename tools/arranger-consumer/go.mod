@@ -1,4 +1,4 @@
-module example.com/gateway-integration
+module example.com/gateway-arranger-consumer
 
 go 1.24.0
 

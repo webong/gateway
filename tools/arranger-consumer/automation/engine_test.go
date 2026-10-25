@@ -1,22 +1,22 @@
-package example
+package automation
 
 import (
 	"context"
 	"testing"
 
-	gatewayautomation "github.com/webong/gateway/arranger/automation"
+	arrangerautomation "github.com/webong/gateway/arranger/automation"
 )
 
-func TestAutomationExtensionUsesPublishedArrangerContracts(t *testing.T) {
-	runtime := gatewayautomation.NewRuntime(AutomationEngine{})
-	languages := gatewayautomation.Languages(runtime)
+func TestEngineUsesPublishedArrangerContracts(t *testing.T) {
+	runtime := arrangerautomation.NewRuntime(Engine{})
+	languages := arrangerautomation.Languages(runtime)
 	if len(languages) != 1 || languages[0] != "example" {
 		t.Fatalf("unexpected advertised languages: %v", languages)
 	}
-	result, err := runtime.Execute(context.Background(), gatewayautomation.Script{
+	result, err := runtime.Execute(context.Background(), arrangerautomation.Script{
 		Language: "example",
 		Source:   "run",
-	}, gatewayautomation.Input{})
+	}, arrangerautomation.Input{})
 	if err != nil {
 		t.Fatal(err)
 	}

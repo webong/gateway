@@ -154,7 +154,7 @@ func main() {
 ```
 
 Build a platform-specific executable with `go build -o your-integration
-./cmd/integration`. The [isolated example](../mod/arranger/testdata/integration) is
+./cmd/integration`. The [isolated consumer fixture](../tools/arranger-consumer) is
 compiled against a synthetic published `arranger/v0.1.0` tag by
 `scripts/test-arranger-release`, with no Spinner dependency or local `replace`.
 

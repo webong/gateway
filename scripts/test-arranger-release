@@ -13,7 +13,7 @@ mkdir -p "$TEST_DIR/repository/mod" "$TEST_DIR/repository/scripts"
 mkdir -p "$TEST_DIR/ext/pkg/plugin-go"
 cp -R "$ROOT/mod/arranger" "$TEST_DIR/repository/mod/arranger"
 cp "$ROOT/scripts/release-arranger" "$TEST_DIR/repository/scripts/"
-cp -R "$ROOT/mod/arranger/testdata/integration" "$TEST_DIR/integration"
+cp -R "$ROOT/tools/arranger-consumer" "$TEST_DIR/consumer"
 cp -R "$EXT_SOURCE" "$TEST_DIR/ext/pkg/plugin-go/contract"
 chmod -R u+w "$TEST_DIR/ext/pkg/plugin-go/contract"
 
@@ -66,9 +66,9 @@ export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0
 export GOPROXY=direct GOSUMDB=off GOPRIVATE=github.com/webong/gateway/arranger
 export GOMODCACHE="$TEST_DIR/modules" GOWORK=off GOTOOLCHAIN=local
 export GOTELEMETRY=off CGO_ENABLED=0 GOFLAGS=-modcacherw
-go -C "$TEST_DIR/integration" test -mod=mod ./...
-go -C "$TEST_DIR/integration" build -mod=mod -o "$TEST_DIR/example-workload" ./cmd/integration
-dependencies=$(go -C "$TEST_DIR/integration" list -deps ./...)
+go -C "$TEST_DIR/consumer" test -mod=mod ./...
+go -C "$TEST_DIR/consumer" build -mod=mod -o "$TEST_DIR/example-workload" ./cmd/integration
+dependencies=$(go -C "$TEST_DIR/consumer" list -deps ./...)
 if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)' <<<"$dependencies"; then
     echo 'Published Arranger consumer unexpectedly depends on Spinner.' >&2
     exit 1
