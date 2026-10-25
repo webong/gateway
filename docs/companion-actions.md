@@ -150,7 +150,7 @@ inside a long-running Planner worker and bounds reuse by invocation count,
 absolute age, and idle time. Any policy revision, package-integrity failure,
 deadline, crash, or protocol failure discards the child. This avoids paying PHP
 startup cost for every call. A bundled Router may run multiple persistent
-Planner workers with `GATEWAY_ROUTER_PHP_WORKERS`; each worker owns one isolated
+Planner workers with `GATEWAY_PLANNER_WORKERS`; each worker owns one isolated
 warmed child, so concurrency does not expose a scheduler through the companion
 contract or move lifecycle policy into deployment environment variables.
 

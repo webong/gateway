@@ -33,7 +33,8 @@ GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED=true \
 GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR=selector-live \
 GATEWAY_EMAIL_MANAGED_SPF_VALUE='v=spf1 include:_spf.example.test -all' \
 GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR='App\Email\MailboxAuthenticator' \
-GATEWAY_ROUTER_PHP_WORKERS=4 \
+GATEWAY_PLANNER_WORKERS=4 \
+GATEWAY_PLANNER_MAX_REQUESTS=250 \
     "$ROOT/scripts/router-start" roadrunner >/dev/null
 
 CONFIG="$TEST_DIR/router.rr.yaml"
@@ -67,9 +68,23 @@ assert_config_contains '    GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR: "selector-live"
 assert_config_contains '    GATEWAY_EMAIL_MANAGED_SPF_VALUE: "v=spf1 include:_spf.example.test -all"'
 assert_config_contains '    GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR: "App\\Email\\MailboxAuthenticator"'
 assert_config_contains '    num_workers: 4'
+assert_config_contains '    max_jobs: 250'
 
 if ! grep -Fx 'GATEWAY_EMAIL_DKIM_RESOLVER_URL=http://127.0.0.1:5053' "$TEST_DIR/runtime.env" >/dev/null; then
     echo 'Bundled Spinner is missing its private Planner DKIM resolver URL.' >&2
+    exit 1
+fi
+
+LEGACY_DIR="$TEST_DIR/legacy"
+mkdir -p "$LEGACY_DIR"
+GATEWAY_ROUTER_DATA_DIR="$LEGACY_DIR" \
+GATEWAY_ROUTER_ROADRUNNER_BIN="$TEST_DIR/roadrunner" \
+GATEWAY_ROUTER_PHP_WORKERS=2 \
+GATEWAY_PLANNER_MAX_REQUESTS=125 \
+    "$ROOT/scripts/router-start" roadrunner >/dev/null
+if ! grep -F '    num_workers: 2' "$LEGACY_DIR/router.rr.yaml" >/dev/null \
+    || ! grep -F '    max_jobs: 125' "$LEGACY_DIR/router.rr.yaml" >/dev/null; then
+    echo 'Legacy Router worker configuration did not map to Planner settings.' >&2
     exit 1
 fi
 

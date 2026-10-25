@@ -22,16 +22,19 @@ scheduled automations through their in-process Planner; set
 External Planner URL/socket settings and provisioning still require the
 separate HTTP Planner topology.
 
-The combined Router image and RoadRunner launcher use
-`GATEWAY_ROUTER_PHP_WORKERS` as their deployment concurrency boundary. The
-default is `1`: one persistent Planner worker and,
+The combined Router image, standalone Planner, and RoadRunner launcher use
+`GATEWAY_PLANNER_WORKERS` as their deployment concurrency boundary. Bundled
+Routers default to `1`; the standalone Planner accepts Octane's `auto` setting.
+One persistent Planner worker keeps,
 for each active dynamic package using `execution.mode: warmed`, at most one
 warmed companion child in that worker. A value greater than `1` enables a PHP
 worker pool. Each worker owns its own Laravel container and warmed companion,
-so `GATEWAY_ROUTER_PHP_WORKERS=4` permits four companion invocations to run in
+so `GATEWAY_PLANNER_WORKERS=4` permits four companion invocations to run in
 parallel without sharing child-process state. Planner still owns whether an
 extension is `isolated` or `warmed`; the environment variable controls only
-the deployment's maximum PHP concurrency.
+the deployment's maximum PHP concurrency. `GATEWAY_PLANNER_MAX_REQUESTS`
+defaults to `500` and recycles each long-lived worker after bounded reuse. The
+older `GATEWAY_ROUTER_PHP_WORKERS` name remains a compatibility fallback.
 
 The host uses `app/index.php`, `app/bootstrap.php`, and one `app/config.php`
 array instead of Laravel's public/config/bootstrap directory skeleton.

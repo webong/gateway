@@ -9,20 +9,28 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/dunglas/frankenphp"
 )
 
 const (
-	plannerWorkerName     = "gateway-planner"
-	plannerWorkerCountEnv = "GATEWAY_ROUTER_PHP_WORKERS"
+	plannerWorkerName           = "gateway-planner"
+	plannerWorkerCountEnv       = "GATEWAY_PLANNER_WORKERS"
+	legacyPlannerWorkerCountEnv = "GATEWAY_ROUTER_PHP_WORKERS"
+	plannerMaxRequestsEnv       = "GATEWAY_PLANNER_MAX_REQUESTS"
+	defaultPlannerWorkers       = 1
+	defaultPlannerMaxRequests   = 500
 )
 
 // Runtime owns one process-wide FrankenPHP lifecycle and serves the Planner
 // front controller as an in-process HTTP handler.
 type Runtime struct {
-	publicDir  string
-	workerName string
+	publicDir         string
+	workerName        string
+	configuredWorkers int
+	readyWorkers      atomic.Int64
+	closed            atomic.Bool
 }
 
 func Start(appDir string) (*Runtime, error) {
@@ -42,23 +50,38 @@ func Start(appDir string) (*Runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := frankenphp.Init(frankenphp.WithWorkers(
-		plannerWorkerName,
-		workerScript,
-		workerCount,
-		frankenphp.WithWorkerRequestOptions(
-			frankenphp.WithRequestDocumentRoot(publicDir, false),
-		),
-	)); err != nil {
+	maxRequests, err := plannerMaxRequests()
+	if err != nil {
+		return nil, err
+	}
+	runtime := &Runtime{
+		publicDir: publicDir, workerName: plannerWorkerName,
+		configuredWorkers: workerCount,
+	}
+	if err := frankenphp.Init(
+		frankenphp.WithMaxRequests(maxRequests),
+		frankenphp.WithWorkers(
+			plannerWorkerName,
+			workerScript,
+			workerCount,
+			frankenphp.WithWorkerRequestOptions(
+				frankenphp.WithRequestDocumentRoot(publicDir, false),
+			),
+			frankenphp.WithWorkerOnReady(func(int) { runtime.readyWorkers.Add(1) }),
+			frankenphp.WithWorkerOnShutdown(func(int) { runtime.readyWorkers.Add(-1) }),
+		)); err != nil {
 		return nil, fmt.Errorf("initialize embedded FrankenPHP: %w", err)
 	}
-	return &Runtime{publicDir: publicDir, workerName: plannerWorkerName}, nil
+	return runtime, nil
 }
 
 func plannerWorkerCount() (int, error) {
 	raw := strings.TrimSpace(os.Getenv(plannerWorkerCountEnv))
 	if raw == "" {
-		return 1, nil
+		raw = strings.TrimSpace(os.Getenv(legacyPlannerWorkerCountEnv))
+	}
+	if raw == "" {
+		return defaultPlannerWorkers, nil
 	}
 	count, err := strconv.Atoi(raw)
 	if err != nil || count < 1 {
@@ -67,7 +90,29 @@ func plannerWorkerCount() (int, error) {
 	return count, nil
 }
 
+func plannerMaxRequests() (int, error) {
+	raw := strings.TrimSpace(os.Getenv(plannerMaxRequestsEnv))
+	if raw == "" {
+		return defaultPlannerMaxRequests, nil
+	}
+	count, err := strconv.Atoi(raw)
+	if err != nil || count < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", plannerMaxRequestsEnv)
+	}
+	return count, nil
+}
+
+// Ready reports whether at least one configured Planner worker can accept a
+// request. Application-level readiness is still decided by Planner's endpoint.
+func (r *Runtime) Ready() bool {
+	return !r.closed.Load() && r.readyWorkers.Load() > 0
+}
+
 func (r *Runtime) ServeHTTP(w http.ResponseWriter, request *http.Request) {
+	if readinessPath(request.URL.Path) && !r.Ready() {
+		http.Error(w, fmt.Sprintf("Planner worker pool is not ready (%d/%d)", r.readyWorkers.Load(), r.configuredWorkers), http.StatusServiceUnavailable)
+		return
+	}
 	// CGI maps hyphens and underscores to the same name. Discard ambiguous
 	// client headers before they enter the PHP request environment.
 	request = request.Clone(request.Context())
@@ -94,7 +139,14 @@ func (r *Runtime) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	}
 }
 
+func readinessPath(path string) bool {
+	return path == "/ready" || path == "/_internal/gateway/ready"
+}
+
 func (r *Runtime) Close() {
+	if r.closed.Swap(true) {
+		return
+	}
 	frankenphp.Shutdown()
 }
 

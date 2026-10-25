@@ -14,6 +14,7 @@ import (
 
 func TestRuntimeServesFrontControllerWithoutASecondPHPListener(t *testing.T) {
 	t.Setenv(plannerWorkerCountEnv, "1")
+	t.Setenv(legacyPlannerWorkerCountEnv, "")
 	appDir := writeWorkerApp(t, false)
 	if err := os.WriteFile(filepath.Join(appDir, "config.php"), []byte("<?php echo 'private configuration';"), 0o644); err != nil {
 		t.Fatal(err)
@@ -24,6 +25,9 @@ func TestRuntimeServesFrontControllerWithoutASecondPHPListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runtime.Close()
+	if !runtime.Ready() {
+		t.Fatal("Planner worker pool was not ready after startup")
+	}
 
 	request := httptest.NewRequest(http.MethodGet, "http://router.test/health?check=1", nil)
 	request.Header.Set("X_Test_Header", "spoofed")
@@ -53,6 +57,7 @@ func TestRuntimeWorkerPoolHonorsConfiguredSize(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv(plannerWorkerCountEnv, test.workers)
+			t.Setenv(legacyPlannerWorkerCountEnv, "")
 			runtime, err := Start(writeWorkerApp(t, true))
 			if err != nil {
 				t.Fatal(err)
@@ -89,6 +94,7 @@ func TestPlannerWorkerCountRejectsInvalidValues(t *testing.T) {
 	for _, value := range []string{"0", "-1", "many"} {
 		t.Run(value, func(t *testing.T) {
 			t.Setenv(plannerWorkerCountEnv, value)
+			t.Setenv(legacyPlannerWorkerCountEnv, "")
 			if _, err := plannerWorkerCount(); err == nil {
 				t.Fatalf("expected %q to be rejected", value)
 			}
@@ -96,10 +102,71 @@ func TestPlannerWorkerCountRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestPlannerWorkerCountUsesLegacyFallbackButPrefersPlannerSetting(t *testing.T) {
+	t.Setenv(plannerWorkerCountEnv, "")
+	t.Setenv(legacyPlannerWorkerCountEnv, "3")
+	if count, err := plannerWorkerCount(); err != nil || count != 3 {
+		t.Fatalf("legacy worker count = %d, %v; want 3", count, err)
+	}
+
+	t.Setenv(plannerWorkerCountEnv, "2")
+	if count, err := plannerWorkerCount(); err != nil || count != 2 {
+		t.Fatalf("Planner worker count = %d, %v; want 2", count, err)
+	}
+}
+
+func TestPlannerMaxRequestsRejectsInvalidValues(t *testing.T) {
+	for _, value := range []string{"0", "-1", "many"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv(plannerMaxRequestsEnv, value)
+			if _, err := plannerMaxRequests(); err == nil {
+				t.Fatalf("expected %q to be rejected", value)
+			}
+		})
+	}
+}
+
+func TestRuntimeReadinessFailsClosedWithoutAWorker(t *testing.T) {
+	runtime := &Runtime{configuredWorkers: 2}
+	for _, path := range []string{"/ready", "/_internal/gateway/ready"} {
+		response := httptest.NewRecorder()
+		runtime.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("%s status = %d; want %d", path, response.Code, http.StatusServiceUnavailable)
+		}
+	}
+}
+
+func TestRuntimeRecyclesWorkerAfterMaxRequests(t *testing.T) {
+	t.Setenv(plannerWorkerCountEnv, "1")
+	t.Setenv(legacyPlannerWorkerCountEnv, "")
+	t.Setenv(plannerMaxRequestsEnv, "2")
+	runtime, err := Start(writeWorkerApp(t, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+
+	var calls []string
+	for range 3 {
+		response := httptest.NewRecorder()
+		runtime.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://router.test/plan", nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", response.Code, response.Body.String())
+		}
+		parts := strings.Split(strings.TrimSpace(response.Body.String()), "|")
+		calls = append(calls, parts[len(parts)-1])
+	}
+	if got := strings.Join(calls, ","); got != "1,2,1" {
+		t.Fatalf("worker calls = %s; want 1,2,1", got)
+	}
+}
+
 func BenchmarkRuntimeWorkerPool(b *testing.B) {
 	for _, workers := range []int{1, 4} {
 		b.Run(strconv.Itoa(workers)+"-workers", func(b *testing.B) {
 			b.Setenv(plannerWorkerCountEnv, strconv.Itoa(workers))
+			b.Setenv(legacyPlannerWorkerCountEnv, "")
 			runtime, err := Start(writeWorkerApp(b, true))
 			if err != nil {
 				b.Fatal(err)

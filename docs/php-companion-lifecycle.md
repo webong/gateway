@@ -113,7 +113,7 @@ One Planner worker deliberately owns only one warmed child per package
 revision. Deployment runtimes provide concurrency by running multiple
 persistent Planner workers, each with an isolated Laravel container and warmed
 child. The combined Router and RoadRunner deployments set that capacity with
-`GATEWAY_ROUTER_PHP_WORKERS`: `1` disables multi-worker pooling, while values
+`GATEWAY_PLANNER_WORKERS`: `1` disables multi-worker pooling, while values
 greater than `1` enable it. Planner retires a worker's child when its activation
 generation changes, its invocation count, age, or idle limit is reached, or it
 crashes, times out, changes its protocol output, or fails package verification.

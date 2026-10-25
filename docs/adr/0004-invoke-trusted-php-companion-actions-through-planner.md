@@ -54,7 +54,7 @@ Gateway provides a transport-neutral Action Runner contract, a multi-provider Pl
 - [x] Cover activation switching, absence, incompatibility, duplicate discovery, real subprocess execution, and package tampering with focused regression tests.
 - [x] Support Planner-owned isolated and bounded warmed execution without adding a pool to the companion provider.
 - [x] Run a release-image smoke with the complete FrankenPHP build toolchain and published package layout.
-- [x] Support opt-in runtime-level pooling through `GATEWAY_ROUTER_PHP_WORKERS`, with one independently bounded warmed child per package revision and Planner worker.
+- [x] Support opt-in runtime-level pooling through `GATEWAY_PLANNER_WORKERS`, with one independently bounded warmed child per package revision and Planner worker.
 
 The implemented lifecycle is described in
 [Static and dynamic PHP companion lifecycle](../php-companion-lifecycle.md).
