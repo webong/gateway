@@ -16,6 +16,11 @@ EXPECTED="FROM golang:${IMAGE_VERSION}-alpine AS router-builder"
 DOCKERFILE="$ROOT/infra/docker/RoadRunner.router.Dockerfile"
 LIBRARY_DOCKERFILE="$ROOT/infra/docker/Gateway.router.Dockerfile"
 
+if grep -Eq '^replace[[:space:]]+github\.com/webong/gateway/arranger' "$ROOT/go.work"; then
+    echo 'go.work must not replace Arranger because it is already a workspace module.' >&2
+    exit 1
+fi
+
 if ! grep -Fx "$EXPECTED" "$DOCKERFILE" >/dev/null; then
     echo "RoadRunner Router must build with the go.work toolchain: $EXPECTED" >&2
     exit 1
