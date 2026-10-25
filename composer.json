@@ -1,6 +1,6 @@
 {
     "name": "webong/email",
-    "description": "Planner entrypoint for Gateway's Email extension",
+    "description": "Email transport extension for Gateway",
     "type": "library",
     "license": "MIT",
     "require": {
