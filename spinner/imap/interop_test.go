@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 // Run with GATEWAY_TEST_IMAP_UPSTREAM_ADDR and GATEWAY_TEST_IMAP_CA_FILE to

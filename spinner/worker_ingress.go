@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 )
 
 const maxWorkerMIME = 10 << 20

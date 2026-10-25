@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/miekg/dns"
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 type domainExistenceFunc func(context.Context, string) (string, error)

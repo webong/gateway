@@ -18,7 +18,7 @@ import (
 
 	smtpclient "github.com/emersion/go-smtp"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 func deliverCallback(ctx context.Context, delivery bridge.GatewayDelivery, client *http.Client) error {

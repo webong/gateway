@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 func TestAuthLimiterRefillsNormalizesAndBoundsSources(t *testing.T) {

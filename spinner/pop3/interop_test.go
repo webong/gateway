@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 // Run with GATEWAY_TEST_POP3_UPSTREAM_ADDR and GATEWAY_TEST_POP3_CA_FILE to

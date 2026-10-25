@@ -19,7 +19,7 @@ import (
 
 	"github.com/emersion/go-sasl"
 	smtpserver "github.com/emersion/go-smtp"
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 func TestMailboxResolverFetchesEachConnectionsCurrentCredential(t *testing.T) {

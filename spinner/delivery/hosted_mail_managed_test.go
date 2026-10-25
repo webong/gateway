@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 )
 
 type fixedHostedMailResolver struct{ spec HostedMailAdapterSpec }

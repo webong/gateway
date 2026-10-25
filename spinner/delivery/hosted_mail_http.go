@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 )
 
 // HostedMailAdapterSpec is the private Planner-resolved acceptance endpoint.
