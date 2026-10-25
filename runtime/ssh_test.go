@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	"golang.org/x/crypto/ssh"
 )
 
