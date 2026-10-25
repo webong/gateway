@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	arrangerrouter "github.com/webong/gateway/arranger/router"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
 
@@ -220,6 +221,7 @@ func TestRouterHandlerRoutesOnlyHooksToSpinner(t *testing.T) {
 		{path: "/hooks/order", want: "edge"},
 		{path: "/hooks2/order", want: "planner"},
 		{path: "/registry/endpoints", want: "planner"},
+		{path: "/email/worker-ingress/route-1", want: "404 page not found\n"},
 		{path: "/_internal/gateway/plan", want: "404 page not found\n"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
@@ -247,7 +249,7 @@ func TestDisabledManagedRouteIsNilAtRouterHandler(t *testing.T) {
 	}
 }
 
-func TestProvisioningControlOnlyForwardsPrivateRuntimeRoutes(t *testing.T) {
+func TestInternalControlOnlyForwardsCapabilityOwnedRoutes(t *testing.T) {
 	planner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Gateway-Internal") != "worker-secret" || r.Header.Get("X-Gateway-Target") != "target-1" {
 			http.NotFound(w, r)
@@ -255,7 +257,7 @@ func TestProvisioningControlOnlyForwardsPrivateRuntimeRoutes(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(r.URL.Path))
 	})
-	control := provisioningControlHandler(planner)
+	control := arrangerrouter.NewInternalControlHandler(planner, InternalPlannerRequest)
 	for _, test := range []struct {
 		method string
 		path   string
@@ -302,7 +304,7 @@ func TestProvisioningControlOnlyForwardsPrivateRuntimeRoutes(t *testing.T) {
 	}
 }
 
-func TestRunServesPrivateProvisioningControl(t *testing.T) {
+func TestRunServesPrivatePlannerControl(t *testing.T) {
 	t.Setenv("GATEWAY_RUNTIME", "")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
 	t.Setenv("GATEWAY_ROUTER_APP_DIR", t.TempDir())
@@ -317,7 +319,7 @@ func TestRunServesPrivateProvisioningControl(t *testing.T) {
 	controlURL := "http://" + os.Getenv("GATEWAY_ROUTER_CONTROL_LISTEN")
 	response := awaitControlResponse(t, controlURL+"/_internal/provisioning/targets/target-1")
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("private provisioning route returned %d", response.StatusCode)
+		t.Fatalf("private Planner route returned %d", response.StatusCode)
 	}
 	_ = response.Body.Close()
 	response = awaitControlResponse(t, controlURL+"/registry/endpoints")

@@ -2,7 +2,6 @@ go 1.26.0
 
 use (
 	./mod/arranger
-	./mod/router
 	./pkg/caddy
 	./pkg/centrifugo
 	./pkg/frankenphp

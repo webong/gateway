@@ -161,8 +161,9 @@ controlled public HTTPS receiver.
 
 ## Optional Docker image
 
-The image builds `pkg/frankenphp/cmd/router`, which connects `mod/router` to the
-`pkg/frankenphp` PHP adapter, with Go 1.26 and bundles
+The image builds `pkg/frankenphp/cmd/router`, which connects the
+`pkg/spinner/router` host assembly to the `pkg/frankenphp` PHP adapter, with Go
+1.26 and bundles
 the Planner on Debian. It compiles PHP 8.4 from the upstream release archive
 with ZTS, the embed SAPI, and Linux execution timers, following FrankenPHP's
 [library compilation requirements](https://frankenphp.dev/docs/library/).

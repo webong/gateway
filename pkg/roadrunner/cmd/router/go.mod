@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/webong/gateway/pkg/roadrunner v0.0.0
-	github.com/webong/gateway/router v0.0.0
+	github.com/webong/gateway/pkg/spinner v0.0.0
 )
 
 require (
@@ -183,7 +183,6 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
-	github.com/webong/gateway/pkg/spinner v0.0.0
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
@@ -239,7 +238,5 @@ replace github.com/webong/gateway => ../../../..
 replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 
 replace github.com/webong/gateway/pkg/roadrunner => ../..
-
-replace github.com/webong/gateway/router => ../../../../mod/router
 
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner

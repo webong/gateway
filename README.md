@@ -94,11 +94,15 @@ unaffected by these root archive rules.
 
 ## Repository layout
 
-- `mod/router` is the separate `github.com/webong/gateway/router` Go module;
-  it assembles Spinner and an injected in-process Planner runtime.
+- `mod/arranger/router` owns the runtime-neutral public and private HTTP routing
+  policy. Capabilities inject their routes and private-request policies; the
+  package does not depend on Spinner or a PHP runtime.
+- `pkg/spinner/router` assembles Spinner and an injected in-process Planner
+  runtime for bundled hosts.
 - `pkg/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
 - `pkg/roadrunner/runtime` manages PHP workers without Spinner imports;
-  `pkg/roadrunner/cmd/router` assembles its bundled deployment through `mod/router`.
+  `pkg/roadrunner/cmd/router` assembles its bundled deployment through the
+  shared Arranger routing policy and Spinner host components.
 - `mod/arranger` is the independent `github.com/webong/gateway/arranger` Go
   module. Its `Extension` interface and automation, companion, and integration
   packages are the complete authoring surface for installable Gateway
@@ -139,9 +143,10 @@ contracts. The root `github.com/webong/gateway` module is the composition root
 (`cmd/gateway`): it owns the JavaScript, Lua, and Shell module dependencies and
 registers them through `cmd/gateway/composition`. Bundled RoadRunner and
 FrankenPHP Router commands import that same composition package. Native
-FrankenPHP remains outside Spinner-only builds, while the host-neutral
-`mod/router` module assembles the shared Router. The root `go.work` ties these
-modules together for local commands; release builds use each module directly.
+FrankenPHP remains outside Spinner-only builds. Arranger owns host-neutral
+routing policy, while `pkg/spinner/router` owns bundled host assembly. The root
+`go.work` ties these modules together for local commands; release builds use
+each module directly.
 When the PHP `vendor/` directory exists, use `-mod=mod` for Go commands because
 that directory belongs to Composer, not Go.
 

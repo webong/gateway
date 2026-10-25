@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"time"
 
+	arrangerrouter "github.com/webong/gateway/arranger/router"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
@@ -134,9 +134,9 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		controlListener, err = net.Listen("tcp", controlListen)
 		if err != nil {
 			_ = listener.Close()
-			return fmt.Errorf("listen for private provisioning control: %w", err)
+			return fmt.Errorf("listen for private Planner control: %w", err)
 		}
-		controlServer = NewProvisioningControlServer(planner)
+		controlServer = NewInternalControlServer(planner)
 	}
 	server := &http.Server{
 		Handler:           handler,
@@ -207,7 +207,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		}
 	case err := <-controlErrors:
 		if !errors.Is(err, http.ErrServerClosed) {
-			runErr = fmt.Errorf("private provisioning control listener: %w", err)
+			runErr = fmt.Errorf("private Planner control listener: %w", err)
 		}
 	case err := <-protocolErrors:
 		runErr = fmt.Errorf("protocol listener stopped: %w", err)
@@ -256,9 +256,7 @@ func (transport handlerRoundTripper) RoundTrip(request *http.Request) (*http.Res
 	}
 }
 
-type ManagedRouteHandler interface {
-	ServeWithPlanner(http.ResponseWriter, *http.Request, http.Handler) bool
-}
+type ManagedRouteHandler = arrangerrouter.ManagedRouteHandler
 
 // ingressStatus records only the HTTP outcome; credentials and MIME stay out of logs.
 type ingressStatus struct {
@@ -279,40 +277,44 @@ func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 }
 
 func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler, workerIngress ...http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if under(r.URL.Path, "/_internal") {
-			http.NotFound(w, r)
+	hooks := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if gatewayws.IsUpgrade(r) {
+			websocket.ServeHTTP(w, r)
 			return
 		}
-		if under(r.URL.Path, "/email/worker-ingress") {
-			if len(workerIngress) == 0 || workerIngress[0] == nil {
-				http.NotFound(w, r)
-				return
-			}
-			outcome := &ingressStatus{ResponseWriter: w, code: http.StatusOK}
-			defer func() { log.Printf("worker ingress method=%s status=%d", r.Method, outcome.code) }()
-			workerIngress[0].ServeHTTP(outcome, r)
+		if webstream != nil && gatewaystream.IsRequest(r) {
+			webstream.ServeHTTP(w, r)
 			return
 		}
-		if managed != nil && managed.ServeWithPlanner(w, r, planner) {
-			return
-		}
-		if under(r.URL.Path, "/hooks") {
-			if gatewayws.IsUpgrade(r) {
-				websocket.ServeHTTP(w, r)
-				return
-			}
-			if webstream != nil && gatewaystream.IsRequest(r) {
-				webstream.ServeHTTP(w, r)
-				return
-			}
-			edge.ServeHTTP(w, r)
-			return
-		}
-		planner.ServeHTTP(w, r)
+		edge.ServeHTTP(w, r)
+	})
+	workerIngressHandler := http.NotFoundHandler()
+	if len(workerIngress) != 0 && workerIngress[0] != nil {
+		workerIngressHandler = loggedWorkerIngress(workerIngress[0])
+	}
+	return arrangerrouter.NewHandler(planner, hooks, managed, arrangerrouter.PublicRoute{
+		Prefix:  "/email/worker-ingress",
+		Handler: workerIngressHandler,
 	})
 }
 
-func under(path, prefix string) bool {
-	return path == prefix || strings.HasPrefix(path, prefix+"/")
+func loggedWorkerIngress(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		outcome := &ingressStatus{ResponseWriter: w, code: http.StatusOK}
+		defer func() { log.Printf("worker ingress method=%s status=%d", r.Method, outcome.code) }()
+		handler.ServeHTTP(outcome, r)
+	})
+}
+
+var internalPlannerRequest = arrangerrouter.AnyInternalRequest(
+	provision.InternalPlannerRequest,
+	transport.EmailInternalPlannerRequest,
+)
+
+// InternalPlannerRequest allows only private routes required by capabilities
+// compiled into Spinner. Each capability owns its own route policy.
+func InternalPlannerRequest(request *http.Request) bool { return internalPlannerRequest(request) }
+
+func NewInternalControlServer(planner http.Handler) *http.Server {
+	return arrangerrouter.NewInternalControlServer(planner, InternalPlannerRequest)
 }

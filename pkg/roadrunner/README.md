@@ -3,10 +3,10 @@
 `runtime` owns the embedded RoadRunner server and PHP worker pool. It accepts
 an HTTP middleware function and imports no Spinner or Gateway implementation.
 The independent `cmd/router` module owns the RoadRunner Router composition:
-Spinner middleware, automation selection, private provisioning control, and
-optional SMTP/DNS listeners. `lib/router` provides only runtime-neutral
-Router request routing and the private control handler shared with the
-FrankenPHP library runtime; it contains no RoadRunner lifecycle code.
+Spinner middleware, automation selection, private Planner control, and optional
+SMTP/DNS listeners. `mod/arranger/router` provides runtime-neutral request
+routing and deny-by-default private control policy; it contains no Spinner or
+RoadRunner lifecycle code.
 
 From the repository root:
 

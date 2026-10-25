@@ -16,8 +16,8 @@ import (
 	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	"github.com/webong/gateway/pkg/spinner/router"
 	"github.com/webong/gateway/pkg/spinner/transport"
-	"github.com/webong/gateway/router"
 )
 
 // workerServer owns an embedded PHP worker server and its listener.
@@ -166,12 +166,12 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			if listenErr != nil {
 				server.Stop()
 				<-done
-				return fmt.Errorf("listen for private provisioning control: %w", listenErr)
+				return fmt.Errorf("listen for private Planner control: %w", listenErr)
 			}
-			controlServer = router.NewProvisioningControlServer(prepared.handler)
+			controlServer = router.NewInternalControlServer(prepared.handler)
 			go func() {
 				if serveErr := controlServer.Serve(controlListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-					listenerErrors <- fmt.Errorf("private provisioning control listener: %w", serveErr)
+					listenerErrors <- fmt.Errorf("private Planner control listener: %w", serveErr)
 				}
 			}()
 			defer func() {

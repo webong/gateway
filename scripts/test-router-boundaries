@@ -15,18 +15,12 @@ fi
 echo "$extension has no Spinner implementation or Gateway core dependency."
 done
 
-router_module=$(GOWORK=off go -C "$ROOT/lib/router" list -mod=readonly -m -f '{{.Path}}')
-if [[ "$router_module" != "github.com/webong/gateway/router" ]]; then
-    echo "Unexpected Router module path: $router_module" >&2
+dependencies=$(GOWORK=off go -C "$ROOT/mod/arranger" list -mod=readonly -deps ./router)
+if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)\|^github.com/roadrunner-server/' <<<"$dependencies"; then
+    echo 'Arranger Router policy must not depend on Spinner or RoadRunner.' >&2
     exit 1
 fi
-
-dependencies=$(GOWORK=off go -C "$ROOT/lib/router" list -mod=readonly -deps ./...)
-if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/pkg/roadrunner\($\|/\)' <<<"$dependencies"; then
-    echo 'Shared Router library must not depend on RoadRunner.' >&2
-    exit 1
-fi
-echo 'Shared Router library has no RoadRunner dependency.'
+echo 'Arranger Router policy has no Spinner or RoadRunner dependency.'
 
 dependencies=$(GOWORK=off go -C "$ROOT/pkg/spinner" list -mod=readonly -deps ./...)
 if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/pkg/roadrunner\($\|/\)' <<<"$dependencies"; then

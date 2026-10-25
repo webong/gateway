@@ -2,12 +2,13 @@
 
 This optional Go module embeds the bundled PHP Planner in the Router process
 through FrankenPHP's Go library. It imports no Spinner code and has no Gateway
-core module dependency. `mod/router` owns Router assembly; the thin executable
-in `pkg/frankenphp/cmd/router` supplies this extension's PHP handler to that library.
+core module dependency. `pkg/spinner/router` owns bundled host assembly; the
+thin executable in `pkg/frankenphp/cmd/router` supplies this extension's PHP
+handler to that package.
 The executable has a separate Go module so its Spinner dependencies stay out
 of runtime-adapter consumers. Native PHP dependencies remain outside the core
-Spinner module. The command depends on Spinner transitively through
-`lib/router`; the runtime adapter does not.
+Spinner module. The command imports Spinner host assembly directly; the runtime
+adapter does not.
 The Docker and Kubernetes Router distributions use this same
 extension; they do not change the standalone Spinner binary.
 

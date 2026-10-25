@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/webong/gateway/pkg/frankenphp v0.0.0
-	github.com/webong/gateway/router v0.0.0
+	github.com/webong/gateway/pkg/spinner v0.0.0
 )
 
 require (
@@ -66,7 +66,6 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/unrolled/secure v1.17.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
-	github.com/webong/gateway/pkg/spinner v0.0.0
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
@@ -91,7 +90,5 @@ replace github.com/webong/gateway => ../../../..
 replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 
 replace github.com/webong/gateway/pkg/frankenphp => ../..
-
-replace github.com/webong/gateway/router => ../../../../mod/router
 
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner
