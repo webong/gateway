@@ -99,8 +99,7 @@ invoke_hookscript() {
     ' "$TEMP_DIR/result.json" "$expected"
 }
 
-assert_advertised_mode static
-invoke_hookscript static-smoke static-ok
+assert_advertised_mode absent
 
 curl -fsS --max-time 5 -D "$TEMP_DIR/activation.headers" -X POST \
     -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
@@ -125,10 +124,9 @@ invoke_hookscript dynamic-warmed-smoke-2 dynamic-warmed-ok-2
 
 curl -fsS --max-time 5 -X PUT -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
     -H 'If-Match: "1"' \
-    --data '{"extension":"webong/hookscript","enabled":true,"mode":"static","version":"1.0.0"}' \
-    "$BASE/extensions/$ACTIVATION_ID" >"$TEMP_DIR/static-activation.json"
-assert_advertised_mode static
-invoke_hookscript static-return-smoke static-return-ok
+    --data '{"extension":"webong/hookscript","enabled":false,"mode":"dynamic","version":"1.0.0"}' \
+    "$BASE/extensions/$ACTIVATION_ID" >"$TEMP_DIR/disabled-activation.json"
+assert_advertised_mode absent
 
 curl -fsS --max-time 5 -X PUT -H "$REGISTRY_AUTH" -H 'Content-Type: application/json' \
     -H 'If-Match: "2"' \
