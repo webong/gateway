@@ -1,0 +1,76 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Webong\Gateway\Dns;
+
+use Illuminate\Database\ConnectionInterface;
+use Illuminate\Support\Str;
+use Psr\Log\LoggerInterface;
+use Throwable;
+use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Events\EventRetention;
+use Webong\Gateway\Protocols\GatewayDecision;
+use Webong\Gateway\Protocols\GatewayEvent;
+use Webong\Gateway\Protocols\Protocol;
+
+final readonly class DnsHookEventRecorder
+{
+    public function __construct(
+        private ConnectionInterface $database,
+        private DnsHookRegistry $hooks,
+        private EventRetention $retention,
+        private ?LoggerInterface $logger = null,
+    ) {}
+
+    public function record(GatewayEvent $event, ?GatewayDecision $decision = null, ?Throwable $failure = null): void
+    {
+        if ($event->protocol !== Protocol::DNS) {
+            return;
+        }
+
+        try {
+            $this->persist($event, $decision, $failure);
+            $this->retention->maybePrune();
+        } catch (Throwable $exception) {
+            // A history write exception must not replace the route decision.
+            $this->logger?->warning('Unable to record Gateway DNS hook event.', [
+                'event_id' => $event->id,
+                'exception' => $exception,
+            ]);
+        }
+    }
+
+    private function persist(GatewayEvent $event, ?GatewayDecision $decision, ?Throwable $failure): void
+    {
+        $token = (string) ($event->attributes['endpoint'] ?? ltrim($event->route, '/'));
+        $hook = $this->hooks->find($token, $event->attributes['zone'] ?? null);
+        if ($hook === null) {
+            return;
+        }
+
+        $receivedAt = now();
+        $payload = json_decode($event->payload, true);
+        $payload = is_array($payload) ? $payload : ['raw' => $event->payload];
+
+        $this->database->transaction(function () use ($hook, $event, $decision, $failure, $receivedAt, $payload): void {
+            GatewayEndpointEvent::query()->firstOrCreate(
+                ['event_id' => $event->id],
+                [
+                    'id' => (string) Str::uuid(),
+                    'endpoint_id' => $hook->getKey(),
+                    'protocol' => $event->protocol->value,
+                    'kind' => $event->kind->value,
+                    'source_address' => ($event->attributes['source_addr'] ?? '') !== '' ? $event->attributes['source_addr'] : null,
+                    'transport' => ($event->attributes['transport'] ?? '') !== '' ? $event->attributes['transport'] : null,
+                    'decision_action' => $decision?->action->value,
+                    'status_code' => $decision?->statusCode ?: null,
+                    'error' => $failure?->getMessage(),
+                    'attributes' => $event->attributes,
+                    'payload' => $payload,
+                    'received_at' => $receivedAt,
+                ],
+            );
+        });
+    }
+}
