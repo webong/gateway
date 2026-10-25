@@ -1,7 +1,9 @@
 # Endpoint event history
 
-Gateway uses the shared `events` table for endpoint-bound ingress history. DNS
-hooks already write query events there. Create an enabled `POST /web/event-policy`
+Planner core owns the shared `events` ledger for endpoint-bound ingress
+history. Protocol Extensions activate their recording and views without owning
+or depending on one another's storage. DNS hooks already write query
+events there. Create an enabled `POST /web/event-policy`
 Planner resource to also record planned HTTP/webhook requests, WebSocket events,
 and Webstream connects. Apply the Planner migrations before enabling it. This is
 an ingress/planning record, **not** proof that an asynchronous subscriber

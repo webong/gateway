@@ -64,7 +64,7 @@ it('keeps Planner core independent of transport extension namespaces', function 
         }
     }
 
-    expect($source)->not->toMatch('/use Webong\\\\Gateway\\\\(?:Dns|Email|Events|Web|Webstream)\\\\/');
+    expect($source)->not->toMatch('/use Webong\\\\Gateway\\\\(?:Dns|Email|Web|Webstream)\\\\/');
 
     $manifest = json_decode((string) file_get_contents($planner.'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
     expect(array_keys($manifest['require']))
@@ -89,13 +89,27 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
         expect($spinnerSource)->not->toContain('github.com/webong/gateway/pkg/spinner');
     }
 
-    expect($root.'/mod/arranger/protocol/contract.go')->toBeFile()
+    expect($root.'/mod/arranger/integration/traffic_contract.go')->toBeFile()
         ->and($root.'/pkg/web/spinner/websocket')->toBeDirectory()
         ->and($root.'/pkg/web/spinner/webstream')->toBeDirectory()
         ->and($root.'/pkg/dns/spinner')->toBeDirectory()
         ->and($root.'/pkg/email/spinner/smtp')->toBeDirectory()
         ->and($root.'/pkg/email/spinner/imap')->toBeDirectory()
         ->and($root.'/pkg/email/spinner/pop3')->toBeDirectory();
+
+    foreach (['protocol', 'runtime', 'router'] as $legacyPackage) {
+        expect(glob($root."/mod/arranger/{$legacyPackage}/*.go"))->toBe([]);
+    }
+    expect(glob($root.'/mod/arranger/automation/extension/*.go'))->toBe([]);
+
+    $routerSource = '';
+    $routerFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/pkg/spinner/router'));
+    foreach ($routerFiles as $file) {
+        if ($file->isFile() && $file->getExtension() === 'go') {
+            $routerSource .= file_get_contents($file->getPathname());
+        }
+    }
+    expect($routerSource)->not->toMatch('#github.com/webong/gateway/pkg/(?:web|dns|email|database)/#');
 
     foreach (['dns', 'websocket', 'webstream', 'smtp', 'smtpout', 'imap', 'pop3'] as $legacy) {
         expect($root."/pkg/spinner/bridge/{$legacy}")->not->toBeDirectory();
@@ -104,4 +118,14 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
     expect($root.'/pkg/spinner/internal/mailpoll')->not->toBeDirectory()
         ->and(file_get_contents($root.'/pkg/web/spinner/edge.go'))
         ->not->toContain('/email/submissions');
+});
+
+it('keeps the shared event ledger in Planner instead of making DNS depend on Web', function (): void {
+    $root = dirname(__DIR__, 2);
+    $dns = json_decode((string) file_get_contents($root.'/pkg/dns/composer.json'), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($root.'/pkg/planner/src/Events/Models/GatewayEndpointEvent.php')->toBeFile()
+        ->and($root.'/pkg/planner/src/database/migrations/2026_08_30_000004_create_events_table.php')->toBeFile()
+        ->and($root.'/pkg/web/src/Events')->not->toBeDirectory()
+        ->and(array_keys($dns['require']))->not->toContain('webong/web');
 });

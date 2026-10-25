@@ -8,7 +8,7 @@ use InvalidArgumentException;
 use stdClass;
 use Webong\Gateway\Resources\PlannerResourceStore;
 
-/** Opt-in Web event history and retention, shared across Planner workers. */
+/** Opt-in Web capture policy plus retention for the shared event ledger. */
 final readonly class WebEventPolicyStore
 {
     private const KIND = 'web.event-policy';

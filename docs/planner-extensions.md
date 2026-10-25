@@ -10,7 +10,7 @@ The first-party Extensions are self-contained package directories:
 
 | Gateway Extension | Package | Planner entrypoint | Spinner entrypoint |
 | --- | --- | --- | --- |
-| Web | `webong/web` | Webhook history, WebSocket/Webstream policy, management routes | HTTP, WebSocket, and Webstream transport |
+| Web | `webong/web` | Web capture policy and history views, WebSocket/Webstream policy, management routes | HTTP, WebSocket, and Webstream transport |
 | DNS | `webong/dns` | Zones, hooks, provider policy, planning, management routes | Authoritative UDP/TCP DNS service |
 | Email | `webong/email` | Accounts, domains, routes, verification, delivery state, mail planning | SMTP, outbound mail, IMAP/POP3 retrieval, mail network policy |
 | Database | `webong/database` | Reserved managed database policy | Reserved; advertises no capability until its contract exists |
@@ -21,6 +21,9 @@ them narrow registries for resource kinds, protocol planners, path resolvers,
 route-plan observers, and native schedule jobs. Planner does not import the
 Web, DNS, Email, or Database namespaces. The transport-neutral contract used by
 both sides lives in Arranger; neither Extension needs to import Spinner core.
+Planner owns the shared endpoint event ledger and retention lifecycle; Web and
+DNS contribute protocol-specific recording and presentation behavior without
+depending on each other.
 
 Spinner entrypoints are verified `ext.package/v1` processes. A host reconciles
 the package selected by Planner, launches only its named `spinner` entrypoint,

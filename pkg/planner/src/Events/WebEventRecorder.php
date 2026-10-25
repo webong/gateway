@@ -11,7 +11,7 @@ use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
-/** Bounded, endpoint-owned Web ingress history. Delivery outcomes live elsewhere. */
+/** Web adapter for the Planner-owned endpoint event ledger. */
 final readonly class WebEventRecorder
 {
     public function __construct(

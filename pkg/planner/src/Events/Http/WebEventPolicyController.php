@@ -14,6 +14,7 @@ use Webong\Gateway\RegistryRequestAuthenticator;
 use Webong\Gateway\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 
+/** Compatibility management surface for Web capture and shared retention. */
 final readonly class WebEventPolicyController
 {
     public function __construct(private RegistryRequestAuthenticator $auth,

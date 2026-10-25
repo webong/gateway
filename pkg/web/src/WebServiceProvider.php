@@ -6,7 +6,6 @@ namespace Webong\Gateway\Web;
 
 use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
-use Webong\Gateway\Events\PruneEventsCommand;
 use Webong\Gateway\Events\WebEventRecorder;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
@@ -43,12 +42,7 @@ final class WebServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
         $this->loadRoutesFrom(__DIR__.'/../routes/planner.php');
-
-        if ($this->app->runningInConsole()) {
-            $this->commands([PruneEventsCommand::class]);
-        }
 
         $this->publishes([__DIR__.'/../config/web.php' => config_path('gateway-web.php')], 'gateway-web-config');
     }

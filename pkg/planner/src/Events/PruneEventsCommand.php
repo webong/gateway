@@ -6,6 +6,7 @@ namespace Webong\Gateway\Events;
 
 use Illuminate\Console\Command;
 
+/** Prune the Planner-owned endpoint event ledger. */
 final class PruneEventsCommand extends Command
 {
     protected $signature = 'gateway:prune-events';

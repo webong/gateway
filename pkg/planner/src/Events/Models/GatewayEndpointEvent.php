@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
+/** Shared ingress-history record used by protocol Extensions. */
 final class GatewayEndpointEvent extends Model
 {
     use HasUuids;

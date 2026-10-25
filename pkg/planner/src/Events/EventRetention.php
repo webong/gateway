@@ -6,6 +6,7 @@ namespace Webong\Gateway\Events;
 
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 
+/** Shared retention for the protocol-neutral endpoint event ledger. */
 final class EventRetention
 {
     public function __construct(private readonly WebEventPolicyStore $policy) {}

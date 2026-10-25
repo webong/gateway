@@ -7670,15 +7670,14 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/dns",
-                "reference": "2b4ae49a1f081eb708fd8459c82e47189155edd8"
+                "reference": "7543ed6ff42faf38036eaffbc0da874f7d2490f7"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-planner": "dev-main",
-                "webong/proxy": "^0.2.0",
-                "webong/web": "dev-main"
+                "webong/proxy": "^0.2.0"
             },
             "type": "library",
             "autoload": {
@@ -7692,7 +7691,7 @@
             "license": [
                 "MIT"
             ],
-            "description": "Planner entrypoint for Gateway's DNS extension",
+            "description": "DNS transport extension for Gateway",
             "transport-options": {
                 "symlink": false,
                 "relative": true
@@ -7907,7 +7906,7 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/web",
-                "reference": "85bb6ddf0a7e908265c69c04dd1ed33eb28f1221"
+                "reference": "e31bc02102b2568aadab05564bf6363470a8ef97"
             },
             "require": {
                 "laravel/framework": "^12.0",
@@ -7918,7 +7917,6 @@
             "type": "library",
             "autoload": {
                 "psr-4": {
-                    "Webong\\Gateway\\Events\\": "src/Events/",
                     "Webong\\Gateway\\Web\\": "src/",
                     "Webong\\Gateway\\Webstream\\": "src/Webstream/"
                 },
@@ -7929,7 +7927,7 @@
             "license": [
                 "MIT"
             ],
-            "description": "Planner entrypoint for Gateway's Web extension",
+            "description": "Web transport extension for Gateway",
             "transport-options": {
                 "symlink": false,
                 "relative": true

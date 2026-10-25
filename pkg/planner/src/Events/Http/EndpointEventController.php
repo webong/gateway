@@ -12,6 +12,7 @@ use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\RegistryRequestAuthenticator;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
+/** Web-facing view over Planner's shared endpoint event ledger. */
 final readonly class EndpointEventController
 {
     public function __construct(
