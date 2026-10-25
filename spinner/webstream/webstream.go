@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 type Source interface {

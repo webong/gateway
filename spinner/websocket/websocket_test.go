@@ -11,7 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 type plannerFunc func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error)

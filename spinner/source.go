@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	protocol "github.com/webong/gateway/arranger/protocol"
+	protocol "github.com/webong/gateway/arranger/integration"
 )
 
 // PublicWebstreamSource opens a Planner-authorized SSE source while enforcing

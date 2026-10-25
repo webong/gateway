@@ -1,6 +1,6 @@
 package spinner
 
-import protocol "github.com/webong/gateway/arranger/protocol"
+import protocol "github.com/webong/gateway/arranger/integration"
 
 const (
 	ProtocolVersion = protocol.ProtocolVersion
