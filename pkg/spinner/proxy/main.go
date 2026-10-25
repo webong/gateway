@@ -505,8 +505,13 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to initialize HTTP protocol planner: %w", err)
 	}
+	observations, err := bridge.NewHTTPObservationSink(config.PlannerURL, client, config.InternalToken)
+	if err != nil {
+		server.workerPool.Shutdown()
+		return fmt.Errorf("failed to initialize HTTP observation sink: %w", err)
+	}
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
-		Planner: runtime.Planner(), ProtocolPlanner: protocolPlanner, PassThrough: runtime.PassThrough(),
+		Planner: runtime.Planner(), ProtocolPlanner: protocolPlanner, PassThrough: runtime.PassThrough(), Observations: observations,
 		Executor: server.NewGatewayExecutor(), Automation: server.automation, Schedules: control,
 		Start: runtimecontract.RuntimeStartRequest{
 			MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout,

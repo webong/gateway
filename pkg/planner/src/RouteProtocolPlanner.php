@@ -27,6 +27,7 @@ class RouteProtocolPlanner implements ProtocolPlanner
         return match ($plan->action) {
             RoutePlan::RESPOND => $this->respond($event, $plan),
             RoutePlan::RELAY => $this->deliver($event, $plan),
+            RoutePlan::AUTOMATION => $this->automate($event, $plan),
             RoutePlan::PASS_THROUGH => new GatewayDecision(
                 protocol: $event->protocol,
                 action: GatewayAction::REJECT,
@@ -88,6 +89,23 @@ class RouteProtocolPlanner implements ProtocolPlanner
             statusCode: 250,
             deliveries: array_values($deliveries),
             metadata: $plan->metadata,
+        );
+    }
+
+    protected function automate(GatewayEvent $event, RoutePlan $plan): GatewayDecision
+    {
+        $deliveries = array_map(
+            fn (Delivery $delivery): GatewayDelivery => $this->delivery($delivery, $event),
+            $plan->relays,
+        );
+
+        return new GatewayDecision(
+            protocol: $event->protocol,
+            action: GatewayAction::AUTOMATE,
+            statusCode: 250,
+            deliveries: array_values($deliveries),
+            metadata: $plan->metadata,
+            automation: $plan->automation,
         );
     }
 

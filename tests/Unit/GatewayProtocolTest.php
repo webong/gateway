@@ -8,6 +8,7 @@ use Webong\Gateway\Protocols\GatewayDecision;
 use Webong\Gateway\Protocols\GatewayDelivery;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\Protocol;
+use Webong\Gateway\Protocols\Automation;
 
 it('round trips a protocol-neutral gateway event', function (): void {
     $event = new GatewayEvent(
@@ -19,6 +20,7 @@ it('round trips a protocol-neutral gateway event', function (): void {
         headers: ['X-Event' => ['message']],
         attributes: ['channel' => 'customer-42'],
         payload: 'hello',
+        automationLanguages: ['javascript'],
     );
 
     $roundTripped = GatewayEvent::fromArray($event->toArray());
@@ -27,7 +29,8 @@ it('round trips a protocol-neutral gateway event', function (): void {
         ->and($roundTripped->kind)->toBe(EventKind::MESSAGE)
         ->and($roundTripped->sessionId)->toBe('session-1')
         ->and($roundTripped->payload)->toBe('hello')
-        ->and($roundTripped->attributes['channel'])->toBe('customer-42');
+        ->and($roundTripped->attributes['channel'])->toBe('customer-42')
+        ->and($roundTripped->automationLanguages)->toBe(['javascript']);
 });
 it('serializes typed gateway delivery decisions', function (): void {
     $decision = new GatewayDecision(
@@ -77,6 +80,20 @@ it('round trips DNS query events and serializes a synchronous reply', function (
         ->and($roundTripped->kind)->toBe(EventKind::QUERY)
         ->and($roundTripped->attributes['qtype'])->toBe('TXT')
         ->and($decision->toArray()['reply']['target'])->toBe('https://reply.example.test/dns');
+});
+
+it('serializes protocol-neutral automation decisions', function (): void {
+    $decision = new GatewayDecision(
+        protocol: Protocol::DNS,
+        action: GatewayAction::AUTOMATE,
+        automation: new Automation('javascript', "gateway.respond('[]', 200)"),
+    );
+
+    expect($decision->toArray()['action'])->toBe('automate')
+        ->and($decision->toArray()['automation'])->toBe([
+            'language' => 'javascript',
+            'source' => "gateway.respond('[]', 200)",
+        ]);
 });
 
 it('rejects unsafe delivery adapter names', function (): void {

@@ -12,6 +12,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	"github.com/webong/gateway/arranger/automation"
 	protocol "github.com/webong/gateway/arranger/integration"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
@@ -20,6 +21,34 @@ type runtimeProtocolPlanner func(context.Context, protocol.GatewayEvent) (protoc
 
 func (f runtimeProtocolPlanner) PlanEvent(ctx context.Context, event protocol.GatewayEvent) (protocol.GatewayDecision, error) {
 	return f(ctx, event)
+}
+
+type runtimeObservationSink func(context.Context, protocol.Observation) error
+
+func (f runtimeObservationSink) RecordObservation(ctx context.Context, observation protocol.Observation) error {
+	return f(ctx, observation)
+}
+
+type runtimeDNSAutomation struct {
+	inputs chan automation.Input
+}
+
+func (runtime *runtimeDNSAutomation) Supports(language automation.Language) bool {
+	return language == "javascript"
+}
+
+func (runtime *runtimeDNSAutomation) Languages() []automation.Language {
+	return []automation.Language{"javascript"}
+}
+
+func (runtime *runtimeDNSAutomation) Execute(_ context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
+	if script.Language != "javascript" || script.Source != "answer_dns()" {
+		return automation.Outcome{}, fmt.Errorf("unexpected DNS automation script: %+v", script)
+	}
+	runtime.inputs <- input
+	return automation.Outcome{Response: &automation.Response{
+		Status: 200, Body: `[{"type":"TXT","value":"installed-automation"}]`,
+	}}, nil
 }
 
 func TestDNSCanBeInstalledAfterSpinnerStarts(t *testing.T) {
@@ -56,17 +85,28 @@ func TestDNSCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	observations := make(chan protocol.Observation, 1)
+	automations := &runtimeDNSAutomation{inputs: make(chan automation.Input, 1)}
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		ProtocolPlanner: runtimeProtocolPlanner(func(_ context.Context, event protocol.GatewayEvent) (protocol.GatewayDecision, error) {
 			if event.Protocol != protocol.ProtocolDNS || event.Route != "/hook" || event.Attributes["data"] != "value" {
 				return protocol.GatewayDecision{}, fmt.Errorf("unexpected DNS event: %+v", event)
 			}
+			if len(event.Runtime.AutomationLanguages) != 1 || event.Runtime.AutomationLanguages[0] != "javascript" {
+				return protocol.GatewayDecision{}, fmt.Errorf("DNS runtime omitted automation capability: %+v", event.Runtime)
+			}
 			return protocol.GatewayDecision{
-				Version: protocol.ProtocolVersion, Protocol: protocol.ProtocolDNS, Action: protocol.GatewayRespond,
-				Payload: []byte(`[{"type":"TXT","value":"installed-runtime"}]`),
+				Version: protocol.ProtocolVersion, Protocol: protocol.ProtocolDNS, Action: protocol.GatewayAutomate,
+				Automation: &protocol.Automation{Language: "javascript", Source: "answer_dns()"},
 			}, nil
 		}),
-		Executor: runtimeExecutor{},
+		Executor:   runtimeExecutor{},
+		Automation: automations,
+		Observations: runtimeObservationSink(func(_ context.Context, observation protocol.Observation) error {
+			observations <- observation
+			return nil
+		}),
+		Start: protocol.RuntimeStartRequest{AutomationLanguages: []automation.Language{"javascript"}},
 	})
 	registry := integrationextensions.NewRegistry()
 	if err := integrationextensions.LoadExternalInstalledWithConfiguration(t.Context(), registry, installed, configuration); err != nil {
@@ -89,8 +129,27 @@ func TestDNSCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		t.Fatalf("query installed DNS runtime: %v", err)
 	}
 	answer, ok := firstTXT(response.Answer)
-	if response.Rcode != mdns.RcodeSuccess || !ok || len(answer.Txt) != 1 || answer.Txt[0] != "installed-runtime" {
+	if response.Rcode != mdns.RcodeSuccess || !ok || len(answer.Txt) != 1 || answer.Txt[0] != "installed-automation" {
 		t.Fatalf("unexpected installed DNS answer: %+v", response)
+	}
+	select {
+	case input := <-automations.inputs:
+		query, ok := input.Variables["dns"].(map[string]any)
+		if !ok || query["data"] != "value" {
+			t.Fatalf("installed DNS runtime sent unexpected automation input: %+v", input)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("installed DNS runtime did not invoke its automation host")
+	}
+	select {
+	case observation := <-observations:
+		if observation.Type != "dns.query" || observation.Attributes["mode"] != "provided" ||
+			observation.Attributes["qname"] != "value.hook.dns.example.test." ||
+			observation.Attributes["response_name"] != "NOERROR" {
+			t.Fatalf("unexpected installed DNS observation: %+v", observation)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("installed DNS runtime did not emit its post-answer observation")
 	}
 }
 

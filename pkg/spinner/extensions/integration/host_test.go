@@ -69,3 +69,40 @@ func TestIntegrationHostClonesPlannerOwnedConfiguration(t *testing.T) {
 		t.Fatalf("integration configuration was not isolated from the desired-state buffer: %s", request.Configuration)
 	}
 }
+
+func TestIntegrationHostRecordsOnlyValidatedObservations(t *testing.T) {
+	var recorded integration.Observation
+	host := NewHost()
+	host.Configure(Services{Observations: observationSinkFunc(func(_ context.Context, observation integration.Observation) error {
+		recorded = observation
+		return nil
+	})})
+	observation := integration.Observation{
+		Version: integration.ObservationVersion, ID: "dns-query-1", Type: "dns.query",
+		OccurredAt: time.Now().UTC(), Attributes: map[string]string{"mode": "forwarded"},
+	}
+	payload, _ := json.Marshal(observation)
+	request := plugin.Request{Contract: integration.ObservationContract, Operation: integration.OperationRecordObservation, Payload: payload}
+	if err := host.authorize(request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.handle(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if recorded.ID != observation.ID || recorded.Attributes["mode"] != "forwarded" {
+		t.Fatalf("unexpected recorded observation: %+v", recorded)
+	}
+
+	observation.Version = "v2"
+	payload, _ = json.Marshal(observation)
+	request.Payload = payload
+	if _, err := host.handle(context.Background(), request); err == nil {
+		t.Fatal("invalid observation was accepted")
+	}
+}
+
+type observationSinkFunc func(context.Context, integration.Observation) error
+
+func (function observationSinkFunc) RecordObservation(ctx context.Context, observation integration.Observation) error {
+	return function(ctx, observation)
+}

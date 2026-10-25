@@ -34,6 +34,7 @@ type Services struct {
 	Executor        Executor
 	Automation      automation.Executor
 	Schedules       automation.ScheduleRegistrar
+	Observations    integration.ObservationSink
 	Start           integration.RuntimeStartRequest
 }
 
@@ -96,7 +97,8 @@ func (h *Host) ReverseOptions(fallback *plugin.ReverseOptions) *plugin.ReverseOp
 
 func (h *Host) owns(ref plugin.ContractRef) bool {
 	return ref == integration.PlannerContract || ref == integration.DeliveryContract ||
-		ref == integration.AutomationContract || ref == integration.ScheduleContract
+		ref == integration.AutomationContract || ref == integration.ScheduleContract ||
+		ref == integration.ObservationContract
 }
 
 func (h *Host) authorize(request plugin.Request) error {
@@ -120,6 +122,10 @@ func (h *Host) authorize(request plugin.Request) error {
 		}
 	case integration.ScheduleContract:
 		if services.Schedules != nil && request.Operation == integration.OperationRegisterSchedules {
+			return nil
+		}
+	case integration.ObservationContract:
+		if services.Observations != nil && request.Operation == integration.OperationRecordObservation {
 			return nil
 		}
 	}
@@ -149,6 +155,15 @@ func (h *Host) handle(ctx context.Context, request plugin.Request) (json.RawMess
 			return nil, plugin.ErrInvalid
 		}
 		if err := services.Schedules.RegisterSchedules(ctx, input.Origin, input.Schedules); err != nil {
+			return nil, err
+		}
+		return json.RawMessage("null"), nil
+	case integration.ObservationContract:
+		var input integration.Observation
+		if err := decode(request.Payload, &input); err != nil || input.Validate() != nil {
+			return nil, plugin.ErrInvalid
+		}
+		if err := services.Observations.RecordObservation(ctx, input); err != nil {
 			return nil, err
 		}
 		return json.RawMessage("null"), nil

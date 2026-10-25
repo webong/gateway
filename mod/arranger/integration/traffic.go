@@ -67,6 +67,7 @@ type GatewayEvent struct {
 	Headers    map[string][]string `json:"headers,omitempty"`
 	Attributes map[string]string   `json:"attributes,omitempty"`
 	Payload    []byte              `json:"payload,omitempty"`
+	Runtime    RuntimeCapabilities `json:"runtime,omitempty"`
 }
 
 func (e GatewayEvent) Validate() error {
@@ -114,6 +115,7 @@ const (
 	GatewayQuarantine GatewayAction = "quarantine"
 	GatewayClose      GatewayAction = "close"
 	GatewayStream     GatewayAction = "stream"
+	GatewayAutomate   GatewayAction = "automate"
 )
 
 // GatewayDelivery is the protocol-neutral destination shape. HTTP Delivery
@@ -211,6 +213,7 @@ type GatewayDecision struct {
 	Reply      *GatewayDelivery    `json:"reply,omitempty"`
 	Deliveries []GatewayDelivery   `json:"deliveries,omitempty"`
 	Stream     *GatewayDelivery    `json:"stream,omitempty"`
+	Automation *Automation         `json:"automation,omitempty"`
 	Metadata   map[string]string   `json:"metadata,omitempty"`
 }
 
@@ -222,7 +225,7 @@ func (d GatewayDecision) Validate() error {
 		return err
 	}
 	switch d.Action {
-	case GatewayAccept, GatewayReject, GatewayRespond, GatewayDeliver, GatewaySubmit, GatewayQuarantine, GatewayClose, GatewayStream:
+	case GatewayAccept, GatewayReject, GatewayRespond, GatewayDeliver, GatewaySubmit, GatewayQuarantine, GatewayClose, GatewayStream, GatewayAutomate:
 	default:
 		return fmt.Errorf("unsupported gateway action %q", d.Action)
 	}
@@ -239,6 +242,16 @@ func (d GatewayDecision) Validate() error {
 		if d.Protocol != ProtocolWebstream || d.Stream == nil || d.Stream.Protocol != ProtocolHTTP {
 			return fmt.Errorf("webstream decisions require one HTTP stream source")
 		}
+	}
+	if d.Action == GatewayAutomate {
+		if d.Automation == nil || d.Reply != nil || d.Stream != nil {
+			return fmt.Errorf("automate decisions require automation and cannot include reply or stream destinations")
+		}
+		if err := d.Automation.Validate(); err != nil {
+			return err
+		}
+	} else if d.Automation != nil {
+		return fmt.Errorf("automation is only valid for automate decisions")
 	}
 	if d.Reply != nil {
 		if err := d.Reply.Validate(); err != nil {

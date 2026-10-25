@@ -67,6 +67,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	engine := automationextensions.Runtime()
 	protocolPlanner := bridge.NewPHPProtocolPlanner(planner, spinner.MaxBodySize)
 	protocolPlanner.InternalToken = spinner.InternalToken
+	observations := bridge.NewPHPObservationSink(planner, spinner.InternalToken)
 	protocolListeners, err := spinner.ProtocolListeners(protocolPlanner)
 	if err != nil {
 		return fmt.Errorf("configure protocol listeners: %w", err)
@@ -76,7 +77,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		return err
 	}
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
-		Planner: httpPlanner, ProtocolPlanner: protocolPlanner, PassThrough: planner,
+		Planner: httpPlanner, ProtocolPlanner: protocolPlanner, PassThrough: planner, Observations: observations,
 		Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
 		Start: integration.RuntimeStartRequest{
 			MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,

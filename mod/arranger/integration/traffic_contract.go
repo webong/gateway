@@ -85,6 +85,19 @@ type Automation struct {
 	Executor automation.ExecutorMode `json:"executor,omitempty"`
 }
 
+func (a Automation) Validate() error {
+	if strings.TrimSpace(a.Source) == "" {
+		return fmt.Errorf("%w: automation source is required", ErrInvalidPlan)
+	}
+	if !automationLanguagePattern.MatchString(string(a.Language)) {
+		return fmt.Errorf("%w: invalid automation language %q", ErrInvalidPlan, a.Language)
+	}
+	if !automation.ValidExecutorMode(a.Executor) {
+		return fmt.Errorf("%w: invalid automation executor %q", ErrInvalidPlan, a.Executor)
+	}
+	return nil
+}
+
 // Delivery describes a destination resolved by PHP. Go still applies its
 // outbound HTTP and DNS policy when it performs the delivery.
 type Delivery struct {
@@ -238,14 +251,8 @@ func (p RoutePlan) Validate() error {
 		if p.Automation == nil || p.ImmediateResponse != nil || p.Reply != nil {
 			return fmt.Errorf("%w: automation plan requires automation and optional relays", ErrInvalidPlan)
 		}
-		if strings.TrimSpace(p.Automation.Source) == "" {
-			return fmt.Errorf("%w: automation source is required", ErrInvalidPlan)
-		}
-		if !automationLanguagePattern.MatchString(string(p.Automation.Language)) {
-			return fmt.Errorf("%w: invalid automation language %q", ErrInvalidPlan, p.Automation.Language)
-		}
-		if !automation.ValidExecutorMode(p.Automation.Executor) {
-			return fmt.Errorf("%w: invalid automation executor %q", ErrInvalidPlan, p.Automation.Executor)
+		if err := p.Automation.Validate(); err != nil {
+			return err
 		}
 		for index := range p.Relays {
 			if err := p.Relays[index].Validate(); err != nil {

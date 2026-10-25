@@ -11,7 +11,7 @@ use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\HttpTransport;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\Dns\DnsHookEventRecorder;
+use Webong\Gateway\Protocols\Automation;
 use Webong\Gateway\Dns\DnsProtocolPlanner;
 use Webong\Gateway\Email\EmailProtocolPlanner;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
@@ -214,7 +214,7 @@ it('preserves a DNS reply separately from asynchronous relays', function (): voi
             );
         }
     };
-    $planner = new DnsProtocolPlanner($adapter, app(DnsHookEventRecorder::class));
+    $planner = new DnsProtocolPlanner($adapter);
 
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'dns-event-1',
@@ -233,6 +233,37 @@ it('preserves a DNS reply separately from asynchronous relays', function (): voi
         ->and($decision->reply?->headers['Content-Type'])->toBe(['application/json'])
         ->and($decision->deliveries)->toHaveCount(1)
         ->and($decision->deliveries[0]->target)->toBe('https://relay.example.test/dns');
+});
+
+it('adapts a normal automation into a DNS answer decision', function (): void {
+    $adapter = new class implements RoutePlanner {
+        public ?IngressRequest $received = null;
+
+        public function plan(IngressRequest $request): RoutePlan
+        {
+            $this->received = $request;
+
+            return RoutePlan::automate(
+                automation: new Automation('javascript', "gateway.respond('[]', 200)"),
+                relays: [new Delivery(url: 'https://observer.example.test/dns')],
+                metadata: ['endpoint_id' => 'dns-hook-1'],
+            );
+        }
+    };
+    $planner = new DnsProtocolPlanner($adapter);
+    $decision = $planner->planEvent(new GatewayEvent(
+        id: 'dns-automation-1', protocol: Protocol::DNS, kind: EventKind::QUERY,
+        route: '/hook-1', host: 'payload.hook-1.dns.example.test.',
+        attributes: ['qtype' => 'TXT', 'data' => 'payload'],
+        payload: '{"data":"payload"}', automationLanguages: ['javascript'],
+    ));
+
+    expect($adapter->received?->automationLanguages)->toBe(['javascript'])
+        ->and($decision->action)->toBe(GatewayAction::AUTOMATE)
+        ->and($decision->automation?->language)->toBe('javascript')
+        ->and($decision->deliveries)->toHaveCount(1)
+        ->and($decision->deliveries[0]->target)->toBe('https://observer.example.test/dns')
+        ->and($decision->metadata['endpoint_id'])->toBe('dns-hook-1');
 });
 
 it('turns an unmatched protocol route into an SMTP rejection', function (): void {

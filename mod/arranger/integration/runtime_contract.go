@@ -24,14 +24,16 @@ const (
 
 	OperationExecuteAutomation = "execute"
 	OperationRegisterSchedules = "register"
+	OperationRecordObservation = "record"
 )
 
 var (
-	RuntimeContract    = plugin.ContractRef{Name: "gateway.runtime", Version: "v1"}
-	PlannerContract    = plugin.ContractRef{Name: "gateway.planner", Version: "v1"}
-	DeliveryContract   = plugin.ContractRef{Name: "gateway.delivery", Version: "v1"}
-	AutomationContract = plugin.ContractRef{Name: "gateway.automation-host", Version: "v1"}
-	ScheduleContract   = plugin.ContractRef{Name: "gateway.schedule", Version: "v1"}
+	RuntimeContract     = plugin.ContractRef{Name: "gateway.runtime", Version: "v1"}
+	PlannerContract     = plugin.ContractRef{Name: "gateway.planner", Version: "v1"}
+	DeliveryContract    = plugin.ContractRef{Name: "gateway.delivery", Version: "v1"}
+	AutomationContract  = plugin.ContractRef{Name: "gateway.automation-host", Version: "v1"}
+	ScheduleContract    = plugin.ContractRef{Name: "gateway.schedule", Version: "v1"}
+	ObservationContract = plugin.ContractRef{Name: "gateway.observation", Version: "v1"}
 )
 
 // RuntimeStartRequest contains host-owned ceilings. Product routing and policy stay

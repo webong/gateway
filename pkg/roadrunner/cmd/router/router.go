@@ -79,9 +79,10 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		planner.InternalToken = spinner.InternalToken
 		protocolPlanner := bridge.NewPHPProtocolPlanner(next, spinner.MaxBodySize)
 		protocolPlanner.InternalToken = spinner.InternalToken
+		observations := bridge.NewPHPObservationSink(next, spinner.InternalToken)
 		control, controlErr := transport.EmbeddedScheduleControl(next, spinner, engine)
 		integrationextensions.DefaultHost.Configure(integrationextensions.Services{
-			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: next,
+			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: next, Observations: observations,
 			Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
 			Start: runtimecontract.RuntimeStartRequest{
 				MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,

@@ -80,7 +80,16 @@ An authenticated principal that owns Planner resources across product areas. It 
 An account-owned Planner Resource describing the approved IMAP and SMTP transport path for an external mailbox. Its live credentials and observed health are separate from its desired state.
 
 **DNS**:
-The Gateway product area for authoritative name-query ingress and routing.
+The Gateway product area for application-layer name-query ingress and routing through managed, provided, or forwarded answer modes.
+
+**Managed DNS**:
+DNS answers owned and produced by Gateway from Planner-managed zones and records.
+
+**Provided DNS**:
+DNS answers supplied synchronously by an application through Gateway's normal Webhook, Automation, or Integration Interfaces. Gateway remains authoritative for the configured zone and validates the returned answer document.
+
+**Forwarded DNS**:
+DNS queries proxied to an upstream DNS resolver under Planner-managed domain and client policy. The upstream resolver owns recursion, caching, and DNSSEC validation.
 
 **Automation**:
 Configured logic that runs in response to an incoming event or a scheduled occurrence.

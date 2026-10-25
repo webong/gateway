@@ -336,6 +336,7 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 	}
 	protocolPlanner := bridge.NewPHPProtocolPlanner(&caddyHTTPAdapter{handler: next}, g.MaxBodySize)
 	protocolPlanner.InternalToken = g.InternalToken
+	observations := bridge.NewPHPObservationSink(&caddyHTTPAdapter{handler: next}, g.InternalToken)
 	g.runtimeOnce.Do(func() {
 		executor, ok := g.executor.(integrationextensions.Executor)
 		if !ok {
@@ -347,7 +348,7 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 			return
 		}
 		integrationextensions.DefaultHost.Configure(integrationextensions.Services{
-			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: &caddyHTTPAdapter{handler: next},
+			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: &caddyHTTPAdapter{handler: next}, Observations: observations,
 			Executor: executor, Automation: automationextensions.Runtime(),
 			Start: runtimecontract.RuntimeStartRequest{
 				MaxBodySize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout),

@@ -14,4 +14,5 @@ enum GatewayAction: string
     case QUARANTINE = 'quarantine';
     case CLOSE = 'close';
     case STREAM = 'stream';
+    case AUTOMATE = 'automate';
 }

@@ -35,6 +35,8 @@ use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Deliveries\Http\DeliveryController;
 use Webong\Gateway\Events\PruneEventsCommand;
+use Webong\Gateway\Observations\GatewayObservationRegistry;
+use Webong\Gateway\Observations\Http\InternalObservationController;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
@@ -106,6 +108,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->singleton(PathResolverRegistry::class);
         $this->app->singleton(ProtocolPlannerRegistry::class);
         $this->app->singleton(RoutePlanObserverRegistry::class);
+        $this->app->singleton(GatewayObservationRegistry::class);
         $this->app->singleton(NativeScheduleJobRegistry::class);
         $this->app->bind(ScriptScheduleRegistrar::class, PersistScriptSchedules::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
@@ -238,6 +241,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/_internal/gateway/shell/executions/{execution}', ShellSshExecutionController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
+            $this->app['router']->post('/_internal/gateway/observations', InternalObservationController::class);
             $this->app['router']->get('/_internal/gateway/companion-actions', [InternalCompanionActionController::class, 'index']);
             $this->app['router']->post('/_internal/gateway/companion-actions/{action}/executions', [InternalCompanionActionController::class, 'execute']);
             $this->app['router']->get('/_internal/gateway/extensions', InternalExtensionDistributionController::class);

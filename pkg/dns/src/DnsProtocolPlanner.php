@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Dns;
 
-use Throwable;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayDecision;
@@ -17,26 +16,6 @@ use Webong\Gateway\RouteProtocolPlanner;
 
 final class DnsProtocolPlanner extends RouteProtocolPlanner
 {
-    public function __construct(
-        \Webong\Gateway\Contracts\RoutePlanner $routePlanner,
-        private readonly DnsHookEventRecorder $events,
-    ) {
-        parent::__construct($routePlanner);
-    }
-
-    public function planEvent(GatewayEvent $event): GatewayDecision
-    {
-        try {
-            $decision = parent::planEvent($event);
-            $this->events->record($event, $decision);
-
-            return $decision;
-        } catch (Throwable $exception) {
-            $this->events->record($event, failure: $exception);
-            throw $exception;
-        }
-    }
-
     protected function request(GatewayEvent $event): IngressRequest
     {
         return new IngressRequest(
@@ -52,6 +31,7 @@ final class DnsProtocolPlanner extends RouteProtocolPlanner
             event: $event->kind->value,
             sessionId: $event->sessionId,
             attributes: $event->attributes,
+            automationLanguages: $event->automationLanguages,
         );
     }
 

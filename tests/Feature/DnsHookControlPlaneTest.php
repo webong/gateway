@@ -176,10 +176,42 @@ it('routes DNS subscriptions and exposes query history and usage', function (): 
     expect($decision->action)->toBe(GatewayAction::DELIVER)
         ->and($decision->deliveries)->toHaveCount(1)
         ->and($decision->deliveries[0]->target)->toBe('https://subscriber.example.test/dns')
-        ->and(GatewayEndpointEvent::query()->count())->toBe(1);
+        ->and(GatewayEndpointEvent::query()->count())->toBe(0);
 
-    // Go may retry planning the same event; usage remains idempotent.
-    $planner->planEvent($event);
+    $observation = [
+        'version' => 'v1',
+        'id' => 'dns-history-event-1',
+        'type' => 'dns.query',
+        'occurred_at' => now()->toAtomString(),
+        'attributes' => [
+            'mode' => 'provided',
+            'qname' => 'hello.'.$hook['hostname'].'.',
+            'qtype' => 'TXT',
+            'qclass' => 'IN',
+            'query_id' => '42',
+            'source_address' => '192.0.2.5:53000',
+            'transport' => 'udp',
+            'zone' => 'dns.example.test.',
+            'hook' => $hook['token'],
+            'data' => 'hello',
+            'decision_action' => 'deliver',
+            'decision_status_code' => '250',
+            'response_code' => '0',
+            'response_name' => 'NOERROR',
+            'authoritative' => 'true',
+            'truncated' => 'false',
+            'answer_count' => '0',
+            'elapsed_ms' => '2',
+        ],
+    ];
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/observations', $observation)
+        ->assertAccepted();
+
+    // Spinner may retry an observation; history remains idempotent.
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/observations', $observation)
+        ->assertAccepted();
     expect(GatewayEndpointEvent::query()->count())->toBe(1);
 
     $this->withToken('registry-secret')

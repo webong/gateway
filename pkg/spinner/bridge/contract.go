@@ -38,6 +38,7 @@ const (
 	GatewayQuarantine = protocol.GatewayQuarantine
 	GatewayClose      = protocol.GatewayClose
 	GatewayStream     = protocol.GatewayStream
+	GatewayAutomate   = protocol.GatewayAutomate
 
 	FailureNoticeToAttribute   = protocol.FailureNoticeToAttribute
 	DKIMSigningDomainAttribute = protocol.DKIMSigningDomainAttribute

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Dns;
 
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
 final class DnsHookResources
@@ -32,32 +31,6 @@ final class DnsHookResources
             'usage_url' => '/dns/hooks/'.$hook->getKey().'/usage',
             'created_at' => $hook->created_at?->toAtomString(),
             'updated_at' => $hook->updated_at?->toAtomString(),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    public static function event(GatewayEndpointEvent $event): array
-    {
-        $attributes = $event->attributes ?? [];
-
-        return [
-            'id' => $event->getKey(),
-            'event_id' => $event->event_id,
-            'query' => [
-                'name' => $attributes['qname'] ?? null,
-                'type' => $attributes['qtype'] ?? null,
-                'class' => $attributes['qclass'] ?? null,
-                'data' => $attributes['data'] ?? null,
-            ],
-            'source_address' => $event->source_address,
-            'transport' => $event->transport,
-            'decision' => [
-                'action' => $event->decision_action,
-                'status_code' => $event->status_code,
-                'error' => $event->error,
-            ],
-            'payload' => $event->payload ?? (object) [],
-            'received_at' => $event->received_at?->toAtomString(),
         ];
     }
 

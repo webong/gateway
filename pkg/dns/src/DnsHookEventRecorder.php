@@ -6,69 +6,88 @@ namespace Webong\Gateway\Dns;
 
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Str;
-use Psr\Log\LoggerInterface;
-use Throwable;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Events\EventRetention;
-use Webong\Gateway\Protocols\GatewayDecision;
-use Webong\Gateway\Protocols\GatewayEvent;
-use Webong\Gateway\Protocols\Protocol;
+use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Protocols\GatewayObservation;
 
 final readonly class DnsHookEventRecorder
 {
     public function __construct(
         private ConnectionInterface $database,
         private DnsHookRegistry $hooks,
+        private DnsZoneRegistry $zones,
+        private DnsResolverStore $resolvers,
         private EventRetention $retention,
-        private ?LoggerInterface $logger = null,
     ) {}
 
-    public function record(GatewayEvent $event, ?GatewayDecision $decision = null, ?Throwable $failure = null): void
+    public function record(GatewayObservation $observation): void
     {
-        if ($event->protocol !== Protocol::DNS) {
+        if ($observation->type !== 'dns.query') {
             return;
         }
 
-        try {
-            $this->persist($event, $decision, $failure);
-            $this->retention->maybePrune();
-        } catch (Throwable $exception) {
-            // A history write exception must not replace the route decision.
-            $this->logger?->warning('Unable to record Gateway DNS hook event.', [
-                'event_id' => $event->id,
-                'exception' => $exception,
-            ]);
-        }
+        $this->persist($observation);
+        $this->retention->maybePrune();
     }
 
-    private function persist(GatewayEvent $event, ?GatewayDecision $decision, ?Throwable $failure): void
+    private function persist(GatewayObservation $observation): void
     {
-        $token = (string) ($event->attributes['endpoint'] ?? ltrim($event->route, '/'));
-        $hook = $this->hooks->find($token, $event->attributes['zone'] ?? null);
-        if ($hook === null) {
+        $attributes = $observation->attributes;
+        $mode = $attributes['mode'] ?? '';
+        $endpoint = null;
+        $subjectKind = '';
+        $subjectId = '';
+
+        if (in_array($mode, ['managed', 'provided'], true)) {
+            $hook = ($attributes['hook'] ?? '') === ''
+                ? null
+                : $this->hooks->find($attributes['hook']);
+            $endpoint = $hook ?? $this->zones->find((string) ($attributes['zone'] ?? ''));
+            $subjectKind = $hook === null ? 'dns.zone' : 'dns.hook';
+            $subjectId = (string) $endpoint?->getKey();
+        } elseif ($mode === 'forwarded') {
+            $resolver = $this->resolvers->findByName((string) ($attributes['resolver'] ?? ''));
+            $subjectKind = 'dns.resolver';
+            $subjectId = (string) ($resolver?->id ?? '');
+        }
+
+        // Do not accept observations for resources Planner does not own.
+        if ($subjectId === '') {
             return;
         }
 
-        $receivedAt = now();
-        $payload = json_decode($event->payload, true);
-        $payload = is_array($payload) ? $payload : ['raw' => $event->payload];
+        $payload = [
+            'query' => [
+                'name' => $attributes['qname'] ?? null,
+                'type' => $attributes['qtype'] ?? null,
+                'class' => $attributes['qclass'] ?? null,
+            ],
+            'response' => [
+                'code' => isset($attributes['response_code']) ? (int) $attributes['response_code'] : null,
+                'name' => $attributes['response_name'] ?? null,
+                'answer_count' => isset($attributes['answer_count']) ? (int) $attributes['answer_count'] : 0,
+                'answer_types' => $attributes['answer_types'] ?? '',
+            ],
+        ];
 
-        $this->database->transaction(function () use ($hook, $event, $decision, $failure, $receivedAt, $payload): void {
+        $this->database->transaction(function () use ($observation, $attributes, $endpoint, $subjectKind, $subjectId, $payload): void {
             GatewayEndpointEvent::query()->firstOrCreate(
-                ['event_id' => $event->id],
+                ['event_id' => $observation->id],
                 [
                     'id' => (string) Str::uuid(),
-                    'endpoint_id' => $hook->getKey(),
-                    'protocol' => $event->protocol->value,
-                    'kind' => $event->kind->value,
-                    'source_address' => ($event->attributes['source_addr'] ?? '') !== '' ? $event->attributes['source_addr'] : null,
-                    'transport' => ($event->attributes['transport'] ?? '') !== '' ? $event->attributes['transport'] : null,
-                    'decision_action' => $decision?->action->value,
-                    'status_code' => $decision?->statusCode ?: null,
-                    'error' => $failure?->getMessage(),
-                    'attributes' => $event->attributes,
+                    'endpoint_id' => $endpoint?->getKey(),
+                    'subject_kind' => $subjectKind,
+                    'subject_id' => $subjectId,
+                    'protocol' => 'dns',
+                    'kind' => 'query',
+                    'source_address' => ($attributes['source_address'] ?? '') !== '' ? $attributes['source_address'] : null,
+                    'transport' => ($attributes['transport'] ?? '') !== '' ? $attributes['transport'] : null,
+                    'decision_action' => ($attributes['decision_action'] ?? '') !== '' ? $attributes['decision_action'] : null,
+                    'status_code' => isset($attributes['decision_status_code']) ? (int) $attributes['decision_status_code'] : null,
+                    'error' => ($attributes['failure'] ?? '') !== '' ? $attributes['failure'] : null,
+                    'attributes' => $attributes,
                     'payload' => $payload,
-                    'received_at' => $receivedAt,
+                    'received_at' => $observation->occurredAt,
                 ],
             );
         });

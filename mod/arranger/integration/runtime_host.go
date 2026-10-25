@@ -39,6 +39,7 @@ func (h *RuntimeHost) Automation() automation.Executor {
 func (h *RuntimeHost) Schedules() automation.ScheduleRegistrar {
 	return scheduleClient{caller: h.caller}
 }
+func (h *RuntimeHost) Observations() ObservationSink { return observationClient{caller: h.caller} }
 
 type plannerClient struct{ caller plugin.ReverseCaller }
 
@@ -108,6 +109,15 @@ type scheduleClient struct{ caller plugin.ReverseCaller }
 
 func (s scheduleClient) RegisterSchedules(ctx context.Context, origin string, schedules []automation.Schedule) error {
 	return call(ctx, s.caller, ScheduleContract, OperationRegisterSchedules, ScheduleRequest{Origin: origin, Schedules: schedules}, nil)
+}
+
+type observationClient struct{ caller plugin.ReverseCaller }
+
+func (o observationClient) RecordObservation(ctx context.Context, observation Observation) error {
+	if err := observation.Validate(); err != nil {
+		return err
+	}
+	return call(ctx, o.caller, ObservationContract, OperationRecordObservation, observation, nil)
 }
 
 type passThroughClient struct{ caller plugin.ReverseCaller }
