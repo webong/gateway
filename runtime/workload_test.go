@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	arranger "github.com/webong/gateway/arranger"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 func TestWorkloadBuildsMercureLaunchSpecs(t *testing.T) {
@@ -18,7 +18,7 @@ func TestWorkloadBuildsMercureLaunchSpecs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	local, err := workload.Launch(spec, arranger.DriverLocal, "127.0.0.1", 12001)
+	local, err := workload.Launch(spec, integration.DriverLocal, "127.0.0.1", 12001)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestWorkloadBuildsMercureLaunchSpecs(t *testing.T) {
 		}
 	}
 
-	docker, err := workload.Launch(spec, arranger.DriverDocker, "ignored", 0)
+	docker, err := workload.Launch(spec, integration.DriverDocker, "ignored", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,10 +50,10 @@ func TestWorkloadRejectsUnsupportedCommunityReplication(t *testing.T) {
 	}
 }
 
-func validMercureSpec() arranger.ServerSpec {
-	return arranger.ServerSpec{
+func validMercureSpec() integration.ServerSpec {
+	return integration.ServerSpec{
 		ID: "mercure-1", Type: "mercure", Name: "updates", Hostname: "updates.example.test",
-		Driver: arranger.DriverLocal, DesiredState: arranger.DesiredRunning, Replicas: 1, Revision: 1,
+		Driver: integration.DriverLocal, DesiredState: integration.DesiredRunning, Replicas: 1, Revision: 1,
 		Configuration: []byte(`{
 			"publisher_jwt_key":"publisher-secret",
 			"publisher_jwt_algorithm":"HS256",
