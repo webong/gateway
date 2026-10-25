@@ -8,7 +8,7 @@ use LogicException;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Protocols\IngressRequest;
 
-final class CacheableDnsHookPathResolver extends DnsHookPathResolver implements CacheablePathResolver
+final class CacheableDnsEndpointPathResolver extends DnsEndpointPathResolver implements CacheablePathResolver
 {
     public function cacheKey(IngressRequest $request): string
     {
@@ -23,7 +23,7 @@ final class CacheableDnsHookPathResolver extends DnsHookPathResolver implements 
             return 'fallback|none';
         }
         if (! $this->fallback instanceof CacheablePathResolver) {
-            throw new LogicException('A cacheable DNS hook resolver requires a cacheable fallback.');
+            throw new LogicException('A cacheable DNS endpoint resolver requires a cacheable fallback.');
         }
 
         return 'fallback|'.$this->fallback->cacheKey($request);

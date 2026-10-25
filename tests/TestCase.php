@@ -67,7 +67,6 @@ abstract class TestCase extends Orchestra
             'gateway.registry_token' => 'registry-secret',
             'gateway.internal_token' => 'internal-secret',
             'gateway.automation.languages' => ['test-script'],
-            'gateway.dns.client' => 'gateway',
             'gateway.email.hook_client' => 'gateway',
             'gateway.servers.tables.servers' => 'managed_servers',
             'gateway.servers.tables.applications' => 'managed_applications',

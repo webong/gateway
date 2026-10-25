@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Dns;
 
-interface DnsProvider
+interface DnsProvisioner
 {
     /**
      * @param array{name: string, nameservers: list<string>, ttl: int, soa_email: ?string} $zone
      * @param array<string, mixed> $options
-     * @return array<string, mixed> Provider-owned state needed to remove the delegation.
+     * @param array<string, mixed> $state Existing provisioner-owned state for idempotent reconciliation.
+     * @return array<string, mixed> Provisioner-owned state needed to remove the delegation.
      */
-    public function provision(array $zone, array $options = []): array;
+    public function provision(array $zone, array $options = [], array $state = []): array;
 
     /**
      * @param array{name: string, nameservers: list<string>, ttl: int, soa_email: ?string} $zone

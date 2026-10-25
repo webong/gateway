@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Dns;
 
-final class ManualDnsProvider implements DnsProvider
+final class ManualDnsProvisioner implements DnsProvisioner
 {
-    public function provision(array $zone, array $options = []): array
+    public function provision(array $zone, array $options = [], array $state = []): array
     {
         return [];
     }

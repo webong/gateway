@@ -6,7 +6,7 @@ use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
 
-function forwardedDnsResolverPayload(array $overrides = []): array
+function dnsForwarderPayload(array $overrides = []): array
 {
     return [
         'name' => 'application',
@@ -20,11 +20,11 @@ function forwardedDnsResolverPayload(array $overrides = []): array
     ];
 }
 
-it('manages forwarded DNS resolvers and projects active runtime policy', function (): void {
-    $this->postJson('/dns/resolvers', forwardedDnsResolverPayload())->assertUnauthorized();
+it('manages DNS forwarders and projects active runtime policy', function (): void {
+    $this->postJson('/dns/forwarders', dnsForwarderPayload())->assertUnauthorized();
 
     $created = $this->withToken('registry-secret')
-        ->postJson('/dns/resolvers', forwardedDnsResolverPayload())
+        ->postJson('/dns/forwarders', dnsForwarderPayload())
         ->assertCreated()
         ->assertJsonPath('name', 'application')
         ->assertJsonPath('mode', 'forwarded')
@@ -33,9 +33,9 @@ it('manages forwarded DNS resolvers and projects active runtime policy', functio
         ->assertJsonPath('client_cidrs.0', '192.0.2.0/24')
         ->assertJsonPath('enabled', true);
 
-    expect(app(ConfigurationKindRegistry::class)->contains('dns.resolver'))->toBeTrue();
+    expect(app(ConfigurationKindRegistry::class)->contains('dns.forwarder'))->toBeTrue();
     $projected = app(ExtensionRuntimeConfigurationRegistry::class)->project('webong/dns', ['address' => ':5353']);
-    expect($projected['resolvers'])->toBe([[
+    expect($projected['forwarders'])->toBe([[
         'name' => 'application',
         'address' => 'resolver.internal:53',
         'transport' => 'udp',
@@ -52,7 +52,7 @@ it('manages forwarded DNS resolvers and projects active runtime policy', functio
         'type' => 'dns.query',
         'occurred_at' => now()->toAtomString(),
         'attributes' => [
-            'mode' => 'forwarded', 'resolver' => 'application',
+            'mode' => 'forwarded', 'forwarder' => 'application',
             'qname' => 'www.example.com.', 'qtype' => 'A', 'qclass' => 'IN', 'query_id' => '7',
             'source_address' => '192.0.2.20:53000', 'transport' => 'udp',
             'response_code' => '0', 'response_name' => 'NOERROR',
@@ -62,54 +62,54 @@ it('manages forwarded DNS resolvers and projects active runtime policy', functio
     ])->assertAccepted();
     $observed = GatewayEndpointEvent::query()->where('event_id', 'forwarded-dns-query-1')->sole();
     expect($observed->endpoint_id)->toBeNull()
-        ->and($observed->subject_kind)->toBe('dns.resolver')
+        ->and($observed->subject_kind)->toBe('dns.forwarder')
         ->and($observed->subject_id)->toBe($id)
         ->and($observed->attributes['mode'])->toBe('forwarded');
-    $this->withToken('registry-secret')->getJson('/dns/resolvers/'.$id.'/events?type=a&transport=udp')
+    $this->withToken('registry-secret')->getJson('/dns/forwarders/'.$id.'/events?type=a&transport=udp')
         ->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.mode', 'forwarded')
         ->assertJsonPath('data.0.response.name', 'NOERROR');
-    $this->withToken('registry-secret')->getJson('/dns/resolvers/'.$id.'/usage')
+    $this->withToken('registry-secret')->getJson('/dns/forwarders/'.$id.'/usage')
         ->assertOk()
         ->assertJsonPath('queries', 1)
         ->assertJsonPath('failures', 0)
         ->assertJsonPath('by_response.NOERROR', 1);
 
-    $this->withToken('registry-secret')->putJson('/dns/resolvers/'.$id, forwardedDnsResolverPayload())
+    $this->withToken('registry-secret')->putJson('/dns/forwarders/'.$id, dnsForwarderPayload())
         ->assertStatus(428);
     $disabled = $this->withToken('registry-secret')
         ->withHeader('If-Match', $created->headers->get('ETag'))
-        ->putJson('/dns/resolvers/'.$id, forwardedDnsResolverPayload(['enabled' => false, 'transport' => 'tcp']))
+        ->putJson('/dns/forwarders/'.$id, dnsForwarderPayload(['enabled' => false, 'transport' => 'tcp']))
         ->assertOk()
         ->assertJsonPath('transport', 'tcp')
         ->assertJsonPath('enabled', false);
 
     expect(app(ExtensionRuntimeConfigurationRegistry::class)
-        ->project('webong/dns', ['address' => ':5353'])['resolvers'])->toBe([]);
+        ->project('webong/dns', ['address' => ':5353'])['forwarders'])->toBe([]);
     $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
-        ->deleteJson('/dns/resolvers/'.$id)->assertStatus(412);
+        ->deleteJson('/dns/forwarders/'.$id)->assertStatus(412);
     $this->withToken('registry-secret')->withHeader('If-Match', $disabled->headers->get('ETag'))
-        ->deleteJson('/dns/resolvers/'.$id)->assertNoContent();
+        ->deleteJson('/dns/forwarders/'.$id)->assertNoContent();
 });
 
 it('rejects open, non-canonical, and ambiguous forwarded DNS policies', function (): void {
-    $this->withToken('registry-secret')->postJson('/dns/resolvers', forwardedDnsResolverPayload())
+    $this->withToken('registry-secret')->postJson('/dns/forwarders', dnsForwarderPayload())
         ->assertCreated();
 
-    $this->withToken('registry-secret')->postJson('/dns/resolvers', forwardedDnsResolverPayload([
+    $this->withToken('registry-secret')->postJson('/dns/forwarders', dnsForwarderPayload([
         'name' => 'duplicate',
         'address' => 'other.internal:53',
     ]))->assertUnprocessable()
-        ->assertJsonPath('message', 'DNS forwarded resolver route already exists.');
+        ->assertJsonPath('message', 'DNS forwarder route already exists.');
 
-    $this->withToken('registry-secret')->postJson('/dns/resolvers', forwardedDnsResolverPayload([
+    $this->withToken('registry-secret')->postJson('/dns/forwarders', dnsForwarderPayload([
         'name' => 'open',
         'domains' => ['.'],
         'client_cidrs' => ['0.0.0.0/0'],
     ]))->assertUnprocessable();
 
-    $this->withToken('registry-secret')->postJson('/dns/resolvers', forwardedDnsResolverPayload([
+    $this->withToken('registry-secret')->postJson('/dns/forwarders', dnsForwarderPayload([
         'name' => 'noncanonical',
         'domains' => ['internal'],
         'client_cidrs' => ['198.51.100.7/24'],

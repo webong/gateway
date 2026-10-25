@@ -17,15 +17,15 @@ import (
 )
 
 type configuration struct {
-	Address            string                  `json:"address"`
-	Zones              []dns.Zone              `json:"zones"`
-	Resolvers          []dns.ForwardedResolver `json:"resolvers,omitempty"`
-	PlannerTimeoutMS   int                     `json:"planner_timeout_ms,omitempty"`
-	ReadTimeoutMS      int                     `json:"read_timeout_ms,omitempty"`
-	WriteTimeoutMS     int                     `json:"write_timeout_ms,omitempty"`
-	MaxResponseRecords int                     `json:"max_response_records,omitempty"`
-	QueriesPerSecond   int                     `json:"queries_per_second,omitempty"`
-	QueryBurst         int                     `json:"query_burst,omitempty"`
+	Address            string          `json:"address"`
+	Zones              []dns.Zone      `json:"zones"`
+	Forwarders         []dns.Forwarder `json:"forwarders,omitempty"`
+	PlannerTimeoutMS   int             `json:"planner_timeout_ms,omitempty"`
+	ReadTimeoutMS      int             `json:"read_timeout_ms,omitempty"`
+	WriteTimeoutMS     int             `json:"write_timeout_ms,omitempty"`
+	MaxResponseRecords int             `json:"max_response_records,omitempty"`
+	QueriesPerSecond   int             `json:"queries_per_second,omitempty"`
+	QueryBurst         int             `json:"query_burst,omitempty"`
 }
 
 func main() {
@@ -59,7 +59,7 @@ func start(ctx context.Context, request runtimecontract.RuntimeStartRequest, cal
 		return runtimecontract.RuntimeStartResponse{}, err
 	}
 	server, err := dns.NewServer(dns.Config{
-		Address: configured.Address, Zones: configured.Zones, ForwardedResolvers: configured.Resolvers,
+		Address: configured.Address, Zones: configured.Zones, Forwarders: configured.Forwarders,
 		Observations:   observations,
 		Automation:     host.Automation(),
 		Schedules:      host.Schedules(),

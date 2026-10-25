@@ -36,15 +36,19 @@ const (
 	defaultMaxResponseItems = 16
 	defaultRateLimit        = 5000
 	defaultRateBurst        = 10000
+	defaultZoneTTL          = 60
+	minimumPlannerTimeout   = 10 * time.Millisecond
+	maximumPlannerTimeout   = 30 * time.Second
+	minimumSocketTimeout    = 100 * time.Millisecond
+	maximumSocketTimeout    = 30 * time.Second
+	maximumResponseItems    = 256
+	maximumRateLimit        = 100000
+	maximumRateBurst        = 200000
 	maxSafeUDPSize          = 1232
 )
 
 type Config struct {
 	Address            string
-	Zone               string
-	Nameservers        []string
-	SOAEmail           string
-	TTL                uint32
 	Zones              []Zone
 	PlannerTimeout     time.Duration
 	ReadTimeout        time.Duration
@@ -52,8 +56,7 @@ type Config struct {
 	MaxResponseRecords int
 	RateLimit          int
 	RateBurst          int
-	AllowEmptyZones    bool
-	ForwardedResolvers []ForwardedResolver
+	Forwarders         []Forwarder
 	Observations       ObservationQueue
 	Automation         automation.Executor
 	Schedules          automation.ScheduleRegistrar
@@ -68,7 +71,7 @@ type Zone struct {
 	Records     []ZoneRecord `json:"records,omitempty"`
 }
 
-// ZoneRecord is an operator-managed exact DNS answer, not a dynamic hook.
+// ZoneRecord is an operator-managed exact DNS answer, not a provided endpoint.
 type ZoneRecord struct {
 	Name       string  `json:"name"`
 	Type       string  `json:"type"`
@@ -89,13 +92,11 @@ type Server struct {
 	udp          *mdns.Server
 	tcp          *mdns.Server
 	limiter      *rate.Limiter
-	forwarded    []forwardedRoute
+	forwarders   []forwarderRoute
 	observations ObservationQueue
-	zonesMu      sync.RWMutex
-
-	mu      sync.Mutex
-	started bool
-	closing bool
+	mu           sync.Mutex
+	started      bool
+	closing      bool
 }
 
 func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor) (*Server, error) {
@@ -103,14 +104,8 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 	if strings.TrimSpace(config.Address) == "" {
 		return nil, fmt.Errorf("DNS listen address is required")
 	}
-	if len(config.Zones) == 0 {
-		if config.Zone != "" || len(config.Nameservers) > 0 {
-			config.Zones = []Zone{{Name: config.Zone, Nameservers: config.Nameservers, SOAEmail: config.SOAEmail, TTL: config.TTL}}
-		} else if !config.AllowEmptyZones && len(config.ForwardedResolvers) == 0 {
-			return nil, fmt.Errorf("DNS authoritative zone is required")
-		}
-	} else if config.Zone != "" || len(config.Nameservers) > 0 {
-		return nil, fmt.Errorf("DNS zones cannot be combined with the legacy single-zone settings")
+	if len(config.Zones) == 0 && len(config.Forwarders) == 0 {
+		return nil, fmt.Errorf("at least one DNS zone or forwarder is required")
 	}
 	if planner == nil {
 		return nil, fmt.Errorf("DNS protocol planner is required")
@@ -118,27 +113,32 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 	if executor == nil {
 		return nil, fmt.Errorf("DNS gateway executor is required")
 	}
-	if config.PlannerTimeout <= 0 || config.ReadTimeout <= 0 || config.WriteTimeout <= 0 {
-		return nil, fmt.Errorf("DNS timeouts must be positive")
+	if config.PlannerTimeout < minimumPlannerTimeout || config.PlannerTimeout > maximumPlannerTimeout {
+		return nil, fmt.Errorf("DNS planner timeout must be between %s and %s", minimumPlannerTimeout, maximumPlannerTimeout)
 	}
-	if config.MaxResponseRecords < 1 {
-		return nil, fmt.Errorf("DNS maximum response records must be positive")
+	if config.ReadTimeout < minimumSocketTimeout || config.ReadTimeout > maximumSocketTimeout ||
+		config.WriteTimeout < minimumSocketTimeout || config.WriteTimeout > maximumSocketTimeout {
+		return nil, fmt.Errorf("DNS socket timeouts must be between %s and %s", minimumSocketTimeout, maximumSocketTimeout)
 	}
-	if config.RateLimit < 0 || config.RateBurst < 0 || (config.RateLimit > 0 && config.RateBurst < 1) {
+	if config.MaxResponseRecords < 1 || config.MaxResponseRecords > maximumResponseItems {
+		return nil, fmt.Errorf("DNS maximum response records must be between 1 and %d", maximumResponseItems)
+	}
+	if config.RateLimit < 0 || config.RateLimit > maximumRateLimit || config.RateBurst < 0 ||
+		config.RateBurst > maximumRateBurst || (config.RateLimit > 0 && config.RateBurst < 1) {
 		return nil, fmt.Errorf("DNS rate limit and burst settings are invalid")
 	}
 
-	zones, err := normalizeZones(config.Zones, config.TTL)
+	zones, err := normalizeZones(config.Zones, defaultZoneTTL)
 	if err != nil {
 		return nil, err
 	}
 	config.Zones = zones
-	forwarded, err := normalizeForwardedResolvers(config.ForwardedResolvers)
+	forwarders, err := normalizeForwarders(config.Forwarders)
 	if err != nil {
 		return nil, err
 	}
 
-	server := &Server{config: config, zones: config.Zones, planner: planner, executor: executor, forwarded: forwarded, observations: config.Observations}
+	server := &Server{config: config, zones: config.Zones, planner: planner, executor: executor, forwarders: forwarders, observations: config.Observations}
 	if config.RateLimit > 0 {
 		server.limiter = rate.NewLimiter(rate.Limit(config.RateLimit), config.RateBurst)
 	}
@@ -158,19 +158,6 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 	}
 
 	return server, nil
-}
-
-// ReplaceZones validates a complete control-plane snapshot before swapping it
-// atomically. An empty snapshot intentionally removes every served authority.
-func (s *Server) ReplaceZones(zones []Zone) error {
-	normalized, err := normalizeZones(zones, s.config.TTL)
-	if err != nil {
-		return err
-	}
-	s.zonesMu.Lock()
-	s.zones = normalized
-	s.zonesMu.Unlock()
-	return nil
 }
 
 func (s *Server) ListenAndServe() error {
@@ -300,10 +287,10 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 	observed := newDNSObservation(writer, question, queryID(writer, request, question))
 	zone := s.zoneFor(queryName)
 	if zone == nil {
-		if resolver := s.forwardedResolverFor(queryName, writer.RemoteAddr()); resolver != nil {
+		if forwarder := s.forwarderFor(queryName, writer.RemoteAddr()); forwarder != nil {
 			observed.mode = "forwarded"
-			observed.resolver = resolver.name
-			s.forwardQuery(writer, request, *resolver, observed)
+			observed.forwarder = forwarder.name
+			s.forwardQuery(writer, request, *forwarder, observed)
 			return
 		}
 		response.Rcode = mdns.RcodeRefused
@@ -349,7 +336,7 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 	}
 	endpoint := strings.ToLower(labels[len(labels)-1])
 	observed.mode = "provided"
-	observed.hook = endpoint
+	observed.endpoint = endpoint
 	dataLabels := labels[:len(labels)-1]
 	observed.data = strings.Join(dataLabels, ".")
 	payload, err := json.Marshal(Query{
@@ -712,8 +699,6 @@ func splitTXT(value string) []string {
 }
 
 func (s *Server) zoneFor(name string) *Zone {
-	s.zonesMu.RLock()
-	defer s.zonesMu.RUnlock()
 	var selected *Zone
 	for index := range s.zones {
 		zone := &s.zones[index]

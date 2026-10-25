@@ -11,7 +11,7 @@ import (
 func TestDNSProvidedAnswerEmitsPostAnswerObservation(t *testing.T) {
 	observations := &captureObservationQueue{accepted: true}
 	server, err := NewServer(Config{
-		Address: "127.0.0.1:5353", Zone: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+		Address: "127.0.0.1:5353", Zones: []Zone{{Name: "dns.example.test", Nameservers: []string{"ns1.example.test"}}},
 		Observations: observations,
 	}, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
 		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolDNS,
@@ -27,7 +27,7 @@ func TestDNSProvidedAnswerEmitsPostAnswerObservation(t *testing.T) {
 	}
 	observed := observations.last
 	if observed.Type != "dns.query" || observed.ID == "" || observed.Attributes["mode"] != "provided" ||
-		observed.Attributes["zone"] != "dns.example.test." || observed.Attributes["hook"] != "hook" ||
+		observed.Attributes["zone"] != "dns.example.test." || observed.Attributes["endpoint"] != "hook" ||
 		observed.Attributes["decision_action"] != "respond" || observed.Attributes["response_name"] != "NOERROR" ||
 		observed.Attributes["answer_types"] != "A:1" {
 		t.Fatalf("unexpected provided observation: %+v", observed)
@@ -52,14 +52,14 @@ func TestDNSManagedRecordEmitsManagedObservation(t *testing.T) {
 	if response.Rcode != mdns.RcodeSuccess || len(response.Answer) != 1 {
 		t.Fatalf("unexpected managed DNS answer: %+v", response)
 	}
-	if observations.last.Attributes["mode"] != "managed" || observations.last.Attributes["hook"] != "" {
+	if observations.last.Attributes["mode"] != "managed" || observations.last.Attributes["endpoint"] != "" {
 		t.Fatalf("unexpected managed observation: %+v", observations.last)
 	}
 }
 
 func TestDNSObservationDropCannotChangeSelectedAnswer(t *testing.T) {
 	server, err := NewServer(Config{
-		Address: "127.0.0.1:5353", Zone: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+		Address: "127.0.0.1:5353", Zones: []Zone{{Name: "dns.example.test", Nameservers: []string{"ns1.example.test"}}},
 		Observations: &captureObservationQueue{accepted: false},
 	}, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
 		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolDNS,

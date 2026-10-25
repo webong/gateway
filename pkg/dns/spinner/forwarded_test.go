@@ -19,7 +19,7 @@ func TestDNSForwardsQueriesForPermittedClients(t *testing.T) {
 		t.Fatal("forwarded DNS query unexpectedly reached Planner")
 		return bridge.GatewayDecision{}, nil
 	})
-	server, err := NewServer(Config{Address: "127.0.0.1:5353", Observations: observations, ForwardedResolvers: []ForwardedResolver{{
+	server, err := NewServer(Config{Address: "127.0.0.1:5353", Observations: observations, Forwarders: []Forwarder{{
 		Name: "application", Address: address, Transport: "udp", Domains: []string{"."},
 		ClientCIDRs: []string{"192.0.2.0/24"}, TimeoutMS: 500,
 	}}}, planner, &recordingExecutor{})
@@ -35,7 +35,7 @@ func TestDNSForwardsQueriesForPermittedClients(t *testing.T) {
 	if !ok || answer.A.String() != "198.51.100.42" || allowed.Authoritative || !allowed.RecursionAvailable {
 		t.Fatalf("unexpected forwarded resolver answer: %+v", allowed)
 	}
-	if observations.last.Attributes["mode"] != "forwarded" || observations.last.Attributes["resolver"] != "application" ||
+	if observations.last.Attributes["mode"] != "forwarded" || observations.last.Attributes["forwarder"] != "application" ||
 		observations.last.Attributes["authoritative"] != "false" || observations.last.Attributes["answer_types"] != "A:1" {
 		t.Fatalf("unexpected forwarded observation: %+v", observations.last)
 	}
@@ -52,7 +52,7 @@ func TestDNSForwardsQueriesForPermittedClients(t *testing.T) {
 	}
 }
 
-func TestDNSManagedZoneTakesPrecedenceOverForwardedResolver(t *testing.T) {
+func TestDNSManagedZoneTakesPrecedenceOverForwarder(t *testing.T) {
 	address, calls := forwardedUDPServer(t, "198.51.100.42")
 	planner := plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
 		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolDNS,
@@ -60,7 +60,7 @@ func TestDNSManagedZoneTakesPrecedenceOverForwardedResolver(t *testing.T) {
 	})
 	server, err := NewServer(Config{Address: "127.0.0.1:5353",
 		Zones: []Zone{{Name: "managed.example", Nameservers: []string{"ns1.managed.example"}}},
-		ForwardedResolvers: []ForwardedResolver{{Name: "application", Address: address, Transport: "udp",
+		Forwarders: []Forwarder{{Name: "application", Address: address, Transport: "udp",
 			Domains: []string{"."}, ClientCIDRs: []string{"192.0.2.0/24"}}},
 	}, planner, &recordingExecutor{})
 	if err != nil {
@@ -76,9 +76,9 @@ func TestDNSManagedZoneTakesPrecedenceOverForwardedResolver(t *testing.T) {
 	}
 }
 
-func TestDNSForwardedResolverFallsBackToTCPForTruncatedUDP(t *testing.T) {
+func TestDNSForwarderFallsBackToTCPForTruncatedUDP(t *testing.T) {
 	address, udpCalls, tcpCalls := forwardedUDPAndTCPServer(t, "203.0.113.7")
-	server, err := NewServer(Config{Address: "127.0.0.1:5353", ForwardedResolvers: []ForwardedResolver{{
+	server, err := NewServer(Config{Address: "127.0.0.1:5353", Forwarders: []Forwarder{{
 		Name: "application", Address: address, Transport: "udp", Domains: []string{"example"},
 		ClientCIDRs: []string{"192.0.2.0/24"}, TimeoutMS: 500,
 	}}}, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
@@ -97,28 +97,28 @@ func TestDNSForwardedResolverFallsBackToTCPForTruncatedUDP(t *testing.T) {
 	}
 }
 
-func TestDNSForwardedResolverRejectsAmbiguousOrOpenPolicy(t *testing.T) {
-	base := ForwardedResolver{Name: "application", Address: "127.0.0.1:53", Transport: "udp",
+func TestDNSForwarderRejectsAmbiguousOrOpenPolicy(t *testing.T) {
+	base := Forwarder{Name: "application", Address: "127.0.0.1:53", Transport: "udp",
 		Domains: []string{"."}, ClientCIDRs: []string{"192.0.2.0/24"}}
 	for _, test := range []struct {
-		name      string
-		resolvers []ForwardedResolver
+		name       string
+		forwarders []Forwarder
 	}{
-		{name: "open IPv4 network", resolvers: []ForwardedResolver{{Name: "application", Address: "127.0.0.1:53",
+		{name: "open IPv4 network", forwarders: []Forwarder{{Name: "application", Address: "127.0.0.1:53",
 			Transport: "udp", Domains: []string{"."}, ClientCIDRs: []string{"0.0.0.0/0"}}}},
-		{name: "duplicate route", resolvers: []ForwardedResolver{base, {Name: "other", Address: "127.0.0.2:53",
+		{name: "duplicate route", forwarders: []Forwarder{base, {Name: "other", Address: "127.0.0.2:53",
 			Transport: "udp", Domains: []string{"."}, ClientCIDRs: []string{"192.0.2.0/24"}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := normalizeForwardedResolvers(test.resolvers); err == nil {
+			if _, err := normalizeForwarders(test.forwarders); err == nil {
 				t.Fatal("invalid forwarded DNS policy was accepted")
 			}
 		})
 	}
 }
 
-func TestDNSForwardedResolverSelectsMostSpecificDomainAndClient(t *testing.T) {
-	routes, err := normalizeForwardedResolvers([]ForwardedResolver{
+func TestDNSForwarderSelectsMostSpecificDomainAndClient(t *testing.T) {
+	routes, err := normalizeForwarders([]Forwarder{
 		{Name: "default", Address: "127.0.0.1:5301", Domains: []string{"."}, ClientCIDRs: []string{"192.0.2.0/24"}},
 		{Name: "application", Address: "127.0.0.1:5302", Domains: []string{"internal.example"}, ClientCIDRs: []string{"192.0.2.0/24"}},
 		{Name: "tenant", Address: "127.0.0.1:5303", Domains: []string{"internal.example"}, ClientCIDRs: []string{"192.0.2.128/25"}},
@@ -126,10 +126,10 @@ func TestDNSForwardedResolverSelectsMostSpecificDomainAndClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &Server{forwarded: routes}
+	server := &Server{forwarders: routes}
 	resolve := func(name, client string) string {
 		t.Helper()
-		selected := server.forwardedResolverFor(canonicalName(name), &net.UDPAddr{IP: net.ParseIP(client), Port: 53000})
+		selected := server.forwarderFor(canonicalName(name), &net.UDPAddr{IP: net.ParseIP(client), Port: 53000})
 		if selected == nil {
 			return ""
 		}

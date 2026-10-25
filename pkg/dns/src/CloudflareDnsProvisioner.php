@@ -8,25 +8,33 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 use RuntimeException;
 use Throwable;
 
-final readonly class CloudflareDnsProvider implements DnsProvider
+final readonly class CloudflareDnsProvisioner implements DnsProvisioner
 {
     public function __construct(private HttpFactory $http) {}
 
-    public function provision(array $zone, array $options = []): array
+    public function provision(array $zone, array $options = [], array $state = []): array
     {
-        $token = trim((string) config('gateway.dns.providers.cloudflare.token', ''));
+        $token = trim((string) config('gateway.dns.provisioners.cloudflare.token', ''));
         if ($token === '') {
             throw new RuntimeException('Cloudflare DNS provisioning is not configured.');
         }
 
         $parent = $this->parentZone($zone['name'], $token, $options);
+        $previousRecords = is_array($state['managed_record_ids'] ?? null) ? $state['managed_record_ids'] : [];
+        $previouslyManaged = array_fill_keys(array_values(array_filter(
+            $previousRecords,
+            static fn (mixed $record): bool => is_string($record) && $record !== '',
+        )), true);
         $managed = [];
         try {
             foreach ($zone['nameservers'] as $nameserver) {
                 $existing = $this->request($token, 'get', "/zones/{$parent['id']}/dns_records", [
                     'type' => 'NS', 'name' => $zone['name'], 'content' => $nameserver,
                 ]);
-                if (($existing[0]['id'] ?? null) !== null) {
+                if (is_string($existing[0]['id'] ?? null)) {
+                    if (isset($previouslyManaged[$existing[0]['id']])) {
+                        $managed[] = $existing[0]['id'];
+                    }
                     continue;
                 }
                 $record = $this->request($token, 'post', "/zones/{$parent['id']}/dns_records", [
@@ -52,12 +60,12 @@ final readonly class CloudflareDnsProvider implements DnsProvider
             throw $exception;
         }
 
-        return ['parent_zone_id' => $parent['id'], 'managed_record_ids' => $managed];
+        return ['parent_zone_id' => $parent['id'], 'managed_record_ids' => array_values(array_unique($managed))];
     }
 
     public function deprovision(array $zone, array $state = []): void
     {
-        $token = trim((string) config('gateway.dns.providers.cloudflare.token', ''));
+        $token = trim((string) config('gateway.dns.provisioners.cloudflare.token', ''));
         $parent = $state['parent_zone_id'] ?? null;
         $records = $state['managed_record_ids'] ?? [];
         if ($token === '' || ! is_string($parent) || ! is_array($records)) {
@@ -96,7 +104,7 @@ final readonly class CloudflareDnsProvider implements DnsProvider
     /** @param array<string, mixed> $payload */
     private function request(string $token, string $method, string $path, array $payload = []): mixed
     {
-        $base = rtrim((string) config('gateway.dns.providers.cloudflare.base_url', 'https://api.cloudflare.com/client/v4'), '/');
+        $base = rtrim((string) config('gateway.dns.provisioners.cloudflare.base_url', 'https://api.cloudflare.com/client/v4'), '/');
         $request = $this->http->withToken($token)->acceptJson()->timeout(10);
         $response = $method === 'get'
             ? $request->get($base.$path, $payload)

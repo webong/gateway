@@ -36,6 +36,7 @@ it('lets installed Gateway extensions own their protocol policy and resource kin
         ->and($planners->resolve(Protocol::POP3))->toBeInstanceOf(EmailProtocolPlanner::class)
         ->and($kinds->contains('webstream.private-source'))->toBeTrue()
         ->and($kinds->contains('dns.zone'))->toBeTrue()
+        ->and($kinds->contains('dns.forwarder'))->toBeTrue()
         ->and($kinds->contains('email.domain'))->toBeTrue()
         ->and($kinds->contains('database.connection'))->toBeFalse();
 });
@@ -50,6 +51,7 @@ it('lets the DNS extension project its typed zone catalog into runtime desired s
         'address' => ':5353',
         'queries_per_second' => 100,
         'zones' => [],
+        'forwarders' => [],
     ]);
 });
 
