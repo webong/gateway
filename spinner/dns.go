@@ -22,7 +22,7 @@ import (
 	mdns "github.com/miekg/dns"
 	"golang.org/x/time/rate"
 
-	bridge "github.com/webong/gateway/arranger/protocol"
+	bridge "github.com/webong/gateway/arranger/integration"
 )
 
 var ErrServerClosed = errors.New("DNS server closed")
