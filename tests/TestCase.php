@@ -8,6 +8,8 @@ use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Spatie\WebhookClient\WebhookClientServiceProvider;
 use Spatie\WebhookServer\WebhookServerServiceProvider;
+use Webong\Gateway\Email\MxResolver;
+use Webong\Gateway\Email\TxtResolver;
 use Webong\Proxy\WebProxyServiceProvider;
 use Webong\Gateway\Email\EmailServiceProvider;
 use Webong\Gateway\GatewayServiceProvider;
@@ -15,6 +17,15 @@ use Webong\Gateway\Web\WebServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $resolver = new Support\EmptyEmailDnsResolver();
+        $this->app->instance(MxResolver::class, $resolver);
+        $this->app->instance(TxtResolver::class, $resolver);
+    }
+
     /** @return list<class-string> */
     protected function getPackageProviders($app): array
     {

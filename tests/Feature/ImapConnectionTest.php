@@ -15,7 +15,7 @@ use Webong\Gateway\Protocols\Protocol;
 
 it('manages an IMAP-only account connection without granting SMTP', function (): void {
     app(EmailUpstreamCatalog::class)->create(['protocol' => 'imap', 'name' => 'imap-only',
-        'address' => 'imap.example.test:993', 'server_name' => 'imap.example.test']);
+        'address' => '192.0.2.1:993', 'server_name' => 'imap.example.test']);
     $one = $this->withToken('registry-secret')->postJson('https://localhost/accounts', ['id' => 'one'])
         ->assertCreated()->json();
     $two = $this->withToken('registry-secret')->postJson('https://localhost/accounts', ['id' => 'two'])
@@ -30,7 +30,7 @@ it('manages an IMAP-only account connection without granting SMTP', function ():
     $password = $created['imap_client_password'];
     $store = app(MailboxConnectionStore::class);
     app(EmailUpstreamCatalog::class)->create(['protocol' => 'smtp', 'name' => 'smtp-optional',
-        'address' => 'smtp.example.test:465', 'server_name' => 'smtp.example.test', 'tls_mode' => 'implicit']);
+        'address' => '192.0.2.2:465', 'server_name' => 'smtp.example.test', 'tls_mode' => 'implicit']);
     $sending = $this->withToken($one['token'])->postJson('https://localhost/email/mailbox-accounts/one/sending-connections', [
         'address' => 'support@acme.test', 'smtp_upstream_id' => 'smtp-optional',
         'smtp_username' => 'support@acme.test', 'smtp_auth' => 'password', 'smtp_secret' => 'sending-secret',
