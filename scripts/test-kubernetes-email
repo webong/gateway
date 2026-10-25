@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/dns-extension-smoke.sh"
+
 WITH_DNS=false
 WITH_RELAY=false
 for option in "$@"; do
@@ -17,6 +20,9 @@ fi
 if [[ "$WITH_DNS" == true ]] && ! command -v dig >/dev/null 2>&1; then
     echo 'dig is required for the combined Email/DNS smoke.' >&2
     exit 2
+fi
+if [[ "$WITH_DNS" == true ]]; then
+    gateway_require_dns_extension_artifact
 fi
 
 NAMESPACE="gateway-email-smoke-$$-$RANDOM"
@@ -83,9 +89,6 @@ kubectl -n "$NAMESPACE" create configmap gateway-smtp \
     --from-literal=hostname=smtp.managed.test >/dev/null
 kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
     --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" >/dev/null
-if [[ "$WITH_DNS" == true ]]; then
-    PLANNER_SECRET_ARGS+=(--from-literal=GATEWAY_DNS_SMOKE=1)
-fi
 kubectl -n "$NAMESPACE" create secret generic planner-credentials \
     "${PLANNER_SECRET_ARGS[@]}" >/dev/null
 unset APP_KEY
@@ -111,6 +114,9 @@ if [[ "$WITH_RELAY" == true ]]; then
 fi
 kubectl -n "$NAMESPACE" exec deployment/planner -- \
     php /app/tests/Fixtures/kubernetes-smtp-register.php
+if [[ "$WITH_DNS" == true ]]; then
+    gateway_activate_dns_extension "$NAMESPACE"
+fi
 
 OVERLAY=infra/kubernetes/spinner-email
 if [[ "$WITH_DNS" == true ]]; then OVERLAY=infra/kubernetes/spinner-email-dns; fi
@@ -173,7 +179,7 @@ if [[ "$WITH_DNS" == true ]]; then
             "content" => json_encode(["external_id" => "email-dns-smoke", "zone" => "mailhooks.example.test"], JSON_THROW_ON_ERROR),
             "timeout" => 5,
         ]]);
-        $response = file_get_contents("http://127.0.0.1:8080/dns/hooks", false, $context);
+        $response = file_get_contents("http://127.0.0.1:8080/dns/endpoints", false, $context);
         if ($response === false) { exit(1); }
         $hook = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
         if (!is_string($hook["token"] ?? null)) { exit(1); }
@@ -181,7 +187,7 @@ if [[ "$WITH_DNS" == true ]]; then
     ')
     if [[ -z "$DNS_TOKEN" || ! "$DNS_UDP_PORT" =~ ^[0-9]{4,5}$ ||
           ! "$DNS_TCP_PORT" =~ ^[0-9]{4,5}$ ]]; then
-        echo 'Combined overlay did not provide a DNS hook and both NodePorts.' >&2
+        echo 'Combined overlay did not provide a DNS Endpoint and both NodePorts.' >&2
         exit 1
     fi
 fi

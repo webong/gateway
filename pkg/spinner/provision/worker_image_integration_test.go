@@ -77,7 +77,7 @@ func newWorkerImageFixture(t *testing.T) *workerImageFixture {
 		"COMPOSER_VENDOR_DIR="+filepath.Join(root, "vendor"),
 		"DB_CONNECTION=sqlite", "DB_DATABASE="+database,
 		"GATEWAY_INTERNAL_TOKEN=test-only", "REGISTRY_TOKEN=registry-test-only",
-		"GATEWAY_HTTP_REGISTRY_SMOKE=1", "GATEWAY_DNS_SMOKE=1",
+		"GATEWAY_HTTP_REGISTRY_SMOKE=1",
 		"GATEWAY_SMOKE_PROVIDERS=Webong\\Gateway\\Centrifugo\\CentrifugoIntegrationServiceProvider",
 		"GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS=2",
 		"LARAVEL_STORAGE_PATH="+storage,

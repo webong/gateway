@@ -128,7 +128,7 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, integrationWorkload bo
 		"COMPOSER_VENDOR_DIR="+filepath.Join(root, "vendor"),
 		"DB_CONNECTION=sqlite", "DB_DATABASE="+database,
 		"GATEWAY_INTERNAL_TOKEN=test-only", "REGISTRY_TOKEN=registry-test-only",
-		"GATEWAY_HTTP_REGISTRY_SMOKE=1", "GATEWAY_DNS_SMOKE=1",
+		"GATEWAY_HTTP_REGISTRY_SMOKE=1",
 		"GATEWAY_REVERB_SMOKE=1",
 		"GATEWAY_SMOKE_PROVIDERS="+provider,
 		"GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS=2",

@@ -97,7 +97,8 @@ test-dns:
 	GOWORK=off go -C pkg/dns test $(GOFLAGS) ./spinner -run TestDNSServerServesUDPAndTCP -count=1
 
 test-dns-integration:
-	bash scripts/dns-smoke.sh
+	GOWORK=off go -C tools/spinner test $(GOFLAGS) ./bridge -run TestDNSCanBeInstalledAfterSpinnerStarts -count=1
+	vendor/bin/pest --compact tests/Feature/DnsEndpointControlPlaneTest.php tests/Feature/DnsForwarderTest.php
 
 test-websocket:
 	bash scripts/websocket-smoke.sh

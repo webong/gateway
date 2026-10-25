@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/dns-extension-smoke.sh"
+gateway_require_dns_extension_artifact
+
 if [[ $(kubectl config current-context) != orbstack ]]; then
     echo 'The disposable DNS smoke requires the orbstack Kubernetes context.' >&2
     exit 2
@@ -35,7 +39,6 @@ kubectl -n "$NAMESPACE" create secret generic planner-credentials \
     --from-literal=APP_KEY="$APP_KEY" \
     --from-literal=REGISTRY_TOKEN="$(openssl rand -hex 24)" \
     --from-literal=GATEWAY_INTERNAL_TOKEN="$INTERNAL_TOKEN" \
-    --from-literal=GATEWAY_DNS_SMOKE=1 \
     --from-literal=GATEWAY_HTTP_REGISTRY_SMOKE=1 \
     --from-literal='GATEWAY_PATH_RESOLVER=Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
     --from-literal=APP_ENV=testing \
@@ -52,6 +55,7 @@ if ! kubectl -n "$NAMESPACE" rollout status deployment/planner --timeout=120s >/
     kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
     exit 1
 fi
+gateway_activate_dns_extension "$NAMESPACE"
 kubectl -n "$NAMESPACE" apply -k infra/kubernetes/spinner-dns >/dev/null
 kubectl -n "$NAMESPACE" set image deployment/spinner spinner=gateway-dns-spinner-smoke:local >/dev/null
 if ! kubectl -n "$NAMESPACE" rollout status deployment/spinner --timeout=120s >/dev/null; then
@@ -98,7 +102,7 @@ create_zone() {
     ' "$zone"
 }
 
-create_hook() {
+create_endpoint() {
     local zone=$1
     kubectl -n "$NAMESPACE" exec deployment/planner -- php -r '
         $body = json_encode(["external_id" => "kubernetes", "zone" => $argv[1]], JSON_THROW_ON_ERROR);
@@ -108,7 +112,7 @@ create_hook() {
             "content" => $body,
             "timeout" => 5,
         ]]);
-        $response = file_get_contents("http://127.0.0.1:8080/dns/hooks", false, $context);
+        $response = file_get_contents("http://127.0.0.1:8080/dns/endpoints", false, $context);
         if ($response === false) { exit(1); }
         $value = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
         if (!is_string($value["token"] ?? null)) { exit(1); }
@@ -117,10 +121,10 @@ create_hook() {
 }
 create_zone first.example.test
 create_zone second.example.test
-FIRST_TOKEN=$(create_hook first.example.test)
-SECOND_TOKEN=$(create_hook second.example.test)
+FIRST_TOKEN=$(create_endpoint first.example.test)
+SECOND_TOKEN=$(create_endpoint second.example.test)
 if [[ -z "$FIRST_TOKEN" || -z "$SECOND_TOKEN" || "$FIRST_TOKEN" == "$SECOND_TOKEN" ]]; then
-    echo 'Planner did not create distinct DNS hook tokens.' >&2
+    echo 'Planner did not create distinct DNS Endpoint tokens.' >&2
     exit 1
 fi
 

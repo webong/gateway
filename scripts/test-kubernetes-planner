@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/dns-extension-smoke.sh"
+
 WITH_DNS=false
 WITH_EMAIL=false
 WITH_WEBSTREAM=false
@@ -19,6 +22,9 @@ fi
 if [[ "$WITH_DNS" == true ]] && ! command -v dig >/dev/null 2>&1; then
     echo 'dig is required for the Planner/DNS smoke.' >&2
     exit 2
+fi
+if [[ "$WITH_DNS" == true ]]; then
+    gateway_require_dns_extension_artifact
 fi
 
 NAMESPACE="gateway-planner-smoke-$$-$RANDOM"
@@ -137,6 +143,9 @@ if [[ "$HEALTHY" != true ]]; then
     kubectl -n "$NAMESPACE" get pods,service,endpointslice -o wide >&2 || true
     kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
     exit 1
+fi
+if [[ "$WITH_DNS" == true ]]; then
+    gateway_activate_dns_extension "$NAMESPACE"
 fi
 
 SPINNER_OVERLAY=infra/kubernetes/spinner
@@ -455,17 +464,17 @@ if [[ "$WITH_DNS" == true ]]; then
             "content" => json_encode(["external_id" => "production-planner-smoke", "zone" => "hooks.example.test"]),
             "timeout" => 5,
         ]]);
-        $body = @file_get_contents("http://spinner/dns/hooks", false, $context);
+        $body = @file_get_contents("http://spinner/dns/endpoints", false, $context);
         preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
         $hook = json_decode($body ?: "", true);
         if ((int) ($matches[1] ?? 0) !== 201 || ! is_string($hook["token"] ?? null)) {
-            fwrite(STDERR, "Production Planner DNS hook creation failed: HTTP ".($matches[1] ?? "0")." $body\n");
+            fwrite(STDERR, "Production Planner DNS Endpoint creation failed: HTTP ".($matches[1] ?? "0")." $body\n");
             exit(1);
         }
         echo $hook["token"];
     ')
     if [[ ! "$DNS_TOKEN" =~ ^[a-z0-9-]+$ ]]; then
-        echo 'Production Planner returned an invalid DNS hook token.' >&2
+        echo 'Production Planner returned an invalid DNS Endpoint token.' >&2
         exit 1
     fi
     kubectl -n "$NAMESPACE" patch service spinner-dns --type=merge \
@@ -496,7 +505,7 @@ if [[ "$WITH_DNS" == true ]]; then
             sleep 1
         done
         if [[ "$DNS_ANSWERED" != true ]]; then
-            echo "Production Planner DNS hook did not answer authoritatively over $dns_protocol: $DNS_ANSWER" >&2
+            echo "Production Planner DNS Endpoint did not answer authoritatively over $dns_protocol: $DNS_ANSWER" >&2
             exit 1
         fi
     done
