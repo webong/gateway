@@ -16,6 +16,7 @@ require (
 
 require (
 	github.com/emersion/go-message v0.18.2 // indirect
+	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect

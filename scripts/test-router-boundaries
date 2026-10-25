@@ -15,12 +15,12 @@ fi
 echo "$extension has no Spinner implementation or Gateway core dependency."
 done
 
-dependencies=$(GOWORK=off go -C "$ROOT/mod/arranger" list -mod=readonly -deps ./router)
+dependencies=$(GOWORK=off go -C "$ROOT/mod/arranger" list -mod=readonly -deps ./integration)
 if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)\|^github.com/roadrunner-server/' <<<"$dependencies"; then
-    echo 'Arranger Router policy must not depend on Spinner or RoadRunner.' >&2
+    echo 'Arranger Integration must not depend on Spinner or RoadRunner.' >&2
     exit 1
 fi
-echo 'Arranger Router policy has no Spinner or RoadRunner dependency.'
+echo 'Arranger Integration has no Spinner or RoadRunner dependency.'
 
 dependencies=$(GOWORK=off go -C "$ROOT/pkg/spinner" list -mod=readonly -deps ./...)
 if grep -q '^github.com/roadrunner-server/\|^github.com/webong/gateway/pkg/roadrunner\($\|/\)' <<<"$dependencies"; then
