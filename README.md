@@ -2,7 +2,7 @@
 
 This optional Go package adds the `javascript` automation language using the
 pinned QuickJS-NG adapter. It implements the public
-`github.com/webong/gateway/driver/automation` interface and does not import
+`github.com/webong/gateway/arranger/automation` interface and does not import
 Spinner. A default Gateway build does not link QuickJS.
 
 Enable it when building a Gateway composition root:
