@@ -17,9 +17,10 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
+	emailspinner "github.com/webong/gateway/pkg/email/spinner"
+	"github.com/webong/gateway/pkg/email/spinner/smtp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
-	"github.com/webong/gateway/pkg/spinner/bridge/smtp"
 )
 
 type queue interface {
@@ -151,7 +152,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		http.NotFound(writer, request)
 		return
 	}
-	if path == "/email/submissions" {
+	if path == emailspinner.SubmissionPath {
 		handler.submitEmail(writer, request)
 		return
 	}

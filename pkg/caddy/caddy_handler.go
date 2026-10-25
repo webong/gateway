@@ -25,16 +25,17 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	emailspinner "github.com/webong/gateway/pkg/email/spinner"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
-	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/spinnerapi"
 	"github.com/webong/gateway/pkg/spinner/transport"
+	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
+	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 const (
@@ -317,9 +318,9 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 	if g.executor == nil {
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("gateway transport is not configured"))
 	}
-	if r.URL.Path == "/email/submissions" {
+	if r.URL.Path == emailspinner.SubmissionPath {
 		passThrough := &caddyPassThrough{handler: next}
-		bridge.NewEdge(nil, nil, g.MaxBodySize).SetPassThrough(passThrough).ServeHTTP(w, r)
+		emailspinner.HandleSubmission(w, r, passThrough, g.MaxBodySize)
 		return passThrough.err
 	}
 	if gatewayws.IsUpgrade(r) {

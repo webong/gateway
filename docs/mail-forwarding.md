@@ -1064,7 +1064,7 @@ remain their modules rather than Gateway storage responsibilities.
 
 ## First implementation slice
 
-`pkg/spinner/bridge/smtpout` implements authenticated relay submission with plaintext,
+`pkg/email/spinner/smtpout` implements authenticated relay submission with plaintext,
 STARTTLS, or implicit TLS transport modes. Plaintext is intended only for
 local/private test relays; production configuration should use STARTTLS or
 implicit TLS. Typed SMTP `GatewayDelivery` values now run through a durable

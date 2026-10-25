@@ -20,6 +20,8 @@ require (
 require (
 	ergo.services/ergo v1.999.330 // indirect
 	github.com/buke/quickjs-go v0.7.7 // indirect
+	github.com/webong/gateway/pkg/email v0.0.0 // indirect
+	github.com/webong/gateway/pkg/web v0.0.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
@@ -36,3 +38,7 @@ replace github.com/webong/gateway/pkg/lua => ../../pkg/lua
 replace github.com/webong/gateway/pkg/shell => ../../pkg/shell
 
 replace github.com/webong/gateway/pkg/spinner => ../../pkg/spinner
+
+replace github.com/webong/gateway/pkg/email => ../../pkg/email
+
+replace github.com/webong/gateway/pkg/web => ../../pkg/web

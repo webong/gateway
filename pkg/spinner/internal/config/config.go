@@ -141,12 +141,6 @@ type IMAPUpstreamSpec struct {
 	ServerName string `json:"server_name"`
 }
 
-// HostedMailAdapterSpec is a private Planner-resolved acceptance endpoint.
-type HostedMailAdapterSpec struct {
-	URL         string `json:"url"`
-	BearerToken string `json:"bearer_token"`
-}
-
 // ParseWebstreamPrivateNetworks sets a deployment ceiling, not a source grant.
 // Planner grants must be narrower than these ranges to permit a private dial.
 func ParseWebstreamPrivateNetworks(raw string) ([]netip.Prefix, error) {

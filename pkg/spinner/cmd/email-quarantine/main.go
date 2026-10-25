@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/webong/gateway/pkg/spinner/bridge/smtp"
+	"github.com/webong/gateway/pkg/email/spinner/smtp"
 )
 
 func main() {

@@ -14,13 +14,14 @@ import (
 	"time"
 
 	arrangerrouter "github.com/webong/gateway/arranger/router"
+	emailspinner "github.com/webong/gateway/pkg/email/spinner"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
-	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
+	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
+	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 // Planner is an in-process PHP handler with an owned runtime lifecycle.
@@ -119,7 +120,8 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err != nil {
 		return err
 	}
-	handler := NewHandler(planner, edge, websocket, webstream, managed, workerIngress)
+	publicEdge := emailspinner.SubmissionHandler(edge, planner, spinner.MaxBodySize)
+	handler := NewHandler(planner, publicEdge, websocket, webstream, managed, workerIngress)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -293,7 +295,7 @@ func NewHandler(planner, edge, websocket, webstream http.Handler, managed Manage
 		workerIngressHandler = loggedWorkerIngress(workerIngress[0])
 	}
 	return arrangerrouter.NewHandler(planner, hooks, managed, arrangerrouter.PublicRoute{
-		Prefix:  "/email/worker-ingress",
+		Prefix:  emailspinner.WorkerIngressPrefix,
 		Handler: workerIngressHandler,
 	})
 }
@@ -308,7 +310,7 @@ func loggedWorkerIngress(handler http.Handler) http.Handler {
 
 var internalPlannerRequest = arrangerrouter.AnyInternalRequest(
 	provision.InternalPlannerRequest,
-	transport.EmailInternalPlannerRequest,
+	emailspinner.InternalPlannerRequest,
 )
 
 // InternalPlannerRequest allows only private routes required by capabilities

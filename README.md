@@ -69,11 +69,9 @@ The monorepo publishes separate Composer packages:
 - `webong/gateway` contains the framework-free contracts and protocol values in
   `mod/adapter/src/`.
 - `webong/gateway-planner` contains the Laravel Planner core in `pkg/planner/`.
-- `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are Gateway
-  Extensions with Planner entrypoints. They own their resource kinds, routes,
-  migrations, commands, and protocol policy and register through the shared
-  extension-provider contract.
-  including configuration, migrations, and its service provider.
+- `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are
+  self-contained Gateway Extensions. Each owns its Planner policy entrypoint
+  and Spinner transport entrypoint under one package identity and version.
 - `webong/gateway-*` extension packages own their sources, dependencies, and
   discovery metadata. An extension may contribute one or more Integration,
   Automation, or Companion capabilities; those capability names describe what

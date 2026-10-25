@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"time"
 
+	emaildelivery "github.com/webong/gateway/pkg/email/spinner/delivery"
+	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	"github.com/webong/gateway/pkg/spinner/bridge/httpout"
-	"github.com/webong/gateway/pkg/spinner/bridge/smtpout"
 	"github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
@@ -47,7 +48,7 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 			}
 			signer = resolved
 		}
-		adapter, err := newManagedSMTPAdapter(settings.OutboundResolverURL, settings.InternalToken, settings.SMTPRelayTimeout, signer)
+		adapter, err := emaildelivery.NewManagedSMTPAdapter(settings.OutboundResolverURL, settings.InternalToken, settings.SMTPRelayTimeout, signer)
 		if err != nil {
 			return nil, err
 		}
@@ -75,11 +76,11 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 		if adapters["hosted.mail"] != nil {
 			return nil, fmt.Errorf("hosted.mail is reserved for Planner-managed hosted delivery")
 		}
-		resolver, err := newHTTPHostedMailResolver(settings.HostedMailResolverURL, settings.InternalToken)
+		resolver, err := emaildelivery.NewHTTPHostedMailResolver(settings.HostedMailResolverURL, settings.InternalToken)
 		if err != nil {
 			return nil, err
 		}
-		adapter, err := newManagedHostedMailAdapter(resolver, settings.HostedMailAllowedHosts, nil)
+		adapter, err := emaildelivery.NewManagedHostedMailAdapter(resolver, settings.HostedMailAllowedHosts, nil)
 		if err != nil {
 			return nil, err
 		}

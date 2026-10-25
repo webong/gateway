@@ -14,18 +14,17 @@ import (
 
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
+	dnsgateway "github.com/webong/gateway/pkg/dns/spinner"
+	emailspinner "github.com/webong/gateway/pkg/email/spinner"
+	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
+	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
+	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
 	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
-	dnsgateway "github.com/webong/gateway/pkg/spinner/bridge/dns"
-	imapgateway "github.com/webong/gateway/pkg/spinner/bridge/imap"
-	pop3gateway "github.com/webong/gateway/pkg/spinner/bridge/pop3"
-	smtpgateway "github.com/webong/gateway/pkg/spinner/bridge/smtp"
-	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
@@ -34,6 +33,8 @@ import (
 	"github.com/webong/gateway/pkg/spinner/internal/workers"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
+	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
+	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 type extensionRouteHandler interface {
@@ -160,10 +161,12 @@ func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handle
 	if s.scheduleRegistrar != nil {
 		edge.SetScheduleRegistrar(s.scheduleRegistrar)
 	}
+	var submissionPlanner http.Handler
 	if len(passThrough) > 0 {
-		edge.SetPassThrough(passThrough[0])
+		submissionPlanner = passThrough[0]
+		edge.SetPassThrough(submissionPlanner)
 	}
-	return edge
+	return emailspinner.SubmissionHandler(edge, submissionPlanner, s.config.MaxBodySize)
 }
 
 func (s *Server) NewGatewayExecutor() *bridge.RelayExecutor {
@@ -235,14 +238,6 @@ func (s *Server) ConfigureDeliveryQueue() error {
 }
 
 func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/email/submissions" {
-		if s.relayHandle == nil {
-			http.Error(w, "PHP relay planner is not configured", http.StatusServiceUnavailable)
-			return
-		}
-		s.relayHandle.ServeHTTP(w, r)
-		return
-	}
 	if s.extensionHandler != nil && s.extensionHandler.ServeIfMatched(w, r) {
 		return
 	}

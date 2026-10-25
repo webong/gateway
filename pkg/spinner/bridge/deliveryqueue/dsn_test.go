@@ -14,8 +14,8 @@ import (
 
 	"github.com/emersion/go-sasl"
 	smtpserver "github.com/emersion/go-smtp"
+	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
-	"github.com/webong/gateway/pkg/spinner/bridge/smtpout"
 )
 
 type failureNoticeRelay struct{ notices chan bridge.GatewayDelivery }

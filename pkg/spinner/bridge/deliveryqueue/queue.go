@@ -28,7 +28,7 @@ var ErrNotFound = errors.New("delivery not found")
 var ErrAlreadyPending = errors.New("delivery is already pending")
 var ErrInvalidState = errors.New("invalid delivery state")
 var ErrSpoolInUse = errors.New("delivery spool is already active in this process")
-var ErrIdempotencyConflict = errors.New("delivery idempotency key conflicts with another message")
+var ErrIdempotencyConflict = bridge.ErrIdempotencyConflict
 
 var activeSpools sync.Map
 

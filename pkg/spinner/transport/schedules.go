@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/pkg/email/spinner/mailnet"
+	"github.com/webong/gateway/pkg/email/spinner/mailpoll"
 	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
-	"github.com/webong/gateway/pkg/spinner/internal/mailpoll"
 )
 
 // ScheduleControl is the shared private schedule protocol for an embedded
@@ -42,7 +43,7 @@ func EmbeddedMailboxPoller(handler http.Handler, spinner *Router) (mailpoll.Runn
 	}
 	return mailpoll.Runner{Control: control,
 		Dial: func(ctx context.Context, claim mailpoll.Claim) (net.Conn, error) {
-			return bridge.DialTLSMailUpstream(ctx, claim.UpstreamAddress, claim.UpstreamServerName,
+			return mailnet.DialTLSMailUpstream(ctx, claim.UpstreamAddress, claim.UpstreamServerName,
 				claim.UpstreamNetworkScope, 10*time.Second, nil)
 		},
 		Deliver: func(ctx context.Context, target string, headers http.Header, body []byte) (int, error) {

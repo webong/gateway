@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	dnsgateway "github.com/webong/gateway/pkg/dns/spinner"
+	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
+	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
+	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
-	dnsgateway "github.com/webong/gateway/pkg/spinner/bridge/dns"
-	imapgateway "github.com/webong/gateway/pkg/spinner/bridge/imap"
-	pop3gateway "github.com/webong/gateway/pkg/spinner/bridge/pop3"
-	smtpgateway "github.com/webong/gateway/pkg/spinner/bridge/smtp"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
 )
 

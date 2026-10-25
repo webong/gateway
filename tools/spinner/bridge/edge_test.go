@@ -146,26 +146,6 @@ func TestEdgeRestoresBodyForPHPPassThrough(t *testing.T) {
 	}
 }
 
-func TestEdgePassesEmailCredentialsOnlyToApplicationRoute(t *testing.T) {
-	planned := false
-	edge := NewEdge(plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {
-		planned = true
-		return RoutePlan{}, nil
-	}), &recordingExecutor{}, 4).SetPassThrough(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Basic private" {
-			t.Error("submission credentials were lost")
-		}
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	request := httptest.NewRequest(http.MethodPost, "/email/submissions", strings.NewReader(strings.Repeat("x", 20)))
-	request.Header.Set("Authorization", "Basic private")
-	response := httptest.NewRecorder()
-	edge.ServeHTTP(response, request)
-	if planned || response.Code != http.StatusAccepted {
-		t.Fatalf("email credentials reached route planner or submission was denied: planned=%v status=%d", planned, response.Code)
-	}
-}
-
 func TestEdgeReturnsImmediatePHPResponseWithoutGoDelivery(t *testing.T) {
 	executor := &recordingExecutor{}
 	planner := plannerFunc(func(_ context.Context, _ IngressRequest) (RoutePlan, error) {

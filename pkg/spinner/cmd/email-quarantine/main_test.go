@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/webong/gateway/pkg/spinner/bridge/smtp"
+	"github.com/webong/gateway/pkg/email/spinner/smtp"
 )
 
 func TestOperatorExportRequiresNewFileAndExplicitDeleteID(t *testing.T) {

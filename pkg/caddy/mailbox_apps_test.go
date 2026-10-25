@@ -22,8 +22,8 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
-	"github.com/webong/gateway/pkg/spinner/bridge/imap"
-	"github.com/webong/gateway/pkg/spinner/bridge/pop3"
+	"github.com/webong/gateway/pkg/email/spinner/imap"
+	"github.com/webong/gateway/pkg/email/spinner/pop3"
 )
 
 func TestMailboxAppsParseCaddyfileAllowedHosts(t *testing.T) {

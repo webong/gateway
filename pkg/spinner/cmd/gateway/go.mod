@@ -25,6 +25,9 @@ require (
 	github.com/miekg/dns v1.1.65 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
+	github.com/webong/gateway/pkg/dns v0.0.0 // indirect
+	github.com/webong/gateway/pkg/email v0.0.0 // indirect
+	github.com/webong/gateway/pkg/web v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
@@ -39,6 +42,12 @@ require (
 replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 
 replace github.com/webong/gateway/pkg/spinner => ../..
+
+replace github.com/webong/gateway/pkg/dns => ../../../dns
+
+replace github.com/webong/gateway/pkg/email => ../../../email
+
+replace github.com/webong/gateway/pkg/web => ../../../web
 
 replace github.com/webong/ext/pkg/plugin-go => ../../../../../ext/pkg/plugin-go
 

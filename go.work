@@ -4,6 +4,9 @@ use (
 	./mod/arranger
 	./pkg/caddy
 	./pkg/centrifugo
+	./pkg/database
+	./pkg/dns
+	./pkg/email
 	./pkg/frankenphp
 	./pkg/frankenphp/cmd/router
 	./pkg/golang
@@ -18,6 +21,7 @@ use (
 	./pkg/shell
 	./pkg/spinner
 	./pkg/spinner/cmd/gateway
+	./pkg/web
 	./tools
 	./tools/spinner
 )

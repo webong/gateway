@@ -14,9 +14,10 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
+	"github.com/webong/gateway/pkg/email/spinner/imap"
+	"github.com/webong/gateway/pkg/email/spinner/mailnet"
+	"github.com/webong/gateway/pkg/email/spinner/pop3"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
-	"github.com/webong/gateway/pkg/spinner/bridge/imap"
-	"github.com/webong/gateway/pkg/spinner/bridge/pop3"
 	"go.uber.org/zap"
 )
 
@@ -49,7 +50,7 @@ type MailboxAppOptions struct {
 	PlannerTimeout      caddy.Duration `json:"planner_timeout,omitempty"`
 	UpstreamTimeout     caddy.Duration `json:"upstream_timeout,omitempty"`
 	MaxBodySize         int64          `json:"max_body_size,omitempty"`
-	dialManagedUpstream bridge.MailTLSDialer
+	dialManagedUpstream mailnet.MailTLSDialer
 
 	server   mailboxServer
 	listener net.Listener

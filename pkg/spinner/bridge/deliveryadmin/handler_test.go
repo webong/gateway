@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/pkg/email/spinner/smtp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
-	"github.com/webong/gateway/pkg/spinner/bridge/smtp"
 )
 
 const deliveryID = "0123456789abcdef0123456789abcdef"

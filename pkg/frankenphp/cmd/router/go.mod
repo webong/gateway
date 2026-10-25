@@ -66,6 +66,9 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/unrolled/secure v1.17.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
+	github.com/webong/gateway/pkg/dns v0.0.0 // indirect
+	github.com/webong/gateway/pkg/email v0.0.0 // indirect
+	github.com/webong/gateway/pkg/web v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
@@ -92,3 +95,9 @@ replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 replace github.com/webong/gateway/pkg/frankenphp => ../..
 
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner
+
+replace github.com/webong/gateway/pkg/dns => ../../../../pkg/dns
+
+replace github.com/webong/gateway/pkg/email => ../../../../pkg/email
+
+replace github.com/webong/gateway/pkg/web => ../../../../pkg/web

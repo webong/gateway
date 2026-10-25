@@ -94,7 +94,7 @@ test-email:
 	bash scripts/email-smoke.sh
 
 test-dns:
-	GOWORK=off go -C pkg/spinner test $(GOFLAGS) ./bridge/dns -run TestDNSServerServesUDPAndTCP -count=1
+	GOWORK=off go -C pkg/dns test $(GOFLAGS) ./spinner -run TestDNSServerServesUDPAndTCP -count=1
 
 test-dns-integration:
 	bash scripts/dns-smoke.sh

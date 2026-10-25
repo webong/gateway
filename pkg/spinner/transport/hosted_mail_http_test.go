@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	emaildelivery "github.com/webong/gateway/pkg/email/spinner/delivery"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	"github.com/webong/gateway/pkg/spinner/internal/config"
@@ -51,7 +52,7 @@ func TestHostedMailAdaptersIsolateTwoAccountsAndRetryWithOneIdempotencyKey(t *te
 		defer servers[account].Close()
 		name := "zorvia." + account
 		if err := RegisterDeliveryAdapterFactory(name, func(*config.Config) (bridge.GatewayDeliveryAdapter, error) {
-			return NewHostedMailHTTPAdapter(config.HostedMailAdapterSpec{URL: servers[account].URL, BearerToken: "token-" + account}, servers[account].Client())
+			return emaildelivery.NewHostedMailHTTPAdapter(emaildelivery.HostedMailAdapterSpec{URL: servers[account].URL, BearerToken: "token-" + account}, servers[account].Client())
 		}); err != nil {
 			t.Fatal(err)
 		}

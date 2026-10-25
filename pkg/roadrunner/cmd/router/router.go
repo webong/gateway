@@ -11,13 +11,14 @@ import (
 	"sync"
 	"time"
 
+	emailspinner "github.com/webong/gateway/pkg/email/spinner"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
-	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/spinner/bridge/webstream"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	"github.com/webong/gateway/pkg/spinner/router"
 	"github.com/webong/gateway/pkg/spinner/transport"
+	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
+	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 // workerServer owns an embedded PHP worker server and its listener.
@@ -119,7 +120,8 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			MaxDuration: spinner.WebSocketMaxDuration, Admission: websocketAdmission,
 		})
 		webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxDuration: spinner.WebstreamMaxDuration, Admission: webstreamAdmission})
-		return router.NewHandler(next, edge, websocket, webstream, managed)
+		publicEdge := emailspinner.SubmissionHandler(edge, next, spinner.MaxBodySize)
+		return router.NewHandler(next, publicEdge, websocket, webstream, managed)
 	})
 	if err != nil {
 		return err
