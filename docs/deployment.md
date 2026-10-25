@@ -23,16 +23,26 @@ The public tag points to one multi-platform manifest for `linux/amd64` and
 `linux/arm64`. Runtime composition is image metadata and implementation detail,
 not a different Gateway product.
 
-The full Router build includes JavaScript, Lua, WebhookScript, Web, Email, DNS,
-and the other installed Gateway surfaces. The publisher defaults to the bundled
-RoadRunner composition used by Zorvia; selecting another composition does not
-change the repository or tag. Publish from a clean commit with:
+The repository provides JavaScript, Lua, WebhookScript, Web, Email, DNS, and
+the other Gateway Extensions. The host image remains extension-neutral: an
+installable Spinner runtime is selected through Planner's `/extensions` CMS
+instead of being compiled into every Router. The publisher defaults to the
+bundled RoadRunner composition used by Zorvia; selecting another composition
+does not change the repository or tag. Publish from a clean commit with:
 
 ```bash
 scripts/publish-gateway-image
 # Or publish a named release as well as latest:
 scripts/publish-gateway-image v1.0.0
 ```
+
+The bundled Router starts through a short root-owned initializer, repairs the
+ownership of an existing `/data` volume when the image's runtime UID changes,
+removes image-specific Laravel caches, and then replaces itself with the
+unprivileged Router process. The recursive ownership repair runs only when the
+data directory's UID/GID differs from the runtime identity. In Kubernetes, the
+supplied manifest continues to pin UID/GID 33 and the initializer performs only
+the writable cache cleanup.
 
 The split deployment below remains available when Spinner and Planner need to
 scale independently:

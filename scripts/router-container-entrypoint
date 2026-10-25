@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-/data}
+RUN_AS_USER=${GATEWAY_ROUTER_RUN_AS_USER:-www-data}
+ROUTER=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/gateway-router
+
+validate_data_dir() {
+    case "$1" in
+        ""|/|/bin|/boot|/dev|/etc|/gateway|/home|/lib|/lib64|/proc|/root|/run|/sbin|/sys|/usr|/var)
+            echo "Refusing unsafe Router data directory: $1" >&2
+            exit 1
+            ;;
+        /*) ;;
+        *)
+            echo 'GATEWAY_ROUTER_DATA_DIR must be an absolute path in the container.' >&2
+            exit 1
+            ;;
+    esac
+}
+
+clear_deployment_caches() {
+    # These Laravel manifests contain image-specific class names and paths.
+    # They are safe to regenerate and must never outlive the image release.
+    rm -f "$DATA_DIR/cache/services.php" "$DATA_DIR/cache/packages.php" \
+        "$DATA_DIR/cache/config.php" "$DATA_DIR/cache/routes-v7.php" \
+        "$DATA_DIR/cache/events.php"
+}
+
+validate_data_dir "$DATA_DIR"
+if [ "$(id -u)" -eq 0 ]; then
+    mkdir -p "$DATA_DIR/cache" "$DATA_DIR/storage/framework/cache/data" \
+        "$DATA_DIR/storage/framework/sessions" "$DATA_DIR/storage/framework/views"
+    DATA_DIR=$(CDPATH= cd -- "$DATA_DIR" && pwd -P)
+    validate_data_dir "$DATA_DIR"
+
+    owner="$(id -u "$RUN_AS_USER"):$(id -g "$RUN_AS_USER")"
+    if [ "$(stat -c '%u:%g' "$DATA_DIR")" != "$owner" ]; then
+        chown -R "$owner" "$DATA_DIR"
+    fi
+
+    clear_deployment_caches
+
+    if command -v su-exec >/dev/null 2>&1; then
+        exec su-exec "$RUN_AS_USER" "$ROUTER" "$@"
+    fi
+    if command -v gosu >/dev/null 2>&1; then
+        exec gosu "$RUN_AS_USER" "$ROUTER" "$@"
+    fi
+    echo 'Router image is missing its privilege-drop helper.' >&2
+    exit 1
+fi
+
+clear_deployment_caches
+exec "$ROUTER" "$@"

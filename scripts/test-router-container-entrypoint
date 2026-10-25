@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ENTRYPOINT="$ROOT/scripts/router-container-entrypoint"
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-router-entrypoint.XXXXXX")
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+if [[ ! -x "$ENTRYPOINT" ]]; then
+    echo 'Router container entrypoint is missing or not executable.' >&2
+    exit 1
+fi
+
+FAKE_BIN="$TEST_DIR/bin"
+DATA_DIR="$TEST_DIR/data"
+CHOWN_LOG="$TEST_DIR/chown.log"
+MIGRATED_STATE="$TEST_DIR/migrated"
+mkdir -p "$FAKE_BIN" "$DATA_DIR/cache"
+DATA_DIR=$(CDPATH= cd -- "$DATA_DIR" && pwd -P)
+
+cat > "$FAKE_BIN/id" <<'SH'
+#!/bin/sh
+case "${1:-}:${2:-}" in
+    -u:) echo 0 ;;
+    -u:www-data|-g:www-data) echo 82 ;;
+    *) exit 2 ;;
+esac
+SH
+
+cat > "$FAKE_BIN/chown" <<'SH'
+#!/bin/sh
+if [ "$#" -ne 3 ] || [ "$1" != -R ] || [ "$2" != 82:82 ] || [ "$3" != "$TEST_DATA_DIR" ]; then
+    echo "Unexpected chown: $*" >&2
+    exit 1
+fi
+printf '%s:%s\n' "$3" "$2" >> "$CHOWN_LOG"
+touch "$MIGRATED_STATE"
+SH
+
+cat > "$FAKE_BIN/stat" <<'SH'
+#!/bin/sh
+if [ "$1" != -c ] || [ "$2" != %u:%g ] || [ "$3" != "$TEST_DATA_DIR" ]; then
+    echo "Unexpected stat: $*" >&2
+    exit 1
+fi
+if [ -e "$MIGRATED_STATE" ]; then
+    echo 82:82
+else
+    echo 33:33
+fi
+SH
+
+cat > "$FAKE_BIN/su-exec" <<'SH'
+#!/bin/sh
+if [ "$1" != www-data ] || [ "$2" != "$EXPECTED_ROUTER" ] || [ "$3" != invalid ]; then
+    echo "Unexpected privilege drop: $*" >&2
+    exit 1
+fi
+for name in services.php packages.php config.php routes-v7.php events.php; do
+    if [ -e "$TEST_DATA_DIR/cache/$name" ]; then
+        echo "Stale Laravel cache survived: $name" >&2
+        exit 1
+    fi
+done
+SH
+
+chmod +x "$FAKE_BIN/id" "$FAKE_BIN/chown" "$FAKE_BIN/stat" "$FAKE_BIN/su-exec"
+export PATH="$FAKE_BIN:$PATH"
+export TEST_DATA_DIR="$DATA_DIR" CHOWN_LOG MIGRATED_STATE EXPECTED_ROUTER="$ROOT/scripts/gateway-router"
+export GATEWAY_ROUTER_DATA_DIR="$DATA_DIR"
+
+touch "$DATA_DIR/cache/services.php" "$DATA_DIR/cache/packages.php" \
+    "$DATA_DIR/cache/config.php" "$DATA_DIR/cache/routes-v7.php" "$DATA_DIR/cache/events.php"
+"$ENTRYPOINT" invalid
+grep -Fx "$DATA_DIR:82:82" "$CHOWN_LOG" >/dev/null
+
+: > "$CHOWN_LOG"
+touch "$DATA_DIR/cache/services.php"
+"$ENTRYPOINT" invalid
+if [[ -s "$CHOWN_LOG" ]]; then
+    echo 'Router data ownership was recursively rewritten after it was already migrated.' >&2
+    exit 1
+fi
+if GATEWAY_ROUTER_DATA_DIR=/ "$ENTRYPOINT" invalid >/dev/null 2>&1; then
+    echo 'Router container entrypoint accepted an unsafe data directory.' >&2
+    exit 1
+fi
+
+echo 'Router container entrypoint migrates persisted ownership and clears deployment caches.'

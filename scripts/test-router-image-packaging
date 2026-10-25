@@ -16,6 +16,22 @@ EXPECTED="FROM golang:${IMAGE_VERSION}-alpine AS router-builder"
 DOCKERFILE="$ROOT/infra/docker/RoadRunner.router.Dockerfile"
 LIBRARY_DOCKERFILE="$ROOT/infra/docker/Gateway.router.Dockerfile"
 
+for router_dockerfile in "$DOCKERFILE" "$LIBRARY_DOCKERFILE"; do
+    if grep -Eq '^USER[[:space:]]+www-data$' "$router_dockerfile"; then
+        echo "Router must start through its data-migration entrypoint before dropping privileges: $router_dockerfile" >&2
+        exit 1
+    fi
+    if ! grep -Fq 'ENTRYPOINT ["/gateway/scripts/router-container-entrypoint"' "$router_dockerfile"; then
+        echo "Router image is missing its upgrade-safe container entrypoint: $router_dockerfile" >&2
+        exit 1
+    fi
+done
+
+if ! grep -Fq 'gosu ' "$LIBRARY_DOCKERFILE" || ! grep -Fq 'su-exec ' "$DOCKERFILE"; then
+    echo 'Router images must install the privilege-drop helper used by their base distribution.' >&2
+    exit 1
+fi
+
 if grep -Eq '^replace[[:space:]]+github\.com/webong/gateway/arranger' "$ROOT/go.work"; then
     echo 'go.work must not replace Arranger because it is already a workspace module.' >&2
     exit 1

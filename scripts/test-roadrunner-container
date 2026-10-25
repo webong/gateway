@@ -4,13 +4,21 @@ IMAGE=${1:-gateway-router:roadrunner-local}
 NAME="gateway-rr-smoke-$$-$RANDOM"
 VOLUME="$NAME-data"
 TEMP_CA=$(mktemp)
+WEBHOOK_BODY=$(mktemp)
 cleanup() {
     docker rm -f "$NAME" >/dev/null 2>&1 || true
     docker volume rm "$VOLUME" >/dev/null 2>&1 || true
-    rm -f "$TEMP_CA"
+    rm -f "$TEMP_CA" "$WEBHOOK_BODY"
 }
 trap cleanup EXIT
 docker volume create "$VOLUME" >/dev/null
+docker run --rm --entrypoint sh \
+    --mount "type=volume,source=$VOLUME,target=/data" "$IMAGE" -c '
+        mkdir -p /data/cache
+        printf "%s\n" "<?php throw new RuntimeException(\"stale package cache\");" > /data/cache/packages.php
+        printf "%s\n" "<?php throw new RuntimeException(\"stale service cache\");" > /data/cache/services.php
+        chown -R 33:33 /data
+    '
 docker run -d --name "$NAME" --read-only --tmpfs /tmp -p 127.0.0.1::8443 \
     --mount "type=volume,source=$VOLUME,target=/data" "$IMAGE" >/dev/null
 ADDRESS=$(docker port "$NAME" 8443/tcp)
@@ -31,7 +39,10 @@ wait_ready() {
     exit 1
 }
 wait_ready
-[[ $(docker exec "$NAME" id -u) != 0 ]]
+docker exec "$NAME" awk '/^Uid:/ { exit $2 == 0 ? 1 : 0 }' /proc/1/status
+docker exec "$NAME" sh -c 'test "$(stat -c "%u:%g" /data)" = "$(id -u www-data):$(id -g www-data)"'
+docker exec "$NAME" sh -c '! grep -R -F "stale package cache" /data/cache'
+docker exec "$NAME" sh -c '! grep -R -F "stale service cache" /data/cache'
 for path in /_internal/gateway/plan /config.php /bootstrap.php; do
     [[ $(curl --cacert "$TEMP_CA" --max-time 5 -s -o /dev/null -w '%{http_code}' "https://$ADDRESS$path") == 404 ]]
 done
@@ -39,11 +50,13 @@ KEY_HASH=$(docker exec "$NAME" sha256sum /data/gateway.env)
 CERT_HASH=$(docker exec "$NAME" sha256sum /data/tls/server.crt)
 docker exec "$NAME" test -s /data/gateway.sqlite
 docker exec "$NAME" /gateway/scripts/gateway-router artisan gateway:endpoint container-smoke >/dev/null
-WEBHOOK_STATUS=$(curl --cacert "$TEMP_CA" --max-time 5 -s -o /dev/null -w '%{http_code}' \
+WEBHOOK_STATUS=$(curl --cacert "$TEMP_CA" --max-time 5 -s -o "$WEBHOOK_BODY" -w '%{http_code}' \
     -X POST "https://$ADDRESS/hooks/container-smoke" \
     -H 'Content-Type: application/json' --data '{"event":"created"}')
-if [[ ! "$WEBHOOK_STATUS" =~ ^2[0-9][0-9]$ ]]; then
-    echo "RoadRunner could not plan a registered webhook: HTTP $WEBHOOK_STATUS" >&2
+if [[ "$WEBHOOK_STATUS" != 503 ]] || ! grep -Fq 'Gateway extension for this route is not installed' "$WEBHOOK_BODY"; then
+    echo "RoadRunner did not fail closed without an installed Web runtime: HTTP $WEBHOOK_STATUS" >&2
+    cat "$WEBHOOK_BODY" >&2
+    docker logs "$NAME" >&2
     exit 1
 fi
 docker restart "$NAME" >/dev/null
@@ -58,4 +71,4 @@ docker exec "$NAME" php -r '
     $query->execute(["container-smoke"]);
     exit((int) $query->fetchColumn() === 1 ? 0 : 1);
 '
-echo 'RoadRunner Router: health, non-root execution, private routes, CLI, and restart persistence passed.'
+echo 'RoadRunner Router: upgrade migration, health, non-root execution, extension fail-closed behavior, CLI, and restart persistence passed.'

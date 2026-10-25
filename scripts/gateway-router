@@ -1,6 +1,17 @@
 #!/bin/sh
 set -eu
 
+if [ "$(id -u)" -eq 0 ]; then
+    if command -v su-exec >/dev/null 2>&1; then
+        exec su-exec "${GATEWAY_ROUTER_RUN_AS_USER:-www-data}" "$0" "$@"
+    fi
+    if command -v gosu >/dev/null 2>&1; then
+        exec gosu "${GATEWAY_ROUTER_RUN_AS_USER:-www-data}" "$0" "$@"
+    fi
+    echo 'Refusing to run Gateway Router commands as root without a privilege-drop helper.' >&2
+    exit 1
+fi
+
 REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 export GATEWAY_ROUTER_APP_DIR=${GATEWAY_ROUTER_APP_DIR:-$REPO_DIR/app}
 export GATEWAY_ROUTER_DATA_DIR=${GATEWAY_ROUTER_DATA_DIR:-$REPO_DIR/.gateway-router-data}

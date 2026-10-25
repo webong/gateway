@@ -66,7 +66,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM debian:bookworm-slim AS php-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl libcurl4 libonig5 libpq5 libsqlite3-0 libssl3 libxml2 zlib1g \
+    ca-certificates curl gosu libcurl4 libonig5 libpq5 libsqlite3-0 libssl3 libxml2 zlib1g \
     && rm -rf /var/mod/apt/lists/*
 COPY --from=php-builder /usr/local /usr/local
 RUN ldconfig
@@ -106,11 +106,11 @@ RUN mkdir -p /data/cache /data/spinner-extensions /data/planner-extensions \
     /data/storage/framework/cache/data \
     /data/storage/framework/sessions /data/storage/framework/views \
     && chown -R www-data:www-data /data \
-    && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-start /gateway/scripts/router-artisan
+    && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-container-entrypoint \
+        /gateway/scripts/router-start /gateway/scripts/router-artisan
 
 VOLUME /data
 EXPOSE 8080/tcp 8443/tcp 993/tcp 2525/tcp
-USER www-data
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
-ENTRYPOINT ["/gateway/scripts/gateway-router", "library"]
+    CMD gosu www-data curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+ENTRYPOINT ["/gateway/scripts/router-container-entrypoint", "library"]

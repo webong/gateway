@@ -1,4 +1,4 @@
-.PHONY: build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-container-entrypoint test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -37,6 +37,7 @@ test-go:
 	$(MAKE) test-runtime-module-boundaries
 	bash scripts/test-router-boundaries
 	$(MAKE) test-router-image-packaging
+	$(MAKE) test-router-container-entrypoint
 	$(MAKE) test-go-extensions
 	$(MAKE) test-automation-extension-boundaries
 	$(MAKE) test-integration-boundaries
@@ -56,6 +57,9 @@ test-integration-boundaries:
 
 test-router-image-packaging:
 	bash scripts/test-router-image-packaging
+
+test-router-container-entrypoint:
+	bash scripts/test-router-container-entrypoint
 
 test-router-companion-image:
 	bash scripts/test-router-companion-image

@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # RoadRunner uses ordinary PHP CLI workers; no ZTS or embed SAPI is required.
 FROM php:8.4-cli-alpine AS php-base
 RUN apk add --no-cache \
-        bash curl libpq oniguruma openssl sqlite-libs \
+        bash curl libpq oniguruma openssl sqlite-libs su-exec \
     && apk add --no-cache --virtual .gateway-build-deps \
         $PHPIZE_DEPS linux-headers oniguruma-dev postgresql-dev sqlite-dev \
     && docker-php-ext-install -j4 bcmath mbstring pcntl pdo_pgsql pdo_sqlite sockets opcache \
@@ -38,7 +38,7 @@ FROM php-base
 COPY --from=router-builder /tmp/gateway-router-roadrunner /usr/local/bin/gateway-router-roadrunner
 COPY --from=planner-builder /src/gateway/app /gateway/app
 COPY --from=planner-builder /src/gateway/pkg /gateway/pkg
-COPY --from=planner-builder /src/gateway/scripts/gateway-router /src/gateway/scripts/router-start /src/gateway/scripts/router-artisan /gateway/scripts/
+COPY --from=planner-builder /src/gateway/scripts/gateway-router /src/gateway/scripts/router-container-entrypoint /src/gateway/scripts/router-start /src/gateway/scripts/router-artisan /gateway/scripts/
 COPY --from=planner-builder /src/gateway/vendor /gateway/vendor
 WORKDIR /gateway
 ENV GATEWAY_ROUTER_DATA_DIR=/data \
@@ -52,10 +52,10 @@ RUN mkdir -p /data/cache /data/hooks /data/storage/framework/cache/data \
     && command -v openssl \
     && chown -R www-data:www-data /data \
     && printf 'variables_order=EGPCS\n' > /usr/local/etc/php/conf.d/roadrunner.ini \
-    && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-start /gateway/scripts/router-artisan
+    && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-container-entrypoint \
+        /gateway/scripts/router-start /gateway/scripts/router-artisan
 VOLUME /data
 EXPOSE 8443/tcp 993/tcp
-USER www-data
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
-ENTRYPOINT ["/gateway/scripts/gateway-router", "roadrunner"]
+    CMD su-exec www-data curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
+ENTRYPOINT ["/gateway/scripts/router-container-entrypoint", "roadrunner"]
