@@ -116,8 +116,7 @@ make test-container
 # private-target SSRF denial, and HTTP Email relay/receipt/DSN checks.
 make test-container-integration
 
-# Two local authoritative Spinner processes, shared Planner hooks, and
-# UDP/TCP query survival after one process stops.
+# Installable DNS process plus focused Planner DNS CMS coverage.
 make test-dns-integration
 ```
 
@@ -151,10 +150,11 @@ headers or expose the Planner listener directly.
   `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR`; without one, login is denied.
   Publish only the implicit-TLS listeners (normally ports 995 and 993) and keep the
   Spinner-to-Planner connection private. See [mail forwarding](mail-forwarding.md).
-- **DNS:** set `GATEWAY_DNS_ADDR` on Spinner and enable the Planner DNS control
-  plane. Spinner refreshes API-managed zones over its authenticated private
-  Planner connection without restarting; the old zone environment settings are
-  migration-only. Publish both UDP and TCP. Each active zone requires
+- **DNS:** install and activate `webong/dns` through Planner's `/extensions`
+  API, setting `configuration.address` to the Extension process's published
+  UDP/TCP address. Planner projects API-managed Zones and Forwarders into the
+  versioned desired state; Spinner replaces only the verified Extension process
+  when that snapshot changes. Publish both UDP and TCP. Each active zone requires
   parent-zone delegation. Gateway is
   authoritative-only, not recursive. See [DNS high availability](dns-ha.md)
   for the two-node deployment and validation shape.

@@ -1,27 +1,27 @@
 # Authoritative DNS across two Spinner nodes
 
-Gateway's DNS listener is authoritative-only. Planner owns DNS hook identities,
+Gateway's DNS Extension is authoritative for Managed and Provided zones. Planner owns DNS Endpoint identities,
 decisions, and event history; each Spinner answers UDP and TCP queries using
-the same configured zones and its private Planner connection. DNS is not a
-recursive resolver.
+the same revisioned Extension snapshot. Forwarders may delegate explicitly
+scoped queries to an upstream resolver; Gateway does not implement recursion.
 
 ## Deployment shape
 
-Run `infra/compose/Gateway.spinner-dns.compose.yml` once on **each of two separate hosts or
-failure domains**. Give each host its own public address and persistent
-process supervision. Both must run the same Gateway release and receive the
-same `GATEWAY_INTERNAL_TOKEN` and private `GATEWAY_PLANNER_URL`.
-Planner is the shared zone catalog; each Spinner refreshes it without a restart.
-Do not expose Planner publicly. The Compose
-example publishes both `53/udp` and `53/tcp` on its host.
+Run a Spinner on **each of two separate hosts or failure domains**. Give each
+host its own public address and persistent process supervision. Planner owns
+the pinned `webong/dns` artifact and desired state; each Spinner independently
+pulls and verifies the package, then launches only its Go entrypoint with the
+projected snapshot. The Extension process never receives Planner credentials.
+Publish both `53/udp` and `53/tcp` on each host.
 
 Create each zone through `POST /dns/zones`, including its `nameservers` array.
-The old zone, zones, nameserver, SOA, and TTL env settings are no longer read;
+Zone, nameserver, SOA, TTL, and Forwarder state are not environment settings.
 There is no production installation to migrate; configure a fresh local
 deployment through Planner before testing delegated DNS.
 
 The operator may then replace the zone's complete static answer set through
-`PUT /dns/zones/{zone}/records` with `{"records":[...]}`. It accepts exact
+`PUT /dns/zones/{zone}/records` with the current `ETag` in `If-Match` and
+`{"records":[...]}`. It accepts exact
 owners inside the zone and `A`, `AAAA`, `CNAME`, `MX`, and `TXT` records;
 Gateway manages the zone's `NS` and `SOA` itself. For example, to have
 Gateway answer the MX query for `support@sosongo.com`, the zone would need
@@ -35,9 +35,9 @@ The real MX targets and priorities must come from the receiving provider's
 current configuration. Include every other needed record (website addresses,
 SPF, DKIM, DMARC, verification, sending-provider records) before moving a
 whole zone's authority. A `PUT` is a complete replacement, not a patch.
-Planner snapshots propagate to Spinner without a restart; invalid snapshots
-leave the previous answer set active. Static records answer exact names before
-dynamic token-based DNS hooks, and a present name without a requested record
+Planner snapshot revisions replace the DNS Extension process; an invalid
+snapshot fails closed. Static records answer exact names before
+dynamic token-based DNS Endpoints, and a present name without a requested record
 type returns NODATA rather than NXDOMAIN.
 
 There are two operator choices. Delegate a subdomain such as
@@ -65,7 +65,7 @@ both nameserver names at its parent zone. If a nameserver name is inside the
 delegated zone, arrange the required parent-side glue as well. Use distinct
 hosts and network paths for real availability; two containers on one host
 only test process redundancy. Gateway does not create registrar or parent-zone
-records for `provider=manual`. The Cloudflare provider can create child-zone NS
+records for `provisioner=manual`. The Cloudflare provisioner can create child-zone NS
 records in a managed parent; apex registrar nameserver changes require a
 registrar-specific adapter or manual configuration.
 
@@ -95,7 +95,7 @@ through the supplied recursive resolver to its corresponding node IP. It
 requires an authoritative SOA from the specified parent zone and compares
 that parent's non-authoritative delegation referral with the expected NS set.
 It then requires both nodes to answer authoritative NS and SOA queries, a
-registered hook with `NOERROR` (an answer or valid NODATA), and the known
+registered Endpoint with `NOERROR` (an answer or valid NODATA), and the known
 unregistered control name with `NXDOMAIN`, all over UDP and TCP. The control
 name must really be unregistered and use the same query shape as the probe.
 It also checks that the two nodes return the same SOA. When `-expect-mx` is
@@ -118,21 +118,21 @@ dig +tcp @NS2_IP hooks.example.com SOA +norecurse +noall +comments +answer
 ```
 
 Both direct answers must be authoritative (`aa` in the `dig` flags), list the
-same NS set, and return a consistent SOA. Also query a real registered hook
+same NS set, and return a consistent SOA. Also query a real registered Endpoint
 through each node over UDP and TCP. Then stop one Spinner and repeat the
 direct queries against the surviving node. Finally, query through ordinary
 recursive resolvers from more than one network. A local direct-answer test
 does not prove that public delegation, firewalls, or resolver paths work.
 
-`make test-dns-integration` runs a disposable local analogue: two configured
-zones, two independent Spinner processes, shared Planner hook state, UDP and
-TCP queries on each process, and continued answers after one Spinner stops.
-It also runs the deployment checker against a synthetic parent referral and
-recursive address view while both Spinners are live. It does not modify public
-DNS or prove cross-host availability or external resolver propagation.
+`make test-dns-integration` verifies the installable DNS process boundary and
+the focused Planner CMS contracts. It does not simulate two public nodes,
+modify public DNS, or prove cross-host availability or external resolver
+propagation. Use the checker above against the real deployment before routing
+traffic.
 
 For Kubernetes, the optional [Spinner DNS overlay](kubernetes.md#authoritative-dns-overlay)
 serves both protocols through a ClusterIP Service. `scripts/test-kubernetes-dns`
-tests that overlay on OrbStack using temporary UDP and TCP NodePorts, two zones,
-and a Spinner Pod replacement. This is still one-node process resilience, not
+tests that overlay on OrbStack using a caller-supplied HTTPS DNS Extension
+artifact, temporary UDP and TCP NodePorts, two zones, and a Spinner Pod
+replacement. This is still one-node process resilience, not
 proof of public delegation or independent host and network failure domains.

@@ -272,10 +272,10 @@ replaces SMTP upstream credentials, disables the connection, and requires a
 new test; `POST .../{id}/rotate` issues a new one-time client password if the
 create response was lost or the client credential needs rotation.
 
-Gateway DNSHook can serve MX answers only for a zone actually delegated to
+Gateway DNS can serve MX answers only for a Zone actually delegated to
 Gateway's authoritative DNS listeners, or via a separately configured
 provider integration. The account receiving API currently returns DNS
-instructions; it does not grant tenants DNSHook administration or mutate
+instructions; it does not grant tenants DNS administration or mutate
 external customer zones. A Zorvia-managed DNS wizard should treat this as a
 manual/provider-specific step until an account-scoped DNS record API exists.
 
@@ -1171,7 +1171,7 @@ behavior still require deployment tests.
 When Cloudflare retains MX for a domain, Gateway can accept the raw message
 over HTTPS instead of receiving the SMTP transaction itself. This is a
 separate `worker` receiving-route mode; it does not require Gateway's MX
-hostname or DNSHook delegation. The account must still verify ownership via
+hostname or DNS Zone delegation. The account must still verify ownership via
 Gateway's `_gateway-verify` TXT challenge. Create the exact route with
 `mode: "worker"`, `domain_id`, `local_part`, `callback_url`, and
 `webhook_secret`. An existing verified MX route can instead switch in place

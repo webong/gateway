@@ -373,202 +373,102 @@ If an application supplies a custom `GATEWAY_PLANNER` without a
 Applications using the bundled registry planner can configure the resolver and
 reuse the default protocol adapter.
 
-### Authoritative DNS hooks
+### DNS Extension
 
-DNS hooks are available in `http` and `roadrunner` modes. The Go process opens
-sibling UDP and TCP listeners on the same address, parses authoritative DNS
-queries, and sends a `protocol=dns`, `kind=query` event to PHP. This is an
-authoritative-only service: it refuses queries outside its configured zone and
-does not perform recursive resolution.
+`webong/dns` is an installable Gateway Extension with a Planner entrypoint and
+a Go Spinner entrypoint. Planner owns its CMS resources; Spinner receives one
+revisioned, integrity-checked runtime snapshot through the Extension lifecycle.
+Spinner core does not import DNS or read product behavior from DNS environment
+variables.
 
-```bash
-export GATEWAY_RUNTIME=http
-export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
-export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-export GATEWAY_DNS_ADDR=':53'
-go run ./cmd/gateway
-```
+DNS has three answer modes:
 
-Planner supplies active zones over the authenticated private connection and
-Spinner refreshes the complete snapshot without restarting (every 5 seconds by
-default). Zone names and nameservers must be created through Planner; the old
-DNS zone env snapshots are no longer read. A wildcard
-A record is not a substitute for an NS delegation. The listener needs permission
-to bind port 53; a container can map public UDP/TCP port 53 to an unprivileged
-internal port such as 5353.
+- **Managed:** exact records in a Planner-managed DNS Zone.
+- **Provided:** a DNS Endpoint invokes one subscribed Webhook, Automation, or
+  Integration and validates its synchronous answer document.
+- **Forwarded:** a DNS Forwarder sends a matching query to an explicitly scoped
+  upstream resolver.
 
-The query name format is `[<data-labels>.]<endpoint-token>.<configured-zone>`.
-For `aGVsbG8.hook-1.dns.example.com`, Go sends `/hook-1` as the
-application-owned route, preserves `aGVsbG8` in the JSON payload, and exposes
-these subscription matching fields:
+DNS Zones and Forwarders are stored as versioned Planner Resources. DNS
+Endpoints are generic routable endpoints because they own subscriptions. All
+three modes write bounded `dns.query` observations to the shared event ledger.
+There are no DNS-specific definition or history tables.
 
-- `protocol=dns`
-- `event=query`
-- `attributes.qname`, `attributes.qtype`, and `attributes.qclass`
-- `attributes.query_id` for the DNS wire transaction ID
-- `attributes.endpoint` and `attributes.data`
-- `attributes.source_addr` and `attributes.transport`
+Create a managed zone:
 
-When the DNS hook control plane is enabled, its resolver automatically maps
-`/hook-1` to the PHP-owned endpoint registry entry before delegating non-DNS
-requests to the application's configured `PathResolver`. Relay subscriptions
-receive the normalized query JSON asynchronously. A
-single `reply` subscription is called synchronously; a successful HTTP response
-body can contain:
+```http
+POST /dns/zones
+Authorization: Bearer <registry-token>
+Content-Type: application/json
 
-```json
-[
-  {"type": "a", "value": "192.0.2.10"},
-  {"type": "aaaa", "value": "2001:db8::10"},
-  {"type": "mx", "value": "mail.example.test", "preference": 10},
-  {"type": "txt", "value": "hello world"}
-]
-```
-
-Supported response types are `a`, `aaaa`, `mx`, `cname`, and `txt`. MX requires
-an integer `preference` from 0 to 65535 and a valid exchange hostname. A
-single null MX uses `{"type":"mx","value":".","preference":0}` to indicate
-that a name accepts no email; it cannot be combined with another MX. Only
-records relevant to the requested type are returned. A CNAME may be returned
-alone, but cannot coexist with other record types for the same name. Newlines
-in TXT values become separate strings. Invalid response JSON,
-record values, non-2xx reply responses, and planner timeouts produce `SERVFAIL`.
-Missing routes produce authoritative `NXDOMAIN`; queries without an answer
-produce authoritative `NOERROR`/NODATA.
-
-The default planner deadline is 750ms. Related settings are
-`GATEWAY_DNS_PLANNER_TIMEOUT`, `GATEWAY_DNS_TTL` (default `0`),
-`GATEWAY_DNS_SOA_EMAIL`, `GATEWAY_DNS_READ_TIMEOUT`,
-`GATEWAY_DNS_WRITE_TIMEOUT`, and `GATEWAY_DNS_MAX_RESPONSE_RECORDS` (default
-`16`). `GATEWAY_DNS_RATE_LIMIT` and `GATEWAY_DNS_RATE_BURST` cap total DNS
-queries per second (defaults `5000` and `10000`). `ANY` queries are refused and
-UDP responses are capped at 1232 bytes.
-`GATEWAY_DNS_ZONE_REFRESH_INTERVAL` controls how quickly a Spinner observes API
-zone changes (default `5s`). A failed or invalid refresh retains the last valid
-snapshot.
-Use unique data labels when each lookup must create a distinct event. Lowercase
-base32 data is safer than case-sensitive standard base64 because
-DNS names are case-insensitive and each label is limited to 63 bytes.
-
-### DNS hook product API
-
-The DNS control plane is available through Planner. Domains and their
-authoritative nameservers are created through the API and stored as ordinary
-WebProxy endpoints; they are not duplicated in Spinner env.
-
-Create any number of authoritative zones with the bearer-token-protected API:
-
-```bash
-curl -X POST https://relay.example.test/dns/zones \
-  -H "Authorization: Bearer $REGISTRY_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"hooks.example.com","nameservers":["ns1.example.net","ns2.example.net"]}'
-```
-
-`provider=manual` records the desired delegation but does not modify external
-DNS. The built-in `cloudflare` provider automates an NS delegation for a child
-zone whose parent is managed by the configured Cloudflare account:
-
-```bash
-export GATEWAY_DNS_CLOUDFLARE_TOKEN='scoped-api-token'
-curl -X POST https://relay.example.test/dns/zones \
-  -H "Authorization: Bearer $REGISTRY_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"hooks.example.com","provider":"cloudflare","nameservers":["ns1.example.net","ns2.example.net"]}'
-```
-
-The token is a deployment secret and needs permission to read zones and edit DNS
-records. Gateway auto-discovers the managed parent; `provider_options` may
-instead include `parent_zone_id` and `parent_zone`. Apex registrar nameserver
-changes remain registrar-specific and require a registrar adapter or manual
-delegation. Applications can register additional `DnsProvider` implementations
-in `DnsProviderRegistry`.
-
-The listener chooses the longest matching zone for nested delegations. A hook
-creation request must include `zone` when more than one zone is active; with one
-zone it remains optional. The package registers a built-in
-`gateway` WebProxy client, provisions ordinary managed WebProxy endpoints for
-the DNS zone and each hook, and wraps the application's existing path resolver
-with token lookup. Gateway-specific attributes live in the endpoint's reserved
-`metadata._gateway` object, including the kind, protocol, hostname, route, and
-parent zone endpoint key. No DNS-specific endpoint or destination storage is
-added to `webong/proxy`.
-
-DNS history uses the generic `events` table, linked to the
-underlying WebProxy endpoint. Opt-in Webhook, WebSocket, and Webstream planning
-history uses that same table, with bounded body capture and a shared retention
-policy; see [endpoint event history](docs/events.md). No protocol-specific
-history tables are needed.
-
-Create a hook through the bearer-token-protected management API:
-
-```bash
-curl -X POST https://relay.example.test/dns/hooks \
-  -H "Authorization: Bearer $REGISTRY_TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "external_id": "workspace-42-login-check",
-    "zone": "dns.example.com",
-    "name": "Login verification",
-    "metadata": {"workspace": "workspace-42"}
-  }'
-```
-
-The response includes an opaque `token`, its `hostname`, the
-`{data}.<token>.<zone>` query template, the underlying `endpoint_key`, and URLs
-for subscriptions, event history, and usage. Repeating the same `external_id`
-within a zone is idempotent and returns the same token. Hook IDs and tokens are
-unambiguous across zones; `GET /dns/zones` lists the configured zone names and
-nameservers, and `GET /dns/hooks?zone=...` filters hooks by zone.
-
-Attach subscribers through the existing WebProxy registry API using the
-returned endpoint key and the canonical DNS route:
-
-```json
 {
-  "subscriber_id": "workspace-42",
-  "subscription_id": "workspace-42-dns",
-  "type": "relay",
-  "webhook_group": "dns",
-  "routing_scope": "dns",
-  "routing_key": "query",
-  "url": "https://subscriber.example.com/dns",
-  "match": {
-    "version": "v1",
-    "rules": {"attributes.qtype": ["required", "in:TXT"]}
-  }
+  "name": "dns.example.com",
+  "nameservers": ["ns1.example.net", "ns2.example.net"],
+  "provisioner": "manual"
 }
 ```
 
-The UI-ready management surface is:
+`manual` records desired delegation without changing external DNS. The optional
+`cloudflare` provisioner creates child-zone NS records; its token remains a
+deployment secret. `provisioner_options` may select `parent_zone_id` and
+`parent_zone`. Apex registrar nameserver changes remain registrar-specific.
+
+Create a Provided DNS Endpoint inside that zone:
+
+```http
+POST /dns/endpoints
+Authorization: Bearer <registry-token>
+Content-Type: application/json
+
+{
+  "external_id": "workspace-42-login-check",
+  "zone": "dns.example.com",
+  "name": "Login verification",
+  "metadata": {"workspace": "workspace-42"}
+}
+```
+
+The response contains an opaque token, its hostname, a
+`{data}.<token>.<zone>` query template, an `endpoint_key`, and subscription,
+history, and usage URLs. Attach its answer action through
+`/registry/endpoints/{endpoint_key}/subscriptions`. A synchronous reply may
+return bounded `A`, `AAAA`, `MX`, `CNAME`, or `TXT` records. Missing,
+unavailable, or malformed answer providers fail closed.
+
+Create a Forwarded policy with `POST /dns/forwarders`. Every policy requires an
+upstream address, domain scope, and client CIDRs; unspecified catch-all client
+networks are rejected so Gateway cannot accidentally become an open resolver.
+
+The management surface is:
 
 ```text
 GET    /dns/zones
 POST   /dns/zones
 GET    /dns/zones/{id-or-name}
+PUT    /dns/zones/{id-or-name}/records
 POST   /dns/zones/{id-or-name}/provision
 DELETE /dns/zones/{id-or-name}
-POST   /dns/hooks
-GET    /dns/hooks
-GET    /dns/hooks/{id-or-token}
-PATCH  /dns/hooks/{id-or-token}
-DELETE /dns/hooks/{id-or-token}
-GET    /dns/hooks/{id-or-token}/events?type=TXT&transport=udp&limit=50
-GET    /dns/hooks/{id-or-token}/usage?from=2026-08-01&to=2026-08-31
+
+GET    /dns/endpoints
+POST   /dns/endpoints
+GET    /dns/endpoints/{id-or-token}
+PATCH  /dns/endpoints/{id-or-token}
+DELETE /dns/endpoints/{id-or-token}
+
+GET    /dns/forwarders
+POST   /dns/forwarders
+GET    /dns/forwarders/{id}
+PUT    /dns/forwarders/{id}
+DELETE /dns/forwarders/{id}
+
+GET    /dns/{zones|endpoints|forwarders}/{id}/events
+GET    /dns/{zones|endpoints|forwarders}/{id}/usage
 ```
 
-History records the normalized query and PHP planning decision. Recording is
-idempotent by Gateway event ID, and write exceptions do not replace a completed
-route decision. Usage exposes total queries, daily counts, and counts by query
-type and transport. Pausing or deleting a hook invalidates its cached binding
-immediately; the underlying WebProxy endpoint is retained so subscription and
-audit records are not orphaned.
-
-`GATEWAY_DNS_PROXY_CLIENT` customizes the built-in client. Hook identity uses
-WebProxy endpoints, and history uses the generic `events` table; the historical
-`GATEWAY_DNS_HOOKS_TABLE` and `GATEWAY_DNS_EVENTS_TABLE` settings are not used.
-Disable or remove individual DNS resources through Planner. The DNS listener
-itself remains a deployment decision.
+GET and mutation responses expose an `ETag`; replacement, provisioning, and
+deletion require that revision in `If-Match`. This prevents two CMS clients
+from silently overwriting one another. See [the DNS Extension](pkg/dns/README.md)
+for runtime and answer-contract details.
 
 ### Spinner container
 
@@ -603,9 +503,10 @@ is rejected by the outbound SSRF policy.
 
 ### Production DNS deployment
 
-The root Docker image exposes HTTP and unprivileged TCP/UDP port 5353. The
-included `infra/compose/Gateway.spinner-dns.compose.yml` publishes both DNS transports on
-public port 53:
+The Spinner image exposes HTTP and reserves unprivileged TCP/UDP port 5353 for
+the installable DNS Extension. The included
+`infra/compose/Gateway.spinner-dns.compose.yml` publishes both DNS transports
+on public port 53:
 
 ```bash
 GATEWAY_PLANNER_URL=https://app.internal.example \
@@ -613,10 +514,13 @@ GATEWAY_INTERNAL_TOKEN=replace-me \
 docker compose -f infra/compose/Gateway.spinner-dns.compose.yml up -d
 ```
 
-Configure `REGISTRY_TOKEN`, run the
-Gateway and WebProxy migrations on Planner. Create each domain through
-`POST /dns/zones`; every Spinner observes active zones over its authenticated
-Planner connection without restarting. At each parent DNS provider, delegate
+Configure `REGISTRY_TOKEN`, run the Gateway and WebProxy migrations on Planner,
+then install and enable `webong/dns` through `POST /extensions` with
+`configuration.address` set to `:5353`. Create each domain through
+`POST /dns/zones`; Planner projects active zones and Forwarders into the
+Extension desired state. Spinner independently pulls the verified package and
+restarts only that Extension process when the projected snapshot changes. At
+each parent DNS provider, delegate
 the zone to at least two public nameserver hostnames whose A/AAAA records reach
 Gateway instances. Each load balancer or firewall must pass both UDP and TCP
 port 53. The example is a single-node wiring reference; production high
@@ -829,9 +733,9 @@ bidirectional sessions.
 - `MAX_BODY_SIZE` - ingress and planner response limit (default `10MB`)
 - `MAX_IDLE_CONNS`, `MAX_CONNS_PER_HOST`, `IDLE_CONN_TIMEOUT` - HTTP pooling
 - `SHUTDOWN_TIMEOUT` - Spinner shutdown timeout (default `30s`)
-- `GATEWAY_DNS_ADDR` - enables authoritative DNS over UDP and TCP
-- `GATEWAY_DNS_ZONE_REFRESH_INTERVAL` - Planner zone snapshot refresh interval
-  for HTTP and bundled RoadRunner runtimes (default `5s`)
+- DNS listener, timeout, response-bound, and rate-limit settings belong to the
+  `webong/dns` resource managed through `/extensions`; zones and Forwarders are
+  projected into that desired state by Planner
 - `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
   `roadrunner` mode
 - `GATEWAY_POP3_ADDR` - enables the implicit-TLS POP3 upstream proxy in standalone
@@ -1477,11 +1381,11 @@ Run the authoritative DNS adapter tests, including real UDP and TCP queries:
 make test-dns
 ```
 
-`make test-dns-integration` starts a local Planner and Spinner, creates hooks
-in two zones through the management API, queries one over UDP and the other
-over TCP, and checks cross-zone rejection and recorded query history. It uses
-`dig` and a temporary SQLite database; it does not prove public delegation or
-redundant nameserver operation.
+`make test-dns-integration` builds and installs the `webong/dns` process package
+after a PHP-free Spinner host has started, then exercises a Provided answer and
+observation over real DNS. It also runs the focused Planner CMS suite for Zones,
+Endpoints, Forwarders, revisions, and observations. It does not prove public
+delegation, artifact distribution over HTTPS, or redundant nameserver operation.
 
 Verify the optional Caddy integration module:
 

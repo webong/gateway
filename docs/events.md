@@ -2,7 +2,7 @@
 
 Planner core owns the shared `events` ledger for endpoint-bound ingress
 history. Protocol Extensions activate their recording and views without owning
-or depending on one another's storage. DNS hooks already write query
+or depending on one another's storage. DNS Zones, Endpoints, and Forwarders write query
 events there. Create an enabled `POST /web/event-policy`
 Planner resource to also record planned HTTP/webhook requests, WebSocket events,
 and Webstream connects. Apply the Planner migrations before enabling it. This is
@@ -41,7 +41,7 @@ Authorization: Bearer <REGISTRY_TOKEN>
 
 The endpoint-history API uses the existing registry bearer token, accepts
 `protocol`, `kind`, and `limit` filters, and returns cursor pagination. It
-works for DNS endpoint events too; `/dns/hooks/{hook}/events` remains the
+works for DNS endpoint events too; `/dns/endpoints/{endpoint}/events` remains the
 DNS-specific view. Unknown endpoints return 404. The history route is a
 management API and should not be exposed without the same access controls as
 subscriptions.
@@ -54,5 +54,5 @@ precise deletion deadline; installations with strict deletion SLAs should run
 `php artisan gateway:prune-events` on a suitable schedule. DNS and Web history
 share this retention policy. A history write failure is logged but never
 changes the ingress route decision.
-Disabling the Web event policy stops Web capture, not DNS hook history; its
+Disabling the Web event policy stops Web capture, not DNS history; its
 retention value still governs existing DNS and Web event rows.

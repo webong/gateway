@@ -52,19 +52,20 @@ domain can receive mail. These are policy changes, not listener provisioning.
 | --- | --- | --- | --- |
 | Webhook/WebSocket | Endpoints, subscriptions, routes, targets, event retention through `/web/event-policy`, body capture opt-in per endpoint | HTTP listener, worker/body/connection limits, authentication keys | Event history is off until the operator creates an enabled policy. |
 | Webstream | Subscription-selected source; private exact-origin source/CIDR grants via `/webstream/private-sources`; upload/retry policies via `/webstream/routes` | `GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS` hard ceiling, connection/duration limits, transport | Static route and private-source fallbacks have been removed; migrate their values through Planner before rollout. Per-request propagation and host/path isolation across two Spinners are verified by `scripts/config-ownership-smoke.sh`. |
-| DNS | Zones, nameservers, SOA, TTL, hooks through `/dns/*`, and the installable runtime snapshot through `/extensions` | Provider credentials and host/network permission to bind the selected address | Spinner no longer parses DNS environment variables or imports DNS. The selected `webong/dns` process validates its bounded listener/zone configuration and is replaced on resource revision changes. |
+| DNS | Zones, nameservers, SOA, TTL, provided Endpoints, Forwarders, and the installable runtime snapshot through `/extensions` | Provisioner credentials and host/network permission to bind the selected address | Spinner no longer parses DNS environment variables or imports DNS. The selected `webong/dns` process validates its bounded listener configuration and revisioned desired-state snapshot before serving. |
 | Email | Domains, aliases, suppressions, hooks, account-owned mailbox connections, submission quotas, runtime behavior through `/email/runtime-policy`, SRS policy, upstream catalogs with explicit network scope, hosted adapters/routes, and DKIM keys through typed `/email/*` resources | SMTP/IMAP/POP3 listeners, TLS, OAuth application credentials, scanner/relay bootstrap, and private Planner connectivity | Planner selects mailbox endpoints; Spinner validates and pins DNS answers before dialing. Mailbox hosts no longer require an environment list. Hosted-adapter egress and static relays retain their separate deployment policies. |
 | Schedules | Schedule definitions/runs and a secret-backed failure-notification destination through `/schedules/notification-destination` | Worker activation, poll interval, process limits, exact allowed alert hosts | Former notification URL/token env settings are no longer read. Revision rotation, stale-write rejection, host ceiling, and token secrecy are verified by `scripts/config-ownership-smoke.sh`. |
 | Managed workloads | Targets, servers, applications, instances, desired state | Worker credentials, integration paths, Docker/Kubernetes host access, images, private route network ceiling | Route target selection already comes from Planner. `GATEWAY_PROVISIONING_ROUTE_CIDRS` and Caddy `managed_route_cidrs` are SSRF ceilings, not desired route state; retain them in deployment config. A future per-target route policy may narrow these ceilings but must never replace them. |
 | Shell/automation | Subscription selection, schedules, exact local/SSH hook grants through `/shell/hook-grants`, and write-only SSH client credentials | Hook files, installed language engines, separate mutation token, SSH outbound CIDR ceiling | Static hook-grant config is no longer read. Planner grants cannot install or widen deployed hook capability; SSH keys are kept out of revision history. Local grants are verified across two Spinners by `scripts/config-ownership-smoke.sh`; the SSH path by `scripts/shell-ssh-smoke.sh`. |
 
 Other env settings such as cache stores/TTLs, table names, internal URLs and
-tokens, delivery spool/retry limits, DNS response limits, and protocol socket
-timeouts are process or storage controls. They should not become a generic API
+tokens, delivery spool/retry limits, and protocol socket timeouts are process
+or storage controls. They should not become a generic API
 for writing env keys. A changed process-level setting may still require a
 rollout. Conversely, changing a Planner resource should be observable without
-restarting Spinner; the Webstream grant travels in each authenticated stream
-decision, and DNS zones use the existing versioned snapshot refresh.
+redeploying or restarting the Spinner host; the Webstream grant travels in each
+authenticated stream decision, while DNS desired-state changes replace only the
+verified DNS Extension process.
 
 ## Verification
 
@@ -83,9 +84,9 @@ local multi-Spinner deployment:
     through the private per-attempt endpoints, reflect rotation and revocation,
     gate enablement on provider health, and keep every secret encrypted at rest.
 - `scripts/shell-ssh-smoke.sh` runs the full Shell-over-SSH path against a
-  disposable OpenSSH forced-command server. `scripts/dns-smoke.sh` runs two
-  Spinners and now also asserts that a restarted, cold node reloads the
-  Planner-owned zone snapshot before serving.
+  disposable OpenSSH forced-command server. `make test-dns-integration` builds
+  and installs the DNS process package after Spinner starts and exercises the
+  focused Planner CMS contracts.
 
 ## Remaining work, in order
 

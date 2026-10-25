@@ -91,6 +91,21 @@ DNS answers supplied synchronously by an application through Gateway's normal We
 **Forwarded DNS**:
 DNS queries proxied to an upstream DNS resolver under Planner-managed domain and client policy. The upstream resolver owns recursion, caching, and DNSSEC validation.
 
+**DNS Zone**:
+An authoritative namespace whose records and delegation are managed as Planner desired state.
+
+**DNS Endpoint**:
+A routable name inside a DNS Zone whose answer is provided synchronously by a subscribed Webhook, Automation, or Integration.
+_Avoid_: DNS Hook
+
+**DNS Forwarder**:
+A Planner-managed domain and client policy that sends matching queries to one upstream resolver.
+_Avoid_: DNS Resolver when referring to the whole policy
+
+**DNS Provisioner**:
+An adapter that creates or removes delegation records for a DNS Zone, such as the manual or Cloudflare adapter.
+_Avoid_: DNS Provider
+
 **Automation**:
 Configured logic that runs in response to an incoming event or a scheduled occurrence.
 

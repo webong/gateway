@@ -102,10 +102,16 @@ docker build -f infra/docker/Gateway.planner.Dockerfile -t gateway-planner:local
 docker build -f infra/docker/Gateway.spinner.Dockerfile -t gateway-spinner:local .
 docker build -f infra/docker/Gateway.tls-edge.Dockerfile -t gateway-tls-edge:local .
 bash scripts/test-kubernetes-planner
-bash scripts/test-kubernetes-planner --with-dns
+GATEWAY_DNS_EXTENSION_URL=https://extensions.example.test/webong-dns.tar.gz \
+GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
+  bash scripts/test-kubernetes-planner --with-dns
 docker build -f infra/docker/email-relay-fixture.Dockerfile -t gateway-email-relay-smoke:local .
 bash scripts/test-kubernetes-planner --with-email
-bash scripts/test-kubernetes-planner --with-email --with-dns
+GATEWAY_DNS_EXTENSION_URL=https://extensions.example.test/webong-dns.tar.gz \
+GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
+  bash scripts/test-kubernetes-planner --with-email --with-dns
 bash scripts/test-kubernetes-planner --with-webstream
 ```
 
@@ -300,25 +306,26 @@ external relay policy, or public deliverability.
 
 ## Authoritative DNS overlay
 
-`infra/kubernetes/spinner-dns` adds Gateway's authoritative DNS listener to
-the standalone Spinner configuration. It opens UDP and TCP port 5353 in Spinner
+`infra/kubernetes/spinner-dns` publishes the port owned by the installable DNS
+Extension. It opens UDP and TCP port 5353 in Spinner
 and provides a separate `spinner-dns` Service on port 53 for both protocols.
 The Service is ClusterIP by default; applying the overlay does not expose DNS
-outside the cluster. The Planner overlay enables the DNS API and the Spinner
-overlay sets only its listener address; neither injects domain configuration.
-Create zones through `POST /dns/zones`, and each Spinner refreshes the private
-authenticated snapshot. Configure the matching internal token and set the
-published Planner and Spinner image tags before applying the overlays.
+outside the cluster. The overlay only declares and publishes ports; it does not
+configure or bundle the Extension. Install and enable `webong/dns` through
+Planner's `/extensions` API with `configuration.address` set to `:5353`, then
+create zones through `POST /dns/zones`. Planner projects their active desired
+state into the Extension snapshot. Configure the matching internal token and
+set the published Planner and Spinner image tags before applying the overlays.
 
 ```sh
 kubectl -n gateway apply -k infra/kubernetes/planner-dns
 kubectl -n gateway apply -k infra/kubernetes/spinner-dns
 kubectl -n gateway rollout status deployment/planner
 kubectl -n gateway rollout status deployment/spinner
-# Call Planner's authenticated POST /dns/zones API for hooks.example.com.
+# Activate webong/dns, then call POST /dns/zones for dns.example.com.
 ```
 
-The standalone production-image smoke above creates a hook through Spinner
+The standalone production-image smoke above creates an Endpoint through Spinner
 and queries its authoritative name through temporary UDP and TCP NodePorts.
 The separate `scripts/test-kubernetes-dns` fixture still covers two zones and
 Spinner Pod replacement. Neither local smoke proves public delegation or
@@ -342,8 +349,17 @@ docker build -f infra/docker/Gateway.spinner.Dockerfile \
   -t gateway-dns-spinner-smoke:local .
 docker build -f infra/docker/planner-fixture.Dockerfile \
   -t gateway-k8s-planner-smoke:local .
-bash scripts/test-kubernetes-dns
+GATEWAY_DNS_EXTENSION_URL=https://extensions.example.test/webong-dns.tar.gz \
+GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
+  bash scripts/test-kubernetes-dns
 ```
+
+The DNS variants require the same three `GATEWAY_DNS_EXTENSION_*` variables
+shown above. The archive must be the matching-platform `webong/dns` package,
+served over HTTPS with a certificate trusted by Spinner. The smoke activates it
+through Planner before creating Zones and Endpoints; the image does not bundle
+DNS or accept listener environment variables.
 
 The smoke deletes its temporary namespace. It does not configure public
 delegation, TLS, or cross-host availability.
@@ -359,7 +375,10 @@ authoritative DNS over UDP and TCP, then repeats them after one Pod is deleted:
 
 ```sh
 # Build the two smoke images shown in the Email section above first.
-bash scripts/test-kubernetes-email --with-dns
+GATEWAY_DNS_EXTENSION_URL=https://extensions.example.test/webong-dns.tar.gz \
+GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
+  bash scripts/test-kubernetes-email --with-dns
 ```
 
 This still uses one node, a self-signed test certificate, and temporary

@@ -433,7 +433,7 @@ request, the document is:
 | `event` | Protocol event kind, such as `request`, `transaction`, `authenticate`, `connect`, `message`, `close`, or `query`. |
 | `session_id` | Session identifier when the protocol has one; otherwise an empty string. |
 | `host` | Ingress host when supplied by the adapter; otherwise an empty string. |
-| `route` | Protocol-specific routing key: HTTP/WebSocket path, SMTP recipient or authentication username, or DNS hook path. |
+| `route` | Protocol-specific routing key: HTTP/WebSocket path, SMTP recipient or authentication username, or DNS Endpoint path. |
 | `headers` | Header names are lowercase, and differently cased names are merged. One value is a string; repeated values are an array. |
 | `payload` | JSON is decoded once into PHP values. An empty payload becomes an empty array; non-JSON input remains a string. |
 | `attributes` | Protocol-specific scalar metadata supplied by the ingress adapter. |

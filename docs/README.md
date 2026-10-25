@@ -41,7 +41,7 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 | HTTP/webhooks | Capture traffic; execute replies and deliveries | Authorize, match, choose destinations, and optionally record ingress history |
 | WebSocket | Upgrade and session lifecycle | Accept, reject, or deliver events |
 | Email | SMTP/TLS ingress, outbound relay, and TLS POP3/IMAP upstream proxies | SMTP decisions, verification-gated domains/aliases, and optional mailbox authentication |
-| DNS | Authoritative UDP/TCP service | Zone and hook decisions |
+| DNS | Authoritative UDP/TCP service | Zone, Endpoint, and Forwarder decisions |
 | Automations | Advertise and dispatch installed engines; enforce delivery policy | Authorize and select source; register companion capabilities; optionally execute Planner-local languages |
 | Realtime | Route managed workloads | Reverb, Mercure, Centrifugo desired state |
 
