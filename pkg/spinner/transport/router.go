@@ -10,12 +10,12 @@ import (
 
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
-	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	automationexecution "github.com/webong/gateway/pkg/spinner/extensions/automation/execution"
 	"github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"

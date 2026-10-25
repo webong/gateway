@@ -1,37 +1,9 @@
 package config
 
 import (
-	"net/netip"
 	"testing"
 	"time"
 )
-
-func TestWebstreamPrivateNetworkCeiling(t *testing.T) {
-	for _, invalid := range []string{"127.0.0.0/8", "0.0.0.0/0", "10.0.0.0/7", "10.42.1.1/24", "169.254.0.0/16", ""} {
-		if invalid == "" {
-			continue
-		}
-		if _, err := ParseWebstreamPrivateNetworks(invalid); err == nil {
-			t.Fatalf("accepted unsafe private network ceiling %q", invalid)
-		}
-	}
-	got, err := ParseWebstreamPrivateNetworks("10.42.0.0/16,fd00::/64")
-	if err != nil || len(got) != 2 || got[0] != netip.MustParsePrefix("10.42.0.0/16") {
-		t.Fatalf("private network ceiling: %v %v", got, err)
-	}
-}
-
-func TestHTTPPrivateNetworkCeilingIsSeparateFromWebstream(t *testing.T) {
-	for _, invalid := range []string{"127.0.0.0/8", "0.0.0.0/0", "10.0.0.0/7", "172.18.1.1/16"} {
-		if _, err := ParseHTTPPrivateNetworks(invalid); err == nil {
-			t.Fatalf("accepted unsafe HTTP ceiling %q", invalid)
-		}
-	}
-	got, err := ParseHTTPPrivateNetworks("172.18.0.0/16")
-	if err != nil || len(got) != 1 || got[0] != netip.MustParsePrefix("172.18.0.0/16") {
-		t.Fatalf("HTTP ceiling: %v %v", got, err)
-	}
-}
 
 func TestLoadConfigSelectsHTTPRuntime(t *testing.T) {
 	setConfigEnv(t, "http")

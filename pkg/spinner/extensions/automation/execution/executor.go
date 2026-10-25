@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
-	"github.com/webong/gateway/pkg/spinner/automation/actors"
 )
 
 type Mode = automation.ExecutorMode
@@ -104,9 +103,7 @@ func (e *Executor) ExecutorFor(mode Mode) (automation.Executor, error) {
 	case ModeGoroutine:
 		executor, err = newGoroutineExecutor(e.delegate, e.options)
 	case ModeErgo:
-		executor, err = actors.New(e.delegate, actors.Options{
-			Workers: e.options.Workers, QueueSize: e.options.QueueSize, Timeout: e.options.Timeout,
-		})
+		executor, err = newErgoExecutor(e.delegate, e.options)
 	default:
 		return nil, fmt.Errorf("unsupported automation execution mode %q", mode)
 	}

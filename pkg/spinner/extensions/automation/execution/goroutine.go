@@ -11,6 +11,7 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 )
 
+// goroutineExecutor bounds in-process automation work without an actor runtime.
 type goroutineExecutor struct {
 	delegate automation.Executor
 	jobs     chan goroutineExecution

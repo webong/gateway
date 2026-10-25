@@ -11,9 +11,9 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/pkg/email/spinner/mailnet"
 	"github.com/webong/gateway/pkg/email/spinner/mailpoll"
-	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
+	"github.com/webong/gateway/pkg/spinner/schedules"
 )
 
 // ScheduleControl is the shared private schedule protocol for an embedded

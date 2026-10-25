@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/integration"
-	"github.com/webong/gateway/pkg/spinner/integrations/catalog"
+	"github.com/webong/gateway/pkg/spinner/extensions/integration/catalog"
 	"github.com/webong/gateway/pkg/spinner/provision"
 )
 

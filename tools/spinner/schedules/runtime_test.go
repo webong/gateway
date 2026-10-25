@@ -11,7 +11,7 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 	javascript "github.com/webong/gateway/pkg/javascript/runtime"
 	lua "github.com/webong/gateway/pkg/lua/runtime"
-	. "github.com/webong/gateway/pkg/spinner/automation/schedules"
+	. "github.com/webong/gateway/pkg/spinner/schedules"
 )
 
 type fakeControl struct {

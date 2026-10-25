@@ -10,6 +10,7 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 )
 
+// actorTestControl records schedule completion from the actor pool.
 type actorTestControl struct {
 	runs      []Run
 	completed atomic.Int32

@@ -19,6 +19,7 @@ import (
 	smtpout "github.com/webong/gateway/pkg/email/spinner/smtpout"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
+	"github.com/webong/gateway/pkg/spinner/networkpolicy"
 	"github.com/webong/gateway/pkg/spinner/spinnerapi"
 	"github.com/webong/gateway/pkg/spinner/transport"
 	"go.uber.org/zap"
@@ -129,9 +130,9 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 	if err := a.Validate(); err != nil {
 		return err
 	}
-	httpPrivateNetworks, err := spinnerapi.ParseHTTPPrivateNetworks(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
+	httpPrivateNetworks, err := networkpolicy.ParsePrivatePrefixes(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
 	if err != nil {
-		return err
+		return fmt.Errorf("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS: %w", err)
 	}
 
 	planner, err := bridge.NewHTTPProtocolPlanner(

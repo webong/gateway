@@ -4,8 +4,6 @@
 package spinnerapi
 
 import (
-	"net/netip"
-
 	internalconfig "github.com/webong/gateway/pkg/spinner/internal/config"
 	internalforwarding "github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	internallogging "github.com/webong/gateway/pkg/spinner/internal/logging"
@@ -18,14 +16,6 @@ type (
 	Logger     = internallogging.Logger
 	WorkerPool = internalworkers.WorkerPool
 )
-
-func ParseHTTPPrivateNetworks(raw string) ([]netip.Prefix, error) {
-	return internalconfig.ParseHTTPPrivateNetworks(raw)
-}
-
-func ParseWebstreamPrivateNetworks(raw string) ([]netip.Prefix, error) {
-	return internalconfig.ParseWebstreamPrivateNetworks(raw)
-}
 
 func NewLogger(level string) *Logger {
 	return internallogging.NewLogger(level)

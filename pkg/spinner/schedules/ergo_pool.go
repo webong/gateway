@@ -12,7 +12,8 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-const scheduleActorCount = 5 // Planner claims at most five runs per poll.
+// Planner claims at most five runs per poll.
+const scheduleActorCount = 5
 
 var scheduleNodeSequence atomic.Uint64
 

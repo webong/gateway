@@ -16,6 +16,7 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 )
 
+// Run describes one claimed Planner schedule execution.
 type Run struct {
 	ID           string              `json:"id"`
 	ScheduleID   string              `json:"schedule_id"`

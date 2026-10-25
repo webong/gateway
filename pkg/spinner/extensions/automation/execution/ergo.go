@@ -1,5 +1,4 @@
-// Package actors runs bounded automation work on a local Ergo actor pool.
-package actors
+package execution
 
 import (
 	"context"
@@ -16,13 +15,8 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 )
 
-type Options struct {
-	Workers   int
-	QueueSize int
-	Timeout   time.Duration
-}
-
-type Executor struct {
+// ergoExecutor runs bounded automation work on a local Ergo actor pool.
+type ergoExecutor struct {
 	delegate automation.Executor
 	node     gen.Node
 	pool     gen.PID
@@ -33,7 +27,7 @@ type Executor struct {
 
 var nodeSequence atomic.Uint64
 
-func New(delegate automation.Executor, options Options) (*Executor, error) {
+func newErgoExecutor(delegate automation.Executor, options Options) (*ergoExecutor, error) {
 	if delegate == nil {
 		return nil, errors.New("automation actor delegate is required")
 	}
@@ -45,7 +39,7 @@ func New(delegate automation.Executor, options Options) (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	executor := &Executor{
+	executor := &ergoExecutor{
 		delegate: delegate,
 		node:     node,
 		capacity: make(chan struct{}, options.Workers+options.QueueSize),
@@ -63,15 +57,15 @@ func New(delegate automation.Executor, options Options) (*Executor, error) {
 	return executor, nil
 }
 
-func (e *Executor) Supports(language automation.Language) bool {
+func (e *ergoExecutor) Supports(language automation.Language) bool {
 	return e != nil && e.delegate.Supports(language)
 }
 
-func (e *Executor) Languages() []automation.Language {
+func (e *ergoExecutor) Languages() []automation.Language {
 	return automation.Languages(e.delegate)
 }
 
-func (e *Executor) Execute(ctx context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
+func (e *ergoExecutor) Execute(ctx context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
 	if e == nil || e.closed.Load() {
 		return automation.Outcome{}, fmt.Errorf("%w: actor pool is stopped", automation.ErrBusy)
 	}
@@ -113,7 +107,7 @@ func (e *Executor) Execute(ctx context.Context, script automation.Script, input 
 
 // OpenStream preserves Shell's live streaming path. A stream cannot wait in a
 // mailbox because its response begins before execution completes.
-func (e *Executor) OpenStream(ctx context.Context, script automation.Script, input automation.Input) (*automation.Stream, error) {
+func (e *ergoExecutor) OpenStream(ctx context.Context, script automation.Script, input automation.Input) (*automation.Stream, error) {
 	streamer, ok := e.delegate.(automation.StreamingExecutor)
 	if !ok {
 		return nil, errors.New("automation streaming is unavailable")
@@ -121,7 +115,7 @@ func (e *Executor) OpenStream(ctx context.Context, script automation.Script, inp
 	return streamer.OpenStream(ctx, script, input)
 }
 
-func (e *Executor) Close() {
+func (e *ergoExecutor) Close() {
 	if e != nil && e.closed.CompareAndSwap(false, true) {
 		e.node.StopForce()
 	}
@@ -176,6 +170,6 @@ func (w *worker) HandleMessage(_ gen.PID, message any) error {
 	return nil
 }
 
-var _ automation.Executor = (*Executor)(nil)
-var _ automation.LanguageCatalog = (*Executor)(nil)
-var _ automation.StreamingExecutor = (*Executor)(nil)
+var _ automation.Executor = (*ergoExecutor)(nil)
+var _ automation.LanguageCatalog = (*ergoExecutor)(nil)
+var _ automation.StreamingExecutor = (*ergoExecutor)(nil)

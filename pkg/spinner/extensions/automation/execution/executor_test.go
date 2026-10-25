@@ -10,6 +10,7 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 )
 
+// testExecutor is a controllable automation delegate used across mode tests.
 type testExecutor struct {
 	started chan string
 	release chan struct{}

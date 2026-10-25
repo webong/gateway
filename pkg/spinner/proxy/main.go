@@ -18,13 +18,12 @@ import (
 	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
 	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
 	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
-	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
-	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	automationexecution "github.com/webong/gateway/pkg/spinner/extensions/automation/execution"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
@@ -32,6 +31,7 @@ import (
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
 	"github.com/webong/gateway/pkg/spinner/internal/workers"
 	"github.com/webong/gateway/pkg/spinner/provision"
+	"github.com/webong/gateway/pkg/spinner/schedules"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
 

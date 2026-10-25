@@ -90,6 +90,12 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
     }
 
     expect($root.'/mod/arranger/integration/traffic_contract.go')->toBeFile()
+        ->and($root.'/pkg/spinner/extensions/integration/catalog')->toBeDirectory()
+        ->and($root.'/pkg/spinner/extensions/automation/execution')->toBeDirectory()
+        ->and($root.'/pkg/spinner/schedules')->toBeDirectory()
+        ->and($root.'/pkg/spinner/automation')->not->toBeDirectory()
+        ->and($root.'/pkg/spinner/extensions/integrations')->not->toBeDirectory()
+        ->and($root.'/pkg/spinner/integrations')->not->toBeDirectory()
         ->and($root.'/pkg/web/spinner/websocket')->toBeDirectory()
         ->and($root.'/pkg/web/spinner/webstream')->toBeDirectory()
         ->and($root.'/pkg/dns/spinner')->toBeDirectory()
@@ -110,6 +116,9 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
         }
     }
     expect($routerSource)->not->toMatch('#github.com/webong/gateway/pkg/(?:web|dns|email|database)/#');
+    expect(file_get_contents($root.'/pkg/spinner/spinnerapi/api.go'))
+        ->not->toContain('ParseWebstreamPrivateNetworks')
+        ->not->toContain('ParseHTTPPrivateNetworks');
 
     foreach (['dns', 'websocket', 'webstream', 'smtp', 'smtpout', 'imap', 'pop3'] as $legacy) {
         expect($root."/pkg/spinner/bridge/{$legacy}")->not->toBeDirectory();

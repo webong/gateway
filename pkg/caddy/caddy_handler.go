@@ -34,6 +34,7 @@ import (
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
+	"github.com/webong/gateway/pkg/spinner/networkpolicy"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/spinnerapi"
 	"github.com/webong/gateway/pkg/spinner/transport"
@@ -140,14 +141,14 @@ func (g *CaddyHandler) Provision(ctx caddy.Context) error {
 		DeliveryPollInterval:     time.Duration(g.PollInterval),
 		DeliveryReceiptRetention: time.Duration(*g.ReceiptRetention),
 	}
-	privateNetworks, err := spinnerapi.ParseWebstreamPrivateNetworks(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS"))
+	privateNetworks, err := networkpolicy.ParsePrivatePrefixes(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS"))
 	if err != nil {
-		return err
+		return fmt.Errorf("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS: %w", err)
 	}
 	settings.WebstreamPrivateNetworks = privateNetworks
-	httpPrivateNetworks, err := spinnerapi.ParseHTTPPrivateNetworks(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
+	httpPrivateNetworks, err := networkpolicy.ParsePrivatePrefixes(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
 	if err != nil {
-		return err
+		return fmt.Errorf("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS: %w", err)
 	}
 	settings.HTTPPrivateNetworks = httpPrivateNetworks
 	if g.SpoolPath != "" {

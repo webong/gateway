@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/webong/gateway/pkg/spinner/networkpolicy"
 	"github.com/webong/gateway/pkg/spinner/provision"
 )
 
@@ -121,45 +122,6 @@ type IMAPUpstreamSpec struct {
 	ServerName string `json:"server_name"`
 }
 
-// ParseWebstreamPrivateNetworks sets a deployment ceiling, not a source grant.
-// Planner grants must be narrower than these ranges to permit a private dial.
-func ParseWebstreamPrivateNetworks(raw string) ([]netip.Prefix, error) {
-	return parsePrivateNetworks(raw, "GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS")
-}
-
-func ParseHTTPPrivateNetworks(raw string) ([]netip.Prefix, error) {
-	return parsePrivateNetworks(raw, "GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS")
-}
-
-func parsePrivateNetworks(raw, setting string) ([]netip.Prefix, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, nil
-	}
-	privateRanges := []netip.Prefix{
-		netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("172.16.0.0/12"),
-		netip.MustParsePrefix("192.168.0.0/16"), netip.MustParsePrefix("fc00::/7"),
-	}
-	var result []netip.Prefix
-	for _, item := range strings.Split(raw, ",") {
-		prefix, err := netip.ParsePrefix(strings.TrimSpace(item))
-		if err != nil || prefix.Addr().Is4In6() || prefix != prefix.Masked() {
-			return nil, fmt.Errorf("invalid %s entry %q", setting, item)
-		}
-		private := false
-		for _, allowed := range privateRanges {
-			if prefix.Bits() >= allowed.Bits() && allowed.Contains(prefix.Addr()) {
-				private = true
-				break
-			}
-		}
-		if !private {
-			return nil, fmt.Errorf("Webstream private network %q is outside private address space", item)
-		}
-		result = append(result, prefix)
-	}
-	return result, nil
-}
-
 func LoadConfig() (*Config, error) {
 	runtime := getEnv("GATEWAY_RUNTIME", "")
 	if runtime == "" {
@@ -192,13 +154,13 @@ func loadConfig(runtime string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	privateNetworks, err := ParseWebstreamPrivateNetworks(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS"))
+	privateNetworks, err := networkpolicy.ParsePrivatePrefixes(os.Getenv("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS: %w", err)
 	}
-	httpPrivateNetworks, err := ParseHTTPPrivateNetworks(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
+	httpPrivateNetworks, err := networkpolicy.ParsePrivatePrefixes(os.Getenv("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GATEWAY_HTTP_PRIVATE_NETWORK_CIDRS: %w", err)
 	}
 	legacyEnabled := getEnvBool("GATEWAY_REVERB_ENABLED", false) || getEnvBool("GATEWAY_MERCURE_ENABLED", false) || getEnvBool("GATEWAY_CENTRIFUGO_ENABLED", false)
 	if (legacyEnabled || os.Getenv("GATEWAY_INTEGRATION_PATHS") != "") && !provisioningConfig.Enabled {

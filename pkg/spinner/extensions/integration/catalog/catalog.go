@@ -1,6 +1,6 @@
-// Package catalog installs explicitly versioned executable integrations from a
-// trusted local or HTTPS catalog. Spinner itself never downloads or updates
-// executable code while serving traffic.
+// Package catalog installs explicitly versioned Integration extension
+// executables from a trusted local or HTTPS catalog. Spinner itself never
+// downloads or updates executable code while serving traffic.
 package catalog
 
 import (

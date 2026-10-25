@@ -1,4 +1,4 @@
-package actors
+package execution
 
 import (
 	"context"
@@ -36,7 +36,7 @@ func (e *blockingExecutor) Execute(ctx context.Context, script automation.Script
 
 func TestExecutorWaitsForWorkerAndPreservesResults(t *testing.T) {
 	delegate := &blockingExecutor{started: make(chan string, 2), release: make(chan struct{}, 2)}
-	executor, err := New(delegate, Options{Workers: 1, QueueSize: 1, Timeout: time.Second})
+	executor, err := newErgoExecutor(delegate, Options{Workers: 1, QueueSize: 1, Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestExecutorWaitsForWorkerAndPreservesResults(t *testing.T) {
 
 func TestExecutorReturnsBusyOnlyAfterBoundedWait(t *testing.T) {
 	delegate := &blockingExecutor{started: make(chan string, 2), release: make(chan struct{}), ignoreCancellation: true}
-	executor, err := New(delegate, Options{Workers: 1, QueueSize: 0, Timeout: 60 * time.Millisecond})
+	executor, err := newErgoExecutor(delegate, Options{Workers: 1, QueueSize: 0, Timeout: 60 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestExecutorReturnsBusyOnlyAfterBoundedWait(t *testing.T) {
 
 func TestExecutorHonorsCallerCancellationWhileQueued(t *testing.T) {
 	delegate := &blockingExecutor{started: make(chan string, 2), release: make(chan struct{})}
-	executor, err := New(delegate, Options{Workers: 1, QueueSize: 0, Timeout: time.Second})
+	executor, err := newErgoExecutor(delegate, Options{Workers: 1, QueueSize: 0, Timeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
