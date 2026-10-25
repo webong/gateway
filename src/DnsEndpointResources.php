@@ -6,31 +6,33 @@ namespace Webong\Gateway\Dns;
 
 use Webong\Proxy\Models\WebProxyEndpoint;
 
-final class DnsHookResources
+final class DnsEndpointResources
 {
     /** @return array<string, mixed> */
-    public static function hook(WebProxyEndpoint $hook): array
+    public static function endpoint(WebProxyEndpoint $endpoint): array
     {
-        $gateway = self::gateway($hook);
+        $gateway = self::gateway($endpoint);
         $token = (string) ($gateway['token'] ?? '');
         $hostname = (string) ($gateway['hostname'] ?? $token);
 
         return [
-            'id' => $hook->getKey(),
-            'external_id' => $gateway['external_id'] ?? $hook->external_id,
+            'id' => $endpoint->getKey(),
+            'external_id' => $gateway['external_id'] ?? $endpoint->external_id,
             'name' => $gateway['name'] ?? null,
+            'mode' => 'provided',
             'token' => $token,
             'hostname' => $hostname,
             'zone' => $gateway['zone'] ?? null,
             'query_name_template' => '{data}.'.$hostname,
-            'endpoint_key' => $hook->endpoint_key,
-            'active' => $hook->is_active,
+            'endpoint_key' => $endpoint->endpoint_key,
+            'enabled' => $endpoint->is_active,
+            'revision' => max(1, (int) ($gateway['revision'] ?? 1)),
             'metadata' => $gateway['metadata'] ?? (object) [],
-            'subscriptions_url' => '/registry/endpoints/'.$hook->endpoint_key.'/subscriptions',
-            'events_url' => '/dns/hooks/'.$hook->getKey().'/events',
-            'usage_url' => '/dns/hooks/'.$hook->getKey().'/usage',
-            'created_at' => $hook->created_at?->toAtomString(),
-            'updated_at' => $hook->updated_at?->toAtomString(),
+            'subscriptions_url' => '/registry/endpoints/'.$endpoint->endpoint_key.'/subscriptions',
+            'events_url' => '/dns/endpoints/'.$endpoint->getKey().'/events',
+            'usage_url' => '/dns/endpoints/'.$endpoint->getKey().'/usage',
+            'created_at' => $endpoint->created_at?->toAtomString(),
+            'updated_at' => $endpoint->updated_at?->toAtomString(),
         ];
     }
 

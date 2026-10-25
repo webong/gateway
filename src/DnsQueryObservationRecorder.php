@@ -10,13 +10,13 @@ use Webong\Gateway\Events\EventRetention;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocols\GatewayObservation;
 
-final readonly class DnsHookEventRecorder
+final readonly class DnsQueryObservationRecorder
 {
     public function __construct(
         private ConnectionInterface $database,
-        private DnsHookRegistry $hooks,
-        private DnsZoneRegistry $zones,
-        private DnsResolverStore $resolvers,
+        private DnsEndpointRegistry $endpoints,
+        private DnsZoneStore $zones,
+        private DnsForwarderStore $forwarders,
         private EventRetention $retention,
     ) {}
 
@@ -39,16 +39,16 @@ final readonly class DnsHookEventRecorder
         $subjectId = '';
 
         if (in_array($mode, ['managed', 'provided'], true)) {
-            $hook = ($attributes['hook'] ?? '') === ''
+            $endpoint = ($attributes['endpoint'] ?? '') === ''
                 ? null
-                : $this->hooks->find($attributes['hook']);
-            $endpoint = $hook ?? $this->zones->find((string) ($attributes['zone'] ?? ''));
-            $subjectKind = $hook === null ? 'dns.zone' : 'dns.hook';
-            $subjectId = (string) $endpoint?->getKey();
+                : $this->endpoints->find($attributes['endpoint']);
+            $owner = $endpoint ?? $this->zones->find((string) ($attributes['zone'] ?? ''));
+            $subjectKind = $endpoint === null ? 'dns.zone' : 'dns.endpoint';
+            $subjectId = (string) ($endpoint?->getKey() ?? $owner?->id ?? '');
         } elseif ($mode === 'forwarded') {
-            $resolver = $this->resolvers->findByName((string) ($attributes['resolver'] ?? ''));
-            $subjectKind = 'dns.resolver';
-            $subjectId = (string) ($resolver?->id ?? '');
+            $forwarder = $this->forwarders->findByName((string) ($attributes['forwarder'] ?? ''));
+            $subjectKind = 'dns.forwarder';
+            $subjectId = (string) ($forwarder?->id ?? '');
         }
 
         // Do not accept observations for resources Planner does not own.

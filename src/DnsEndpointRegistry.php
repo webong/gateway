@@ -6,17 +6,21 @@ namespace Webong\Gateway\Dns;
 
 use RuntimeException;
 use Webong\Gateway\RegistryRouteCache;
+use Webong\Gateway\Resources\StaleResource;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EndpointRegistry;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
-final readonly class DnsHookRegistry
+final readonly class DnsEndpointRegistry
 {
+    public const string CLIENT = 'gateway';
+
+    public const string KIND = 'dns_endpoint';
+
     public function __construct(
         private EndpointRegistry $endpoints,
         private RegistryRouteCache $routeCache,
         private DnsZoneCatalog $zones,
-        private DnsZoneRegistry $zoneRegistry,
     ) {}
 
     /** @param array<string, mixed> $metadata */
@@ -29,20 +33,20 @@ final readonly class DnsHookRegistry
     ): WebProxyEndpoint {
         $client = $this->client();
         if ($client === '') {
-            throw new RuntimeException('Gateway DNS hooks require a WebProxy client name.');
+            throw new RuntimeException('Gateway DNS endpoints require a WebProxy client name.');
         }
 
         $zone = $this->zones->resolve($requestedZone);
         $existing = WebProxyEndpoint::query()
             ->where('client', $client)
-            ->where('metadata->_gateway->kind', 'dns_hook')
+            ->where('metadata->_gateway->kind', self::KIND)
             ->where('metadata->_gateway->zone', $zone)
             ->where('metadata->_gateway->external_id', $externalId)
             ->first();
         if ($existing !== null) {
             $gateway = $this->gateway($existing);
-            if (($gateway['kind'] ?? null) !== 'dns_hook') {
-                throw new RuntimeException('The DNS hook identity is already used by another Gateway endpoint.');
+            if (($gateway['kind'] ?? null) !== self::KIND) {
+                throw new RuntimeException('The DNS endpoint identity is already used by another Gateway endpoint.');
             }
             if (! $existing->is_active || ($gateway['deleted'] ?? false)) {
                 $existing->update([
@@ -53,7 +57,7 @@ final readonly class DnsHookRegistry
                         name: is_string($gateway['name'] ?? null) ? $gateway['name'] : null,
                         metadata: is_array($gateway['metadata'] ?? null) ? $gateway['metadata'] : [],
                         zone: $zone,
-                        parentEndpointKey: (string) ($gateway['parent_endpoint_key'] ?? ''),
+                        revision: max(1, (int) ($gateway['revision'] ?? 1)) + 1,
                     ),
                 ]);
                 $this->routeCache->invalidatePaths();
@@ -63,17 +67,16 @@ final readonly class DnsHookRegistry
         }
 
         $token = $this->uniqueToken();
-        $zoneEndpoint = $this->ensureZone($zone, $registry);
         $endpoint = $this->endpoints->ensure(new EndpointDefinition(
             client: $client,
-            externalId: 'dns-hook:'.$zone.':'.$externalId,
+            externalId: 'dns-endpoint:'.$zone.':'.$externalId,
             signingSecret: null,
             verificationToken: null,
             endpointKey: 'dns-'.$token,
             credentialOwnerId: null,
             managed: true,
             registry: $registry,
-            metadata: $this->metadata($externalId, $token, $name, $metadata, $zone, $zoneEndpoint->endpoint_key),
+            metadata: $this->metadata($externalId, $token, $name, $metadata, $zone),
         ));
         $this->routeCache->invalidatePaths();
 
@@ -87,7 +90,7 @@ final readonly class DnsHookRegistry
 
         $matches = WebProxyEndpoint::query()
             ->where('client', $this->client())
-            ->where('metadata->_gateway->kind', 'dns_hook')
+            ->where('metadata->_gateway->kind', self::KIND)
             ->where('metadata->_gateway->deleted', false)
             ->when($zone !== null, fn ($query) => $query->where('metadata->_gateway->zone', $zone))
             ->where(function ($query) use ($identifier, $token): void {
@@ -102,40 +105,46 @@ final readonly class DnsHookRegistry
     }
 
     /** @param array<string, mixed> $attributes */
-    public function update(WebProxyEndpoint $hook, array $attributes): WebProxyEndpoint
+    public function update(WebProxyEndpoint $endpoint, array $attributes, int $revision): WebProxyEndpoint
     {
-        $gateway = $this->gateway($hook);
+        $gateway = $this->gateway($endpoint);
+        if ((int) ($gateway['revision'] ?? 1) !== $revision) {
+            throw new StaleResource('DNS endpoint revision has changed.');
+        }
         $metadata = $attributes['metadata'] ?? ($gateway['metadata'] ?? []);
         $name = array_key_exists('name', $attributes) ? $attributes['name'] : ($gateway['name'] ?? null);
-        $hook->update([
-            'is_active' => $attributes['is_active'] ?? $hook->is_active,
+        $endpoint->update([
+            'is_active' => $attributes['is_active'] ?? $endpoint->is_active,
             'metadata' => $this->metadata(
-                externalId: (string) ($gateway['external_id'] ?? $hook->external_id),
+                externalId: (string) ($gateway['external_id'] ?? $endpoint->external_id),
                 token: (string) ($gateway['token'] ?? ''),
                 name: is_string($name) ? $name : null,
                 metadata: is_array($metadata) ? $metadata : [],
                 zone: (string) ($gateway['zone'] ?? $this->zones->resolve(null)),
-                parentEndpointKey: (string) ($gateway['parent_endpoint_key'] ?? ''),
+                revision: $revision + 1,
             ),
         ]);
         $this->routeCache->invalidatePaths();
 
-        return $hook->refresh();
+        return $endpoint->refresh();
     }
 
-    public function delete(WebProxyEndpoint $hook): void
+    public function delete(WebProxyEndpoint $endpoint, int $revision): void
     {
-        $gateway = $this->gateway($hook);
-        $hook->update([
+        $gateway = $this->gateway($endpoint);
+        if ((int) ($gateway['revision'] ?? 1) !== $revision) {
+            throw new StaleResource('DNS endpoint revision has changed.');
+        }
+        $endpoint->update([
             'is_active' => false,
             'metadata' => $this->metadata(
-                externalId: (string) ($gateway['external_id'] ?? $hook->external_id),
+                externalId: (string) ($gateway['external_id'] ?? $endpoint->external_id),
                 token: (string) ($gateway['token'] ?? ''),
                 name: is_string($gateway['name'] ?? null) ? $gateway['name'] : null,
                 metadata: is_array($gateway['metadata'] ?? null) ? $gateway['metadata'] : [],
                 zone: (string) ($gateway['zone'] ?? $this->zones->resolve(null)),
-                parentEndpointKey: (string) ($gateway['parent_endpoint_key'] ?? ''),
                 deleted: true,
+                revision: $revision + 1,
             ),
         ]);
         $this->routeCache->invalidatePaths();
@@ -152,27 +161,7 @@ final readonly class DnsHookRegistry
 
     private function client(): string
     {
-        return trim((string) config('gateway.dns.client', 'gateway'));
-    }
-
-    private function ensureZone(string $zone, ?string $registry): WebProxyEndpoint
-    {
-        if (($endpoint = $this->zoneRegistry->find($zone)) !== null) {
-            return $endpoint;
-        }
-        $definition = collect($this->zones->all())->firstWhere('name', $zone);
-        if (! is_array($definition)) {
-            throw new RuntimeException("DNS zone [{$zone}] is not active.");
-        }
-
-        return $this->zoneRegistry->create(
-            name: $zone,
-            nameservers: $definition['nameservers'],
-            provider: 'manual',
-            soaEmail: is_string($definition['soa_email'] ?? null) ? $definition['soa_email'] : null,
-            ttl: max(0, (int) ($definition['ttl'] ?? 60)),
-            registry: $registry,
-        );
+        return self::CLIENT;
     }
 
     /** @param array<string, mixed> $metadata
@@ -184,14 +173,13 @@ final readonly class DnsHookRegistry
         ?string $name,
         array $metadata,
         string $zone,
-        string $parentEndpointKey,
         bool $deleted = false,
+        int $revision = 1,
     ): array {
         return ['_gateway' => [
-            'kind' => 'dns_hook',
+            'kind' => self::KIND,
             'protocol' => 'dns',
             'hostname' => $token.'.'.$zone,
-            'parent_endpoint_key' => $parentEndpointKey,
             'external_id' => $externalId,
             'token' => $token,
             'name' => $name,
@@ -199,6 +187,7 @@ final readonly class DnsHookRegistry
             'metadata' => $metadata,
             'zone' => $zone,
             'deleted' => $deleted,
+            'revision' => $revision,
         ]];
     }
 

@@ -23,9 +23,9 @@ type dnsObservation struct {
 	transport      string
 	mode           string
 	zone           string
-	hook           string
+	endpoint       string
 	data           string
-	resolver       string
+	forwarder      string
 	decisionAction string
 	decisionStatus int
 	failure        string
@@ -66,9 +66,9 @@ func (o *dnsObservation) document(response *mdns.Msg) bridge.Observation {
 	optionalObservationAttribute(attributes, "transport", o.transport)
 	optionalObservationAttribute(attributes, "answer_types", observedAnswerTypes(response.Answer))
 	optionalObservationAttribute(attributes, "zone", o.zone)
-	optionalObservationAttribute(attributes, "hook", o.hook)
+	optionalObservationAttribute(attributes, "endpoint", o.endpoint)
 	optionalObservationAttribute(attributes, "data", o.data)
-	optionalObservationAttribute(attributes, "resolver", o.resolver)
+	optionalObservationAttribute(attributes, "forwarder", o.forwarder)
 	optionalObservationAttribute(attributes, "decision_action", o.decisionAction)
 	if o.decisionStatus != 0 {
 		attributes["decision_status_code"] = strconv.Itoa(o.decisionStatus)

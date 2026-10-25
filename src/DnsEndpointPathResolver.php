@@ -9,7 +9,7 @@ use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\PathBinding;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
-class DnsHookPathResolver implements PathResolver
+class DnsEndpointPathResolver implements PathResolver
 {
     public function __construct(protected readonly ?PathResolver $fallback = null) {}
 
@@ -24,20 +24,20 @@ class DnsHookPathResolver implements PathResolver
             return null;
         }
 
-        $hook = WebProxyEndpoint::query()
-            ->where('client', trim((string) config('gateway.dns.client', 'gateway')))
+        $endpoint = WebProxyEndpoint::query()
+            ->where('client', DnsEndpointRegistry::CLIENT)
             ->where('endpoint_key', 'dns-'.$token)
             ->where('is_active', true)
-            ->where('metadata->_gateway->kind', 'dns_hook')
+            ->where('metadata->_gateway->kind', DnsEndpointRegistry::KIND)
             ->when(($zone = strtolower(rtrim((string) ($request->attributes['zone'] ?? ''), '.'))) !== '',
                 fn ($query) => $query->where('metadata->_gateway->zone', $zone))
             ->first();
-        if ($hook === null) {
+        if ($endpoint === null) {
             return null;
         }
 
         return new PathBinding(
-            endpointKey: $hook->endpoint_key,
+            endpointKey: $endpoint->endpoint_key,
             scope: 'dns',
             key: 'query',
         );

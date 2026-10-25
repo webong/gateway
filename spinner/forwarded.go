@@ -16,12 +16,12 @@ import (
 
 const defaultForwardedTimeout = 2 * time.Second
 
-var forwardedResolverName = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+var forwarderName = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
 
-// ForwardedResolver is one upstream DNS answer source. Domains and client
+// Forwarder is one upstream DNS answer source. Domains and client
 // networks form an explicit forwarding policy; no implicit catch-all is
 // created when the list is empty.
-type ForwardedResolver struct {
+type Forwarder struct {
 	Name        string   `json:"name"`
 	Address     string   `json:"address"`
 	Transport   string   `json:"transport"`
@@ -30,7 +30,7 @@ type ForwardedResolver struct {
 	TimeoutMS   int      `json:"timeout_ms,omitempty"`
 }
 
-type forwardedRoute struct {
+type forwarderRoute struct {
 	name      string
 	address   string
 	transport string
@@ -39,53 +39,53 @@ type forwardedRoute struct {
 	timeout   time.Duration
 }
 
-func normalizeForwardedResolvers(resolvers []ForwardedResolver) ([]forwardedRoute, error) {
-	if len(resolvers) > 32 {
-		return nil, fmt.Errorf("DNS forwarded resolver count exceeds 32")
+func normalizeForwarders(forwarders []Forwarder) ([]forwarderRoute, error) {
+	if len(forwarders) > 32 {
+		return nil, fmt.Errorf("DNS forwarder count exceeds 32")
 	}
-	routes := make([]forwardedRoute, 0)
-	seenNames := make(map[string]bool, len(resolvers))
+	routes := make([]forwarderRoute, 0)
+	seenNames := make(map[string]bool, len(forwarders))
 	seenRoutes := make(map[string]bool)
-	for _, resolver := range resolvers {
-		resolver.Name = strings.ToLower(strings.TrimSpace(resolver.Name))
-		if !forwardedResolverName.MatchString(resolver.Name) || seenNames[resolver.Name] {
-			return nil, fmt.Errorf("invalid or duplicate DNS forwarded resolver name %q", resolver.Name)
+	for _, forwarder := range forwarders {
+		forwarder.Name = strings.ToLower(strings.TrimSpace(forwarder.Name))
+		if !forwarderName.MatchString(forwarder.Name) || seenNames[forwarder.Name] {
+			return nil, fmt.Errorf("invalid or duplicate DNS forwarder name %q", forwarder.Name)
 		}
-		seenNames[resolver.Name] = true
-		if err := validateForwardedAddress(resolver.Address); err != nil {
-			return nil, fmt.Errorf("DNS forwarded resolver %s: %w", resolver.Name, err)
+		seenNames[forwarder.Name] = true
+		if err := validateForwardedAddress(forwarder.Address); err != nil {
+			return nil, fmt.Errorf("DNS forwarder %s: %w", forwarder.Name, err)
 		}
-		resolver.Transport = strings.ToLower(strings.TrimSpace(resolver.Transport))
-		if resolver.Transport == "" {
-			resolver.Transport = "udp"
+		forwarder.Transport = strings.ToLower(strings.TrimSpace(forwarder.Transport))
+		if forwarder.Transport == "" {
+			forwarder.Transport = "udp"
 		}
-		if resolver.Transport != "udp" && resolver.Transport != "tcp" {
-			return nil, fmt.Errorf("DNS forwarded resolver %s has unsupported transport %q", resolver.Name, resolver.Transport)
+		if forwarder.Transport != "udp" && forwarder.Transport != "tcp" {
+			return nil, fmt.Errorf("DNS forwarder %s has unsupported transport %q", forwarder.Name, forwarder.Transport)
 		}
-		if len(resolver.Domains) == 0 || len(resolver.Domains) > 32 || len(resolver.ClientCIDRs) == 0 || len(resolver.ClientCIDRs) > 32 {
-			return nil, fmt.Errorf("DNS forwarded resolver %s requires 1 to 32 domains and client networks", resolver.Name)
+		if len(forwarder.Domains) == 0 || len(forwarder.Domains) > 32 || len(forwarder.ClientCIDRs) == 0 || len(forwarder.ClientCIDRs) > 32 {
+			return nil, fmt.Errorf("DNS forwarder %s requires 1 to 32 domains and client networks", forwarder.Name)
 		}
 		timeout := defaultForwardedTimeout
-		if resolver.TimeoutMS != 0 {
-			if resolver.TimeoutMS < 10 || resolver.TimeoutMS > 5000 {
-				return nil, fmt.Errorf("DNS forwarded resolver %s timeout must be between 10 and 5000 milliseconds", resolver.Name)
+		if forwarder.TimeoutMS != 0 {
+			if forwarder.TimeoutMS < 10 || forwarder.TimeoutMS > 5000 {
+				return nil, fmt.Errorf("DNS forwarder %s timeout must be between 10 and 5000 milliseconds", forwarder.Name)
 			}
-			timeout = time.Duration(resolver.TimeoutMS) * time.Millisecond
+			timeout = time.Duration(forwarder.TimeoutMS) * time.Millisecond
 		}
 
-		domains := make([]string, 0, len(resolver.Domains))
-		for _, value := range resolver.Domains {
+		domains := make([]string, 0, len(forwarder.Domains))
+		for _, value := range forwarder.Domains {
 			domain := canonicalName(value)
 			if domain != "." && !validAuthorityName(domain) {
-				return nil, fmt.Errorf("DNS forwarded resolver %s has invalid domain %q", resolver.Name, value)
+				return nil, fmt.Errorf("DNS forwarder %s has invalid domain %q", forwarder.Name, value)
 			}
 			domains = append(domains, domain)
 		}
-		clients := make([]netip.Prefix, 0, len(resolver.ClientCIDRs))
-		for _, value := range resolver.ClientCIDRs {
+		clients := make([]netip.Prefix, 0, len(forwarder.ClientCIDRs))
+		for _, value := range forwarder.ClientCIDRs {
 			prefix, err := netip.ParsePrefix(value)
 			if err != nil || prefix != prefix.Masked() || prefix.Addr().IsUnspecified() {
-				return nil, fmt.Errorf("DNS forwarded resolver %s has invalid client network %q", resolver.Name, value)
+				return nil, fmt.Errorf("DNS forwarder %s has invalid client network %q", forwarder.Name, value)
 			}
 			clients = append(clients, prefix)
 		}
@@ -96,8 +96,8 @@ func normalizeForwardedResolvers(resolvers []ForwardedResolver) ([]forwardedRout
 					return nil, fmt.Errorf("duplicate DNS forwarded route for %s and %s", domain, client)
 				}
 				seenRoutes[key] = true
-				routes = append(routes, forwardedRoute{name: resolver.Name, address: resolver.Address,
-					transport: resolver.Transport, domain: domain, client: client, timeout: timeout})
+				routes = append(routes, forwarderRoute{name: forwarder.Name, address: forwarder.Address,
+					transport: forwarder.Transport, domain: domain, client: client, timeout: timeout})
 			}
 		}
 	}
@@ -128,13 +128,13 @@ func validateForwardedAddress(address string) error {
 	return nil
 }
 
-func (s *Server) forwardedResolverFor(name string, remote net.Addr) *forwardedRoute {
+func (s *Server) forwarderFor(name string, remote net.Addr) *forwarderRoute {
 	client, ok := forwardedClientAddress(remote)
 	if !ok {
 		return nil
 	}
-	for index := range s.forwarded {
-		route := &s.forwarded[index]
+	for index := range s.forwarders {
+		route := &s.forwarders[index]
 		if route.client.Contains(client) && mdns.IsSubDomain(route.domain, name) {
 			return route
 		}
@@ -163,10 +163,10 @@ func forwardedClientAddress(address net.Addr) (netip.Addr, bool) {
 	return parsed.Unmap(), err == nil
 }
 
-func (s *Server) forwardQuery(writer mdns.ResponseWriter, request *mdns.Msg, resolver forwardedRoute, observed *dnsObservation) {
-	ctx, cancel := context.WithTimeout(context.Background(), resolver.timeout)
+func (s *Server) forwardQuery(writer mdns.ResponseWriter, request *mdns.Msg, forwarder forwarderRoute, observed *dnsObservation) {
+	ctx, cancel := context.WithTimeout(context.Background(), forwarder.timeout)
 	defer cancel()
-	response, err := exchangeForwarded(ctx, request, resolver)
+	response, err := exchangeForwarded(ctx, request, forwarder)
 	if err != nil || response == nil {
 		response = new(mdns.Msg)
 		response.SetRcode(request, mdns.RcodeServerFailure)
@@ -177,15 +177,15 @@ func (s *Server) forwardQuery(writer mdns.ResponseWriter, request *mdns.Msg, res
 	s.writeObservedResponse(writer, request, response, observed)
 }
 
-func exchangeForwarded(ctx context.Context, request *mdns.Msg, resolver forwardedRoute) (*mdns.Msg, error) {
-	client := &mdns.Client{Net: resolver.transport, Timeout: resolver.timeout}
-	response, _, err := client.ExchangeContext(ctx, request.Copy(), resolver.address)
+func exchangeForwarded(ctx context.Context, request *mdns.Msg, forwarder forwarderRoute) (*mdns.Msg, error) {
+	client := &mdns.Client{Net: forwarder.transport, Timeout: forwarder.timeout}
+	response, _, err := client.ExchangeContext(ctx, request.Copy(), forwarder.address)
 	if err != nil {
 		return nil, err
 	}
-	if resolver.transport == "udp" && response != nil && response.Truncated {
+	if forwarder.transport == "udp" && response != nil && response.Truncated {
 		client.Net = "tcp"
-		return exchangeWithClient(ctx, client, request, resolver.address)
+		return exchangeWithClient(ctx, client, request, forwarder.address)
 	}
 	return response, nil
 }

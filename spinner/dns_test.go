@@ -165,6 +165,31 @@ func TestDNSRejectsDuplicateConfiguredZones(t *testing.T) {
 	}
 }
 
+func TestDNSRejectsRuntimeConfigurationBeyondHardSafetyLimits(t *testing.T) {
+	base := Config{Address: "127.0.0.1:5353", Zones: []Zone{{
+		Name: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+	}}}
+	tests := map[string]func(*Config){
+		"planner timeout":       func(config *Config) { config.PlannerTimeout = 31 * time.Second },
+		"read timeout":          func(config *Config) { config.ReadTimeout = 31 * time.Second },
+		"write timeout":         func(config *Config) { config.WriteTimeout = 31 * time.Second },
+		"response record count": func(config *Config) { config.MaxResponseRecords = 257 },
+		"query rate":            func(config *Config) { config.RateLimit, config.RateBurst = 100001, 100001 },
+		"query burst":           func(config *Config) { config.RateLimit, config.RateBurst = 1, 200001 },
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			config := base
+			mutate(&config)
+			if _, err := NewServer(config, plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+				return bridge.GatewayDecision{}, nil
+			}), &recordingExecutor{}); err == nil {
+				t.Fatal("unsafe DNS runtime configuration was accepted")
+			}
+		})
+	}
+}
+
 func TestDNSQueriesReceiveUniqueEventIDs(t *testing.T) {
 	var identifiers []string
 	planner := plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
@@ -241,7 +266,7 @@ func TestDNSQueryUsesNormalAutomationAndQueuesItsWork(t *testing.T) {
 		}, nil
 	})
 	server, err := NewServer(Config{
-		Address: "127.0.0.1:5353", Zone: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+		Address: "127.0.0.1:5353", Zones: []Zone{{Name: "dns.example.test", Nameservers: []string{"ns1.example.test"}}},
 		Automation: engine, Schedules: registrar,
 	}, planner, executor)
 	if err != nil {
@@ -343,7 +368,7 @@ func TestDNSRateLimitDropsExcessQueriesBeforePlanning(t *testing.T) {
 		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolDNS, Action: bridge.GatewayAccept}, nil
 	})
 	server, err := NewServer(Config{
-		Address: "127.0.0.1:5353", Zone: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+		Address: "127.0.0.1:5353", Zones: []Zone{{Name: "dns.example.test", Nameservers: []string{"ns1.example.test"}}},
 		RateLimit: 1, RateBurst: 1,
 	}, planner, &recordingExecutor{})
 	if err != nil {
@@ -417,7 +442,7 @@ func TestDNSServerServesUDPAndTCP(t *testing.T) {
 func newTestServer(t *testing.T, planner bridge.ProtocolPlanner, executor Executor) *Server {
 	t.Helper()
 	server, err := NewServer(Config{
-		Address: "127.0.0.1:5353", Zone: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+		Address: "127.0.0.1:5353", Zones: []Zone{{Name: "dns.example.test", Nameservers: []string{"ns1.example.test"}}},
 	}, planner, executor)
 	if err != nil {
 		t.Fatal(err)
