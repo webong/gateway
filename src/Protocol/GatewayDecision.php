@@ -21,6 +21,7 @@ final readonly class GatewayDecision
         public array $metadata = [],
         public string $version = 'v1',
         public ?GatewayDelivery $stream = null,
+        public ?Automation $automation = null,
     ) {
         if ($this->version !== 'v1') {
             throw new InvalidArgumentException('Unsupported gateway decision version.');
@@ -42,6 +43,13 @@ final readonly class GatewayDecision
         if ($this->action === GatewayAction::STREAM
             && ($this->protocol !== Protocol::WEBSTREAM || $this->stream === null || $this->stream->protocol !== Protocol::HTTP)) {
             throw new InvalidArgumentException('Webstream decisions require one HTTP stream source.');
+        }
+        if ($this->action === GatewayAction::AUTOMATE
+            && ($this->automation === null || $this->reply !== null || $this->stream !== null)) {
+            throw new InvalidArgumentException('Automate decisions require automation and cannot include reply or stream destinations.');
+        }
+        if ($this->action !== GatewayAction::AUTOMATE && $this->automation !== null) {
+            throw new InvalidArgumentException('Automation is only valid for automate decisions.');
         }
 
         foreach ($this->deliveries as $delivery) {
@@ -69,6 +77,7 @@ final readonly class GatewayDecision
             ),
             'metadata' => $this->metadata,
             'stream' => $this->stream?->toArray(),
+            'automation' => $this->automation?->toArray(),
         ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== 0 && $value !== []);
     }
 }

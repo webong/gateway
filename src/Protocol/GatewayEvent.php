@@ -8,7 +8,7 @@ use InvalidArgumentException;
 
 final readonly class GatewayEvent
 {
-    /** @param array<string, list<string>> $headers @param array<string, string> $attributes */
+    /** @param array<string, list<string>> $headers @param array<string, string> $attributes @param list<string> $automationLanguages */
     public function __construct(
         public string $id,
         public Protocol $protocol,
@@ -21,6 +21,7 @@ final readonly class GatewayEvent
         public array $headers = [],
         public array $attributes = [],
         public string $payload = '',
+        public array $automationLanguages = [],
     ) {
         if ($this->id === '' || $this->route === '') {
             throw new InvalidArgumentException('Gateway event id and route are required.');
@@ -40,6 +41,8 @@ final readonly class GatewayEvent
         if ($this->protocol === Protocol::IMAP && ! in_array($this->kind, [EventKind::AUTHENTICATE, EventKind::CONNECT, EventKind::CLOSE], true)) {
             throw new InvalidArgumentException('IMAP gateway events must authenticate, connect, or close.');
         }
+
+        self::assertAutomationLanguages($this->automationLanguages);
     }
 
     /** @param array<string, mixed> $payload */
@@ -65,6 +68,7 @@ final readonly class GatewayEvent
             headers: self::headers($payload['headers'] ?? []),
             attributes: self::attributes($payload['attributes'] ?? []),
             payload: $body,
+            automationLanguages: self::automationLanguages($payload['runtime'] ?? []),
         );
     }
 
@@ -83,6 +87,9 @@ final readonly class GatewayEvent
             'headers' => $this->headers,
             'attributes' => $this->attributes,
             'payload' => base64_encode($this->payload),
+            'runtime' => $this->automationLanguages === [] ? [] : [
+                'automation_languages' => $this->automationLanguages,
+            ],
         ], static fn (mixed $value): bool => $value !== '' && $value !== []);
     }
 
@@ -125,5 +132,35 @@ final readonly class GatewayEvent
         }
 
         return $normalized;
+    }
+
+    /** @return list<string> */
+    private static function automationLanguages(mixed $runtime): array
+    {
+        if (! is_array($runtime)) {
+            throw new InvalidArgumentException('Gateway event runtime capabilities must be an object.');
+        }
+
+        $languages = $runtime['automation_languages'] ?? [];
+        if (! is_array($languages) || ! array_is_list($languages)) {
+            throw new InvalidArgumentException('Gateway event automation languages must be a list.');
+        }
+
+        self::assertAutomationLanguages($languages);
+
+        return array_values(array_unique($languages));
+    }
+
+    /** @param list<mixed> $languages */
+    private static function assertAutomationLanguages(array $languages): void
+    {
+        if (count($languages) > 32) {
+            throw new InvalidArgumentException('Gateway event automation language list is too large.');
+        }
+        foreach ($languages as $language) {
+            if (! is_string($language) || preg_match('/^[a-z][a-z0-9_-]*$/', $language) !== 1) {
+                throw new InvalidArgumentException('Gateway event automation language identifiers are invalid.');
+            }
+        }
     }
 }
