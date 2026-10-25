@@ -321,7 +321,10 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 		writeError(writer, http.StatusUnprocessableEntity, "Email submission is not authorized or valid.")
 		return
 	}
-	if handler.email.checker != nil && handler.email.checker.CheckSigningDomain(signingDomain) != nil {
+	// A mailbox connection provides its own SMTP transport and signing policy.
+	// Only Gateway-managed SMTP deliveries require a Planner-managed DKIM key.
+	gatewayManagedSigning := input.MailboxConnectionID == ""
+	if gatewayManagedSigning && handler.email.checker != nil && handler.email.checker.CheckSigningDomain(signingDomain) != nil {
 		writeError(writer, http.StatusServiceUnavailable, "Email signing key is unavailable.")
 		return
 	}
@@ -338,9 +341,11 @@ func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Re
 	}
 	recipients, _ := json.Marshal(input.Recipients)
 	attributes := map[string]string{
-		"mail_from":                       input.MailFrom,
-		"recipients":                      string(recipients),
-		bridge.DKIMSigningDomainAttribute: signingDomain,
+		"mail_from":  input.MailFrom,
+		"recipients": string(recipients),
+	}
+	if gatewayManagedSigning {
+		attributes[bridge.DKIMSigningDomainAttribute] = signingDomain
 	}
 	adapter := ""
 	if input.MailboxConnectionID != "" {

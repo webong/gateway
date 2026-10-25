@@ -107,6 +107,10 @@ type managedEmailQueue struct{ *fakeEmailQueue }
 
 func (*managedEmailQueue) SupportsAdapter(name string) bool { return name == "managed.smtp" }
 
+type mailboxEmailQueue struct{ *fakeEmailQueue }
+
+func (*mailboxEmailQueue) SupportsAdapter(name string) bool { return name == "mailbox.smtp" }
+
 func TestPrivateEmailSubmissionUsesManagedBindingWithoutExposingTransport(t *testing.T) {
 	spool := &managedEmailQueue{fakeEmailQueue: &fakeEmailQueue{}}
 	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("private-loop-key"), false))
@@ -132,6 +136,33 @@ func TestPrivateEmailSubmissionUsesManagedBindingWithoutExposingTransport(t *tes
 		spool.delivery.Attributes["outbound_pool_id"] != "11111111-1111-4111-8111-111111111111" ||
 		!bytes.Contains(spool.delivery.Payload, []byte("Reply-To: conversation@reply.operator.test")) {
 		t.Fatalf("managed submission was not queued with the original sender identity: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestPrivateEmailSubmissionUsesMailboxTransportWithoutGatewaySigning(t *testing.T) {
+	spool := &mailboxEmailQueue{fakeEmailQueue: &fakeEmailQueue{}}
+	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, failingSubmissionSigner{}, nil, 1024, []byte("private-loop-key"), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"receipt_id": deliveryID, "mail_from": "support@example.test",
+		"authorized_senders":    []string{"support@example.test"},
+		"recipients":            []string{"buyer@example.test"},
+		"message":               []byte("From: support@example.test\r\n\r\nhello"),
+		"mailbox_connection_id": "11111111-1111-4111-8111-111111111111",
+	})
+	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer private-token")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted || spool.delivery.AdapterName() != "mailbox.smtp" ||
+		spool.delivery.Attributes["mailbox_connection_id"] != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("mailbox submission did not use its provided SMTP transport: %d %s", response.Code, response.Body.String())
+	}
+	if _, signed := spool.delivery.Attributes[bridge.DKIMSigningDomainAttribute]; signed {
+		t.Fatal("mailbox submission requested Gateway-managed DKIM signing")
 	}
 }
 
