@@ -1,0 +1,18 @@
+{
+    "name": "webong/database",
+    "description": "Planner entrypoint for Gateway's Database extension",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^12.0",
+        "webong/gateway": "dev-main",
+        "webong/gateway-planner": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {"Webong\\Gateway\\Database\\": "src/"},
+        "files": ["register.php"]
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
