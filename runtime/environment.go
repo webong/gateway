@@ -3,10 +3,10 @@ package reverb
 import (
 	"strconv"
 
-	gatewaydriver "github.com/webong/gateway/driver"
+	arranger "github.com/webong/gateway/arranger"
 )
 
-func reverbEnvironment(spec gatewaydriver.ServerSpec, config serverConfiguration) []string {
+func reverbEnvironment(spec arranger.ServerSpec, config serverConfiguration) []string {
 	environment := []string{
 		"GATEWAY_REVERB_SERVER_ID=" + spec.ID,
 		"REVERB_SCALING_ENABLED=" + strconv.FormatBool(config.ScalingEnabled),

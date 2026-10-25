@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/webong/gateway/driver/integration"
+	"github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/reverb/runtime"
 )
 
