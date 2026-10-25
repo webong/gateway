@@ -34,6 +34,7 @@ use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Deliveries\Http\DeliveryController;
+use Webong\Gateway\Events\PruneEventsCommand;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
@@ -219,6 +220,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
         if ($this->app->runningInConsole()) {
             $this->commands([
+                PruneEventsCommand::class,
                 PruneCompanionActionExecutionsCommand::class,
                 SendScheduleNotificationsCommand::class,
             ]);
