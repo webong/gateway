@@ -1,7 +1,7 @@
 // Package dns adapts authoritative DNS queries to the Gateway protocol
 // planner. Go owns DNS parsing and response encoding; PHP owns endpoint and
-// subscriber resolution and returns either an immediate response or an HTTP
-// reply destination whose response body describes DNS records.
+// subscriber resolution and returns an immediate response, HTTP reply, or
+// normal Automation whose successful response body describes DNS records.
 package spinner
 
 import (
@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	mdns "github.com/miekg/dns"
 	"golang.org/x/time/rate"
 
+	"github.com/webong/gateway/arranger/automation"
 	bridge "github.com/webong/gateway/arranger/integration"
 )
 
@@ -51,6 +53,10 @@ type Config struct {
 	RateLimit          int
 	RateBurst          int
 	AllowEmptyZones    bool
+	ForwardedResolvers []ForwardedResolver
+	Observations       ObservationQueue
+	Automation         automation.Executor
+	Schedules          automation.ScheduleRegistrar
 }
 
 // Zone is one delegated authoritative namespace served by this listener.
@@ -76,14 +82,16 @@ type Executor interface {
 }
 
 type Server struct {
-	config   Config
-	zones    []Zone
-	planner  bridge.ProtocolPlanner
-	executor Executor
-	udp      *mdns.Server
-	tcp      *mdns.Server
-	limiter  *rate.Limiter
-	zonesMu  sync.RWMutex
+	config       Config
+	zones        []Zone
+	planner      bridge.ProtocolPlanner
+	executor     Executor
+	udp          *mdns.Server
+	tcp          *mdns.Server
+	limiter      *rate.Limiter
+	forwarded    []forwardedRoute
+	observations ObservationQueue
+	zonesMu      sync.RWMutex
 
 	mu      sync.Mutex
 	started bool
@@ -98,7 +106,7 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 	if len(config.Zones) == 0 {
 		if config.Zone != "" || len(config.Nameservers) > 0 {
 			config.Zones = []Zone{{Name: config.Zone, Nameservers: config.Nameservers, SOAEmail: config.SOAEmail, TTL: config.TTL}}
-		} else if !config.AllowEmptyZones {
+		} else if !config.AllowEmptyZones && len(config.ForwardedResolvers) == 0 {
 			return nil, fmt.Errorf("DNS authoritative zone is required")
 		}
 	} else if config.Zone != "" || len(config.Nameservers) > 0 {
@@ -125,8 +133,12 @@ func NewServer(config Config, planner bridge.ProtocolPlanner, executor Executor)
 		return nil, err
 	}
 	config.Zones = zones
+	forwarded, err := normalizeForwardedResolvers(config.ForwardedResolvers)
+	if err != nil {
+		return nil, err
+	}
 
-	server := &Server{config: config, zones: config.Zones, planner: planner, executor: executor}
+	server := &Server{config: config, zones: config.Zones, planner: planner, executor: executor, forwarded: forwarded, observations: config.Observations}
 	if config.RateLimit > 0 {
 		server.limiter = rate.NewLimiter(rate.Limit(config.RateLimit), config.RateBurst)
 	}
@@ -280,20 +292,29 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 		s.writeResponse(writer, request, response)
 		return
 	}
-	zone := s.zoneFor(queryName)
-	if zone == nil {
-		response.Rcode = mdns.RcodeRefused
-		s.writeResponse(writer, request, response)
-		return
-	}
-	if queryName == zone.Name && (question.Qtype == mdns.TypeNS || question.Qtype == mdns.TypeSOA) {
-		s.answerAuthority(response, question, *zone)
-		s.writeResponse(writer, request, response)
-		return
-	}
 	if question.Qtype == mdns.TypeANY {
 		response.Rcode = mdns.RcodeRefused
-		s.writeResponse(writer, request, response)
+		_ = s.writeResponse(writer, request, response)
+		return
+	}
+	observed := newDNSObservation(writer, question, queryID(writer, request, question))
+	zone := s.zoneFor(queryName)
+	if zone == nil {
+		if resolver := s.forwardedResolverFor(queryName, writer.RemoteAddr()); resolver != nil {
+			observed.mode = "forwarded"
+			observed.resolver = resolver.name
+			s.forwardQuery(writer, request, *resolver, observed)
+			return
+		}
+		response.Rcode = mdns.RcodeRefused
+		_ = s.writeResponse(writer, request, response)
+		return
+	}
+	observed.mode = "managed"
+	observed.zone = zone.Name
+	if queryName == zone.Name && (question.Qtype == mdns.TypeNS || question.Qtype == mdns.TypeSOA) {
+		s.answerAuthority(response, question, *zone)
+		s.writeObservedResponse(writer, request, response, observed)
 		return
 	}
 	if records, exists := zoneRecords(*zone, queryName); exists {
@@ -305,12 +326,15 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 		} else if len(response.Answer) == 0 {
 			s.addSOA(response, *zone)
 		}
-		s.writeResponse(writer, request, response)
+		if response.Rcode == mdns.RcodeServerFailure {
+			observed.failure = "static_answer_validation"
+		}
+		s.writeObservedResponse(writer, request, response, observed)
 		return
 	}
 	if queryName == zone.Name {
 		s.addSOA(response, *zone)
-		s.writeResponse(writer, request, response)
+		s.writeObservedResponse(writer, request, response, observed)
 		return
 	}
 
@@ -320,11 +344,14 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 	if len(labels) == 0 {
 		response.Rcode = mdns.RcodeNameError
 		s.addSOA(response, *zone)
-		s.writeResponse(writer, request, response)
+		s.writeObservedResponse(writer, request, response, observed)
 		return
 	}
 	endpoint := strings.ToLower(labels[len(labels)-1])
+	observed.mode = "provided"
+	observed.hook = endpoint
 	dataLabels := labels[:len(labels)-1]
+	observed.data = strings.Join(dataLabels, ".")
 	payload, err := json.Marshal(Query{
 		Name:     question.Name,
 		Type:     typeName(question.Qtype),
@@ -335,12 +362,13 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 	})
 	if err != nil {
 		response.Rcode = mdns.RcodeServerFailure
-		s.writeResponse(writer, request, response)
+		observed.failure = "query_encoding"
+		s.writeObservedResponse(writer, request, response, observed)
 		return
 	}
 
 	event := bridge.GatewayEvent{
-		ID:       queryID(writer, request, question),
+		ID:       observed.id,
 		Protocol: bridge.ProtocolDNS,
 		Kind:     bridge.EventQuery,
 		Host:     question.Name,
@@ -358,22 +386,38 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 			"transport":   transport(writer),
 		},
 		Payload: payload,
+		Runtime: bridge.RuntimeCapabilities{
+			AutomationLanguages: automation.Languages(s.config.Automation),
+		},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.PlannerTimeout)
 	defer cancel()
 	decision, planErr := s.planner.PlanEvent(ctx, event)
-	if planErr != nil || decision.Validate() != nil || decision.Protocol != bridge.ProtocolDNS {
+	if planErr != nil {
 		response.Rcode = mdns.RcodeServerFailure
-		s.writeResponse(writer, request, response)
+		observed.failure = "planner_unavailable"
+		s.writeObservedResponse(writer, request, response, observed)
 		return
 	}
+	if decision.Validate() != nil || decision.Protocol != bridge.ProtocolDNS {
+		response.Rcode = mdns.RcodeServerFailure
+		observed.failure = "invalid_decision"
+		s.writeObservedResponse(writer, request, response, observed)
+		return
+	}
+	observed.decisionAction = string(decision.Action)
+	observed.decisionStatus = decision.StatusCode
 
-	answerPayload, decisionErr := s.executeDecision(ctx, decision, payload)
+	answerPayload, relayDropped, decisionErr := s.executeDecision(ctx, decision, event)
 	if decisionErr != nil {
 		response.Rcode = mdns.RcodeServerFailure
-		s.writeResponse(writer, request, response)
+		observed.failure = "answer_delivery"
+		s.writeObservedResponse(writer, request, response, observed)
 		return
+	}
+	if relayDropped {
+		observed.failure = "relay_queue"
 	}
 
 	switch decision.Action {
@@ -382,10 +426,11 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 		s.addSOA(response, *zone)
 	case bridge.GatewayClose:
 		response.Rcode = mdns.RcodeRefused
-	case bridge.GatewayAccept, bridge.GatewayDeliver, bridge.GatewayRespond:
+	case bridge.GatewayAccept, bridge.GatewayDeliver, bridge.GatewayRespond, bridge.GatewayAutomate:
 		answers, parseErr := parseAnswers(question, answerPayload, zone.TTL, s.config.MaxResponseRecords)
 		if parseErr != nil {
 			response.Rcode = mdns.RcodeServerFailure
+			observed.failure = "answer_validation"
 			break
 		}
 		response.Answer = answers
@@ -396,7 +441,7 @@ func (s *Server) ServeDNS(writer mdns.ResponseWriter, request *mdns.Msg) {
 		response.Rcode = mdns.RcodeServerFailure
 	}
 
-	s.writeResponse(writer, request, response)
+	s.writeObservedResponse(writer, request, response, observed)
 }
 
 type Query struct {
@@ -408,36 +453,111 @@ type Query struct {
 	Data     string   `json:"data"`
 }
 
-func (s *Server) executeDecision(ctx context.Context, decision bridge.GatewayDecision, fallbackPayload []byte) ([]byte, error) {
-	var answerPayload []byte
-	if decision.Reply == nil {
-		answerPayload = append([]byte(nil), decision.Payload...)
-	} else {
-		delivery, err := httpDelivery(*decision.Reply, fallbackPayload)
+func (s *Server) executeDecision(ctx context.Context, decision bridge.GatewayDecision, event bridge.GatewayEvent) ([]byte, bool, error) {
+	answerPayload := append([]byte(nil), decision.Payload...)
+	deliveries := append([]bridge.GatewayDelivery(nil), decision.Deliveries...)
+
+	if decision.Action == bridge.GatewayAutomate {
+		if decision.Automation == nil || s.config.Automation == nil {
+			return nil, false, errors.New("DNS automation is unavailable")
+		}
+		outcome, err := s.config.Automation.Execute(ctx, automation.Script{
+			Language: decision.Automation.Language,
+			Source:   decision.Automation.Source,
+			Executor: decision.Automation.Executor,
+		}, dnsAutomationInput(event))
 		if err != nil {
-			return nil, err
+			return nil, false, fmt.Errorf("execute DNS automation: %w", err)
+		}
+		if outcome.RunFailed {
+			return nil, false, errors.New("DNS automation reported failure")
+		}
+		if len(outcome.Schedules) > 0 {
+			if s.config.Schedules == nil {
+				return nil, false, errors.New("DNS automation schedule registration is unavailable")
+			}
+			if err := s.config.Schedules.RegisterSchedules(ctx, dnsAutomationOrigin(decision, event), outcome.Schedules); err != nil {
+				return nil, false, fmt.Errorf("register DNS automation schedules: %w", err)
+			}
+		}
+		if outcome.Response == nil || outcome.Response.Status < http.StatusOK || outcome.Response.Status >= http.StatusMultipleChoices {
+			return nil, false, errors.New("DNS automation requires a successful response")
+		}
+		answerPayload = []byte(outcome.Response.Body)
+		deliveries = append(deliveries, dnsAutomationDeliveries(outcome.Deliveries, event.ID)...)
+	} else if decision.Reply != nil {
+		delivery, err := httpDelivery(*decision.Reply, event.Payload)
+		if err != nil {
+			return nil, false, err
 		}
 		reply, err := s.executor.Deliver(ctx, delivery)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if reply.StatusCode < http.StatusOK || reply.StatusCode >= http.StatusMultipleChoices {
-			return nil, fmt.Errorf("DNS reply subscriber returned HTTP status %d", reply.StatusCode)
+			return nil, false, fmt.Errorf("DNS reply subscriber returned HTTP status %d", reply.StatusCode)
 		}
 		answerPayload = append([]byte(nil), reply.Body...)
 	}
 
-	for index := range decision.Deliveries {
-		delivery := decision.Deliveries[index]
+	relayDropped := false
+	for index := range deliveries {
+		delivery := deliveries[index]
 		if len(delivery.Payload) == 0 {
-			delivery.Payload = append([]byte(nil), fallbackPayload...)
+			delivery.Payload = append([]byte(nil), event.Payload...)
 		}
 		if !s.executor.EnqueueGateway(delivery) {
-			return nil, fmt.Errorf("DNS relay queue unavailable")
+			relayDropped = true
 		}
 	}
 
-	return answerPayload, nil
+	return answerPayload, relayDropped, nil
+}
+
+func dnsAutomationInput(event bridge.GatewayEvent) automation.Input {
+	var query map[string]any
+	if err := json.Unmarshal(event.Payload, &query); err != nil {
+		query = map[string]any{"content": string(event.Payload)}
+	}
+	eventDocument := map[string]any{
+		"id": event.ID, "protocol": event.Protocol, "kind": event.Kind,
+		"host": event.Host, "path": event.Route, "headers": event.Headers,
+		"attributes": event.Attributes, "body": string(event.Payload),
+	}
+	return automation.Input{Event: eventDocument, Variables: map[string]any{
+		"request": query,
+		"dns":     query,
+	}}
+}
+
+func dnsAutomationOrigin(decision bridge.GatewayDecision, event bridge.GatewayEvent) string {
+	if endpointID := strings.TrimSpace(decision.Metadata["endpoint_id"]); endpointID != "" {
+		return "endpoint:" + endpointID
+	}
+	sum := sha256.Sum256([]byte(event.Host + "\n" + event.Route))
+	return fmt.Sprintf("dns:%x", sum)
+}
+
+func dnsAutomationDeliveries(deliveries []automation.Delivery, eventID string) []bridge.GatewayDelivery {
+	converted := make([]bridge.GatewayDelivery, 0, len(deliveries))
+	for _, delivery := range deliveries {
+		method := delivery.Method
+		if method == "" {
+			method = http.MethodPost
+		}
+		attributes := map[string]string{"method": method, "event_id": eventID}
+		if delivery.ExpectedStatus != 0 {
+			attributes["expected_status"] = strconv.Itoa(delivery.ExpectedStatus)
+		}
+		if delivery.ExpectedBodySHA256 != "" {
+			attributes["expected_body_sha256"] = delivery.ExpectedBodySHA256
+		}
+		converted = append(converted, bridge.GatewayDelivery{
+			Protocol: bridge.ProtocolHTTP, Target: delivery.URL, Headers: delivery.Headers,
+			Attributes: attributes, Payload: []byte(delivery.Body),
+		})
+	}
+	return converted
 }
 
 func httpDelivery(delivery bridge.GatewayDelivery, fallbackPayload []byte) (bridge.Delivery, error) {
@@ -747,9 +867,9 @@ func (s *Server) soa(zone Zone) *mdns.SOA {
 	}
 }
 
-func (s *Server) writeResponse(writer mdns.ResponseWriter, request, response *mdns.Msg) {
+func (s *Server) writeResponse(writer mdns.ResponseWriter, request, response *mdns.Msg) error {
 	if writer == nil || response == nil {
-		return
+		return nil
 	}
 	if request != nil && strings.HasPrefix(transport(writer), "udp") {
 		size := uint16(mdns.MinMsgSize)
@@ -761,7 +881,7 @@ func (s *Server) writeResponse(writer mdns.ResponseWriter, request, response *md
 		}
 		response.Truncate(int(size))
 	}
-	_ = writer.WriteMsg(response)
+	return writer.WriteMsg(response)
 }
 
 func applyDefaults(config *Config) {

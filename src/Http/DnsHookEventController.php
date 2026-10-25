@@ -8,8 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Dns\DnsHookRegistry;
-use Webong\Gateway\Dns\DnsHookResources;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Dns\DnsObservationStore;
 use Webong\Gateway\RegistryRequestAuthenticator;
 
 final readonly class DnsHookEventController
@@ -17,6 +16,7 @@ final readonly class DnsHookEventController
     public function __construct(
         private RegistryRequestAuthenticator $authenticator,
         private DnsHookRegistry $hooks,
+        private DnsObservationStore $observations,
     ) {}
 
     public function __invoke(Request $request, string $hook): JsonResponse
@@ -30,21 +30,9 @@ final readonly class DnsHookEventController
         }
 
         $limit = min(100, max(1, $request->integer('limit', 50)));
-        $events = GatewayEndpointEvent::query()
-            ->where('endpoint_id', $model->getKey())
-            ->where('protocol', 'dns')
-            ->when(
-                is_string($request->query('type')) && $request->query('type') !== '',
-                fn ($query) => $query->where('attributes->qtype', strtoupper((string) $request->query('type'))),
-            )
-            ->when(
-                is_string($request->query('transport')) && $request->query('transport') !== '',
-                fn ($query) => $query->where('transport', strtolower((string) $request->query('transport'))),
-            )
-            ->latest('received_at')
-            ->latest('id')
-            ->cursorPaginate($limit)
-            ->through(DnsHookResources::event(...));
+        $type = is_string($request->query('type')) ? $request->query('type') : null;
+        $transport = is_string($request->query('transport')) ? $request->query('transport') : null;
+        $events = $this->observations->events('dns.hook', (string) $model->getKey(), $limit, $type, $transport);
 
         return response()->json($events);
     }

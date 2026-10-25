@@ -11,6 +11,7 @@ import (
 
 	mdns "github.com/miekg/dns"
 
+	"github.com/webong/gateway/arranger/automation"
 	bridge "github.com/webong/gateway/arranger/integration"
 )
 
@@ -221,6 +222,63 @@ func TestDNSQueryUsesSynchronousReplyAndQueuesRelays(t *testing.T) {
 	}
 }
 
+func TestDNSQueryUsesNormalAutomationAndQueuesItsWork(t *testing.T) {
+	engine := &recordingAutomationExecutor{outcome: automation.Outcome{
+		Response:   &automation.Response{Status: 200, Body: `[{"type":"txt","value":"from automation"}]`},
+		Deliveries: []automation.Delivery{{URL: "https://observer.example.test/dns", ExpectedStatus: 204}},
+		Schedules:  []automation.Schedule{{Key: "refresh", Name: "Refresh", Cron: "0 * * * *", Language: "javascript", Source: "run()"}},
+	}}
+	registrar := &recordingScheduleRegistrar{}
+	executor := &recordingExecutor{}
+	var planned bridge.GatewayEvent
+	planner := plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		planned = event
+		return bridge.GatewayDecision{
+			Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolDNS, Action: bridge.GatewayAutomate,
+			Automation: &bridge.Automation{Language: "javascript", Source: "gateway.respond('[]', 200)"},
+			Deliveries: []bridge.GatewayDelivery{{Protocol: bridge.ProtocolHTTP, Target: "https://relay.example.test/dns"}},
+			Metadata:   map[string]string{"endpoint_id": "dns-hook-1"},
+		}, nil
+	})
+	server, err := NewServer(Config{
+		Address: "127.0.0.1:5353", Zone: "dns.example.test", Nameservers: []string{"ns1.example.test"},
+		Automation: engine, Schedules: registrar,
+	}, planner, executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	response := exchangeHandler(server, "payload.hook.dns.example.test.", mdns.TypeTXT)
+	if response.Rcode != mdns.RcodeSuccess || len(response.Answer) != 1 || response.Answer[0].(*mdns.TXT).Txt[0] != "from automation" {
+		t.Fatalf("unexpected automated DNS answer: %+v", response)
+	}
+	if len(planned.Runtime.AutomationLanguages) != 1 || planned.Runtime.AutomationLanguages[0] != "javascript" {
+		t.Fatalf("DNS did not advertise its automation runtime: %+v", planned.Runtime)
+	}
+	if engine.script.Language != "javascript" || engine.input.Variables["dns"].(map[string]any)["data"] != "payload" {
+		t.Fatalf("unexpected DNS automation input: script=%+v input=%+v", engine.script, engine.input)
+	}
+	if registrar.origin != "endpoint:dns-hook-1" || len(registrar.schedules) != 1 {
+		t.Fatalf("unexpected DNS automation schedules: origin=%q schedules=%+v", registrar.origin, registrar.schedules)
+	}
+	if len(executor.enqueued) != 2 || executor.enqueued[1].Attributes["expected_status"] != "204" {
+		t.Fatalf("unexpected DNS automation deliveries: %+v", executor.enqueued)
+	}
+}
+
+func TestDNSAutomationFailsClosedWhenItsRuntimeIsUnavailable(t *testing.T) {
+	planner := plannerFunc(func(_ context.Context, _ bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{
+			Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolDNS, Action: bridge.GatewayAutomate,
+			Automation: &bridge.Automation{Language: "javascript", Source: "run()"},
+		}, nil
+	})
+	response := exchangeHandler(newTestServer(t, planner, &recordingExecutor{}), "payload.hook.dns.example.test.", mdns.TypeA)
+	if response.Rcode != mdns.RcodeServerFailure {
+		t.Fatalf("missing automation runtime did not fail closed: %+v", response)
+	}
+}
+
 func TestDNSRejectsUnknownRoutesAndRefusesRecursionOrAny(t *testing.T) {
 	plans := 0
 	planner := plannerFunc(func(_ context.Context, _ bridge.GatewayEvent) (bridge.GatewayDecision, error) {
@@ -401,6 +459,38 @@ type recordingExecutor struct {
 	enqueued  []bridge.GatewayDelivery
 	response  bridge.Response
 	err       error
+}
+
+type recordingAutomationExecutor struct {
+	script  automation.Script
+	input   automation.Input
+	outcome automation.Outcome
+	err     error
+}
+
+func (executor *recordingAutomationExecutor) Supports(language automation.Language) bool {
+	return language == "javascript"
+}
+
+func (executor *recordingAutomationExecutor) Languages() []automation.Language {
+	return []automation.Language{"javascript"}
+}
+
+func (executor *recordingAutomationExecutor) Execute(_ context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
+	executor.script = script
+	executor.input = input
+	return executor.outcome, executor.err
+}
+
+type recordingScheduleRegistrar struct {
+	origin    string
+	schedules []automation.Schedule
+}
+
+func (registrar *recordingScheduleRegistrar) RegisterSchedules(_ context.Context, origin string, schedules []automation.Schedule) error {
+	registrar.origin = origin
+	registrar.schedules = append([]automation.Schedule(nil), schedules...)
+	return nil
 }
 
 func (executor *recordingExecutor) Deliver(_ context.Context, delivery bridge.Delivery) (bridge.Response, error) {

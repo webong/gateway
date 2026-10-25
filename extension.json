@@ -25,6 +25,27 @@
                 {"name": "deliver"},
                 {"name": "enqueue-gateway"}
             ]
+        },
+        {
+            "name": "gateway.observation",
+            "version": "v1",
+            "operations": [
+                {"name": "record"}
+            ]
+        },
+        {
+            "name": "gateway.automation-host",
+            "version": "v1",
+            "operations": [
+                {"name": "execute"}
+            ]
+        },
+        {
+            "name": "gateway.schedule",
+            "version": "v1",
+            "operations": [
+                {"name": "register"}
+            ]
         }
     ]
 }
