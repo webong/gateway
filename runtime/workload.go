@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	gatewaydriver "github.com/webong/gateway/driver"
+	arranger "github.com/webong/gateway/arranger"
 )
 
 type serverConfiguration struct {
@@ -35,18 +35,18 @@ func (*Workload) Type() string { return "mercure" }
 
 func (w *Workload) Supports(driver string) bool {
 	switch driver {
-	case gatewaydriver.DriverLocal:
+	case arranger.DriverLocal:
 		return strings.TrimSpace(w.config.Binary) != ""
-	case gatewaydriver.DriverDocker:
+	case arranger.DriverDocker:
 		return strings.TrimSpace(w.config.DockerImage) != ""
-	case gatewaydriver.DriverKubernetes:
+	case arranger.DriverKubernetes:
 		return strings.TrimSpace(w.config.KubernetesImage) != ""
 	default:
 		return false
 	}
 }
 
-func (w *Workload) Validate(spec gatewaydriver.ServerSpec) error {
+func (w *Workload) Validate(spec arranger.ServerSpec) error {
 	if spec.Type != w.Type() {
 		return fmt.Errorf("Mercure workload cannot provision type %q", spec.Type)
 	}
@@ -70,40 +70,40 @@ func (w *Workload) Validate(spec gatewaydriver.ServerSpec) error {
 	return nil
 }
 
-func (w *Workload) Launch(spec gatewaydriver.ServerSpec, driver, host string, port int) (gatewaydriver.LaunchSpec, error) {
+func (w *Workload) Launch(spec arranger.ServerSpec, driver, host string, port int) (arranger.LaunchSpec, error) {
 	configuration, err := decodeConfiguration(spec)
 	if err != nil {
-		return gatewaydriver.LaunchSpec{}, err
+		return arranger.LaunchSpec{}, err
 	}
 
-	launch := gatewaydriver.LaunchSpec{ContainerName: "mercure"}
+	launch := arranger.LaunchSpec{ContainerName: "mercure"}
 	switch driver {
-	case gatewaydriver.DriverLocal:
+	case arranger.DriverLocal:
 		launch.Executable = w.config.Binary
 		launch.WorkingDirectory = w.config.WorkingDirectory
 		launch.Port = port
 		launch.Arguments = runArguments(w.config.ConfigPath)
 		launch.Environment = mercureEnvironment(configuration, "http://"+net.JoinHostPort(host, strconv.Itoa(port)))
-	case gatewaydriver.DriverDocker:
+	case arranger.DriverDocker:
 		launch.Image = w.config.DockerImage
 		launch.Executable = w.config.DockerBinary
 		launch.Port = w.config.DockerContainerPort
 		launch.Arguments = runArguments(w.config.DockerConfigPath)
 		launch.Environment = mercureEnvironment(configuration, ":"+strconv.Itoa(launch.Port))
-	case gatewaydriver.DriverKubernetes:
+	case arranger.DriverKubernetes:
 		launch.Image = w.config.KubernetesImage
 		launch.Executable = w.config.KubernetesBinary
 		launch.Port = w.config.KubernetesContainerPort
 		launch.Arguments = runArguments(w.config.KubernetesConfigPath)
 		launch.Environment = mercureEnvironment(configuration, ":"+strconv.Itoa(launch.Port))
 	default:
-		return gatewaydriver.LaunchSpec{}, fmt.Errorf("unsupported Mercure runtime %q", driver)
+		return arranger.LaunchSpec{}, fmt.Errorf("unsupported Mercure runtime %q", driver)
 	}
 
 	return launch, nil
 }
 
-func decodeConfiguration(spec gatewaydriver.ServerSpec) (serverConfiguration, error) {
+func decodeConfiguration(spec arranger.ServerSpec) (serverConfiguration, error) {
 	var configuration serverConfiguration
 	if err := json.Unmarshal(spec.Configuration, &configuration); err != nil {
 		return configuration, fmt.Errorf("decode Mercure server %q configuration: %w", spec.ID, err)
@@ -162,4 +162,4 @@ func validAlgorithm(value string) bool {
 	}
 }
 
-var _ gatewaydriver.Workload = (*Workload)(nil)
+var _ arranger.Extension = (*Workload)(nil)
