@@ -76,7 +76,7 @@ test-php:
 	$(MAKE) -C pkg/reverb test-php
 	$(MAKE) -C pkg/mercure test-php
 	$(MAKE) -C pkg/centrifugo test-php
-	$(MAKE) -C pkg/webhookscript test-php
+	$(MAKE) -C pkg/hookscript test-php
 
 test-roadrunner-planner-env:
 	bash scripts/test-roadrunner-planner-env

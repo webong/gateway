@@ -7736,7 +7736,7 @@
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "f7404ab830abcb66453315e2ac6cc558620cd30c"
+                "reference": "843b14c64f162b7c613451bd6e2c52ee0f5b3aef"
             },
             "require": {
                 "php": "^8.3"
@@ -7750,7 +7750,11 @@
                 "smuuf/primi": "^0.4",
                 "spiral/roadrunner-cli": "^2.6",
                 "spiral/roadrunner-http": "^3.3",
+                "webong/database": "dev-main",
+                "webong/dns": "dev-main",
+                "webong/email": "dev-main",
                 "webong/gateway-planner": "dev-main",
+                "webong/web": "dev-main",
                 "wikimedia/composer-merge-plugin": "^2.1"
             },
             "type": "library",
@@ -7760,7 +7764,7 @@
                         "pkg/*/composer.json"
                     ],
                     "exclude": [
-                        "pkg/webhookscript/composer.json"
+                        "pkg/hookscript/composer.json"
                     ],
                     "recurse": false,
                     "replace": false,

@@ -90,7 +90,7 @@
                 "pkg/*/composer.json"
             ],
             "exclude": [
-                "pkg/webhookscript/composer.json"
+                "pkg/hookscript/composer.json"
             ],
             "recurse": false,
             "replace": false,
