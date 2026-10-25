@@ -21,8 +21,8 @@ final readonly class ExtensionArtifactInstaller
 
     public function install(object $row): void
     {
-        $companion = $row->document['companion'] ?? null;
-        $artifact = is_array($companion) ? ($companion['artifact'] ?? null) : null;
+        $package = $row->document['package'] ?? null;
+        $artifact = is_array($package) ? ($package['artifact'] ?? null) : null;
         if (! is_array($artifact)) {
             return;
         }
@@ -87,7 +87,7 @@ final readonly class ExtensionArtifactInstaller
             $manifest = json_decode((string) file_get_contents($source.DIRECTORY_SEPARATOR.'plugin.json'), true);
             $identity = is_array($manifest) ? ($manifest['descriptor']['identity'] ?? null) : null;
             if (! is_array($identity) || ($identity['id'] ?? null) !== $row->key
-                || ($identity['version'] ?? null) !== ($companion['version'] ?? null)) {
+                || ($identity['version'] ?? null) !== ($package['version'] ?? null)) {
                 throw new RuntimeException('Gateway extension artifact identity does not match desired state.');
             }
 

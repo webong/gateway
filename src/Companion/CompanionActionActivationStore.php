@@ -43,6 +43,18 @@ final readonly class CompanionActionActivationStore
         }
 
         $companion = $row->document['companion'] ?? null;
+        if ($companion === null) {
+            return new CompanionActionActivation(
+                extension: $extension,
+                enabled: $row->enabled,
+                mode: 'static',
+                version: null,
+                digest: null,
+                artifact: null,
+                generation: $row->revision,
+                configured: true,
+            );
+        }
         if (! is_array($companion)) {
             throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid companion configuration.");
         }
@@ -51,13 +63,18 @@ final readonly class CompanionActionActivationStore
             throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid companion execution policy.");
         }
 
+        $package = $row->document['package'] ?? [];
+        if (! is_array($package)) {
+            throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid package configuration.");
+        }
+
         return new CompanionActionActivation(
             extension: $extension,
             enabled: $row->enabled,
             mode: $companion['mode'],
-            version: $companion['version'] ?? null,
-            digest: $companion['digest'] ?? null,
-            artifact: $companion['artifact'] ?? null,
+            version: $package['version'] ?? null,
+            digest: $package['digest'] ?? null,
+            artifact: $package['artifact'] ?? null,
             generation: $row->revision,
             configured: true,
             execution: CompanionExecutionPolicy::fromDocument(
@@ -97,11 +114,11 @@ final readonly class CompanionActionActivationStore
 
     /**
      * @param array<string, mixed> $input
-     * @return array{string, bool, array{companion: array{mode: string, version?: string, digest?: string, artifact?: array{url: string, sha256: string}, execution: array<string, mixed>}}}
+     * @return array{string, bool, array{package?: array{version?: string, digest?: string, artifact?: array{url: string, sha256: string}}, companion?: array{mode: string, execution: array<string, mixed>}, configuration?: array<string, mixed>}}
      */
     private function validated(array $input): array
     {
-        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest', 'artifact', 'execution']) !== []) {
+        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest', 'artifact', 'execution', 'configuration']) !== []) {
             throw new InvalidArgumentException('Invalid Gateway extension activation.');
         }
         $extension = $input['extension'] ?? null;
@@ -111,40 +128,70 @@ final readonly class CompanionActionActivationStore
         $digest = $input['digest'] ?? null;
         $artifact = $input['artifact'] ?? null;
         $execution = $input['execution'] ?? null;
-        if (! is_string($extension) || ! is_bool($enabled) || ! is_string($mode)
-            || ! in_array($mode, ['static', 'dynamic'], true)
+        $configuration = $input['configuration'] ?? null;
+        if (! is_string($extension) || ! is_bool($enabled)
+            || ($mode !== null && (! is_string($mode) || ! in_array($mode, ['static', 'dynamic'], true)))
             || ($version !== null && (! is_string($version) || trim($version) === '' || strlen($version) > 64))
             || ($digest !== null && (! is_string($digest) || preg_match('/\A[a-f0-9]{64}\z/D', $digest) !== 1))
-            || ! $this->validArtifact($artifact, $mode, $version)
-            || ($execution !== null && ! is_array($execution))) {
+            || ! $this->validArtifact($artifact, $version)
+            || ($execution !== null && ! is_array($execution))
+            || ($execution !== null && $mode === null)
+            || ! $this->validConfiguration($configuration)) {
             throw new InvalidArgumentException('Invalid Gateway extension activation.');
         }
         $this->validateExtension($extension);
-        $policy = CompanionExecutionPolicy::fromDocument($execution);
-        if ($mode !== 'dynamic' && $policy->mode !== CompanionExecutionPolicy::ISOLATED) {
-            throw new InvalidArgumentException('Only dynamic Gateway companions may use warmed execution.');
-        }
-
-        $companion = ['mode' => $mode, 'execution' => $policy->toArray()];
+        $document = [];
+        $package = [];
         if ($version !== null) {
-            $companion['version'] = $version;
+            $package['version'] = $version;
         }
         if ($digest !== null) {
-            $companion['digest'] = $digest;
+            $package['digest'] = $digest;
         }
         if ($artifact !== null) {
-            $companion['artifact'] = ['url' => $artifact['url'], 'sha256' => $artifact['sha256']];
+            $package['artifact'] = ['url' => $artifact['url'], 'sha256' => $artifact['sha256']];
+        }
+        if ($package !== []) {
+            $document['package'] = $package;
+        }
+        if ($mode !== null) {
+            $policy = CompanionExecutionPolicy::fromDocument($execution);
+            if ($mode !== 'dynamic' && $policy->mode !== CompanionExecutionPolicy::ISOLATED) {
+                throw new InvalidArgumentException('Only dynamic Gateway companions may use warmed execution.');
+            }
+            $document['companion'] = ['mode' => $mode, 'execution' => $policy->toArray()];
+        }
+        if ($configuration !== null) {
+            $document['configuration'] = $configuration;
         }
 
-        return [$extension, $enabled, ['companion' => $companion]];
+        return [$extension, $enabled, $document];
     }
 
-    private function validArtifact(mixed $artifact, string $mode, mixed $version): bool
+    private function validConfiguration(mixed $configuration): bool
+    {
+        if ($configuration === null) {
+            return true;
+        }
+        if (! is_array($configuration) || ($configuration !== [] && array_is_list($configuration))) {
+            return false;
+        }
+
+        try {
+            $encoded = json_encode($configuration, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return false;
+        }
+
+        return strlen($encoded) <= 65536;
+    }
+
+    private function validArtifact(mixed $artifact, mixed $version): bool
     {
         if ($artifact === null) {
             return true;
         }
-        if ($mode !== 'dynamic' || ! is_string($version) || trim($version) === ''
+        if (! is_string($version) || trim($version) === ''
             || ! is_array($artifact) || count($artifact) !== 2
             || array_diff(array_keys($artifact), ['url', 'sha256']) !== []
             || ! is_string($artifact['url']) || ! is_string($artifact['sha256'])
