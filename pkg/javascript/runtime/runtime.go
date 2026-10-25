@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/pkg/javascript/runtime/qjs"
 )
 

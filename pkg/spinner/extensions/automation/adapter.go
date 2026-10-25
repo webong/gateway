@@ -1,5 +1,5 @@
 // Package automationextensions provides Spinner's host-side automation plugin
-// registry. It depends only on the automation driver contract and the portable
+// registry. It depends only on Arranger's automation contract and the portable
 // plugin contract; concrete engines are guests and are never imported here.
 package automationextensions
 
@@ -16,7 +16,7 @@ import (
 
 	"github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 // AutomationContract identifies the Gateway automation plugin contract.

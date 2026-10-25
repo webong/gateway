@@ -1,13 +1,13 @@
-package workload
+package example
 
 import (
 	"context"
 	"testing"
 
-	gatewayautomation "github.com/webong/gateway/driver/automation"
+	gatewayautomation "github.com/webong/gateway/arranger/automation"
 )
 
-func TestAutomationExtensionUsesPublishedDriverContracts(t *testing.T) {
+func TestAutomationExtensionUsesPublishedArrangerContracts(t *testing.T) {
 	runtime := gatewayautomation.NewRuntime(AutomationEngine{})
 	languages := gatewayautomation.Languages(runtime)
 	if len(languages) != 1 || languages[0] != "example" {

@@ -22,8 +22,8 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
-	"github.com/webong/gateway/driver/automation"
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/arranger/companion"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 )
 

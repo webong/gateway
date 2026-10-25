@@ -147,7 +147,7 @@ func (d *KubernetesDriver) PrepareDesired(ctx context.Context, desired map[strin
 	return nil
 }
 
-func (d *KubernetesDriver) Start(ctx context.Context, spec ServerSpec, instanceID string, workload Workload) (Process, error) {
+func (d *KubernetesDriver) Start(ctx context.Context, spec ServerSpec, instanceID string, workload Extension) (Process, error) {
 	if err := spec.Validate(); err != nil {
 		return nil, err
 	}

@@ -2,12 +2,12 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-driver-release.XXXXXX")
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-arranger-release.XXXXXX")
 trap 'rm -rf -- "$TEST_DIR"' EXIT
 mkdir -p "$TEST_DIR/repository/mod" "$TEST_DIR/repository/scripts"
-cp -R "$ROOT/mod/driver" "$TEST_DIR/repository/mod/driver"
-cp "$ROOT/scripts/release-driver" "$TEST_DIR/repository/scripts/"
-cp -R "$ROOT/mod/driver/testdata/integration" "$TEST_DIR/integration"
+cp -R "$ROOT/mod/arranger" "$TEST_DIR/repository/mod/arranger"
+cp "$ROOT/scripts/release-arranger" "$TEST_DIR/repository/scripts/"
+cp -R "$ROOT/mod/arranger/testdata/integration" "$TEST_DIR/integration"
 
 # Do not inherit the caller's repository/index, hooks, or Git configuration.
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
@@ -18,26 +18,26 @@ git -C "$TEST_DIR/repository" config user.email 'gateway-test@example.invalid'
 git -C "$TEST_DIR/repository" config commit.gpgsign false
 git -C "$TEST_DIR/repository" config tag.gpgsign false
 git -C "$TEST_DIR/repository" add .
-git -C "$TEST_DIR/repository" commit -qm 'Driver release fixture'
+git -C "$TEST_DIR/repository" commit -qm 'Arranger release fixture'
 SOURCE=$(git -C "$TEST_DIR/repository" rev-parse HEAD)
-bash "$TEST_DIR/repository/scripts/release-driver" v0.1.0
+bash "$TEST_DIR/repository/scripts/release-arranger" v0.1.0
 test "$(git -C "$TEST_DIR/repository" rev-parse HEAD)" = "$SOURCE"
 test -z "$(git -C "$TEST_DIR/repository" status --porcelain)"
-test "$(git -C "$TEST_DIR/repository" ls-tree --name-only driver/v0.1.0)" = driver
-if bash "$TEST_DIR/repository/scripts/release-driver" v0.1.0; then
+test "$(git -C "$TEST_DIR/repository" ls-tree --name-only arranger/v0.1.0)" = arranger
+if bash "$TEST_DIR/repository/scripts/release-arranger" v0.1.0; then
     echo 'Release unexpectedly overwrote an existing tag.' >&2
     exit 1
 fi
-if bash "$TEST_DIR/repository/scripts/release-driver" v2.0.0; then
+if bash "$TEST_DIR/repository/scripts/release-arranger" v2.0.0; then
     echo 'Release unexpectedly accepted a major version requiring a new module path.' >&2
     exit 1
 fi
-touch "$TEST_DIR/repository/mod/driver/uncommitted.go"
-if bash "$TEST_DIR/repository/scripts/release-driver" v0.1.1; then
+touch "$TEST_DIR/repository/mod/arranger/uncommitted.go"
+if bash "$TEST_DIR/repository/scripts/release-arranger" v0.1.1; then
     echo 'Release unexpectedly accepted uncommitted library source.' >&2
     exit 1
 fi
-rm -- "$TEST_DIR/repository/mod/driver/uncommitted.go"
+rm -- "$TEST_DIR/repository/mod/arranger/uncommitted.go"
 
 # Exercise Go's actual GitHub module/tag/subdirectory resolution, redirected
 # to the isolated fixture. No local replace, network access, or Spinner source.
@@ -45,10 +45,15 @@ export GIT_CONFIG_COUNT=1
 export GIT_CONFIG_KEY_0="url.file://$TEST_DIR/repository.insteadOf"
 export GIT_CONFIG_VALUE_0=https://github.com/webong/gateway
 export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0
-export GOPROXY=direct GOSUMDB=off GOPRIVATE=github.com/webong/gateway/driver
+export GOPROXY=direct GOSUMDB=off GOPRIVATE=github.com/webong/gateway/arranger
 export GOMODCACHE="$TEST_DIR/modules" GOWORK=off GOTOOLCHAIN=local
 export GOTELEMETRY=off CGO_ENABLED=0 GOFLAGS=-modcacherw
 go -C "$TEST_DIR/integration" test -mod=mod ./...
 go -C "$TEST_DIR/integration" build -mod=mod -o "$TEST_DIR/example-workload" ./cmd/integration
-test "$(go -C "$TEST_DIR/integration" list -m all | wc -l | tr -d ' ')" = 2
-echo 'Published-path executable integration passed with only the driver module and standard library.'
+dependencies=$(go -C "$TEST_DIR/integration" list -deps ./...)
+if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)' <<<"$dependencies"; then
+    echo 'Published Arranger consumer unexpectedly depends on Spinner.' >&2
+    exit 1
+fi
+grep -qx 'github.com/webong/gateway/arranger' <<<"$dependencies"
+echo 'Published-path executable integration passed through Arranger without Spinner.'

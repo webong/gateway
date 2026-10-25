@@ -12,7 +12,7 @@ cp -R "$ROOT/mod/adapter" "$TEST_DIR/source/mod/adapter"
 cd "$TEST_DIR/source"
 
 # Representative unwanted files, including future directories and local state.
-for path in pkg/planner/src/GatewayServiceProvider.php pkg/spinner/main.go mod/driver/go.mod \
+for path in pkg/planner/src/GatewayServiceProvider.php pkg/spinner/main.go mod/arranger/go.mod \
     pkg/example/main.go app/bootstrap.php scripts/build-router infra/docker/Gateway.spinner.Dockerfile \
     infra/kubernetes/router.yaml tests/Test.php vendor/autoload.php \
     .gateway-router-data/gateway.env future/component.txt docs/deployment.md \

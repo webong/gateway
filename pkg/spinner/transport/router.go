@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/arranger/companion"
 	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"

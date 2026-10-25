@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 const ProtocolVersion = "v1"

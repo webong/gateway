@@ -13,7 +13,7 @@ import (
 	"ergo.services/ergo"
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 type Options struct {

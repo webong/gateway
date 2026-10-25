@@ -8,7 +8,7 @@ import (
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/companion"
 )
 
 type recordingRunner struct {

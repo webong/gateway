@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/pkg/spinner/automation/actors"
 )
 

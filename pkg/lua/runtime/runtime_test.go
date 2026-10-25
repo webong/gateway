@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 func TestLuaCanUseTheGatewayCapabilities(t *testing.T) {

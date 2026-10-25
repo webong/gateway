@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Create a local release tag from committed source without changing the checkout.
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VERSION=${1:-}
+if [[ $# != 1 || ! "$VERSION" =~ ^v(0|1)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    echo 'Usage: scripts/release-arranger v0.MINOR.PATCH (or v1.MINOR.PATCH)' >&2
+    exit 2
+fi
+cd "$ROOT"
+TAG="arranger/$VERSION"
+if git show-ref --verify --quiet "refs/tags/$TAG"; then
+    echo "Release tag already exists: $TAG" >&2
+    exit 1
+fi
+if [[ -n "$(git status --porcelain --untracked-files=all -- mod/arranger)" ]]; then
+    echo 'Commit mod/arranger changes before creating a release.' >&2
+    exit 1
+fi
+
+SOURCE=$(git rev-parse HEAD)
+ARRANGER_TREE=$(git rev-parse "$SOURCE:mod/arranger")
+git show "$SOURCE:mod/arranger/go.mod" | grep -qx 'module github.com/webong/gateway/arranger'
+git cat-file -e "$SOURCE:mod/arranger/LICENSE"
+
+# GitHub resolves .../gateway/arranger at arranger/, even though development
+# sources live in mod/arranger/. Only the release commit uses this layout.
+RELEASE_TREE=$(printf '040000 tree %s\tarranger\n' "$ARRANGER_TREE" | git mktree)
+RELEASE_COMMIT=$(git commit-tree "$RELEASE_TREE" -p "$SOURCE" \
+    -m "Release Gateway Arranger $VERSION" -m "Source: $SOURCE (mod/arranger)")
+git tag -a "$TAG" "$RELEASE_COMMIT" -m "Gateway Arranger $VERSION; source $SOURCE"
+printf 'Created %s at %s\n' "$TAG" "$RELEASE_COMMIT"
+printf 'Checkout unchanged. Publish explicitly: git push upstream refs/tags/%s\n' "$TAG"

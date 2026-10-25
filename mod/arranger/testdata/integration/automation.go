@@ -1,9 +1,9 @@
-package workload
+package example
 
 import (
 	"context"
 
-	gatewayautomation "github.com/webong/gateway/driver/automation"
+	gatewayautomation "github.com/webong/gateway/arranger/automation"
 )
 
 type AutomationEngine struct{}

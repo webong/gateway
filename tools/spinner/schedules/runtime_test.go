@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	javascript "github.com/webong/gateway/pkg/javascript/runtime"
 	lua "github.com/webong/gateway/pkg/lua/runtime"
 	. "github.com/webong/gateway/pkg/spinner/automation/schedules"

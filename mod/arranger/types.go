@@ -1,5 +1,6 @@
-// Package driver defines the shared contracts between Gateway hosts and integrations.
-package driver
+// Package arranger defines the shared contracts used to author Gateway
+// extensions without depending on Spinner's implementation packages.
+package arranger
 
 import (
 	"encoding/json"
@@ -69,23 +70,12 @@ type LaunchSpec struct {
 	ContainerName    string
 }
 
-// Workload describes a technology independently of the host that runs it.
+// Extension describes a technology independently of the host that runs it.
 // Validate checks technology configuration; Launch returns a specification
 // without starting processes. The host selects the runtime and executes it.
-type Workload interface {
+type Extension interface {
 	Type() string
 	Supports(runtime string) bool
 	Validate(spec ServerSpec) error
 	Launch(spec ServerSpec, runtime, host string, port int) (LaunchSpec, error)
-}
-
-type InstanceReport struct {
-	NodeID   string `json:"node_id"`
-	Runtime  string `json:"runtime"`
-	PID      int    `json:"pid,omitempty"`
-	Host     string `json:"host,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	State    string `json:"state"`
-	Revision int64  `json:"revision"`
-	Error    string `json:"error,omitempty"`
 }

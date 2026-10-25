@@ -7,14 +7,14 @@ import (
 	"io"
 	"strings"
 
-	"github.com/webong/gateway/driver"
+	"github.com/webong/gateway/arranger"
 )
 
 // Serve handles one JSON request per line on stdin and writes one response per
 // line to stdout. Extensions must write diagnostics to stderr only.
-func Serve(workload driver.Workload, input io.Reader, output io.Writer) error {
-	if workload == nil || strings.TrimSpace(workload.Type()) == "" {
-		return fmt.Errorf("integration requires a named workload")
+func Serve(extension arranger.Extension, input io.Reader, output io.Writer) error {
+	if extension == nil || strings.TrimSpace(extension.Type()) == "" {
+		return fmt.Errorf("integration requires a named extension")
 	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 64*1024), MaxMessageBytes)
@@ -26,7 +26,7 @@ func Serve(workload driver.Workload, input io.Reader, output io.Writer) error {
 			response.Error = "invalid integration request"
 		} else {
 			response.ID = request.ID
-			response = handle(workload, request)
+			response = handle(extension, request)
 		}
 		if err := encoder.Encode(response); err != nil {
 			return err
@@ -35,7 +35,7 @@ func Serve(workload driver.Workload, input io.Reader, output io.Writer) error {
 	return scanner.Err()
 }
 
-func handle(workload driver.Workload, request Request) Response {
+func handle(extension arranger.Extension, request Request) Response {
 	response := Response{Version: Version, ID: request.ID}
 	if request.Version != Version {
 		response.Error = "unsupported integration protocol version"
@@ -43,23 +43,23 @@ func handle(workload driver.Workload, request Request) Response {
 	}
 	switch request.Method {
 	case "describe":
-		response.Type = workload.Type()
-		for _, candidate := range []string{driver.DriverLocal, driver.DriverDocker, driver.DriverKubernetes} {
-			if workload.Supports(candidate) {
+		response.Type = extension.Type()
+		for _, candidate := range []string{arranger.DriverLocal, arranger.DriverDocker, arranger.DriverKubernetes} {
+			if extension.Supports(candidate) {
 				response.Drivers = append(response.Drivers, candidate)
 			}
 		}
 	case "validate":
 		if request.Spec == nil {
 			response.Error = "server specification is required"
-		} else if err := workload.Validate(*request.Spec); err != nil {
+		} else if err := extension.Validate(*request.Spec); err != nil {
 			response.Error = err.Error()
 		}
 	case "launch":
 		if request.Spec == nil {
 			response.Error = "server specification is required"
 		} else {
-			launch, err := workload.Launch(*request.Spec, request.Runtime, request.Host, request.Port)
+			launch, err := extension.Launch(*request.Spec, request.Runtime, request.Host, request.Port)
 			if err != nil {
 				response.Error = err.Error()
 			} else {

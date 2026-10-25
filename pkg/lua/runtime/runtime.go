@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	lua "github.com/yuin/gopher-lua"
 )
 

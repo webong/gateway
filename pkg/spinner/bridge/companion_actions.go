@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/companion"
 )
 
 const companionActionsPath = "/_internal/gateway/companion-actions"

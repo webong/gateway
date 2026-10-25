@@ -25,7 +25,7 @@ require (
 	github.com/jackc/pgtype v1.14.0 // indirect
 	github.com/jackc/pgx/v4 v4.18.3 // indirect
 	github.com/miekg/dns v1.1.65 // indirect
-	github.com/webong/gateway/driver v0.0.0 // indirect
+	github.com/webong/gateway/arranger v0.0.0 // indirect
 	github.com/webong/gateway/pkg/spinner v0.0.0
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	golang.org/x/crypto v0.57.0 // indirect
@@ -40,7 +40,7 @@ require (
 
 replace github.com/webong/gateway/pkg/spinner => ../../pkg/spinner
 
-replace github.com/webong/gateway/driver => ../../mod/driver
+replace github.com/webong/gateway/arranger => ../../mod/arranger
 
 replace github.com/webong/ext/pkg/plugin-go => ../../../ext/pkg/plugin-go
 

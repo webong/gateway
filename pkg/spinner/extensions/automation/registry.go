@@ -1,6 +1,6 @@
 // Package automationextensions is Spinner's host-side automation registry.
 //
-// Spinner is a plugin host: it depends only on the automation driver contract
+// Spinner is a plugin host: it depends only on Arranger's automation contract
 // and the portable plugin contract. Automation engines (JavaScript, Lua, Shell,
 // Go, PHP, HookScript, or third-party engines) are guests and are registered
 // here either in-process by an external composition root or loaded at runtime
@@ -27,7 +27,7 @@ import (
 	pluginprocess "github.com/webong/ext/pkg/plugin-go/contract/host/process"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 )
 

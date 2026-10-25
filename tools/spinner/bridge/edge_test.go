@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	javascript "github.com/webong/gateway/pkg/javascript/runtime"
 	shell "github.com/webong/gateway/pkg/shell/runtime"
 	. "github.com/webong/gateway/pkg/spinner/bridge"

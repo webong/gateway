@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	extensionautomation "github.com/webong/gateway/extension/automation"
+	extensionautomation "github.com/webong/gateway/arranger/automation/extension"
 	"github.com/webong/gateway/pkg/golang/runtime"
 )
 

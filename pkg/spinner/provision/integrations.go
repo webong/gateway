@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/webong/gateway/driver/integration"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 const integrationCallTimeout = 15 * time.Second
@@ -38,9 +38,9 @@ func IntegrationPaths() ([]string, error) {
 // reconciler has stopped so no workload call uses a closed process.
 type IntegrationSet struct{ integrations []*IntegrationWorkload }
 
-func LoadIntegrations(paths []string) (*IntegrationSet, []Workload, error) {
+func LoadIntegrations(paths []string) (*IntegrationSet, []Extension, error) {
 	set := &IntegrationSet{}
-	workloads := make([]Workload, 0, len(paths))
+	workloads := make([]Extension, 0, len(paths))
 	types := make(map[string]bool)
 	for _, path := range paths {
 		candidate, err := OpenIntegration(path)
@@ -221,4 +221,4 @@ func (p *IntegrationWorkload) Close() {
 	<-p.done
 }
 
-var _ Workload = (*IntegrationWorkload)(nil)
+var _ Extension = (*IntegrationWorkload)(nil)

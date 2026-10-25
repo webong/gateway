@@ -10,7 +10,7 @@ module github.com/webong/gateway/tools/spinner
 go 1.26.0
 
 require (
-	github.com/webong/gateway/driver v0.0.0
+	github.com/webong/gateway/arranger v0.0.0
 	github.com/webong/gateway/pkg/javascript v0.0.0
 	github.com/webong/gateway/pkg/lua v0.0.0
 	github.com/webong/gateway/pkg/shell v0.0.0
@@ -27,7 +27,7 @@ require (
 	golang.org/x/text v0.42.0 // indirect
 )
 
-replace github.com/webong/gateway/driver => ../../mod/driver
+replace github.com/webong/gateway/arranger => ../../mod/arranger
 
 replace github.com/webong/gateway/pkg/javascript => ../../pkg/javascript
 

@@ -1,7 +1,7 @@
 go 1.26.0
 
 use (
-	./mod/extension
+	./mod/arranger
 	./mod/router
 	./pkg/caddy
 	./pkg/centrifugo
@@ -23,4 +23,4 @@ use (
 	./tools/spinner
 )
 
-replace github.com/webong/gateway/driver => ./mod/driver
+replace github.com/webong/gateway/arranger => ./mod/arranger

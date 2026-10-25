@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	shell "github.com/webong/gateway/pkg/shell/runtime"
 )
 

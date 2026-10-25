@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 var automationContract = plugin.ContractRef{Name: "gateway.automation", Version: "v1"}

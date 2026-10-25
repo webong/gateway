@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/arranger/companion"
 	automationexecution "github.com/webong/gateway/pkg/spinner/automation/execution"
 	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"

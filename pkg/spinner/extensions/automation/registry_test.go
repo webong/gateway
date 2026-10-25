@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 func TestDefaultCompositionHasNoBundledLanguages(t *testing.T) {

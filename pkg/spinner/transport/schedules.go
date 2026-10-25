@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/pkg/spinner/automation/schedules"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"

@@ -1,4 +1,4 @@
-.PHONY: build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-companion-image test-planner-octane-servers test-driver-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -24,7 +24,7 @@ build-with-script-extensions:
 test: test-go test-php
 
 test-go:
-	GOWORK=off go -C mod/driver test ./...
+	GOWORK=off go -C mod/arranger test ./...
 	GOWORK=off go -C mod/router test ./...
 	GOWORK=off go -C pkg/caddy test ./...
 	GOWORK=off go -C pkg/javascript test ./...
@@ -41,7 +41,7 @@ test-go:
 	$(MAKE) test-go-extensions
 	$(MAKE) test-automation-extension-boundaries
 	$(MAKE) test-integration-boundaries
-	$(MAKE) test-driver-release
+	$(MAKE) test-arranger-release
 
 test-go-extensions:
 	GOWORK=off go -C tools/spinner test $(GOFLAGS) ./...
@@ -64,8 +64,8 @@ test-router-companion-image:
 test-planner-octane-servers:
 	bash scripts/test-planner-octane-servers
 
-test-driver-release:
-	bash scripts/test-driver-release
+test-arranger-release:
+	bash scripts/test-arranger-release
 
 test-contract-package:
 	bash scripts/test-contract-package
@@ -125,5 +125,5 @@ benchmark-php:
 	vendor/bin/pest -c phpunit.benchmark.xml.dist
 
 vet:
-	GOWORK=off go -C mod/driver vet ./...
+	GOWORK=off go -C mod/arranger vet ./...
 	GOWORK=off go -C pkg/spinner vet $(GOFLAGS) ./...

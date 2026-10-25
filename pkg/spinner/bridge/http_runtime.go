@@ -16,7 +16,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/companion"
 )
 
 const (

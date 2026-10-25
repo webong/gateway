@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/companion"
 )
 
 func TestCompanionRunnersShareOnePrivateContract(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	gatewaydriver "github.com/webong/gateway/driver"
+	arranger "github.com/webong/gateway/arranger"
 )
 
 func TestWorkloadBuildsCentrifugoLaunchSpecs(t *testing.T) {
@@ -18,7 +18,7 @@ func TestWorkloadBuildsCentrifugoLaunchSpecs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	local, err := workload.Launch(spec, gatewaydriver.DriverLocal, "127.0.0.1", 12002)
+	local, err := workload.Launch(spec, arranger.DriverLocal, "127.0.0.1", 12002)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestWorkloadBuildsCentrifugoLaunchSpecs(t *testing.T) {
 		}
 	}
 
-	kubernetes, err := workload.Launch(spec, gatewaydriver.DriverKubernetes, "ignored", 0)
+	kubernetes, err := workload.Launch(spec, arranger.DriverKubernetes, "ignored", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +60,10 @@ func TestWorkloadRequiresRedisForMultipleReplicas(t *testing.T) {
 	}
 }
 
-func validCentrifugoSpec() gatewaydriver.ServerSpec {
-	return gatewaydriver.ServerSpec{
+func validCentrifugoSpec() arranger.ServerSpec {
+	return arranger.ServerSpec{
 		ID: "centrifugo-1", Type: "centrifugo", Name: "events", Hostname: "events.example.test",
-		Driver: gatewaydriver.DriverLocal, DesiredState: gatewaydriver.DesiredRunning, Replicas: 3, Revision: 1,
+		Driver: arranger.DriverLocal, DesiredState: arranger.DesiredRunning, Replicas: 3, Revision: 1,
 		Configuration: []byte(`{
 			"client_token_hmac_secret_key":"client-secret",
 			"client_allowed_origins":["https://app.example.test"],

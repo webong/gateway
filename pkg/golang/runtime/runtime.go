@@ -11,7 +11,7 @@ import (
 
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 const Language automation.Language = "go"
@@ -76,7 +76,7 @@ func (e *Engine) ensureInterpreter() error {
 	}
 
 	// Expose the gateway automation API types
-	symbols["github.com/webong/gateway/driver/automation"] = map[string]reflect.Value{
+	symbols["github.com/webong/gateway/arranger/automation"] = map[string]reflect.Value{
 		"Language":  reflect.ValueOf(automation.Language("")),
 		"Script":    reflect.ValueOf(automation.Script{}),
 		"Input":     reflect.ValueOf(automation.Input{}),
@@ -90,7 +90,7 @@ func (e *Engine) ensureInterpreter() error {
 		return fmt.Errorf("load Yaegi symbols: %w", err)
 	}
 
-	if _, err := i.Eval(`import "github.com/webong/gateway/driver/automation"`); err != nil {
+	if _, err := i.Eval(`import "github.com/webong/gateway/arranger/automation"`); err != nil {
 		return fmt.Errorf("pre-import automation: %w", err)
 	}
 
@@ -135,7 +135,7 @@ func buildScript(source string) string {
 import (
 	"encoding/json"
 	"strings"
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 func run(inputJSON string) string {

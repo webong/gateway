@@ -12,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/webong/gateway/driver/integration"
+	"github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/spinner/integrations/catalog"
 	"github.com/webong/gateway/pkg/spinner/provision"
 )

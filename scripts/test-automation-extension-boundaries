@@ -22,11 +22,11 @@ for extension in javascript lua shell golang php hookscript; do
     package="github.com/webong/gateway/pkg/$extension/runtime"
     dependencies=$(cd "$ROOT/pkg/$extension" && GOWORK=off GOFLAGS="$GO_BUILD_FLAGS" go list -deps ./runtime)
     if grep -q '^github.com/webong/gateway/pkg/spinner\($\|/\)' <<<"$dependencies"; then
-        echo "$package depends on Spinner; automation extensions may depend only on Driver contracts." >&2
+        echo "$package depends on Spinner; automation extensions may depend only on Arranger contracts." >&2
         exit 1
     fi
-    if ! grep -qx 'github.com/webong/gateway/driver/automation' <<<"$dependencies"; then
-        echo "$package does not use the public Driver automation interface." >&2
+    if ! grep -qx 'github.com/webong/gateway/arranger/automation' <<<"$dependencies"; then
+        echo "$package does not use the public Arranger automation interface." >&2
         exit 1
     fi
 done

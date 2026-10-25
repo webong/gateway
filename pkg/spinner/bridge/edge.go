@@ -16,7 +16,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 // Edge is the Go-side HTTP adapter mounted in RoadRunner's HTTP pipeline. It
