@@ -1,2 +1,4 @@
+github.com/webong/ext/pkg/plugin-go/contract v0.6.0 h1:Rkgan4DRfrdv9kwiFmhROZlwsDSF4BrThSO6kE/3jQ0=
+github.com/webong/ext/pkg/plugin-go/contract v0.6.0/go.mod h1:YajPTz7utaUNrcn856mnFegEHuk8l70pK2krbVFSZoc=
 github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=
 github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
