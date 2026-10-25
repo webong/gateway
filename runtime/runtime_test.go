@@ -7,8 +7,8 @@ import (
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/gateway/driver/automation"
-	"github.com/webong/gateway/driver/companion"
+	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/arranger/companion"
 )
 
 type reverseCallerFunc func(context.Context, plugin.ContractRef, string, json.RawMessage) (json.RawMessage, error)
