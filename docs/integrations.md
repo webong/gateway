@@ -131,8 +131,8 @@ workload secrets needed to construct launch settings.
 
 ## Third-party Go module
 
-Authors depend on `github.com/webong/gateway/driver`, not the Spinner module.
-Implement `driver.Workload`, then serve it from a tiny `main` package:
+Authors depend on `github.com/webong/gateway/arranger`, not the Spinner module.
+Implement `arranger.Extension`, then serve it from a tiny `main` package:
 
 ```go
 package main
@@ -141,7 +141,7 @@ import (
     "log"
     "os"
 
-    "github.com/webong/gateway/driver/integration"
+    "github.com/webong/gateway/arranger/integration"
     "example.com/your-integration/workload"
 )
 
@@ -153,16 +153,16 @@ func main() {
 ```
 
 Build a platform-specific executable with `go build -o your-integration
-./cmd/integration`. The [isolated example](../mod/driver/testdata/integration) is
-compiled against a synthetic published `driver/v0.1.0` tag by
-`scripts/test-driver-release`, with no Spinner dependency or local `replace`.
+./cmd/integration`. The [isolated example](../mod/arranger/testdata/integration) is
+compiled against a synthetic published `arranger/v0.1.0` tag by
+`scripts/test-arranger-release`, with no Spinner dependency or local `replace`.
 
 The host starts an explicitly configured executable and exchanges newline
 delimited JSON over stdin/stdout. Protocol version 1 supports `describe`,
 `validate`, and `launch`; `describe` advertises the workload type and supported
 local/Docker/Kubernetes drivers. Requests and responses carry matching IDs and
-have an 8 MiB limit. The integration returns a `driver.LaunchSpec`; Gateway core
-still owns process/container/Pod creation, reconciliation, and routing.
+have an 8 MiB limit. The integration returns an `arranger.LaunchSpec`; Gateway
+core still owns process/container/Pod creation, reconciliation, and routing.
 
 The protocol version is checked at startup. The manager handles catalog-based,
 version-pinned, hash-verified installation and a local specification probe,

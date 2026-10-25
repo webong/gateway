@@ -78,7 +78,7 @@ The monorepo publishes separate Composer packages:
 The root development project and the bundled Router host use Composer Merge
 Plugin to discover `pkg/*/composer.json`, so extension autoload paths and
 providers come from the extension manifests rather than from duplicated root
-mappings. The Go Spinner, Go driver library, bundled Router app, tests, and
+mappings. The Go Spinner, Go Arranger library, bundled Router app, tests, and
 deployment/build tooling are not part of the Composer packages.
 
 `.gitattributes` controls GitHub/Git source archives; `archive.exclude` in
@@ -89,7 +89,7 @@ This applies to releases containing these packaging rules, not existing tags
 or cached archives. `--prefer-source` (or a fallback to a Git clone) still
 downloads the full repository. Use a Git clone for Router/Spinner builds:
 the repository's generated source ZIP/tar downloads are core-only.
-The driver release script constructs its own separate release tree and is
+The Arranger release script constructs its own separate release tree and is
 unaffected by these root archive rules.
 
 ## Repository layout
@@ -99,15 +99,17 @@ unaffected by these root archive rules.
 - `pkg/frankenphp/cmd/router` is the thin bundled executable in its own Go module.
 - `pkg/roadrunner/runtime` manages PHP workers without Spinner imports;
   `pkg/roadrunner/cmd/router` assembles its bundled deployment through `mod/router`.
-- `mod/driver` is the independent `github.com/webong/gateway/driver` Go module
-  for workload and runtime-driver contracts. See the [integration and release
-  guide](docs/integrations.md); integration authors can use it without Spinner.
+- `mod/arranger` is the independent `github.com/webong/gateway/arranger` Go
+  module. Its `Extension` interface and automation, companion, and integration
+  packages are the complete authoring surface for installable Gateway
+  extensions. See the [integration and release guide](docs/integrations.md);
+  extension authors can use it without Spinner.
 - `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.
 - Trusted extensions may register named [PHP companion actions](docs/companion-actions.md)
-  in the Planner host and invoke them from Spinner through the driver interface;
-  invocation transports data, never PHP source.
+  in the Planner host and invoke them from Spinner through the Arranger
+  companion interface; invocation transports data, never PHP source.
 - `pkg/spinner` is the separate `github.com/webong/gateway/pkg/spinner` Go
   module; `pkg/spinner/proxy` contains its HTTP lifecycle package.
 - `cmd/gateway` is the root-module composition executable; it installs optional
@@ -132,7 +134,7 @@ unaffected by these root archive rules.
   launch contracts to the same core runtime.
 
 Every Go runtime under `pkg/` owns its own module and runtime-specific
-dependencies. Spinner is its own module and depends only on the driver
+dependencies. Spinner is its own module and depends only on Arranger's public
 contracts. The root `github.com/webong/gateway` module is the composition root
 (`cmd/gateway`): it owns the JavaScript, Lua, and Shell module dependencies and
 registers them through `cmd/gateway/composition`. Bundled RoadRunner and
@@ -1259,7 +1261,7 @@ Kubernetes cluster/namespace. A target-bound `gateway-provision` worker runs
 without Spinner's public traffic listener and uses a target-scoped token.
 Integrations are separate executables selected with
 `GATEWAY_INTEGRATION_PATHS`; Spinner loads them through the versioned
-`github.com/webong/gateway/driver/integration` protocol. Build the bundled
+`github.com/webong/gateway/arranger/integration` protocol. Build the bundled
 Reverb, Mercure, and Centrifugo integrations with `scripts/build-gateway-integrations`.
 Build `bin/gateway-integration` with `make build-integration-manager` to list,
 install, and verify exact versions from the generated local or trusted HTTPS
@@ -1372,7 +1374,7 @@ add the module path to its existing build command:
 --with github.com/webong/gateway/pkg/caddy \
 --replace github.com/webong/gateway=/path/to/gateway \
 --replace github.com/webong/gateway/pkg/caddy=/path/to/gateway/pkg/caddy \
---replace github.com/webong/gateway/driver=/path/to/gateway/mod/driver \
+--replace github.com/webong/gateway/arranger=/path/to/gateway/mod/arranger \
 --replace github.com/webong/gateway/pkg/spinner=/path/to/gateway/pkg/spinner
 ```
 
@@ -1398,7 +1400,7 @@ for the POP3/IMAP Caddy options and private-upstream CA trust.
 
 ## Tests
 
-Run the Go transport, driver contracts, and isolated release-consumer tests
+Run the Go transport, Arranger contracts, and isolated release-consumer tests
 from the repository root:
 
 ```bash

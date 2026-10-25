@@ -41,6 +41,10 @@ _Avoid_: Spinner node
 An installable package that contributes one or more Integration, Automation, or Companion capabilities to Gateway.
 _Avoid_: Plugin, Integration when referring to the whole package
 
+**Arranger**:
+The development interface through which an Extension declares and implements its Gateway capabilities without depending on a Gateway host.
+_Avoid_: Driver module, Extension module
+
 **Integration**:
 An Extension capability that teaches Gateway how to configure and run a managed application service such as Reverb, Mercure, or Centrifugo.
 _Avoid_: Workload Plugin, Workload Extension

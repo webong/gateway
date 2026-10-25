@@ -7,7 +7,7 @@ not create cloud VMs or install Docker/Kubernetes on a bare server.
 
 The design keeps the target connection in the provisioning
 module, independent of technology integrations. Integrations still import the
-public driver contracts, not Spinner implementation code.
+public Arranger extension contracts, not Spinner implementation code.
 
 ## Register a target
 

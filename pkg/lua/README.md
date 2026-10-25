@@ -1,7 +1,7 @@
 # Gateway Lua extension
 
 This optional Go package adds the `lua` automation language using gopher-lua.
-It implements the public `github.com/webong/gateway/driver/automation`
+It implements the public `github.com/webong/gateway/arranger/automation`
 interface and does not import Spinner. A default Gateway build does not link
 the Lua interpreter.
 

@@ -1,7 +1,7 @@
 # Gateway Automations
 
 Gateway Automations run small, bounded ingress logic after Laravel has matched
-and authorized a route. The standalone Gateway Driver module owns the
+and authorized a route. The standalone Gateway Arranger module owns the
 language-neutral execution interface, dispatcher, and output validation.
 Spinner builds on that interface and owns transport and network policy. Spinner
 is a plugin host, but no Gateway host binary compiles a concrete automation
@@ -128,11 +128,11 @@ extension owns compilation, execution limits, and its script capability
 surface.
 
 Third-party Go language extensions implement `automation.Engine` from
-`github.com/webong/gateway/driver/automation`. They depend only on the
-standard-library Driver module, not on Spinner. Their optional PHP companion
+`github.com/webong/gateway/arranger/automation`. They depend only on Arranger,
+not on Spinner. Their optional PHP companion
 depends on the framework-free interfaces under `mod/adapter`, not Planner's
 implementation source. Its thin `cmd/spinner` entrypoint uses
-`github.com/webong/gateway/extension/automation` and ships that process in an
+`github.com/webong/gateway/arranger/automation/extension` and ships that process in an
 `ext.package/v1` archive. Native `.so` loading remains available for
 deployment-specific experiments, but first-party releases use supervised
 process packages so installation does not depend on the host's Go ABI.
