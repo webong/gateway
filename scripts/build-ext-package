@@ -106,6 +106,24 @@ function runBuildCommand(array $command, string $directory): void
     }
 }
 
+/** @param list<string> $command */
+function readBuildValue(array $command, string $directory): string
+{
+    $pipes = [];
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR], $pipes, $directory);
+    if (! is_resource($process)) {
+        failBuild('Cannot inspect the HookScript Spinner build target.');
+    }
+    fclose($pipes[0]);
+    $value = trim((string) stream_get_contents($pipes[1]));
+    fclose($pipes[1]);
+    if (proc_close($process) !== 0 || $value === '') {
+        failBuild('Cannot inspect the HookScript Spinner build target.');
+    }
+
+    return $value;
+}
+
 mkdir($destination, 0700, true) || failBuild("Cannot create {$destination}.");
 mkdir($destination.'/bin', 0700, true) || failBuild('Cannot create bin directory.');
 copy($source.'/bin/companion', $destination.'/bin/companion') || failBuild('Cannot copy companion entrypoint.');
@@ -126,6 +144,8 @@ if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $revision) !== 1) 
     failBuild('Invalid extension revision.');
 }
 $packageIdentity = ['id' => $identity, 'revision' => $revision, 'version' => $version];
+$targetOS = readBuildValue(['go', 'env', 'GOOS'], $source);
+$targetArch = readBuildValue(['go', 'env', 'GOARCH'], $source);
 $companionDescriptor = [
     'apiVersion' => 'ext.plugin/v1',
     'identity' => $packageIdentity,
@@ -151,7 +171,19 @@ $manifest = [
             'operations' => [['name' => 'gateway.hookscript.execute']],
         ]],
     ],
-    'metadata' => ['gateway.companion/v1' => ['descriptor' => $companionDescriptor]],
+    'metadata' => [
+        'gateway.spinner/v1' => [
+            'platform' => ['os' => $targetOS, 'arch' => $targetArch],
+        ],
+        'gateway.automation/v1' => [
+            'languages' => [[
+                'id' => 'webhookscript',
+                'target' => 'spinner',
+                'capabilities' => ['route', 'schedule', 'credential'],
+            ]],
+        ],
+        'gateway.companion/v1' => ['descriptor' => $companionDescriptor],
+    ],
     'artifacts' => $artifacts,
     'entrypoints' => [
         [
