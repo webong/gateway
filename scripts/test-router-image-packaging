@@ -41,6 +41,18 @@ if ! grep -Fq 'GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php' "$LIBRARY_DOCKER
     exit 1
 fi
 
+if ! grep -Fq 'GATEWAY_PLUGIN_DIR=/data/spinner-extensions' "$LIBRARY_DOCKERFILE" \
+    || ! grep -Fq 'GATEWAY_COMPANION_PLUGIN_DIR=/data/planner-extensions' "$LIBRARY_DOCKERFILE"; then
+    echo 'The bundled Router must keep Spinner and Planner extension stores separate.' >&2
+    exit 1
+fi
+
+if grep -Fq "env('GATEWAY_COMPANION_PLUGIN_DIR', env('GATEWAY_PLUGIN_DIR'" \
+    "$ROOT/pkg/planner/config/gateway.php"; then
+    echo 'Planner must not fall back to Spinner extension storage.' >&2
+    exit 1
+fi
+
 if ! grep -Fxq 'opcache.enable_cli=0' "$ROOT/infra/docker/router.php.ini"; then
     echo 'The bundled PHP CLI must not build a per-invocation OPcache for companion processes.' >&2
     exit 1
@@ -94,8 +106,8 @@ php -r '
     }
 ' "$ROOT"
 
-if ! grep -Fq 'composer install --working-dir=/src/gateway/pkg/hookscript/companion' "$LIBRARY_DOCKERFILE"; then
-    echo 'The FrankenPHP library Router must install the minimal HookScript companion runtime.' >&2
+if grep -Fq 'composer install --working-dir=/src/gateway/pkg/hookscript/companion' "$LIBRARY_DOCKERFILE"; then
+    echo 'The FrankenPHP library Router must not preinstall the HookScript companion.' >&2
     exit 1
 fi
 

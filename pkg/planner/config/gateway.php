@@ -107,7 +107,7 @@ return [
         // Deployment-owned ext package store. Which installed extension is
         // enabled, and whether its static or dynamic companion is selected,
         // remains Planner CMS state in the generic configurations table.
-        'plugin_dir' => (string) env('GATEWAY_COMPANION_PLUGIN_DIR', env('GATEWAY_PLUGIN_DIR', '')),
+        'plugin_dir' => (string) env('GATEWAY_COMPANION_PLUGIN_DIR', ''),
         'generation_root' => (string) env('GATEWAY_COMPANION_GENERATION_ROOT', storage_path('framework/cache/gateway/companion-generations')),
         // PHP-FPM reports its own executable through PHP_BINARY. Point this at
         // the PHP CLI binary when Planner does not run under CLI/Octane.

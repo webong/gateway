@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"time"
@@ -60,6 +61,22 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	}
 	spinner.CompanionActions = companionActions
 	companionextensions.Configure(companionActions)
+	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
+		plannerClient := &http.Client{
+			Transport:     handlerRoundTripper{handler: planner},
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		artifactClient := &http.Client{
+			Timeout:       60 * time.Second,
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		}
+		if err := automationextensions.StartArtifactReconciliation(
+			ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
+			plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+		); err != nil {
+			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
+		}
+	}
 
 	httpPlanner := bridge.NewPHPPlanner(planner, spinner.MaxBodySize)
 	httpPlanner.InternalToken = spinner.InternalToken
@@ -211,6 +228,32 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		}
 	}
 	return errors.Join(runErr, publicShutdownErr)
+}
+
+type handlerRoundTripper struct{ handler http.Handler }
+
+func (transport handlerRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	serverRequest := request.Clone(request.Context())
+	if serverRequest.Body == nil {
+		serverRequest.Body = http.NoBody
+	}
+	serverRequest.RequestURI = serverRequest.URL.RequestURI()
+	serverRequest.RemoteAddr = "127.0.0.1:0"
+	if serverRequest.Host == "" {
+		serverRequest.Host = serverRequest.URL.Host
+	}
+	completed := make(chan *http.Response, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		transport.handler.ServeHTTP(recorder, serverRequest)
+		completed <- recorder.Result()
+	}()
+	select {
+	case response := <-completed:
+		return response, nil
+	case <-request.Context().Done():
+		return nil, request.Context().Err()
+	}
 }
 
 type ManagedRouteHandler interface {

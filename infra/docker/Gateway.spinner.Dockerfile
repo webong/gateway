@@ -1,5 +1,5 @@
-# Standalone Spinner host image. PHP companions run in Planner; Spinner only
-# composes the Go automation guests listed in plugins.txt.
+# Standalone Spinner host image. Automation and companion capabilities arrive
+# as verified extension packages; the host compiles no concrete script runtime.
 FROM golang:1.26-bookworm AS host-builder
 
 ENV GOTELEMETRY=off

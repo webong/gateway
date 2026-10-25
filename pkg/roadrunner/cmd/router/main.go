@@ -14,10 +14,6 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := registerStaticEngines(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
 	if err := loadDynamicEngines(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

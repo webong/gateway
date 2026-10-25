@@ -1,0 +1,6 @@
+{
+    "identity": "webong/go",
+    "language": "go",
+    "capabilities": ["route", "schedule"],
+    "spinner": "./cmd/spinner"
+}

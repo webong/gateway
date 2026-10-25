@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -87,6 +88,8 @@ func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
 	archiveDigest := sha256.Sum256(archive)
 	var enabled atomic.Bool
 	enabled.Store(true)
+	var revision atomic.Int64
+	revision.Store(1)
 
 	var server *httptest.Server
 	server = httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -99,7 +102,7 @@ func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
 			data := []map[string]any{}
 			if enabled.Load() {
 				data = append(data, map[string]any{
-					"extension": "webong/hookscript", "version": "1.0.0", "digest": nil, "revision": 1,
+					"extension": "webong/hookscript", "version": "1.0.0", "digest": nil, "revision": revision.Load(),
 					"artifact": map[string]any{"url": server.URL + "/hookscript.tar.gz", "sha256": hex.EncodeToString(archiveDigest[:])},
 				})
 			}
@@ -133,12 +136,22 @@ func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
 		t.Fatalf("HookScript did not invoke Planner companion: %+v", outcome)
 	}
 
+	revision.Add(1)
 	enabled.Store(false)
 	if err := reconciler.Reconcile(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if runtime.Supports("webhookscript") {
 		t.Fatal("deactivated HookScript remained advertised by the running Spinner")
+	}
+
+	revision.Add(1)
+	enabled.Store(true)
+	if err := reconciler.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.Supports("webhookscript") {
+		t.Fatal("re-enabled HookScript was not advertised by the running Spinner")
 	}
 }
 
@@ -175,6 +188,45 @@ func TestArtifactReconcilerRejectsTamperedDistributionBeforeLoadingGuest(t *test
 	}
 }
 
+func TestExtractExtensionArchiveAcceptsConventionalRootDirectoryEntry(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "package.tar.gz")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzipWriter := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for _, header := range []*tar.Header{
+		{Name: "./", Mode: 0o700, Typeflag: tar.TypeDir},
+		{Name: "./plugin.json", Mode: 0o600, Size: 2, Typeflag: tar.TypeReg},
+	} {
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Name == "./plugin.json" {
+			if _, err := tarWriter.Write([]byte("{}")); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "extracted")
+	if err := extractExtensionArchive(archivePath, destination); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "plugin.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestArtifactReconcilerRemovesCachedGuestThatIsNoLongerDesired(t *testing.T) {
 	plugins := NewRegistry()
 	engine := lateEngine{language: "webhookscript"}
@@ -199,6 +251,29 @@ func TestArtifactReconcilerRemovesCachedGuestThatIsNoLongerDesired(t *testing.T)
 	}
 	if plugins.Runtime().Supports("webhookscript") {
 		t.Fatal("cached inactive guest remained advertised after desired-state reconciliation")
+	}
+}
+
+func TestStartArtifactReconciliationCompletesInitialPassBeforeReturning(t *testing.T) {
+	plugins := NewRegistry()
+	engine := lateEngine{language: "webhookscript"}
+	plugins.Register(NewEngineAdapter(engine, EngineDescriptor(engine, plugin.Identity{
+		ID: "webong/hookscript", Revision: "cached-r1", Version: "1.0.0",
+	})))
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": []any{}})
+	}))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	if err := StartArtifactReconciliation(
+		ctx, server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), plugins,
+		time.Hour, nil,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if plugins.Runtime().Supports("webhookscript") {
+		t.Fatal("initial reconciliation returned before removing an inactive guest")
 	}
 }
 

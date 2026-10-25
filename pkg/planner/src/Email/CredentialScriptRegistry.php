@@ -5,12 +5,20 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use RuntimeException;
+use Webong\Gateway\Contracts\AutomationCapability;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Protocols\Delivery;
 
 final class CredentialScriptRegistry
 {
     /** @var array<string, CredentialScriptExecutor> */
     private array $executors = [];
+
+    public function __construct(
+        private readonly ?AutomationLanguageRegistry $languages = null,
+        private readonly ?DeliveryAdminClient $admin = null,
+    ) {}
 
     public function register(string $language, CredentialScriptExecutor $executor): void
     {
@@ -24,7 +32,7 @@ final class CredentialScriptRegistry
     /** @param array<string, string> $event */
     public function execute(string $language, string $source, array $event): Delivery
     {
-        $executor = $this->executors[$language] ?? null;
+        $executor = $this->executor($language);
         if ($executor === null) {
             throw new RuntimeException('Credential script language is unavailable.');
         }
@@ -34,6 +42,19 @@ final class CredentialScriptRegistry
 
     public function supports(string $language): bool
     {
-        return isset($this->executors[$language]);
+        return $this->executor($language) !== null;
+    }
+
+    private function executor(string $language): ?CredentialScriptExecutor
+    {
+        $executor = $this->executors[$language] ?? null;
+        if ($executor !== null) {
+            return $executor;
+        }
+        if ($this->languages?->supports($language, AutomationCapability::CREDENTIAL) !== true || $this->admin === null) {
+            return null;
+        }
+
+        return $this->executors[$language] = new SpinnerCredentialScriptExecutor($this->admin, $language);
     }
 }

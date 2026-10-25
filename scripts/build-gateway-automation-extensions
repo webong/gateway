@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+OUTPUT=${1:-"$ROOT/dist/gateway-automations"}
+VERSION=${2:-v0.0.0-local}
+case "$OUTPUT" in
+    /*) ;;
+    *) OUTPUT="$(pwd)/$OUTPUT" ;;
+esac
+if [[ -e "$OUTPUT" ]]; then
+    echo "Output already exists: $OUTPUT" >&2
+    exit 1
+fi
+mkdir -p "$OUTPUT"
+trap 'rm -rf -- "$OUTPUT"' ERR
+
+for extension_name in javascript lua shell golang php; do
+    identity=$(php -r '$d=json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR); echo str_replace("/", "%2f", $d["identity"]);' "$ROOT/pkg/$extension_name/extension.json")
+    "$ROOT/scripts/build-gateway-automation-extension" \
+        "$ROOT/pkg/$extension_name" "$OUTPUT/$identity" "$VERSION"
+    "$ROOT/scripts/archive-gateway-extension" \
+        "$OUTPUT/$identity" "$OUTPUT/$identity.tar.gz"
+done
+
+php "$ROOT/pkg/hookscript/scripts/build-ext-package" \
+    "$OUTPUT/webong%2fhookscript" "$VERSION"
+"$ROOT/scripts/archive-gateway-extension" \
+    "$OUTPUT/webong%2fhookscript" "$OUTPUT/webong%2fhookscript.tar.gz"
+
+echo "Gateway automation extensions: $OUTPUT"

@@ -9,7 +9,6 @@ require (
 
 require (
 	ergo.services/ergo v1.999.330 // indirect
-	github.com/traefik/yaegi v0.16.1 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 )
 
@@ -39,7 +38,6 @@ require (
 	github.com/beanstalkd/go-beanstalk v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bradfitz/gomemcache v0.0.0-20250403215159-8d39553ac7cf // indirect
-	github.com/buke/quickjs-go v0.7.7 // indirect
 	github.com/cactus/go-statsd-client/v5 v5.1.0 // indirect
 	github.com/caddyserver/certmagic v0.23.0 // indirect
 	github.com/caddyserver/zerossl v0.1.3 // indirect
@@ -184,15 +182,9 @@ require (
 	github.com/valyala/fasthttp v1.61.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/webong/gateway/driver v0.0.0
-	github.com/webong/gateway/pkg/golang v0.0.0
-	github.com/webong/gateway/pkg/hookscript v0.0.0
-	github.com/webong/gateway/pkg/javascript v0.0.0
-	github.com/webong/gateway/pkg/lua v0.0.0
-	github.com/webong/gateway/pkg/shell v0.0.0
+	github.com/webong/gateway/driver v0.0.0 // indirect
 	github.com/webong/gateway/pkg/spinner v0.0.0
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
-	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
@@ -246,18 +238,8 @@ replace github.com/webong/gateway => ../../../..
 
 replace github.com/webong/gateway/driver => ../../../../mod/driver
 
-replace github.com/webong/gateway/pkg/javascript => ../../../javascript
-
-replace github.com/webong/gateway/pkg/lua => ../../../lua
-
 replace github.com/webong/gateway/pkg/roadrunner => ../..
-
-replace github.com/webong/gateway/pkg/shell => ../../../shell
 
 replace github.com/webong/gateway/router => ../../../../mod/router
 
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner
-
-replace github.com/webong/gateway/pkg/golang => ../../../golang
-
-replace github.com/webong/gateway/pkg/hookscript => ../../../hookscript

@@ -1,0 +1,6 @@
+{
+    "identity": "webong/lua",
+    "language": "lua",
+    "capabilities": ["route", "schedule", "credential"],
+    "spinner": "./cmd/spinner"
+}

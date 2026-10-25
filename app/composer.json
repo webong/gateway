@@ -40,12 +40,8 @@
         "merge-plugin": {
             "include": [
                 "../pkg/centrifugo/composer.json",
-                "../pkg/hookscript/composer.json",
-                "../pkg/javascript/composer.json",
-                "../pkg/lua/composer.json",
                 "../pkg/mercure/composer.json",
-                "../pkg/reverb/composer.json",
-                "../pkg/shell/composer.json"
+                "../pkg/reverb/composer.json"
             ],
             "recurse": false,
             "replace": false,

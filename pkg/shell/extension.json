@@ -1,0 +1,6 @@
+{
+    "identity": "webong/shell",
+    "language": "shell",
+    "capabilities": ["route"],
+    "spinner": "./cmd/spinner"
+}

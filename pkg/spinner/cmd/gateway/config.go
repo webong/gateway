@@ -9,9 +9,6 @@ import (
 // config resolves the automation composition from an optional environment file
 // plus the process environment. Environment variables always win over the file.
 type config struct {
-	// StaticEngines are compiled-in guests to register, by language name.
-	// Example: GATEWAY_AUTOMATION_ENGINES=javascript,lua,shell,go
-	StaticEngines []string
 	// NativePluginDir holds .so guests for dynamic loading.
 	NativePluginDir string
 	// ExternalPluginDir holds externally installed plugin packages.
@@ -51,21 +48,7 @@ func loadConfig() config {
 	}
 
 	return config{
-		StaticEngines:     splitList(get("GATEWAY_AUTOMATION_ENGINES")),
 		NativePluginDir:   strings.TrimSpace(get("GATEWAY_PLUGIN_DIR_NATIVE")),
 		ExternalPluginDir: strings.TrimSpace(get("GATEWAY_PLUGIN_DIR")),
 	}
-}
-
-func splitList(value string) []string {
-	if strings.TrimSpace(value) == "" {
-		return nil
-	}
-	var out []string
-	for _, item := range strings.Split(value, ",") {
-		if item = strings.TrimSpace(item); item != "" {
-			out = append(out, item)
-		}
-	}
-	return out
 }

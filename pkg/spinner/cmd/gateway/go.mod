@@ -2,19 +2,11 @@ module github.com/webong/gateway/pkg/spinner/cmd/gateway
 
 go 1.26.0
 
-require (
-	github.com/webong/gateway/driver v0.0.0
-	github.com/webong/gateway/pkg/golang v0.0.0
-	github.com/webong/gateway/pkg/javascript v0.0.0
-	github.com/webong/gateway/pkg/lua v0.0.0
-	github.com/webong/gateway/pkg/shell v0.0.0
-	github.com/webong/gateway/pkg/spinner v0.0.0
-)
+require github.com/webong/gateway/pkg/spinner v0.0.0
 
 require (
 	ergo.services/ergo v1.999.330 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
-	github.com/buke/quickjs-go v0.7.7 // indirect
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect
 	github.com/emersion/go-message v0.18.2 // indirect
 	github.com/emersion/go-msgauth v0.7.0 // indirect
@@ -31,10 +23,9 @@ require (
 	github.com/jackc/pgtype v1.14.0 // indirect
 	github.com/jackc/pgx/v4 v4.18.3 // indirect
 	github.com/miekg/dns v1.1.65 // indirect
-	github.com/traefik/yaegi v0.16.1 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
+	github.com/webong/gateway/driver v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
-	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
@@ -46,14 +37,6 @@ require (
 )
 
 replace github.com/webong/gateway/driver => ../../../../mod/driver
-
-replace github.com/webong/gateway/pkg/golang => ../../../golang
-
-replace github.com/webong/gateway/pkg/javascript => ../../../javascript
-
-replace github.com/webong/gateway/pkg/lua => ../../../lua
-
-replace github.com/webong/gateway/pkg/shell => ../../../shell
 
 replace github.com/webong/gateway/pkg/spinner => ../..
 

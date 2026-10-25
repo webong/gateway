@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	gatewayws "github.com/webong/gateway/pkg/spinner/bridge/websocket"
@@ -53,7 +55,32 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		return err
 	}
 	ready := make(chan plannerReady, 1)
+	var extensionOnce sync.Once
+	var extensionErr error
 	server, err := newServer(configPath, func(next http.Handler) http.Handler {
+		extensionOnce.Do(func() {
+			pluginDir := automationextensions.DefaultLoadConfig().ExternalDir
+			if pluginDir == "" {
+				return
+			}
+			plannerClient := &http.Client{
+				Transport:     routerHandlerTransport{handler: next},
+				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			}
+			artifactClient := &http.Client{
+				Timeout:       60 * time.Second,
+				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			}
+			extensionErr = automationextensions.StartArtifactReconciliation(
+				ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
+				plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+			)
+		})
+		if extensionErr != nil {
+			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				http.Error(writer, "Planner extension reconciliation is unavailable", http.StatusServiceUnavailable)
+			})
+		}
 		if resolverErr := automationextensions.ConfigureShellSSHHandler(next, spinner.InternalToken); resolverErr != nil {
 			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				http.Error(writer, "Planner Shell credential control is unavailable", http.StatusServiceUnavailable)

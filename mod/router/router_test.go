@@ -144,6 +144,27 @@ func TestRunReturnsPlannerStartupError(t *testing.T) {
 	}
 }
 
+func TestHandlerRoundTripperCreatesACompleteServerRequest(t *testing.T) {
+	transport := handlerRoundTripper{handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Body == nil || request.RequestURI != "/_internal/gateway/extensions?active=1" || request.RemoteAddr == "" {
+			t.Errorf("incomplete server request: body=%v requestURI=%q remoteAddr=%q", request.Body, request.RequestURI, request.RemoteAddr)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})}
+	request, err := http.NewRequest(http.MethodGet, "http://gateway.internal/_internal/gateway/extensions?active=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := transport.RoundTrip(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
 func TestRunPollsSchedulesThroughEmbeddedPlanner(t *testing.T) {
 	t.Setenv("GATEWAY_RUNTIME", "")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")

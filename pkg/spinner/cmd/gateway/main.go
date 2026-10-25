@@ -1,23 +1,19 @@
 // Command gateway is Spinner's host binary and automation composition root.
 //
-// It links the statically selected guests from plugins_gen.go and then loads
-// any dynamic guests (native .so or external processes) before starting Spinner.
+// Automation extensions are installed packages loaded from the extension
+// store. This host never imports or compiles a concrete automation runtime.
 // Spinner's own packages never import an engine.
 package main
 
 import (
 	"context"
 
-	"github.com/webong/gateway/pkg/spinner/proxy"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	"github.com/webong/gateway/pkg/spinner/proxy"
 )
 
 func main() {
 	cfg := loadConfig()
-
-	if err := registerStatic(cfg.StaticEngines); err != nil {
-		panic(err)
-	}
 
 	if err := automationextensions.LoadPlugins(context.Background(), automationextensions.LoadConfig{
 		NativeGoDir: cfg.NativePluginDir,

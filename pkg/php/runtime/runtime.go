@@ -1,148 +1,242 @@
-// Package runtime implements the PHP automation engine using frankenphp.
+// Package runtime implements the optional local PHP automation extension.
+// PHP is launched by the extension process; Gateway hosts remain PHP-free.
 package runtime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/dunglas/frankenphp"
 	"github.com/webong/gateway/driver/automation"
 )
 
 const Language automation.Language = "php"
 
+const defaultMaxOutputBytes int64 = 1 << 20
+
 type Engine struct {
-	timeout       time.Duration
-	maxSourceBytes int64
-	initialized   bool
+	Binary         string
+	Timeout        time.Duration
+	MaxSourceBytes int64
+	MaxOutputBytes int64
 }
-
-func New(opts ...Option) *Engine {
-	e := &Engine{
-		timeout:        5 * time.Second,
-		maxSourceBytes: 65536,
-	}
-	for _, opt := range opts {
-		opt(e)
-	}
-	return e
-}
-
-func (e *Engine) Language() automation.Language { return Language }
 
 type Option func(*Engine)
 
-func WithTimeout(d time.Duration) Option {
-	return func(e *Engine) { e.timeout = d }
+func WithBinary(binary string) Option { return func(engine *Engine) { engine.Binary = binary } }
+func WithTimeout(timeout time.Duration) Option {
+	return func(engine *Engine) { engine.Timeout = timeout }
+}
+func WithMaxSourceBytes(limit int64) Option {
+	return func(engine *Engine) { engine.MaxSourceBytes = limit }
+}
+func WithMaxOutputBytes(limit int64) Option {
+	return func(engine *Engine) { engine.MaxOutputBytes = limit }
 }
 
-func WithMaxSourceBytes(n int64) Option {
-	return func(e *Engine) { e.maxSourceBytes = n }
+func New(options ...Option) *Engine {
+	engine := &Engine{
+		Binary: "php", Timeout: 5 * time.Second,
+		MaxSourceBytes: 65536, MaxOutputBytes: defaultMaxOutputBytes,
+	}
+	for _, option := range options {
+		option(engine)
+	}
+	return engine
 }
 
-// Execute runs a PHP script using frankenphp.
-func (e *Engine) Execute(ctx context.Context, source string, input automation.Input) (automation.Outcome, error) {
-	if strings.TrimSpace(source) == "" {
-		return automation.Outcome{}, fmt.Errorf("php source is required")
+func NewFromEnvironment() (*Engine, error) {
+	engine := New()
+	if value := strings.TrimSpace(os.Getenv("GATEWAY_PHP_AUTOMATION_BINARY")); value != "" {
+		engine.Binary = value
 	}
-	if int64(len(source)) > e.maxSourceBytes {
-		return automation.Outcome{}, fmt.Errorf("php source exceeds configured limit")
-	}
-
-	// Initialize frankenphp once
-	if !e.initialized {
-		if err := frankenphp.Init(); err != nil {
-			return automation.Outcome{}, fmt.Errorf("initialize frankenphp: %w", err)
+	if value := strings.TrimSpace(os.Getenv("GATEWAY_PHP_AUTOMATION_TIMEOUT")); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 || parsed > 5*time.Minute {
+			return nil, errors.New("GATEWAY_PHP_AUTOMATION_TIMEOUT must be between 1ns and 5m")
 		}
-		e.initialized = true
+		engine.Timeout = parsed
 	}
+	if value := strings.TrimSpace(os.Getenv("GATEWAY_PHP_AUTOMATION_MAX_SOURCE_BYTES")); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed <= 0 || parsed > 16<<20 {
+			return nil, errors.New("GATEWAY_PHP_AUTOMATION_MAX_SOURCE_BYTES must be between 1 and 16777216")
+		}
+		engine.MaxSourceBytes = parsed
+	}
+	if value := strings.TrimSpace(os.Getenv("GATEWAY_PHP_AUTOMATION_MAX_OUTPUT_BYTES")); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed <= 0 || parsed > 16<<20 {
+			return nil, errors.New("GATEWAY_PHP_AUTOMATION_MAX_OUTPUT_BYTES must be between 1 and 16777216")
+		}
+		engine.MaxOutputBytes = parsed
+	}
+	path, err := exec.LookPath(engine.Binary)
+	if err != nil {
+		return nil, fmt.Errorf("resolve PHP automation executable: %w", err)
+	}
+	engine.Binary = path
+	return engine, nil
+}
 
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
+func (engine *Engine) Language() automation.Language { return Language }
+
+func (engine *Engine) Execute(ctx context.Context, source string, input automation.Input) (automation.Outcome, error) {
+	if strings.TrimSpace(source) == "" {
+		return automation.Outcome{}, errors.New("php source is required")
+	}
+	if int64(len(source)) > engine.MaxSourceBytes {
+		return automation.Outcome{}, errors.New("php source exceeds configured limit")
+	}
+	inputJSON, err := json.Marshal(input)
+	if err != nil {
+		return automation.Outcome{}, fmt.Errorf("encode PHP automation input: %w", err)
+	}
+	directory, err := os.MkdirTemp("", "gateway-php-automation-")
+	if err != nil {
+		return automation.Outcome{}, fmt.Errorf("create PHP automation directory: %w", err)
+	}
+	defer os.RemoveAll(directory)
+	scriptPath := directory + string(os.PathSeparator) + "run.php"
+	outputPath := directory + string(os.PathSeparator) + "outcome.json"
+	if err := os.WriteFile(scriptPath, []byte(buildScript(source, inputJSON)), 0o600); err != nil {
+		return automation.Outcome{}, fmt.Errorf("write PHP automation script: %w", err)
+	}
+	timeout := engine.Timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	// Build the PHP script
-	script := e.buildScript(source, input)
-
-	// Execute via frankenphp
-	return e.executeScript(ctx, script)
-}
-
-func (e *Engine) buildScript(source string, input automation.Input) string {
-	// Prepare variables for the script
-	vars := map[string]any{
-		"variables": input.Variables,
-		"event":     input.Event,
+	command := exec.CommandContext(runCtx, engine.Binary, "-n", scriptPath, outputPath)
+	command.Env = []string{"PATH=" + os.Getenv("PATH")}
+	diagnostic := &limitedDiagnostic{limit: 4096}
+	command.Stdout = diagnostic
+	command.Stderr = diagnostic
+	if err := command.Run(); err != nil {
+		if runCtx.Err() != nil {
+			return automation.Outcome{}, fmt.Errorf("execute PHP automation: %w", runCtx.Err())
+		}
+		return automation.Outcome{}, fmt.Errorf("execute PHP automation: %w: %s", err, diagnostic.String())
 	}
-
-	varsJSON, _ := json.Marshal(vars)
-
-	return fmt.Sprintf(`
-<?php
-require_once __DIR__ . '/vendor/autoload.php';
-
-$input = %s;
-$source = <<<'EOT'
-%s
-EOT;
-
-$host = new Webong\Gateway\PHP\Host($input['event'], $input['variables']);
-
-// Execute the user script
-try {
-    eval($source);
-} catch (Webong\Gateway\PHP\Host\RespondException $e) {
-    // respond() throws this to exit cleanly
-} catch (Throwable $e) {
-    throw new RuntimeException('PHP execution failed: ' . $e->getMessage(), 0, $e);
-}
-
-$outcome = $host->outcome();
-echo json_encode($outcome);
-`, string(varsJSON), source)
-}
-
-func (e *Engine) executeScript(ctx context.Context, script string) (automation.Outcome, error) {
-	// Write script to temp file
-	tmpFile, err := os.CreateTemp("", "php-automation-*.php")
+	info, err := os.Stat(outputPath)
 	if err != nil {
-		return automation.Outcome{}, fmt.Errorf("create temp file: %w", err)
+		return automation.Outcome{}, errors.New("PHP automation returned no outcome")
 	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.WriteString(script); err != nil {
-		return automation.Outcome{}, fmt.Errorf("write script: %w", err)
+	limit := engine.MaxOutputBytes
+	if limit <= 0 {
+		limit = defaultMaxOutputBytes
 	}
-	tmpFile.Close()
-
-	// Execute via frankenphp
-	output, err := executePhpScript(ctx, tmpFile.Name())
+	if info.Size() > limit {
+		return automation.Outcome{}, errors.New("PHP automation outcome exceeds configured limit")
+	}
+	output, err := os.ReadFile(outputPath)
 	if err != nil {
-		return automation.Outcome{}, fmt.Errorf("execute script: %w", err)
+		return automation.Outcome{}, fmt.Errorf("read PHP automation outcome: %w", err)
 	}
-
-	// Parse the JSON output
 	var outcome automation.Outcome
 	if err := json.Unmarshal(output, &outcome); err != nil {
-		return automation.Outcome{}, fmt.Errorf("parse outcome: %w", err)
+		return automation.Outcome{}, fmt.Errorf("decode PHP automation outcome: %w", err)
 	}
-
 	return outcome, nil
 }
 
-func executePhpScript(ctx context.Context, scriptPath string) ([]byte, error) {
-	// Use frankenphp's ExecuteScript function
-	result, err := frankenphp.ExecuteScript(scriptPath, nil)
-	if err != nil {
-		return nil, err
+func buildScript(source string, input []byte) string {
+	return `<?php
+declare(strict_types=1);
+final class GatewayResponseReady extends Exception {}
+final class GatewayHost {
+    public array $variables;
+    public array $deliveries = [];
+    public array $schedules = [];
+    public ?array $response = null;
+    public function __construct(public readonly array $event, array $variables) { $this->variables = $variables; }
+    public function get(string $path, mixed $default = null): mixed {
+        $value = $this->variables;
+        foreach (explode('.', $path) as $segment) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) return $default;
+            $value = $value[$segment];
+        }
+        return $value;
+    }
+    public function set(string $path, mixed $value): void {
+        $segments = explode('.', $path); $target =& $this->variables;
+        foreach (array_slice($segments, 0, -1) as $segment) {
+            if (!isset($target[$segment]) || !is_array($target[$segment])) $target[$segment] = [];
+            $target =& $target[$segment];
+        }
+        $target[$segments[count($segments) - 1]] = $value;
+    }
+    public function respond(mixed $body = '', int $status = 200, array $headers = []): never {
+        $this->response = ['status' => $status, 'body' => is_string($body) ? $body : json_encode($body, JSON_THROW_ON_ERROR)];
+        if ($headers !== []) $this->response['headers'] = $this->normalizeHeaders($headers);
+        throw new GatewayResponseReady();
+    }
+    public function forward(array $delivery): void {
+        if (isset($delivery['headers']) && is_array($delivery['headers'])) {
+            if ($delivery['headers'] === []) unset($delivery['headers']);
+            else $delivery['headers'] = $this->normalizeHeaders($delivery['headers']);
+        }
+        $this->deliveries[] = $delivery;
+    }
+    public function schedule(array $schedule): void { $this->schedules[] = $schedule; }
+    public function outcome(): array { return ['Variables' => $this->variables, 'Deliveries' => $this->deliveries, 'Schedules' => $this->schedules, 'Response' => $this->response]; }
+    private function normalizeHeaders(array $headers): array {
+        $normalized = [];
+        foreach ($headers as $name => $values) {
+            $normalized[(string) $name] = array_map(static fn (mixed $value): string => (string) $value, is_array($values) ? $values : [$values]);
+        }
+        return $normalized;
+    }
+}
+$input = json_decode(base64_decode('` + base64.StdEncoding.EncodeToString(input) + `', true), true, 128, JSON_THROW_ON_ERROR);
+$gateway = new GatewayHost($input['Event'] ?? $input['event'] ?? [], $input['Variables'] ?? $input['variables'] ?? []);
+try {
+    (static function (GatewayHost $gateway): void {
+` + source + `
+    })($gateway);
+} catch (GatewayResponseReady) {
+}
+file_put_contents($argv[1], json_encode($gateway->outcome(), JSON_THROW_ON_ERROR), LOCK_EX);
+`
+}
+
+type limitedDiagnostic struct {
+	mu    sync.Mutex
+	limit int
+	value []byte
+}
+
+func (diagnostic *limitedDiagnostic) Write(value []byte) (int, error) {
+	diagnostic.mu.Lock()
+	defer diagnostic.mu.Unlock()
+	remaining := diagnostic.limit - len(diagnostic.value)
+	if remaining > len(value) {
+		remaining = len(value)
 	}
-	return result, nil
+	if remaining > 0 {
+		diagnostic.value = append(diagnostic.value, value[:remaining]...)
+	}
+
+	return len(value), nil
+}
+
+func (diagnostic *limitedDiagnostic) String() string {
+	diagnostic.mu.Lock()
+	defer diagnostic.mu.Unlock()
+
+	return strings.TrimSpace(string(diagnostic.value))
 }
 
 var _ automation.Engine = (*Engine)(nil)
-// Plugin returns the engine for composition roots and dynamic loaders.
-func Plugin() (automation.Engine, error) { return New(), nil }
+
+// Plugin returns the optional PHP engine for its installable process package.
+func Plugin() (automation.Engine, error) { return NewFromEnvironment() }

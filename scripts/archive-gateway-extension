@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+    echo "Usage: scripts/archive-gateway-extension PACKAGE_DIR DESTINATION.tar.gz" >&2
+    exit 2
+fi
+
+PACKAGE_DIR=$(CDPATH= cd -- "$1" && pwd)
+DESTINATION=$2
+case "$DESTINATION" in
+    /*) ;;
+    *) DESTINATION="$(pwd)/$DESTINATION" ;;
+esac
+
+if [[ ! -f "$PACKAGE_DIR/plugin.json" ]]; then
+    echo "Package directory must contain plugin.json." >&2
+    exit 2
+fi
+if [[ -e "$DESTINATION" ]]; then
+    echo "Destination already exists: $DESTINATION" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname -- "$DESTINATION")"
+TEMPORARY="$DESTINATION.tmp.$$"
+trap 'rm -f -- "$TEMPORARY"' EXIT
+
+# COPYFILE_DISABLE prevents macOS tar from adding AppleDouble ._ files that
+# would change the reviewed package contents and introduce extra archive roots.
+COPYFILE_DISABLE=1 tar -C "$(dirname -- "$PACKAGE_DIR")" -czf "$TEMPORARY" "$(basename -- "$PACKAGE_DIR")"
+mv -- "$TEMPORARY" "$DESTINATION"
+trap - EXIT
+
+if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$DESTINATION"
+else
+    shasum -a 256 "$DESTINATION"
+fi

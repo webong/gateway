@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 )
@@ -55,6 +56,54 @@ type ArtifactReconciler struct {
 
 	mu     sync.Mutex
 	loaded map[string]string
+}
+
+// StartArtifactReconciliation keeps one running host aligned with
+// Planner-owned extension desired state. Reconciliation failures close the
+// affected external extensions and are reported without stopping ingress.
+func StartArtifactReconciliation(
+	ctx context.Context,
+	plannerURL, token, storeDir string,
+	plannerClient, artifactClient interface {
+		Do(*http.Request) (*http.Response, error)
+	},
+	plugins *Registry,
+	interval time.Duration,
+	logError func(string, ...any),
+) error {
+	reconciler, err := NewArtifactReconciler(
+		plannerURL, token, storeDir, plannerClient, artifactClient, plugins,
+	)
+	if err != nil {
+		return err
+	}
+	if interval <= 0 {
+		interval = 15 * time.Second
+	}
+	if logError == nil {
+		logError = func(string, ...any) {}
+	}
+	reconcile := func() {
+		if err := reconciler.Reconcile(ctx); err != nil && ctx.Err() == nil {
+			logError("Extension artifact reconciliation failed; unavailable extensions remain closed: %v", err)
+		}
+	}
+	// Resolve the starting catalog before the host advertises readiness. A
+	// failed desired-state read still fails closed and is retried below.
+	reconcile()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reconcile()
+			}
+		}
+	}()
+	return nil
 }
 
 func NewArtifactReconciler(
@@ -194,10 +243,16 @@ func (r *ArtifactReconciler) materialize(ctx context.Context, packages *store.St
 	if installed, err := packages.Load(desired.Extension); err == nil {
 		receipt, receiptErr := r.readReceipt(desired.Extension)
 		if receiptErr == nil && receipt.Extension == desired.Extension && receipt.Version == desired.Version &&
-			receipt.Revision == desired.Revision && receipt.ArtifactSHA256 == desired.Artifact.SHA256 &&
+			receipt.ArtifactSHA256 == desired.Artifact.SHA256 &&
 			receipt.PackageRevision == installed.Manifest.Descriptor.Identity.Revision {
 			if err := r.verifyInstalled(installed, desired); err != nil {
 				return store.Installed{}, err
+			}
+			if receipt.Revision != desired.Revision {
+				receipt.Revision = desired.Revision
+				if err := r.writeReceipt(receipt); err != nil {
+					return store.Installed{}, err
+				}
 			}
 			return installed, nil
 		}
@@ -333,6 +388,9 @@ func extractExtensionArchive(archivePath, destination string) error {
 			return err
 		}
 		name := path.Clean(strings.TrimPrefix(header.Name, "./"))
+		if name == "." && header.Typeflag == tar.TypeDir {
+			continue
+		}
 		if name == "." || path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
 			return errors.New("extension artifact contains an unsafe path")
 		}

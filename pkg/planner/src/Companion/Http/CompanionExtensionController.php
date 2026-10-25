@@ -8,20 +8,23 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
+use Webong\Gateway\Automation\ExtAutomationPackageCatalog;
 use Webong\Gateway\Companion\CompanionActionActivationStore;
 use Webong\Gateway\Contracts\CompanionActionRegistry;
 use Webong\Gateway\RegistryRequestAuthenticator;
 use Webong\Gateway\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 
-/** Planner CMS surface for static/dynamic companion activation. */
+/** Planner CMS surface for static or installable Gateway extensions. */
 final readonly class CompanionExtensionController
 {
     public function __construct(
         private RegistryRequestAuthenticator $auth,
         private CompanionActionActivationStore $activations,
         private CompanionActionRegistry $actions,
+        private ExtAutomationPackageCatalog $automations,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -30,7 +33,22 @@ final readonly class CompanionExtensionController
             return $denied;
         }
 
-        return response()->json(['data' => $this->actions->statuses()]);
+        try {
+            $automationExtensions = $this->automations->extensions();
+        } catch (RuntimeException) {
+            return response()->json(['message' => 'Gateway extension artifacts are unavailable.'], 503);
+        }
+        $statuses = $this->actions->statuses();
+        foreach ($statuses as &$status) {
+            $languages = $automationExtensions[$status['extension']] ?? [];
+            $status['automations'] = $languages;
+            if ($status['enabled'] && $status['actions'] === [] && $languages !== []) {
+                $status['state'] = 'ready';
+            }
+        }
+        unset($status);
+
+        return response()->json(['data' => $statuses]);
     }
 
     public function show(Request $request, string $extension): JsonResponse

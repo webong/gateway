@@ -1,0 +1,6 @@
+{
+    "identity": "webong/php",
+    "language": "php",
+    "capabilities": ["route", "schedule"],
+    "spinner": "./cmd/spinner"
+}

@@ -518,31 +518,14 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 				return http.ErrUseLastResponse
 			},
 		}
-		reconciler, err := automationextensions.NewArtifactReconciler(
-			config.PlannerURL, config.InternalToken, pluginDir, client, artifactClient, automationextensions.Runtime(),
-		)
-		if err != nil {
-			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
-		}
 		reconcileCtx, cancelReconcile := context.WithCancel(context.Background())
 		defer cancelReconcile()
-		if err := reconciler.Reconcile(reconcileCtx); err != nil {
-			logger.Error("Extension artifact reconciliation failed; unavailable extensions remain closed: %v", err)
+		if err := automationextensions.StartArtifactReconciliation(
+			reconcileCtx, config.PlannerURL, config.InternalToken, pluginDir,
+			client, artifactClient, automationextensions.Runtime(), 15*time.Second, logger.Error,
+		); err != nil {
+			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
 		}
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-reconcileCtx.Done():
-					return
-				case <-ticker.C:
-					if err := reconciler.Reconcile(reconcileCtx); err != nil {
-						logger.Error("Extension artifact reconciliation failed; unavailable extensions remain closed: %v", err)
-					}
-				}
-			}
-		}()
 	}
 	if err := automationextensions.ConfigureShellSSHHTTP(config.PlannerURL, config.InternalToken, client, config.PlannerSocket != ""); err != nil {
 		return fmt.Errorf("failed to initialize private Shell credential resolver: %w", err)

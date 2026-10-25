@@ -1,6 +1,7 @@
 go 1.26.0
 
 use (
+	./mod/extension
 	./mod/router
 	./pkg/caddy
 	./pkg/centrifugo

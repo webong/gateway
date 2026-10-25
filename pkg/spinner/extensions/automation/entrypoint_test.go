@@ -3,8 +3,11 @@ package automationextensions
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
@@ -45,6 +48,21 @@ func TestSpinnerLaunchKeepsLegacyFirstEntrypointFallback(t *testing.T) {
 	}
 	if launch != nil {
 		t.Fatalf("legacy package unexpectedly overrode ext launch: %#v", launch)
+	}
+}
+
+func TestSpinnerLaunchRejectsPackageBuiltForAnotherPlatform(t *testing.T) {
+	metadata, err := json.Marshal(map[string]any{
+		"platform": map[string]string{"os": "not-" + runtime.GOOS, "arch": runtime.GOARCH},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = spinnerLaunch(store.Installed{Manifest: packagekit.Manifest{
+		Metadata: map[string]json.RawMessage{"gateway.spinner/v1": metadata},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "does not match host") {
+		t.Fatalf("platform mismatch was not rejected clearly: %v", err)
 	}
 }
 

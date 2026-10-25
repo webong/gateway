@@ -1,0 +1,149 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+if ($argc < 4 || $argc > 5) {
+    fwrite(STDERR, "Usage: scripts/build-gateway-automation-extension EXTENSION_DIR DESTINATION VERSION [REVISION]\n");
+    exit(2);
+}
+
+$root = dirname(__DIR__);
+$source = realpath($argv[1]);
+$destination = rtrim($argv[2], DIRECTORY_SEPARATOR);
+$version = $argv[3];
+if ($source === false || ! is_file($source.'/extension.json')) {
+    fwrite(STDERR, "Extension directory must contain extension.json.\n");
+    exit(2);
+}
+
+/** @return never */
+function failAutomationBuild(string $message): void
+{
+    fwrite(STDERR, $message."\n");
+    exit(1);
+}
+
+/** @param list<string> $command */
+function runAutomationBuild(array $command, string $directory): void
+{
+    $pipes = [];
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $pipes, $directory);
+    if (! is_resource($process)) {
+        failAutomationBuild('Cannot start automation extension build.');
+    }
+    fclose($pipes[0]);
+    if (proc_close($process) !== 0) {
+        failAutomationBuild('Cannot build automation extension Spinner guest.');
+    }
+}
+
+/** @param list<string> $command */
+function readAutomationBuildValue(array $command, string $directory): string
+{
+    $pipes = [];
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR], $pipes, $directory);
+    if (! is_resource($process)) {
+        failAutomationBuild('Cannot inspect the automation extension build target.');
+    }
+    fclose($pipes[0]);
+    $value = trim((string) stream_get_contents($pipes[1]));
+    fclose($pipes[1]);
+    if (proc_close($process) !== 0 || $value === '') {
+        failAutomationBuild('Cannot inspect the automation extension build target.');
+    }
+
+    return $value;
+}
+
+$definition = json_decode((string) file_get_contents($source.'/extension.json'), true, 32, JSON_THROW_ON_ERROR);
+$identity = is_array($definition) ? ($definition['identity'] ?? null) : null;
+$language = is_array($definition) ? ($definition['language'] ?? null) : null;
+$capabilities = is_array($definition) ? ($definition['capabilities'] ?? null) : null;
+$spinner = is_array($definition) ? ($definition['spinner'] ?? null) : null;
+if (! is_string($identity) || preg_match('/\A[a-z0-9][a-z0-9._\/-]{0,255}\z/D', $identity) !== 1
+    || ! is_string($language) || preg_match('/\A[a-z][a-z0-9_-]*\z/D', $language) !== 1
+    || ! is_array($capabilities) || $capabilities === []
+    || array_diff($capabilities, ['route', 'schedule', 'credential']) !== []
+    || count($capabilities) !== count(array_unique($capabilities))
+    || ! is_string($spinner) || ! str_starts_with($spinner, './')) {
+    failAutomationBuild('Invalid automation extension definition.');
+}
+if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
+    failAutomationBuild('Invalid extension version.');
+}
+$installedName = str_replace('/', '%2f', $identity);
+if (basename($destination) !== $installedName) {
+    failAutomationBuild("Destination directory must be named {$installedName}.");
+}
+if (file_exists($destination)) {
+    failAutomationBuild('Destination already exists.');
+}
+if (! mkdir($destination.'/bin', 0700, true)) {
+    failAutomationBuild('Cannot create automation extension package.');
+}
+
+try {
+    $binary = $destination.'/bin/spinner';
+    runAutomationBuild(['go', 'build', '-mod=readonly', '-trimpath', '-ldflags=-s -w', '-o', $binary, $spinner], $source);
+    chmod($binary, 0700);
+    $binaryDigest = hash_file('sha256', $binary);
+    $revision = $argv[4] ?? $binaryDigest;
+    if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $revision) !== 1) {
+        failAutomationBuild('Invalid extension revision.');
+    }
+    $packageIdentity = ['id' => $identity, 'revision' => $revision, 'version' => $version];
+    $targetOS = readAutomationBuildValue(['go', 'env', 'GOOS'], $source);
+    $targetArch = readAutomationBuildValue(['go', 'env', 'GOARCH'], $source);
+    $manifest = [
+        'apiVersion' => 'ext.package/v1',
+        'descriptor' => [
+            'apiVersion' => 'ext.plugin/v1',
+            'identity' => $packageIdentity,
+            'contracts' => [[
+                'name' => 'gateway.automation',
+                'version' => 'v1',
+                'operations' => [['name' => 'execute', 'surface' => $language]],
+            ]],
+        ],
+        'metadata' => [
+            'gateway.spinner/v1' => [
+                'platform' => ['os' => $targetOS, 'arch' => $targetArch],
+            ],
+            'gateway.automation/v1' => [
+                'languages' => [[
+                    'id' => $language,
+                    'target' => 'spinner',
+                    'capabilities' => array_values($capabilities),
+                ]],
+            ],
+        ],
+        'artifacts' => [[
+            'name' => 'spinner-guest',
+            'path' => 'bin/spinner',
+            'sha256' => $binaryDigest,
+        ]],
+        'entrypoints' => [[
+            'name' => 'spinner',
+            'runtime' => 'process',
+            'artifact' => 'spinner-guest',
+            'protocols' => ['ext.plugin/v1'],
+        ]],
+    ];
+    file_put_contents(
+        $destination.'/plugin.json',
+        json_encode($manifest, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n",
+    ) ?: failAutomationBuild('Cannot write automation extension manifest.');
+} catch (Throwable $exception) {
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($destination, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($iterator as $entry) {
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+    }
+    @rmdir($destination);
+    throw $exception;
+}
+
+fwrite(STDOUT, $destination."\n");

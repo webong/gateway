@@ -79,16 +79,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip \
 COPY . /src/gateway
 WORKDIR /src/gateway/app
 
-# Install locked dependencies without the merge plugin's post-install update.
-# Enable it for autoload generation so extension namespaces and discovery remain.
+# Install only the Planner host and its built-in integrations. Automation
+# runtimes and companions arrive later through verified extension packages.
 RUN --mount=type=cache,target=/tmp/composer-cache \
     COMPOSER_CACHE_DIR=/tmp/composer-cache \
         composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \
     && GATEWAY_ROUTER_DATA_DIR=/tmp/router-composer-cache \
-        composer dump-autoload --no-dev --no-interaction --optimize \
-    && COMPOSER_CACHE_DIR=/tmp/composer-cache \
-        composer install --working-dir=/src/gateway/pkg/hookscript/companion \
-        --no-dev --no-interaction --prefer-dist --classmap-authoritative
+        composer dump-autoload --no-dev --no-interaction --optimize
 
 FROM php-base
 
@@ -97,13 +94,16 @@ COPY --from=planner-builder /src/gateway /gateway
 
 WORKDIR /gateway
 ENV GATEWAY_ROUTER_DATA_DIR=/data \
+    GATEWAY_PLUGIN_DIR=/data/spinner-extensions \
+    GATEWAY_COMPANION_PLUGIN_DIR=/data/planner-extensions \
     GATEWAY_ROUTER_LISTEN=127.0.0.1:8080 \
     GATEWAY_ROUTER_TLS_LISTEN=:8443 \
     GATEWAY_ROUTER_TLS_NAME=gateway \
     GATEWAY_IMAP_ADDR=:993 \
     GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php \
     GATEWAY_ROUTER_LIBRARY_BIN=/usr/local/bin/gateway-router-library
-RUN mkdir -p /data/cache /data/storage/framework/cache/data \
+RUN mkdir -p /data/cache /data/spinner-extensions /data/planner-extensions \
+    /data/storage/framework/cache/data \
     /data/storage/framework/sessions /data/storage/framework/views \
     && chown -R www-data:www-data /data \
     && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-start /gateway/scripts/router-artisan
