@@ -11,12 +11,14 @@ use RuntimeException;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
+use Webong\Gateway\Automation\ExtAutomationPackageCatalog;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
 use Webong\Gateway\Companion\CompanionActionActivationStore;
 use Webong\Gateway\Companion\CompanionArtifactReconciler;
 use Webong\Gateway\Companion\CompanionActionExecutionStore;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
 use Webong\Gateway\Companion\ExtensionArtifactInstaller;
+use Webong\Gateway\Companion\ExtensionArtifactReconciler;
 use Webong\Gateway\Companion\Http\CompanionExtensionController;
 use Webong\Gateway\Companion\Http\InternalExtensionDistributionController;
 use Webong\Gateway\Companion\Http\InternalCompanionActionController;
@@ -143,7 +145,10 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
         $this->app->bind(MxResolver::class, NativeMxResolver::class);
         $this->app->bind(ApplicationMailboxGrantSource::class, ConfiguredApplicationMailboxGrantSource::class);
-        $this->app->singleton(CredentialScriptRegistry::class);
+        $this->app->singleton(CredentialScriptRegistry::class, fn (): CredentialScriptRegistry => new CredentialScriptRegistry(
+            $this->app->make(AutomationLanguageRegistry::class),
+            $this->app->make(\Webong\Gateway\Deliveries\DeliveryAdminClient::class),
+        ));
         $this->app->bind(MailboxConnectionStore::class, function (): MailboxConnectionStore {
             $configured = config('gateway.email.oauth_refresher');
             $refresher = null;
@@ -181,6 +186,11 @@ final class GatewayServiceProvider extends ServiceProvider
             (string) config('gateway.companion_actions.plugin_dir', ''),
             $this->app->make(HttpFactory::class),
         ));
+        $this->app->singleton(ExtensionArtifactReconciler::class);
+        $this->app->singleton(ExtAutomationPackageCatalog::class, fn (): ExtAutomationPackageCatalog => new ExtAutomationPackageCatalog(
+            (string) config('gateway.companion_actions.plugin_dir', ''),
+            $this->app->make(ExtensionArtifactReconciler::class),
+        ));
         $this->app->singleton(CompanionArtifactReconciler::class);
         $this->app->singleton(CompanionActionExecutionStore::class);
 
@@ -200,7 +210,9 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->bind(ScriptScheduleRegistrar::class, PersistScriptSchedules::class);
         $this->app->singleton(InternalRequestAuthenticator::class);
         $this->app->singleton(AutomationLanguageRegistry::class, function (): AutomationLanguageRegistry {
-            $registry = new InMemoryAutomationLanguageRegistry;
+            $registry = new InMemoryAutomationLanguageRegistry(
+                fn (): array => $this->app->make(ExtAutomationPackageCatalog::class)->languages(),
+            );
             $languages = config('gateway.automation.languages', []);
 
             if (! is_array($languages)) {
