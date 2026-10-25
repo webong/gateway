@@ -1,0 +1,6 @@
+{
+    "identity": "webong/javascript",
+    "language": "javascript",
+    "capabilities": ["route", "schedule", "credential"],
+    "spinner": "./cmd/spinner"
+}
