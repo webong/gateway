@@ -13,15 +13,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/webong/gateway/arranger/automation"
 	arrangerrouter "github.com/webong/gateway/arranger/router"
+	runtimecontract "github.com/webong/gateway/arranger/runtime"
 	emailspinner "github.com/webong/gateway/pkg/email/spinner"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
-	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 // Planner is an in-process PHP handler with an owned runtime lifecycle.
@@ -62,29 +63,9 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	}
 	spinner.CompanionActions = companionActions
 	companionextensions.Configure(companionActions)
-	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
-		plannerClient := &http.Client{
-			Transport:     handlerRoundTripper{handler: planner},
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
-		artifactClient := &http.Client{
-			Timeout:       60 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
-		if err := automationextensions.StartArtifactReconciliation(
-			ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
-			plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
-		); err != nil {
-			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
-		}
-	}
-
 	httpPlanner := bridge.NewPHPPlanner(planner, spinner.MaxBodySize)
 	httpPlanner.InternalToken = spinner.InternalToken
 	engine := automationextensions.Runtime()
-	edge := bridge.NewEdge(httpPlanner, spinner.Executor, spinner.MaxBodySize).
-		SetAutomationExecutor(spinner.Automation).
-		SetPassThrough(planner)
 	protocolPlanner := bridge.NewPHPProtocolPlanner(planner, spinner.MaxBodySize)
 	protocolPlanner.InternalToken = spinner.InternalToken
 	protocolListeners, err := spinner.ProtocolListeners(protocolPlanner)
@@ -95,12 +76,32 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err != nil {
 		return err
 	}
+	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+		Planner: httpPlanner, ProtocolPlanner: protocolPlanner, PassThrough: planner,
+		Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
+		Start: runtimecontract.StartRequest{
+			MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
+			WebSocketMaxConnections: spinner.WebSocketMaxConnections, WebSocketMaxDuration: spinner.WebSocketMaxDuration,
+			WebstreamHeartbeat: spinner.WebstreamHeartbeat, WebstreamRetry: spinner.WebstreamRetry,
+			WebstreamMaxConnections: spinner.WebstreamMaxConnections, WebstreamMaxDuration: spinner.WebstreamMaxDuration,
+			AutomationLanguages: automation.Languages(spinner.Automation),
+		},
+	})
+	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
+		plannerClient := &http.Client{Transport: handlerRoundTripper{handler: planner}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		if err := automationextensions.StartArtifactReconciliation(
+			ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
+			plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+		); err != nil {
+			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
+		}
+	}
 	mailboxPoller, err := transport.EmbeddedMailboxPoller(planner, spinner)
 	if err != nil {
 		return err
 	}
 	control.EnableNativeIMAP()
-	edge.SetScheduleRegistrar(control)
 	if spinner.SchedulesEnabled {
 		scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 		defer cancelSchedules()
@@ -108,20 +109,12 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			return err
 		}
 	}
-	websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
-		MaxMessageSize: spinner.MaxBodySize,
-		PlannerTimeout: spinner.RequestTimeout,
-		MaxConnections: spinner.WebSocketMaxConnections,
-		MaxDuration:    spinner.WebSocketMaxDuration,
-	})
-	webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxConnections: spinner.WebstreamMaxConnections, MaxDuration: spinner.WebstreamMaxDuration})
 	workerIngress := spinner.WorkerIngressHandler(planner)
 	managed, err := ManagedRouteProxy(spinner)
 	if err != nil {
 		return err
 	}
-	publicEdge := emailspinner.SubmissionHandler(edge, planner, spinner.MaxBodySize)
-	handler := NewHandler(planner, publicEdge, websocket, webstream, managed, workerIngress)
+	handler := NewHandler(planner, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed, workerIngress)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -279,17 +272,7 @@ func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 }
 
 func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler, workerIngress ...http.Handler) http.Handler {
-	hooks := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if gatewayws.IsUpgrade(r) {
-			websocket.ServeHTTP(w, r)
-			return
-		}
-		if webstream != nil && gatewaystream.IsRequest(r) {
-			webstream.ServeHTTP(w, r)
-			return
-		}
-		edge.ServeHTTP(w, r)
-	})
+	hooks := edge
 	workerIngressHandler := http.NotFoundHandler()
 	if len(workerIngress) != 0 && workerIngress[0] != nil {
 		workerIngressHandler = loggedWorkerIngress(workerIngress[0])

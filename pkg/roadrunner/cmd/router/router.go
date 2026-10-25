@@ -11,14 +11,14 @@ import (
 	"sync"
 	"time"
 
-	emailspinner "github.com/webong/gateway/pkg/email/spinner"
+	"github.com/webong/gateway/arranger/automation"
+	runtimecontract "github.com/webong/gateway/arranger/runtime"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 	"github.com/webong/gateway/pkg/spinner/router"
 	"github.com/webong/gateway/pkg/spinner/transport"
-	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 // workerServer owns an embedded PHP worker server and its listener.
@@ -48,8 +48,6 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		return err
 	}
 	defer spinner.Close()
-	websocketAdmission := gatewayws.NewAdmission(spinner.WebSocketMaxConnections)
-	webstreamAdmission := gatewaystream.NewAdmission(spinner.WebstreamMaxConnections)
 	engine := automationextensions.Runtime()
 	managed, err := router.ManagedRouteProxy(spinner)
 	if err != nil {
@@ -59,29 +57,6 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 	var extensionOnce sync.Once
 	var extensionErr error
 	server, err := newServer(configPath, func(next http.Handler) http.Handler {
-		extensionOnce.Do(func() {
-			pluginDir := automationextensions.DefaultLoadConfig().ExternalDir
-			if pluginDir == "" {
-				return
-			}
-			plannerClient := &http.Client{
-				Transport:     routerHandlerTransport{handler: next},
-				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-			}
-			artifactClient := &http.Client{
-				Timeout:       60 * time.Second,
-				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-			}
-			extensionErr = automationextensions.StartArtifactReconciliation(
-				ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
-				plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
-			)
-		})
-		if extensionErr != nil {
-			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-				http.Error(writer, "Planner extension reconciliation is unavailable", http.StatusServiceUnavailable)
-			})
-		}
 		if resolverErr := automationextensions.ConfigureShellSSHHandler(next, spinner.InternalToken); resolverErr != nil {
 			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				http.Error(writer, "Planner Shell credential control is unavailable", http.StatusServiceUnavailable)
@@ -104,6 +79,34 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		protocolPlanner := bridge.NewPHPProtocolPlanner(next, spinner.MaxBodySize)
 		protocolPlanner.InternalToken = spinner.InternalToken
 		control, controlErr := transport.EmbeddedScheduleControl(next, spinner, engine)
+		runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: next,
+			Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
+			Start: runtimecontract.StartRequest{
+				MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
+				WebSocketMaxConnections: spinner.WebSocketMaxConnections, WebSocketMaxDuration: spinner.WebSocketMaxDuration,
+				WebstreamHeartbeat: spinner.WebstreamHeartbeat, WebstreamRetry: spinner.WebstreamRetry,
+				WebstreamMaxConnections: spinner.WebstreamMaxConnections, WebstreamMaxDuration: spinner.WebstreamMaxDuration,
+				AutomationLanguages: automation.Languages(spinner.Automation),
+			},
+		})
+		extensionOnce.Do(func() {
+			pluginDir := automationextensions.DefaultLoadConfig().ExternalDir
+			if pluginDir == "" {
+				return
+			}
+			plannerClient := &http.Client{Transport: routerHandlerTransport{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			extensionErr = automationextensions.StartArtifactReconciliation(
+				ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
+				plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+			)
+		})
+		if extensionErr != nil {
+			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				http.Error(writer, "Planner extension reconciliation is unavailable", http.StatusServiceUnavailable)
+			})
+		}
 		select {
 		case ready <- plannerReady{planner: protocolPlanner, handler: next, control: control, err: controlErr}:
 		default:
@@ -113,15 +116,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				http.Error(writer, "Planner schedule control is unavailable", http.StatusServiceUnavailable)
 			})
 		}
-		edge := bridge.NewEdge(planner, spinner.Executor, spinner.MaxBodySize).
-			SetAutomationExecutor(spinner.Automation).SetScheduleRegistrar(control).SetPassThrough(next)
-		websocket := gatewayws.NewHandler(protocolPlanner, spinner.Executor, gatewayws.Config{
-			MaxMessageSize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
-			MaxDuration: spinner.WebSocketMaxDuration, Admission: websocketAdmission,
-		})
-		webstream := gatewaystream.NewHandler(protocolPlanner, spinner.Executor, gatewaystream.Config{PlannerTimeout: spinner.RequestTimeout, HeartbeatInterval: spinner.WebstreamHeartbeat, ReconnectDelay: spinner.WebstreamRetry, MaxDuration: spinner.WebstreamMaxDuration, Admission: webstreamAdmission})
-		publicEdge := emailspinner.SubmissionHandler(edge, next, spinner.MaxBodySize)
-		return router.NewHandler(next, publicEdge, websocket, webstream, managed)
+		return router.NewHandler(next, runtimeextensions.DefaultRegistry.Handler(), nil, nil, managed)
 	})
 	if err != nil {
 		return err

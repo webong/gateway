@@ -1,0 +1,6 @@
+payload = json_decode(var('request.content'));
+respond(json_encode([
+    'ok': true,
+    'workload': 'small',
+    'seq': payload['seq']
+]), 200, ['Content-Type: application/json']);

@@ -5,17 +5,13 @@ go 1.26.0
 require (
 	github.com/caddyserver/caddy/v2 v2.10.0
 	github.com/jackc/pgx/v4 v4.18.3
+	github.com/webong/gateway/arranger v0.0.0
 	github.com/webong/gateway/pkg/email v0.0.0
 	github.com/webong/gateway/pkg/spinner v0.0.0
-	github.com/webong/gateway/pkg/web v0.0.0
 	go.uber.org/zap v1.27.0
 )
 
 replace github.com/webong/gateway/pkg/email => ../email
-
-replace github.com/webong/gateway/pkg/dns => ../dns
-
-replace github.com/webong/gateway/pkg/web => ../web
 
 require (
 	cel.dev/expr v0.22.1 // indirect
@@ -60,7 +56,6 @@ require (
 	github.com/google/cel-go v0.24.1 // indirect
 	github.com/google/pprof v0.0.0-20250423184734-337e5dd93bb4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
@@ -109,8 +104,6 @@ require (
 	github.com/tailscale/tscert v0.0.0-20240608151842-d3f834017e53 // indirect
 	github.com/urfave/cli v1.22.16 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
-	github.com/webong/gateway/arranger v0.0.0 // indirect
-	github.com/webong/gateway/pkg/dns v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect

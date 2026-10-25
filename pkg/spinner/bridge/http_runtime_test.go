@@ -83,7 +83,19 @@ func TestHTTPRuntimeProxiesPassThroughAndProtectsPlannerPath(t *testing.T) {
 	}
 	defer runtime.Close()
 
-	edge := NewEdge(runtime.Planner(), &recordingExecutor{}, 1024).SetPassThrough(runtime.PassThrough())
+	edge := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		plan, planErr := runtime.Planner().Plan(request.Context(), IngressRequest{
+			DeliveryID: "test", Method: request.Method, Host: request.Host,
+			Path: request.URL.Path, RawQuery: request.URL.RawQuery, Headers: request.Header.Clone(), Body: body,
+		})
+		if planErr != nil || plan.Action != ActionPassThrough {
+			http.Error(writer, "unexpected plan", http.StatusBadGateway)
+			return
+		}
+		request.Body = io.NopCloser(strings.NewReader(string(body)))
+		runtime.PassThrough().ServeHTTP(writer, request)
+	})
 	handler := runtime.Handler(edge)
 
 	passThrough := httptest.NewRecorder()

@@ -614,66 +614,6 @@ func TestLoadConfigRejectsOutboundSMTPCredentialsWithoutTLS(t *testing.T) {
 	}
 }
 
-func TestLoadConfigIgnoresLegacyDNSZoneEnvironment(t *testing.T) {
-	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-	t.Setenv("GATEWAY_PLANNER_URL", "http://planner.internal")
-	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
-	t.Setenv("GATEWAY_DNS_ZONE", "dns.example.test")
-	t.Setenv("GATEWAY_DNS_NAMESERVERS", "ns1.example.test, ns2.example.test")
-	t.Setenv("GATEWAY_DNS_TTL", "15")
-
-	config, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.DNSAddress != ":5353" || config.DNSZone != "" || config.DNSTTL != 0 {
-		t.Fatalf("unexpected DNS config: %+v", config)
-	}
-	if len(config.DNSNameservers) != 0 {
-		t.Fatalf("legacy DNS nameservers were loaded: %+v", config.DNSNameservers)
-	}
-}
-
-func TestLoadConfigRequiresPlannerForDNSListener(t *testing.T) {
-	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-
-	if _, err := LoadConfig(); err == nil {
-		t.Fatal("expected enabled DNS listener to require Planner connection")
-	}
-}
-
-func TestLoadConfigAllowsPlannerManagedDNSZonesForHTTPRuntime(t *testing.T) {
-	setConfigEnv(t, "http")
-	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-	t.Setenv("GATEWAY_PLANNER_URL", "http://planner.internal")
-	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
-	t.Setenv("GATEWAY_DNS_ZONE_REFRESH_INTERVAL", "2s")
-
-	config, err := LoadConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.DNSZone != "" || len(config.DNSZones) != 0 || config.DNSZoneRefreshInterval != 2*time.Second {
-		t.Fatalf("unexpected dynamic DNS config: %+v", config)
-	}
-}
-
-func TestLoadRouterConfigAllowsPlannerManagedDNSZonesForBundledRuntime(t *testing.T) {
-	setConfigEnv(t, "")
-	t.Setenv("GATEWAY_DNS_ADDR", ":5353")
-	t.Setenv("GATEWAY_INTERNAL_TOKEN", "internal-secret")
-
-	config, err := LoadRouterConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if config.DNSZone != "" || len(config.DNSZones) != 0 {
-		t.Fatalf("unexpected bundled Router dynamic DNS config: %+v", config)
-	}
-}
-
 func TestLoadConfigRejectsRoadRunnerRuntime(t *testing.T) {
 	setConfigEnv(t, "roadrunner")
 	if _, err := LoadConfig(); err == nil {

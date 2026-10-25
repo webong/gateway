@@ -16,16 +16,21 @@ import (
 	javascript "github.com/webong/gateway/pkg/javascript/runtime"
 	shell "github.com/webong/gateway/pkg/shell/runtime"
 	. "github.com/webong/gateway/pkg/spinner/bridge"
+	webspinner "github.com/webong/gateway/pkg/web/spinner"
 )
 
 type plannerFunc func(context.Context, IngressRequest) (RoutePlan, error)
+
+func NewEdge(planner Planner, executor Executor, maxBodySize int64) *webspinner.Edge {
+	return webspinner.NewEdge(planner, executor, maxBodySize)
+}
 
 func TestEdgeRejectsSSHStreamRequestsBeforeExecution(t *testing.T) {
 	planner := plannerFunc(func(context.Context, IngressRequest) (RoutePlan, error) {
 		return RoutePlan{Version: ProtocolVersion, Action: ActionAutomation,
 			Automation: &Automation{Language: "shell", Source: "ssh:2c034453-f6ef-4f98-a9a2-6dfb624758d0"}}, nil
 	})
-	edge := NewEdge(planner, &recordingExecutor{}, 1024)
+	edge := webspinner.NewEdge(planner, &recordingExecutor{}, 1024)
 	request := httptest.NewRequest(http.MethodGet, "/events", nil)
 	request.Header.Set("Accept", "text/event-stream")
 	recorder := httptest.NewRecorder()

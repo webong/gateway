@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	dnsgateway "github.com/webong/gateway/pkg/dns/spinner"
 	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
 	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
 	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
@@ -20,20 +19,13 @@ type ProtocolListener interface {
 }
 
 func (r *Router) HasProtocolListeners() bool {
-	return r.settings.SMTPAddress != "" || r.settings.DNSAddress != "" || r.settings.POP3Address != "" || r.settings.IMAPAddress != ""
+	return r.settings.SMTPAddress != "" || r.settings.POP3Address != "" || r.settings.IMAPAddress != ""
 }
 
 func (r *Router) ProtocolListeners(planner bridge.ProtocolPlanner) ([]ProtocolListener, error) {
 	var listeners []ProtocolListener
 	if r.settings.SMTPAddress != "" {
 		server, err := newSMTPServer(r.settings, planner, r.Executor)
-		if err != nil {
-			return nil, err
-		}
-		listeners = append(listeners, server)
-	}
-	if r.settings.DNSAddress != "" {
-		server, err := newDNSServer(r.settings, planner, r.Executor)
 		if err != nil {
 			return nil, err
 		}
@@ -182,35 +174,4 @@ func NewEmailProtection(config *relayconfig.Config) (smtpgateway.MalwareScanner,
 		return nil, nil, err
 	}
 	return scanner, quarantine, nil
-}
-
-func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor *bridge.RelayExecutor) (*dnsgateway.Server, error) {
-	return dnsgateway.NewServer(dnsgateway.Config{
-		Address:            config.DNSAddress,
-		Zone:               config.DNSZone,
-		Zones:              DNSZones(config),
-		Nameservers:        config.DNSNameservers,
-		SOAEmail:           config.DNSSOAEmail,
-		TTL:                config.DNSTTL,
-		PlannerTimeout:     config.DNSPlannerTimeout,
-		ReadTimeout:        config.DNSReadTimeout,
-		WriteTimeout:       config.DNSWriteTimeout,
-		MaxResponseRecords: config.DNSMaxResponseRecords,
-		RateLimit:          config.DNSRateLimit,
-		RateBurst:          config.DNSRateBurst,
-	}, planner, executor)
-
-}
-
-// DNSZones converts the shared settings for either Router host.
-func DNSZones(config *relayconfig.Config) []dnsgateway.Zone {
-	zones := make([]dnsgateway.Zone, 0, len(config.DNSZones))
-	for _, zone := range config.DNSZones {
-		soaEmail := zone.SOAEmail
-		if soaEmail == "" {
-			soaEmail = config.DNSSOAEmail
-		}
-		zones = append(zones, dnsgateway.Zone{Name: zone.Name, Nameservers: zone.Nameservers, SOAEmail: soaEmail, TTL: zone.TTL})
-	}
-	return zones
 }

@@ -1,0 +1,137 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+if ($argc < 4 || $argc > 5) {
+    fwrite(STDERR, "Usage: scripts/build-gateway-runtime-extension EXTENSION_DIR DESTINATION VERSION [REVISION]\n");
+    exit(2);
+}
+
+$source = realpath($argv[1]);
+$destination = rtrim($argv[2], DIRECTORY_SEPARATOR);
+$version = $argv[3];
+if ($source === false || ! is_file($source.'/extension.json')) {
+    fwrite(STDERR, "Extension directory must contain extension.json.\n");
+    exit(2);
+}
+
+/** @return never */
+function failRuntimeBuild(string $message): void
+{
+    fwrite(STDERR, $message."\n");
+    exit(1);
+}
+
+/** @param list<string> $command */
+function runRuntimeBuild(array $command, string $directory): void
+{
+    $pipes = [];
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $pipes, $directory);
+    if (! is_resource($process)) {
+        failRuntimeBuild('Cannot start runtime extension build.');
+    }
+    fclose($pipes[0]);
+    if (proc_close($process) !== 0) {
+        failRuntimeBuild('Cannot build runtime extension Spinner entrypoint.');
+    }
+}
+
+/** @param list<string> $command */
+function readRuntimeBuildValue(array $command, string $directory): string
+{
+    $pipes = [];
+    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR], $pipes, $directory);
+    if (! is_resource($process)) {
+        failRuntimeBuild('Cannot inspect the runtime extension build target.');
+    }
+    fclose($pipes[0]);
+    $value = trim((string) stream_get_contents($pipes[1]));
+    fclose($pipes[1]);
+    if (proc_close($process) !== 0 || $value === '') {
+        failRuntimeBuild('Cannot inspect the runtime extension build target.');
+    }
+
+    return $value;
+}
+
+$definition = json_decode((string) file_get_contents($source.'/extension.json'), true, 64, JSON_THROW_ON_ERROR);
+$identity = is_array($definition) ? ($definition['identity'] ?? null) : null;
+$spinner = is_array($definition) ? ($definition['spinner'] ?? null) : null;
+$contracts = is_array($definition) ? ($definition['contracts'] ?? null) : null;
+$reverse = is_array($definition) ? ($definition['reverse'] ?? null) : null;
+if (! is_string($identity) || preg_match('/\A[a-z0-9][a-z0-9._\/-]{0,255}\z/D', $identity) !== 1
+    || ! is_string($spinner) || ! str_starts_with($spinner, './')
+    || ! is_array($contracts) || $contracts === [] || ! is_array($reverse)) {
+    failRuntimeBuild('Invalid runtime extension definition.');
+}
+if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
+    failRuntimeBuild('Invalid extension version.');
+}
+$installedName = str_replace('/', '%2f', $identity);
+if (basename($destination) !== $installedName) {
+    failRuntimeBuild("Destination directory must be named {$installedName}.");
+}
+if (file_exists($destination)) {
+    failRuntimeBuild('Destination already exists.');
+}
+if (! mkdir($destination.'/bin', 0700, true)) {
+    failRuntimeBuild('Cannot create runtime extension package.');
+}
+
+try {
+    $binary = $destination.'/bin/spinner';
+    runRuntimeBuild(['go', 'build', '-mod=readonly', '-trimpath', '-ldflags=-s -w', '-o', $binary, $spinner], $source);
+    chmod($binary, 0700);
+    $binaryDigest = hash_file('sha256', $binary);
+    $revision = $argv[4] ?? $binaryDigest;
+    if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $revision) !== 1) {
+        failRuntimeBuild('Invalid extension revision.');
+    }
+    $targetOS = readRuntimeBuildValue(['go', 'env', 'GOOS'], $source);
+    $targetArch = readRuntimeBuildValue(['go', 'env', 'GOARCH'], $source);
+    $manifest = [
+        'apiVersion' => 'ext.package/v1',
+        'descriptor' => [
+            'apiVersion' => 'ext.plugin/v1',
+            'identity' => ['id' => $identity, 'revision' => $revision, 'version' => $version],
+            'contracts' => array_values($contracts),
+            'reverse' => array_values($reverse),
+        ],
+        'metadata' => [
+            'gateway.spinner/v1' => [
+                'platform' => ['os' => $targetOS, 'arch' => $targetArch],
+            ],
+            'gateway.runtime/v1' => [
+                'target' => 'spinner',
+            ],
+        ],
+        'artifacts' => [[
+            'name' => 'spinner-runtime',
+            'path' => 'bin/spinner',
+            'sha256' => $binaryDigest,
+        ]],
+        'entrypoints' => [[
+            'name' => 'spinner',
+            'runtime' => 'process',
+            'artifact' => 'spinner-runtime',
+            'protocols' => ['ext.plugin/v1'],
+        ]],
+    ];
+    file_put_contents(
+        $destination.'/plugin.json',
+        json_encode($manifest, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n",
+    ) ?: failRuntimeBuild('Cannot write runtime extension manifest.');
+} catch (Throwable $exception) {
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($destination, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($iterator as $entry) {
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+    }
+    @rmdir($destination);
+    throw $exception;
+}
+
+fwrite(STDOUT, $destination."\n");

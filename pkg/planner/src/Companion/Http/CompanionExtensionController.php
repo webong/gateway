@@ -123,17 +123,19 @@ final readonly class CompanionExtensionController
     /** @return array<string, mixed> */
     private function resource(object $row): array
     {
-        $companion = $row->document['companion'];
+        $companion = $row->document['companion'] ?? [];
+        $package = $row->document['package'] ?? [];
 
         return [
             'id' => $row->id,
             'extension' => $row->key,
             'enabled' => $row->enabled,
-            'mode' => $companion['mode'],
-            'version' => $companion['version'] ?? null,
-            'digest' => $companion['digest'] ?? null,
-            'artifact' => $companion['artifact'] ?? null,
-            'execution' => $companion['execution'] ?? ['mode' => 'isolated'],
+            'mode' => $companion['mode'] ?? null,
+            'version' => $package['version'] ?? null,
+            'digest' => $package['digest'] ?? null,
+            'artifact' => $package['artifact'] ?? null,
+            'execution' => isset($companion['mode']) ? ($companion['execution'] ?? ['mode' => 'isolated']) : null,
+            'configuration' => $row->document['configuration'] ?? null,
             'revision' => $row->revision,
         ];
     }

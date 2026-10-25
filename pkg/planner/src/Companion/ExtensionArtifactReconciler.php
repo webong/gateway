@@ -7,7 +7,7 @@ namespace Webong\Gateway\Companion;
 use RuntimeException;
 use Throwable;
 
-/** Materializes every enabled dynamic extension, independent of capability. */
+/** Materializes every enabled extension package, independent of capability. */
 final class ExtensionArtifactReconciler
 {
     private ?string $signature = null;
@@ -24,13 +24,12 @@ final class ExtensionArtifactReconciler
     public function reconcile(): array
     {
         $rows = array_values(array_filter($this->activations->all(), static function (object $row): bool {
-            $extension = $row->document['companion'] ?? null;
+            $package = $row->document['package'] ?? null;
 
-            return $row->enabled && is_array($extension) && ($extension['mode'] ?? null) === 'dynamic'
-                && is_array($extension['artifact'] ?? null);
+            return $row->enabled && is_array($package) && is_array($package['artifact'] ?? null);
         }));
         $signature = hash('sha256', json_encode(array_map(static fn (object $row): array => [
-            $row->key, $row->revision, $row->document['companion']['artifact']['sha256'],
+            $row->key, $row->revision, $row->document['package']['artifact']['sha256'],
         ], $rows), JSON_THROW_ON_ERROR));
         if ($signature !== $this->signature) {
             foreach ($rows as $row) {

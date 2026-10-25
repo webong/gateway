@@ -1,0 +1,17 @@
+payload = json_decode(var('request.content'));
+items = payload['items'];
+subtotal = 0;
+for (item in items) {
+    subtotal = subtotal + item['qty'] * item['price'];
+}
+tax = (subtotal * payload['tax_bps']) / 10000;
+digest = hash(json_encode(payload), 'sha256');
+respond(json_encode([
+    'ok': true,
+    'workload': 'real',
+    'seq': payload['seq'],
+    'items': items.length(),
+    'subtotal': subtotal,
+    'tax': tax,
+    'digest': digest
+]), 200, ['Content-Type: application/json']);

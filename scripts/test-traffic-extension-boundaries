@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+GO_BUILD_FLAGS=${GOFLAGS:--mod=mod}
+
+for host in \
+    "$ROOT/pkg/spinner/cmd/gateway" \
+    "$ROOT/pkg/frankenphp/cmd/router" \
+    "$ROOT/pkg/roadrunner/cmd/router"
+do
+    dependencies=$(cd "$host" && GOWORK=off GOFLAGS="$GO_BUILD_FLAGS" go list -deps .)
+	for extension in web dns
+	do
+		if grep -Eq "^github\\.com/webong/gateway/pkg/${extension}(\$|/)" <<<"$dependencies"; then
+			echo "$host compiles the $extension extension instead of hosting its Spinner entrypoint." >&2
+			exit 1
+		fi
+		if grep -Eq "github\\.com/webong/gateway/pkg/${extension}([[:space:]]|\$)" "$host/go.mod"; then
+			echo "$host still names the $extension extension module." >&2
+			exit 1
+		fi
+	done
+done
+
+for extension in web dns
+do
+	if [[ ! -f "$ROOT/pkg/$extension/extension.json" || ! -f "$ROOT/pkg/$extension/cmd/spinner/main.go" ]]; then
+		echo "$extension does not provide an installable Spinner runtime entrypoint." >&2
+		exit 1
+	fi
+done
+
+if rg -n 'github\.com/webong/gateway/pkg/(web|dns)' \
+    "$ROOT/pkg/spinner" "$ROOT/pkg/caddy" "$ROOT/pkg/roadrunner" "$ROOT/pkg/frankenphp" \
+    -g'*.go' -g'!**/*_test.go' >/dev/null; then
+	echo 'A Gateway host still imports a concrete Web or DNS extension.' >&2
+    exit 1
+fi
+
+echo 'Gateway hosts load Web and DNS as installable Spinner runtimes.'

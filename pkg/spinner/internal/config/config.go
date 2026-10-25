@@ -106,29 +106,9 @@ type Config struct {
 	DeliveryReceiptRetention   time.Duration
 	SchedulesEnabled           bool
 	SchedulePollInterval       time.Duration
-	DNSAddress                 string
-	DNSZone                    string
-	DNSZones                   []DNSZoneSpec
-	DNSNameservers             []string
-	DNSSOAEmail                string
-	DNSTTL                     uint32
-	DNSPlannerTimeout          time.Duration
-	DNSReadTimeout             time.Duration
-	DNSWriteTimeout            time.Duration
-	DNSMaxResponseRecords      int
-	DNSRateLimit               int
-	DNSRateBurst               int
-	DNSZoneRefreshInterval     time.Duration
 	Provisioning               provision.HostConfig
 	ProvisioningRouteProxy     bool
 	ProvisioningRouteCIDRs     []string
-}
-
-type DNSZoneSpec struct {
-	Name        string   `json:"name"`
-	Nameservers []string `json:"nameservers"`
-	SOAEmail    string   `json:"soa_email,omitempty"`
-	TTL         uint32   `json:"ttl,omitempty"`
 }
 
 type POP3UpstreamSpec struct {
@@ -228,11 +208,6 @@ func loadConfig(runtime string) (*Config, error) {
 		return nil, fmt.Errorf("set GATEWAY_INTEGRATION_PATHS to installed integrations; GATEWAY_*_ENABLED alone no longer loads Go code")
 	}
 
-	dnsAddress := getEnv("GATEWAY_DNS_ADDR", "")
-	dynamicDNS := (runtime == "embedded" || runtime == "http" && getEnv("GATEWAY_PLANNER_URL", "") != "") && getEnv("GATEWAY_INTERNAL_TOKEN", "") != ""
-	if dnsAddress != "" && !dynamicDNS {
-		return nil, fmt.Errorf("GATEWAY_DNS_ADDR requires a private Planner connection and GATEWAY_INTERNAL_TOKEN")
-	}
 	smtpRelayAddress := getEnv("GATEWAY_SMTP_RELAY_ADDR", "")
 
 	config := &Config{
@@ -328,14 +303,6 @@ func loadConfig(runtime string) (*Config, error) {
 		DeliveryReceiptRetention:   getEnvDuration("GATEWAY_DELIVERY_RECEIPT_RETENTION", 90*24*time.Hour),
 		SchedulesEnabled:           getEnvBool("GATEWAY_SCHEDULES_ENABLED", runtime == "embedded"),
 		SchedulePollInterval:       getEnvDuration("GATEWAY_SCHEDULE_POLL_INTERVAL", 5*time.Second),
-		DNSAddress:                 dnsAddress,
-		DNSPlannerTimeout:          getEnvDuration("GATEWAY_DNS_PLANNER_TIMEOUT", 750*time.Millisecond),
-		DNSReadTimeout:             getEnvDuration("GATEWAY_DNS_READ_TIMEOUT", 2*time.Second),
-		DNSWriteTimeout:            getEnvDuration("GATEWAY_DNS_WRITE_TIMEOUT", 2*time.Second),
-		DNSMaxResponseRecords:      getEnvInt("GATEWAY_DNS_MAX_RESPONSE_RECORDS", 16),
-		DNSRateLimit:               getEnvInt("GATEWAY_DNS_RATE_LIMIT", 5000),
-		DNSRateBurst:               getEnvInt("GATEWAY_DNS_RATE_BURST", 10000),
-		DNSZoneRefreshInterval:     getEnvDuration("GATEWAY_DNS_ZONE_REFRESH_INTERVAL", 5*time.Second),
 		Provisioning:               provisioningConfig,
 		ProvisioningRouteProxy:     getEnvBool("GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED", false),
 		ProvisioningRouteCIDRs:     getEnvList("GATEWAY_PROVISIONING_ROUTE_CIDRS"),
@@ -366,9 +333,6 @@ func loadConfig(runtime string) (*Config, error) {
 	}
 	if config.AutomationWorkers < 1 || config.AutomationQueueSize < 0 || config.AutomationTimeout <= 0 {
 		return nil, fmt.Errorf("GATEWAY_AUTOMATION_WORKERS and GATEWAY_AUTOMATION_TIMEOUT must be positive and GATEWAY_AUTOMATION_QUEUE_SIZE must be non-negative")
-	}
-	if config.DNSZoneRefreshInterval <= 0 {
-		return nil, fmt.Errorf("GATEWAY_DNS_ZONE_REFRESH_INTERVAL must be positive")
 	}
 	if config.WebstreamHeartbeat < 0 || config.WebstreamRetry <= 0 {
 		return nil, fmt.Errorf("GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL must be non-negative and GATEWAY_WEBSTREAM_RETRY must be positive")

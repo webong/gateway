@@ -14,8 +14,7 @@ import (
 
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
-	dnsgateway "github.com/webong/gateway/pkg/dns/spinner"
-	emailspinner "github.com/webong/gateway/pkg/email/spinner"
+	runtimecontract "github.com/webong/gateway/arranger/runtime"
 	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
 	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
 	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
@@ -27,14 +26,13 @@ import (
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 	relayconfig "github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
 	"github.com/webong/gateway/pkg/spinner/internal/workers"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
-	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 type extensionRouteHandler interface {
@@ -61,8 +59,6 @@ type Server struct {
 	deliveryAdminServer *http.Server
 	relayHandle         http.Handler
 	readinessCheck      func(context.Context) error
-	websocketHandler    http.Handler
-	webstreamHandler    *gatewaystream.Handler
 	extensionHandler    extensionRouteHandler
 	httpServer          *http.Server
 }
@@ -108,13 +104,6 @@ func NewServer(config *relayconfig.Config, logger *logging.Logger) (*Server, err
 	return server, nil
 }
 
-// SetRelayPlanner connects the Go transport edge to the PHP control plane.
-// PHP owns validation, registry lookup, subscriber resolution, and route
-// binding; Go only executes the resulting network plan.
-func (s *Server) SetRelayPlanner(planner bridge.Planner) {
-	s.SetRelayHandler(s.NewRelayEdge(planner))
-}
-
 // SetRelayHandler mounts a fully composed Go edge. Runtime adapters use this
 // when they need to provide both a planner and a Laravel pass-through handler.
 func (s *Server) SetRelayHandler(handler http.Handler) {
@@ -123,14 +112,6 @@ func (s *Server) SetRelayHandler(handler http.Handler) {
 
 func (s *Server) SetReadinessCheck(check func(context.Context) error) {
 	s.readinessCheck = check
-}
-
-func (s *Server) SetWebSocketHandler(handler http.Handler) {
-	s.websocketHandler = handler
-}
-
-func (s *Server) SetWebstreamHandler(handler *gatewaystream.Handler) {
-	s.webstreamHandler = handler
 }
 
 func (s *Server) SetExtensionHandler(handler extensionRouteHandler) {
@@ -150,23 +131,6 @@ func (s *Server) SetCompanionActions(runner companion.Runner) {
 
 func (s *Server) CompanionActions() companion.Runner {
 	return s.companionActions
-}
-
-func (s *Server) NewRelayEdge(planner bridge.Planner, passThrough ...http.Handler) http.Handler {
-	edge := bridge.NewEdge(
-		planner,
-		s.NewGatewayExecutor(),
-		s.config.MaxBodySize,
-	).SetAutomationExecutor(s.automation)
-	if s.scheduleRegistrar != nil {
-		edge.SetScheduleRegistrar(s.scheduleRegistrar)
-	}
-	var submissionPlanner http.Handler
-	if len(passThrough) > 0 {
-		submissionPlanner = passThrough[0]
-		edge.SetPassThrough(submissionPlanner)
-	}
-	return emailspinner.SubmissionHandler(edge, submissionPlanner, s.config.MaxBodySize)
 }
 
 func (s *Server) NewGatewayExecutor() *bridge.RelayExecutor {
@@ -241,14 +205,6 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 	if s.extensionHandler != nil && s.extensionHandler.ServeIfMatched(w, r) {
 		return
 	}
-	if s.websocketHandler != nil && gatewayws.IsUpgrade(r) {
-		s.websocketHandler.ServeHTTP(w, r)
-		return
-	}
-	if s.webstreamHandler != nil && gatewaystream.IsRequest(r) {
-		s.webstreamHandler.ServeHTTP(w, r)
-		return
-	}
 	if s.relayHandle == nil {
 		http.Error(w, "PHP relay planner is not configured", http.StatusServiceUnavailable)
 		return
@@ -282,12 +238,6 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"forwarded_requests_errors":  errors,
 		"worker_pool_size":           s.config.MaxWorkers,
 		"worker_queue_capacity":      s.config.MaxQueueSize,
-	}
-	if s.webstreamHandler != nil {
-		streamMetrics := s.webstreamHandler.Metrics()
-		metrics["webstreams_active"] = streamMetrics.Active
-		metrics["webstreams_opened_total"] = streamMetrics.Opened
-		metrics["webstreams_failed_total"] = streamMetrics.Failed
 	}
 	if s.deliveryQueue != nil {
 		pending, failed, err := s.deliveryQueue.Counts()
@@ -350,7 +300,7 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
-	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.DNSAddress != "" || config.POP3Address != "" || config.IMAPAddress != "") {
+	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.POP3Address != "" || config.IMAPAddress != "") {
 		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http")
 	}
 	server, err := NewServer(config, logger)
@@ -431,7 +381,7 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 }
 
 func expectedListenerClose(err error) bool {
-	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, smtpgateway.ErrServerClosed) || errors.Is(err, dnsgateway.ErrServerClosed) || errors.Is(err, pop3gateway.ErrServerClosed) || errors.Is(err, imapgateway.ErrServerClosed)
+	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, smtpgateway.ErrServerClosed) || errors.Is(err, pop3gateway.ErrServerClosed) || errors.Is(err, imapgateway.ErrServerClosed)
 }
 
 func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor bridge.GatewayExecutor) (*smtpgateway.Server, error) {
@@ -486,42 +436,8 @@ func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, e
 	}, planner, executor)
 }
 
-func newDNSServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor *bridge.RelayExecutor) (*dnsgateway.Server, error) {
-	return dnsgateway.NewServer(dnsgateway.Config{
-		Address:            config.DNSAddress,
-		Zone:               config.DNSZone,
-		Zones:              transport.DNSZones(config),
-		Nameservers:        config.DNSNameservers,
-		SOAEmail:           config.DNSSOAEmail,
-		TTL:                config.DNSTTL,
-		PlannerTimeout:     config.DNSPlannerTimeout,
-		ReadTimeout:        config.DNSReadTimeout,
-		WriteTimeout:       config.DNSWriteTimeout,
-		MaxResponseRecords: config.DNSMaxResponseRecords,
-		RateLimit:          config.DNSRateLimit,
-		RateBurst:          config.DNSRateBurst,
-		AllowEmptyZones:    config.Runtime == "http",
-	}, planner, executor)
-}
-
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	client := newPlannerClient(config)
-	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
-		artifactClient := &http.Client{
-			Timeout: 60 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
-		reconcileCtx, cancelReconcile := context.WithCancel(context.Background())
-		defer cancelReconcile()
-		if err := automationextensions.StartArtifactReconciliation(
-			reconcileCtx, config.PlannerURL, config.InternalToken, pluginDir,
-			client, artifactClient, automationextensions.Runtime(), 15*time.Second, logger.Error,
-		); err != nil {
-			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
-		}
-	}
 	if err := automationextensions.ConfigureShellSSHHTTP(config.PlannerURL, config.InternalToken, client, config.PlannerSocket != ""); err != nil {
 		return fmt.Errorf("failed to initialize private Shell credential resolver: %w", err)
 	}
@@ -572,8 +488,6 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	}
 	server.SetReadinessCheck(newPlannerReadinessCheck(readyURL, config.InternalToken, client))
 
-	edge := server.NewRelayEdge(runtime.Planner(), runtime.PassThrough())
-	server.SetRelayHandler(runtime.Handler(edge))
 	if config.PlannerSocket != "" {
 		logger.Info("Planner connection: external HTTP through Unix socket %s", config.PlannerSocket)
 	} else {
@@ -590,16 +504,29 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		server.workerPool.Shutdown()
 		return fmt.Errorf("failed to initialize HTTP protocol planner: %w", err)
 	}
-	server.SetWebSocketHandler(gatewayws.NewHandler(
-		protocolPlanner,
-		server.NewGatewayExecutor(),
-		gatewayws.Config{MaxMessageSize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout, MaxConnections: config.WebSocketMaxConnections, MaxDuration: config.WebSocketMaxDuration},
-	))
-	server.SetWebstreamHandler(gatewaystream.NewHandler(
-		protocolPlanner,
-		server.NewGatewayExecutor(),
-		gatewaystream.Config{MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout, HeartbeatInterval: config.WebstreamHeartbeat, ReconnectDelay: config.WebstreamRetry, MaxConnections: config.WebstreamMaxConnections, MaxDuration: config.WebstreamMaxDuration},
-	))
+	runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+		Planner: runtime.Planner(), ProtocolPlanner: protocolPlanner, PassThrough: runtime.PassThrough(),
+		Executor: server.NewGatewayExecutor(), Automation: server.automation, Schedules: control,
+		Start: runtimecontract.StartRequest{
+			MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout,
+			WebSocketMaxConnections: config.WebSocketMaxConnections, WebSocketMaxDuration: config.WebSocketMaxDuration,
+			WebstreamHeartbeat: config.WebstreamHeartbeat, WebstreamRetry: config.WebstreamRetry,
+			WebstreamMaxConnections: config.WebstreamMaxConnections, WebstreamMaxDuration: config.WebstreamMaxDuration,
+			AutomationLanguages: automation.Languages(server.automationRuntime),
+		},
+	})
+	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
+		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		reconcileCtx, cancelReconcile := context.WithCancel(context.Background())
+		defer cancelReconcile()
+		if err := automationextensions.StartArtifactReconciliation(
+			reconcileCtx, config.PlannerURL, config.InternalToken, pluginDir,
+			client, artifactClient, automationextensions.Runtime(), 15*time.Second, logger.Error,
+		); err != nil {
+			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
+		}
+	}
+	server.SetRelayHandler(runtime.Handler(runtimeextensions.DefaultRegistry.Handler()))
 	if config.ProvisioningRouteProxy {
 		managedRouter, routeErr := provision.NewRemoteRouter(config.PlannerURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)
 		if routeErr != nil {
@@ -650,31 +577,6 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		}
 		logger.Info("Using SMTP listener on %s", config.SMTPAddress)
 		listeners = append(listeners, smtpServer)
-	}
-	if config.DNSAddress != "" {
-		dnsServer, dnsErr := newDNSServer(config, protocolPlanner, executor)
-		if dnsErr != nil {
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize DNS listener: %w", dnsErr)
-		}
-		zoneSource, sourceErr := dnsgateway.NewHTTPZoneSource(config.PlannerURL, config.InternalToken, client)
-		if sourceErr != nil {
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize DNS zone source: %w", sourceErr)
-		}
-		reloadContext, cancelReload := context.WithCancel(context.Background())
-		defer cancelReload()
-		reloader := dnsgateway.ZoneReloader{
-			Server: dnsServer, Source: zoneSource, Interval: config.DNSZoneRefreshInterval, OnError: logger.Error,
-		}
-		initialContext, cancelInitial := context.WithTimeout(reloadContext, config.RequestTimeout)
-		if refreshErr := reloader.Refresh(initialContext); refreshErr != nil {
-			logger.Error("Initial authoritative DNS zone refresh failed; retaining the last valid snapshot: %v", refreshErr)
-		}
-		cancelInitial()
-		reloader.Start(reloadContext)
-		logger.Info("Using authoritative DNS listener on %s with Planner-managed zones (refresh %s)", config.DNSAddress, config.DNSZoneRefreshInterval)
-		listeners = append(listeners, dnsServer)
 	}
 	if config.POP3Address != "" {
 		pop3Server, pop3Err := transport.NewPOP3Server(config, protocolPlanner)

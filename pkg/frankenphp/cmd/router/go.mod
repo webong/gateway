@@ -36,7 +36,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/handlers v1.5.2 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgconn v1.14.3 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
@@ -66,9 +65,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/unrolled/secure v1.17.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
-	github.com/webong/gateway/pkg/dns v0.0.0 // indirect
 	github.com/webong/gateway/pkg/email v0.0.0 // indirect
-	github.com/webong/gateway/pkg/web v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
@@ -81,7 +78,6 @@ require (
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
@@ -96,8 +92,4 @@ replace github.com/webong/gateway/pkg/frankenphp => ../..
 
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner
 
-replace github.com/webong/gateway/pkg/dns => ../../../../pkg/dns
-
 replace github.com/webong/gateway/pkg/email => ../../../../pkg/email
-
-replace github.com/webong/gateway/pkg/web => ../../../../pkg/web

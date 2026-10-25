@@ -13,7 +13,6 @@ require (
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/emersion/go-smtp v0.24.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
 	github.com/jackc/pgconn v1.14.3 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
@@ -25,9 +24,7 @@ require (
 	github.com/miekg/dns v1.1.65 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
-	github.com/webong/gateway/pkg/dns v0.0.0 // indirect
 	github.com/webong/gateway/pkg/email v0.0.0 // indirect
-	github.com/webong/gateway/pkg/web v0.0.0 // indirect
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
@@ -35,7 +32,6 @@ require (
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	golang.org/x/time v0.11.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 )
 
@@ -43,11 +39,7 @@ replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 
 replace github.com/webong/gateway/pkg/spinner => ../..
 
-replace github.com/webong/gateway/pkg/dns => ../../../dns
-
 replace github.com/webong/gateway/pkg/email => ../../../email
-
-replace github.com/webong/gateway/pkg/web => ../../../web
 
 replace github.com/webong/ext/pkg/plugin-go => ../../../../../ext/pkg/plugin-go
 

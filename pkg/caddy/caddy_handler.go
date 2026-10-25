@@ -25,17 +25,18 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/webong/gateway/arranger/automation"
+	runtimecontract "github.com/webong/gateway/arranger/runtime"
 	emailspinner "github.com/webong/gateway/pkg/email/spinner"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
+	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/spinnerapi"
 	"github.com/webong/gateway/pkg/spinner/transport"
-	gatewayws "github.com/webong/gateway/pkg/web/spinner/websocket"
-	gatewaystream "github.com/webong/gateway/pkg/web/spinner/webstream"
 )
 
 const (
@@ -84,19 +85,18 @@ type CaddyHandler struct {
 	PollInterval            caddy.Duration  `json:"poll_interval,omitempty"`
 	ReceiptRetention        *caddy.Duration `json:"receipt_retention,omitempty"`
 
-	forwarder          *spinnerapi.Forwarder
-	workerPool         *spinnerapi.WorkerPool
-	deliveryQueue      deliveryqueue.Backend
-	adminServer        *http.Server
-	adminListener      net.Listener
-	adminLease         *deliverymembership.Lease
-	executor           bridge.Executor
-	closeOnce          sync.Once
-	websocketOnce      sync.Once
-	websocketAdmission *gatewayws.Admission
-	webstreamOnce      sync.Once
-	webstreamAdmission *gatewaystream.Admission
-	managedRouter      *provision.RemoteRouter
+	forwarder     *spinnerapi.Forwarder
+	workerPool    *spinnerapi.WorkerPool
+	deliveryQueue deliveryqueue.Backend
+	adminServer   *http.Server
+	adminListener net.Listener
+	adminLease    *deliverymembership.Lease
+	executor      bridge.Executor
+	closeOnce     sync.Once
+	runtimeOnce   sync.Once
+	runtimeCancel context.CancelFunc
+	runtimeErr    error
+	managedRouter *provision.RemoteRouter
 }
 
 // CaddyModule returns the Caddy module information.
@@ -268,6 +268,9 @@ func (g *CaddyHandler) Validate() error {
 func (g *CaddyHandler) Cleanup() error {
 	var queueErr error
 	g.closeOnce.Do(func() {
+		if g.runtimeCancel != nil {
+			g.runtimeCancel()
+		}
 		if g.adminServer != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			if err := g.adminServer.Shutdown(ctx); err != nil {
@@ -323,46 +326,54 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		emailspinner.HandleSubmission(w, r, passThrough, g.MaxBodySize)
 		return passThrough.err
 	}
-	if gatewayws.IsUpgrade(r) {
-		protocolPlanner := bridge.NewPHPProtocolPlanner(
-			&caddyHTTPAdapter{handler: next},
-			g.MaxBodySize,
-		)
-		protocolPlanner.InternalToken = g.InternalToken
-		g.websocketOnce.Do(func() { g.websocketAdmission = gatewayws.NewAdmission(g.WebSocketMaxConnections) })
-		gatewayws.NewHandler(
-			protocolPlanner,
-			g.executor,
-			gatewayws.Config{MaxMessageSize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout), MaxDuration: time.Duration(g.WebSocketMaxDuration), Admission: g.websocketAdmission},
-		).ServeHTTP(w, r)
-		return nil
-	}
-	if gatewaystream.IsRequest(r) {
-		protocolPlanner := bridge.NewPHPProtocolPlanner(&caddyHTTPAdapter{handler: next}, g.MaxBodySize)
-		protocolPlanner.InternalToken = g.InternalToken
-		source, _ := g.executor.(gatewaystream.Source)
-		g.webstreamOnce.Do(func() { g.webstreamAdmission = gatewaystream.NewAdmission(g.WebstreamMaxConnections) })
-		gatewaystream.NewHandler(protocolPlanner, source, gatewaystream.Config{MaxBodySize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout), HeartbeatInterval: 15 * time.Second, ReconnectDelay: 3 * time.Second, MaxDuration: time.Duration(g.WebstreamMaxDuration), Admission: g.webstreamAdmission}).ServeHTTP(w, r)
-		return nil
-	}
-
 	planner := &CaddyPHPPlanner{
 		PHPHandler:    next,
 		PlanPath:      g.planPath(),
 		InternalToken: g.InternalToken,
 		MaxBodySize:   g.MaxBodySize,
 	}
-	passThrough := &caddyPassThrough{handler: next}
-	context, err := automationextensions.ContextWithShellSSHHandler(r.Context(), &caddyHTTPAdapter{handler: next}, g.InternalToken)
-	if err != nil {
-		return err
+	protocolPlanner := bridge.NewPHPProtocolPlanner(&caddyHTTPAdapter{handler: next}, g.MaxBodySize)
+	protocolPlanner.InternalToken = g.InternalToken
+	g.runtimeOnce.Do(func() {
+		executor, ok := g.executor.(runtimeextensions.Executor)
+		if !ok {
+			g.runtimeErr = fmt.Errorf("gateway transport does not provide protocol delivery")
+			return
+		}
+		if err := automationextensions.ConfigureShellSSHHandler(&caddyHTTPAdapter{handler: next}, g.InternalToken); err != nil {
+			g.runtimeErr = err
+			return
+		}
+		runtimeextensions.DefaultHost.Configure(runtimeextensions.Services{
+			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: &caddyHTTPAdapter{handler: next},
+			Executor: executor, Automation: automationextensions.Runtime(),
+			Start: runtimecontract.StartRequest{
+				MaxBodySize: g.MaxBodySize, PlannerTimeout: time.Duration(g.RequestTimeout),
+				WebSocketMaxConnections: g.WebSocketMaxConnections, WebSocketMaxDuration: time.Duration(g.WebSocketMaxDuration),
+				WebstreamHeartbeat: 15 * time.Second, WebstreamRetry: 3 * time.Second,
+				WebstreamMaxConnections: g.WebstreamMaxConnections, WebstreamMaxDuration: time.Duration(g.WebstreamMaxDuration),
+				AutomationLanguages: automation.Languages(automationextensions.Runtime()),
+			},
+		})
+		pluginDir := automationextensions.DefaultLoadConfig().ExternalDir
+		if pluginDir == "" {
+			return
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		g.runtimeCancel = cancel
+		plannerClient := &http.Client{Transport: caddyRoundTripper{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		g.runtimeErr = automationextensions.StartArtifactReconciliation(
+			ctx, "http://gateway.internal", g.InternalToken, pluginDir,
+			plannerClient, artifactClient, automationextensions.Runtime(), 15*time.Second, log.Printf,
+		)
+	})
+	if g.runtimeErr != nil {
+		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("gateway extension reconciliation: %w", g.runtimeErr))
 	}
-	edge := bridge.NewEdge(planner, g.executor, g.MaxBodySize).
-		SetAutomationExecutor(automationextensions.Runtime()).
-		SetPassThrough(passThrough)
-	edge.ServeHTTP(w, r.WithContext(context))
+	runtimeextensions.DefaultRegistry.Handler().ServeHTTP(w, r)
 
-	return passThrough.err
+	return nil
 }
 
 func (g *CaddyHandler) applyDefaults() {
@@ -494,6 +505,35 @@ type caddyPassThrough struct {
 
 type caddyHTTPAdapter struct {
 	handler caddyhttp.Handler
+}
+
+type caddyRoundTripper struct{ handler caddyhttp.Handler }
+
+func (transport caddyRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	serverRequest := request.Clone(request.Context())
+	if serverRequest.Body == nil {
+		serverRequest.Body = http.NoBody
+	}
+	serverRequest.RequestURI = serverRequest.URL.RequestURI()
+	serverRequest.RemoteAddr = "127.0.0.1:0"
+	completed := make(chan struct {
+		response *http.Response
+		err      error
+	}, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		err := transport.handler.ServeHTTP(recorder, serverRequest)
+		completed <- struct {
+			response *http.Response
+			err      error
+		}{response: recorder.Result(), err: err}
+	}()
+	select {
+	case result := <-completed:
+		return result.response, result.err
+	case <-request.Context().Done():
+		return nil, request.Context().Err()
+	}
 }
 
 type caddyManagedPlanner struct{ handler caddyhttp.Handler }

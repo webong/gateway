@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Contracts\ExtensionProviderRegistry;
+use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Database\DatabaseServiceProvider;
 use Webong\Gateway\Dns\DnsProtocolPlanner;
 use Webong\Gateway\Dns\DnsServiceProvider;
@@ -37,6 +38,19 @@ it('lets installed Gateway extensions own their protocol policy and resource kin
         ->and($kinds->contains('dns.zone'))->toBeTrue()
         ->and($kinds->contains('email.domain'))->toBeTrue()
         ->and($kinds->contains('database.connection'))->toBeFalse();
+});
+
+it('lets the DNS extension project its typed zone catalog into runtime desired state', function (): void {
+    $configuration = app(ExtensionRuntimeConfigurationRegistry::class)->project('webong/dns', [
+        'address' => ':5353',
+        'queries_per_second' => 100,
+    ]);
+
+    expect($configuration)->toMatchArray([
+        'address' => ':5353',
+        'queries_per_second' => 100,
+        'zones' => [],
+    ]);
 });
 
 it('keeps Planner core independent of transport extension namespaces', function (): void {

@@ -19,6 +19,7 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
+	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 )
 
 type recordingExecutor struct {
@@ -34,41 +35,6 @@ type postStreamExecutor struct {
 func (e *postStreamExecutor) OpenWebstream(_ context.Context, d bridge.GatewayDelivery) (*http.Response, error) {
 	e.calls++
 	return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: " + string(d.Payload) + "\n\n"))}, nil
-}
-
-func TestCaddyPostWebstreamAndBodyLimit(t *testing.T) {
-	e := &postStreamExecutor{}
-	g := &CaddyHandler{MaxBodySize: 4, executor: e}
-	plans := 0
-	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		plans++
-		var event bridge.GatewayEvent
-		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
-			return err
-		}
-		if event.Method != "POST" || string(event.Payload) != "test" {
-			t.Error("wrong POST event")
-		}
-		return json.NewEncoder(w).Encode(bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebstream, Action: bridge.GatewayStream, Stream: &bridge.GatewayDelivery{Protocol: bridge.ProtocolHTTP, Target: "https://source.test", Attributes: map[string]string{"method": "POST"}, Payload: event.Payload}})
-	})
-	for _, body := range []string{"test", "oversized"} {
-		r := httptest.NewRequest("POST", "/events", strings.NewReader(body))
-		r.Header.Set("Accept", "text/event-stream")
-		w := httptest.NewRecorder()
-		if err := g.ServeHTTP(w, r, next); err != nil {
-			t.Fatal(err)
-		}
-		want := 200
-		if body == "oversized" {
-			want = 413
-		}
-		if w.Code != want {
-			t.Fatalf("status=%d want=%d", w.Code, want)
-		}
-	}
-	if plans != 1 || e.calls != 1 {
-		t.Fatalf("plans=%d sources=%d", plans, e.calls)
-	}
 }
 
 func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
@@ -188,6 +154,13 @@ func (e *recordingExecutor) Enqueue(delivery bridge.Delivery) bool {
 	return true
 }
 
+func (e *recordingExecutor) EnqueueGateway(delivery bridge.GatewayDelivery) bool {
+	if delivery.Protocol != bridge.ProtocolHTTP {
+		return false
+	}
+	return e.Enqueue(bridge.Delivery{URL: delivery.Target, Body: delivery.Payload, Headers: delivery.Headers})
+}
+
 func TestCaddyHandlerUsesNextForPlanningAndPassThrough(t *testing.T) {
 	executor := &recordingExecutor{}
 	handler := &CaddyHandler{
@@ -196,36 +169,21 @@ func TestCaddyHandlerUsesNextForPlanningAndPassThrough(t *testing.T) {
 		executor:      executor,
 	}
 	next := caddyhttp.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
-		if r.URL.Path == bridge.PHPPlannerPath {
-			if root := caddyhttp.GetVar(r.Context(), "root"); root != "/app/public" {
-				t.Fatalf("expected PHP document root in synthetic context, got %v", root)
-			}
-			original, ok := r.Context().Value(caddyhttp.OriginalRequestCtxKey).(http.Request)
-			if !ok || original.URL.Path != bridge.PHPPlannerPath {
-				t.Fatalf("expected synthetic planner path in Caddy original request context, got %#v", original.URL)
-			}
-			if r.Header.Get(bridge.InternalTokenHeader) != "test-token" {
-				t.Fatalf("expected configured internal planner token")
-			}
-			var ingress bridge.IngressRequest
-			if err := json.NewDecoder(r.Body).Decode(&ingress); err != nil {
-				t.Fatalf("decode planner request: %v", err)
-			}
-			plan := bridge.RoutePlan{Version: bridge.ProtocolVersion, Action: bridge.ActionPassThrough}
-			if ingress.Path == "/owned/by/subscriber" {
-				plan = bridge.RoutePlan{
-					Version: bridge.ProtocolVersion,
-					Action:  bridge.ActionRelay,
-					Relays:  []bridge.Delivery{{URL: "https://subscriber.example.test/receive"}},
-				}
-			}
-			return json.NewEncoder(w).Encode(plan)
-		}
-
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("Laravel application"))
 		return nil
 	})
+	if err := runtimeextensions.DefaultRegistry.RegisterHTTP("test/caddy-web", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/owned/by/subscriber" {
+			executor.Enqueue(bridge.Delivery{URL: "https://subscriber.example.test/receive"})
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		_ = next.ServeHTTP(w, r)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	defer runtimeextensions.DefaultRegistry.Unregister("test/caddy-web")
 
 	owned := httptest.NewRecorder()
 	ownedRequest := httptest.NewRequest(http.MethodPost, "/owned/by/subscriber", strings.NewReader(`{"event":"created"}`))

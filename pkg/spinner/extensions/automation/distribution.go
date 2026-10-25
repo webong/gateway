@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	runtimeextensions "github.com/webong/gateway/pkg/spinner/extensions/runtime"
 )
 
 const (
@@ -33,11 +34,13 @@ type DesiredArtifact struct {
 }
 
 type DesiredExtension struct {
-	Extension string          `json:"extension"`
-	Version   string          `json:"version"`
-	Digest    string          `json:"digest"`
-	Artifact  DesiredArtifact `json:"artifact"`
-	Revision  int             `json:"revision"`
+	Extension           string          `json:"extension"`
+	Version             string          `json:"version"`
+	Digest              string          `json:"digest"`
+	Artifact            DesiredArtifact `json:"artifact"`
+	Configuration       json.RawMessage `json:"configuration,omitempty"`
+	ConfigurationSHA256 string          `json:"configuration_sha256"`
+	Revision            int             `json:"revision"`
 }
 
 // ArtifactReconciler independently materializes Spinner's entrypoint from
@@ -154,14 +157,21 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 			delete(r.loaded, extension.Extension)
 			return fmt.Errorf("reconcile extension %s: %w", extension.Extension, err)
 		}
-		loadedRevision := fmt.Sprintf("%d:%s:%s", extension.Revision, extension.Artifact.SHA256, installed.Manifest.Descriptor.Identity.Revision)
+		loadedRevision := fmt.Sprintf("%d:%s:%s:%s", extension.Revision, extension.Artifact.SHA256, extension.ConfigurationSHA256, installed.Manifest.Descriptor.Identity.Revision)
 		if r.loaded[extension.Extension] == loadedRevision {
 			continue
 		}
 		if err := loadExternalInstalled(ctx, r.plugins, installed); err != nil {
 			r.plugins.UnregisterExtension(extension.Extension)
+			runtimeextensions.DefaultRegistry.Unregister(extension.Extension)
 			delete(r.loaded, extension.Extension)
 			return fmt.Errorf("launch Spinner entrypoint: %w", err)
+		}
+		if err := runtimeextensions.LoadExternalInstalledWithConfiguration(ctx, runtimeextensions.DefaultRegistry, installed, extension.Configuration); err != nil {
+			r.plugins.UnregisterExtension(extension.Extension)
+			runtimeextensions.DefaultRegistry.Unregister(extension.Extension)
+			delete(r.loaded, extension.Extension)
+			return fmt.Errorf("launch Spinner runtime entrypoint: %w", err)
 		}
 		r.loaded[extension.Extension] = loadedRevision
 	}
@@ -170,6 +180,14 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 			continue
 		}
 		r.plugins.UnregisterExtension(extension)
+		runtimeextensions.DefaultRegistry.Unregister(extension)
+		delete(r.loaded, extension)
+	}
+	for _, extension := range runtimeextensions.DefaultRegistry.ExternalExtensions() {
+		if desiredIDs[extension] {
+			continue
+		}
+		runtimeextensions.DefaultRegistry.Unregister(extension)
 		delete(r.loaded, extension)
 	}
 	return nil
@@ -178,6 +196,10 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 func (r *ArtifactReconciler) closeExternalExtensions() {
 	for _, extension := range r.plugins.ExternalExtensions() {
 		r.plugins.UnregisterExtension(extension)
+		delete(r.loaded, extension)
+	}
+	for _, extension := range runtimeextensions.DefaultRegistry.ExternalExtensions() {
+		runtimeextensions.DefaultRegistry.Unregister(extension)
 		delete(r.loaded, extension)
 	}
 }
@@ -217,10 +239,27 @@ func (r *ArtifactReconciler) desired(ctx context.Context) ([]DesiredExtension, e
 
 func validDesiredExtension(extension DesiredExtension) bool {
 	artifact, err := url.Parse(extension.Artifact.URL)
-	return err == nil && extension.Extension != "" && extension.Version != "" && extension.Revision > 0 &&
+	return err == nil && validRuntimeConfiguration(extension.Configuration) && validSHA256(extension.ConfigurationSHA256) &&
+		extension.ConfigurationSHA256 == digestConfiguration(extension.Configuration) && extension.Extension != "" && extension.Version != "" && extension.Revision > 0 &&
 		artifact.Scheme == "https" && artifact.Host != "" && artifact.User == nil && artifact.Fragment == "" &&
 		validSHA256(extension.Artifact.SHA256) &&
 		(extension.Digest == "" || validSHA256(extension.Digest))
+}
+
+func digestConfiguration(configuration json.RawMessage) string {
+	digest := sha256.Sum256(configuration)
+	return hex.EncodeToString(digest[:])
+}
+
+func validRuntimeConfiguration(configuration json.RawMessage) bool {
+	if len(configuration) == 0 {
+		return true
+	}
+	if len(configuration) > 65536 || !json.Valid(configuration) || !strings.HasPrefix(strings.TrimSpace(string(configuration)), "{") {
+		return false
+	}
+	var object map[string]json.RawMessage
+	return json.Unmarshal(configuration, &object) == nil && object != nil
 }
 
 func validSHA256(value string) bool {

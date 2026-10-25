@@ -11,13 +11,10 @@ package automationextensions
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -29,6 +26,7 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
 	"github.com/webong/gateway/arranger/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	"github.com/webong/gateway/pkg/spinner/extensions/packagehost"
 )
 
 var registry = NewRegistry()
@@ -216,39 +214,7 @@ func loadExternalInstalled(ctx context.Context, target *Registry, inst store.Ins
 // spinnerLaunch selects this plane's entrypoint from a combined package. A nil
 // command preserves ext's first-entrypoint behavior for legacy packages.
 func spinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
-	if raw, declared := inst.Manifest.Metadata["gateway.spinner/v1"]; declared {
-		var metadata struct {
-			Platform struct {
-				OS   string `json:"os"`
-				Arch string `json:"arch"`
-			} `json:"platform"`
-		}
-		if err := json.Unmarshal(raw, &metadata); err != nil || metadata.Platform.OS == "" || metadata.Platform.Arch == "" {
-			return nil, errors.New("package declares invalid Spinner platform metadata")
-		}
-		if metadata.Platform.OS != runtime.GOOS || metadata.Platform.Arch != runtime.GOARCH {
-			return nil, fmt.Errorf(
-				"package Spinner target %s/%s does not match host %s/%s",
-				metadata.Platform.OS, metadata.Platform.Arch, runtime.GOOS, runtime.GOARCH,
-			)
-		}
-	}
-	hasNamedEntrypoint := false
-	for _, entrypoint := range inst.Manifest.Entrypoints {
-		hasNamedEntrypoint = hasNamedEntrypoint || entrypoint.Name != ""
-		if entrypoint.Name != "spinner" {
-			continue
-		}
-		path, err := inst.ArtifactPath(entrypoint.Artifact)
-		if err != nil {
-			return nil, err
-		}
-		return &pluginprocess.Command{Path: path, Dir: inst.Directory}, nil
-	}
-	if hasNamedEntrypoint {
-		return nil, errors.New("package does not declare a spinner entrypoint")
-	}
-	return nil, nil
+	return packagehost.SpinnerLaunch(inst)
 }
 
 // RunHistory returns the optional local run reader without exposing a concrete

@@ -103,7 +103,8 @@ func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
 			if enabled.Load() {
 				data = append(data, map[string]any{
 					"extension": "webong/hookscript", "version": "1.0.0", "digest": nil, "revision": revision.Load(),
-					"artifact": map[string]any{"url": server.URL + "/hookscript.tar.gz", "sha256": hex.EncodeToString(archiveDigest[:])},
+					"artifact":      map[string]any{"url": server.URL + "/hookscript.tar.gz", "sha256": hex.EncodeToString(archiveDigest[:])},
+					"configuration": map[string]any{}, "configuration_sha256": digestBytes([]byte("{}")),
 				})
 			}
 			_ = json.NewEncoder(writer).Encode(map[string]any{"data": data})
@@ -161,7 +162,8 @@ func TestArtifactReconcilerRejectsTamperedDistributionBeforeLoadingGuest(t *test
 		if request.URL.Path == "/_internal/gateway/extensions" {
 			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]any{{
 				"extension": "webong/hookscript", "version": "1.0.0", "digest": nil, "revision": 1,
-				"artifact": map[string]any{"url": "https://artifact.invalid/hookscript.tar.gz", "sha256": strings.Repeat("0", 64)},
+				"artifact":      map[string]any{"url": "https://artifact.invalid/hookscript.tar.gz", "sha256": strings.Repeat("0", 64)},
+				"configuration": map[string]any{}, "configuration_sha256": digestBytes([]byte("{}")),
 			}}})
 			return
 		}
@@ -185,6 +187,32 @@ func TestArtifactReconcilerRejectsTamperedDistributionBeforeLoadingGuest(t *test
 	}
 	if plugins.Runtime().Supports("webhookscript") {
 		t.Fatal("tampered artifact registered a Spinner guest")
+	}
+}
+
+func TestDesiredExtensionRequiresObjectShapedBoundedConfiguration(t *testing.T) {
+	base := DesiredExtension{
+		Extension: "example/runtime", Version: "1.0.0", Revision: 1,
+		Artifact: DesiredArtifact{URL: "https://extensions.example.test/runtime.tar.gz", SHA256: strings.Repeat("a", 64)},
+	}
+	base.Configuration = json.RawMessage(`{"listener":{"address":"127.0.0.1:0"}}`)
+	base.ConfigurationSHA256 = digestConfiguration(base.Configuration)
+	if !validDesiredExtension(base) {
+		t.Fatal("valid runtime configuration was rejected")
+	}
+	base.ConfigurationSHA256 = strings.Repeat("0", 64)
+	if validDesiredExtension(base) {
+		t.Fatal("runtime configuration with a mismatched digest was accepted")
+	}
+	base.Configuration = json.RawMessage(`["not","an","object"]`)
+	base.ConfigurationSHA256 = digestConfiguration(base.Configuration)
+	if validDesiredExtension(base) {
+		t.Fatal("list-shaped runtime configuration was accepted")
+	}
+	base.Configuration = json.RawMessage("{")
+	base.ConfigurationSHA256 = digestConfiguration(base.Configuration)
+	if validDesiredExtension(base) {
+		t.Fatal("malformed runtime configuration was accepted")
 	}
 }
 

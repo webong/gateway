@@ -18,6 +18,7 @@ use Webong\Gateway\Companion\CompanionActionExecutionStore;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
 use Webong\Gateway\Companion\ExtensionArtifactInstaller;
 use Webong\Gateway\Companion\ExtensionArtifactReconciler;
+use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Companion\Http\CompanionExtensionController;
 use Webong\Gateway\Companion\Http\InternalExtensionDistributionController;
 use Webong\Gateway\Companion\Http\InternalCompanionActionController;
@@ -92,6 +93,7 @@ final class GatewayServiceProvider extends ServiceProvider
         ));
         $this->app->singleton(CompanionArtifactReconciler::class);
         $this->app->singleton(CompanionActionExecutionStore::class);
+        $this->app->singleton(ExtensionRuntimeConfigurationRegistry::class);
 
         foreach (ExtensionProviderRegistry::providers() as $provider) {
             $this->app->register($provider);

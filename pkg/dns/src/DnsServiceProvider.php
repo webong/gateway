@@ -8,6 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\GatewayRouter;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
@@ -30,6 +31,14 @@ final class DnsServiceProvider extends ServiceProvider
         });
         $this->app->afterResolving(ConfigurationKindRegistry::class,
             static fn (ConfigurationKindRegistry $kinds) => $kinds->register('dns.zone', 'dns.hook'));
+        $this->app->afterResolving(ExtensionRuntimeConfigurationRegistry::class,
+            function (ExtensionRuntimeConfigurationRegistry $runtime): void {
+                $runtime->register('webong/dns', function (array $configuration): array {
+                    $configuration['zones'] = $this->app->make(DnsZoneCatalog::class)->all();
+
+                    return $configuration;
+                });
+            });
         $this->app->afterResolving(ProtocolPlannerRegistry::class, function (ProtocolPlannerRegistry $planners): void {
             $planners->register(Protocol::DNS, fn (): DnsProtocolPlanner => $this->app->make(DnsProtocolPlanner::class));
         });

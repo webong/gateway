@@ -173,7 +173,50 @@ it('stores a pinned extension artifact as Planner-owned desired state', function
         ->assertJsonPath('artifact.sha256', str_repeat('a', 64));
 });
 
-it('rejects unpinned, non-HTTPS or static extension artifacts', function (array $input): void {
+it('stores bounded runtime configuration with the extension desired state', function (): void {
+    $created = $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'example/switch-provider',
+        'version' => '1.0.0',
+        'artifact' => [
+            'sha256' => str_repeat('a', 64),
+            'url' => 'https://extensions.example.test/switch-provider-1.0.0.tar.gz',
+        ],
+        'configuration' => [
+            'listeners' => ['http' => ['address' => '127.0.0.1:0']],
+            'policy' => ['max_connections' => 25],
+        ],
+    ])->assertCreated()
+        ->assertJsonPath('mode', null)
+        ->assertJsonPath('execution', null)
+        ->assertJsonPath('configuration.listeners.http.address', '127.0.0.1:0')
+        ->assertJsonPath('configuration.policy.max_connections', 25);
+
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->getJson('/_internal/gateway/extensions')
+        ->assertOk()
+        ->assertJsonPath('data.0.configuration.listeners.http.address', '127.0.0.1:0');
+
+    $this->withToken('registry-secret')->getJson('/extensions/'.$created->json('id'))
+        ->assertOk()
+        ->assertJsonPath('configuration.policy.max_connections', 25);
+});
+
+it('rejects list-shaped or oversized extension runtime configuration', function (): void {
+    $base = [
+        'extension' => 'example/configuration',
+        'mode' => 'dynamic',
+    ];
+
+    $this->withToken('registry-secret')->postJson('/extensions', $base + [
+        'configuration' => ['first', 'second'],
+    ])->assertUnprocessable();
+
+    $this->withToken('registry-secret')->postJson('/extensions', $base + [
+        'configuration' => ['payload' => str_repeat('x', 65536)],
+    ])->assertUnprocessable();
+});
+
+it('rejects unpinned or non-HTTPS extension artifacts', function (array $input): void {
     $this->withToken('registry-secret')->postJson('/extensions', $input)
         ->assertUnprocessable();
 })->with([
@@ -203,16 +246,21 @@ it('rejects unpinned, non-HTTPS or static extension artifacts', function (array 
             'sha256' => 'not-a-digest',
         ],
     ]],
-    'static artifact' => [[
-        'extension' => 'example/artifact',
+]);
+
+it('allows one package artifact to serve a static companion and an installable Spinner runtime', function (): void {
+    $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'example/static-with-runtime',
         'mode' => 'static',
         'version' => '1.0.0',
         'artifact' => [
-            'url' => 'https://extensions.example.test/artifact.tar.gz',
+            'url' => 'https://extensions.example.test/static-with-runtime.tar.gz',
             'sha256' => str_repeat('a', 64),
         ],
-    ]],
-]);
+    ])->assertCreated()
+        ->assertJsonPath('mode', 'static')
+        ->assertJsonPath('artifact.sha256', str_repeat('a', 64));
+});
 
 it('serves enabled extension artifact desired state only to private plane reconcilers', function (): void {
     app(CompanionActionActivationStore::class)->create([
@@ -248,6 +296,8 @@ it('serves enabled extension artifact desired state only to private plane reconc
                 'url' => 'https://extensions.example.test/switch-provider-1.0.0.tar.gz',
                 'sha256' => str_repeat('a', 64),
             ],
+            'configuration' => [],
+            'configuration_sha256' => hash('sha256', '{}'),
             'revision' => 1,
         ]]]);
 });
