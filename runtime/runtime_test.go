@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/gateway/driver/automation"
+	"github.com/webong/gateway/arranger/automation"
 )
 
 func TestJavaScriptCanSetVariablesRespondAndForward(t *testing.T) {
