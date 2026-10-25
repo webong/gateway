@@ -27,7 +27,7 @@ snapshot. Both entrypoints are released as one Extension identity and version.
 Forwarded DNS is configured through Planner rather than environment variables:
 
 ```http
-POST /dns/resolvers
+POST /dns/forwarders
 Authorization: Bearer <registry token>
 Content-Type: application/json
 
@@ -49,13 +49,18 @@ open resolver. UDP is the default upstream transport and automatically retries
 a truncated response over TCP. Use `tcp` when the forwarded resolver requires it.
 
 Planner exposes `GET`, `POST`, `GET /{id}`, `PUT /{id}`, and `DELETE /{id}` at
-`/dns/resolvers`. Replacement and deletion require the current `ETag` in
+`/dns/forwarders`. Replacement and deletion require the current `ETag` in
 `If-Match`. Active resources are projected into the revisioned `webong/dns`
 runtime snapshot; Spinner validates the complete snapshot before starting.
+The Extension independently enforces hard ceilings even when Planner asks for
+more: Planner deadlines top out at 30 seconds, socket deadlines at 30 seconds,
+responses at 256 records, query rate at 100,000 per second, and burst at
+200,000. Infrastructure still controls whether the configured address is
+reachable or published.
 
 ## Provided answers
 
-A DNS hook is an ordinary Gateway route. Exactly one synchronous answer source
+A DNS Endpoint is an ordinary Gateway route. Exactly one synchronous answer source
 may match it:
 
 - a `reply` subscription invokes its HTTP(S) Webhook and uses a successful
@@ -76,7 +81,7 @@ successful response becomes the DNS answer.
 
 Managed, Provided, and Forwarded queries emit the same versioned `dns.query` observation
 after Spinner has written the selected response. The document contains bounded
-question and answer summaries, routing mode, selected zone/hook or resolver,
+question and answer summaries, routing mode, selected zone, endpoint, or forwarder,
 response code, elapsed time, and a failure classification. It never contains a
 raw DNS packet.
 
@@ -88,15 +93,20 @@ observation out to the recorders registered for its type; the DNS package
 registers shared history and usage aggregation without putting DNS knowledge in
 Planner or Spinner core.
 
-Hook history and usage remain available at:
+Managed Zone history and usage are available at:
 
-- `GET /dns/hooks/{id}/events`
-- `GET /dns/hooks/{id}/usage`
+- `GET /dns/zones/{id}/events`
+- `GET /dns/zones/{id}/usage`
 
-Forwarded resolver history and usage use the same event ledger:
+Provided Endpoint history and usage use the same event ledger:
 
-- `GET /dns/resolvers/{id}/events`
-- `GET /dns/resolvers/{id}/usage`
+- `GET /dns/endpoints/{id}/events`
+- `GET /dns/endpoints/{id}/usage`
+
+Forwarder history and usage use it as well:
+
+- `GET /dns/forwarders/{id}/events`
+- `GET /dns/forwarders/{id}/usage`
 
 Additional analytics or notification recorders register for `dns.query` in
 Planner. Recorders that need retries or durable external delivery should enqueue
