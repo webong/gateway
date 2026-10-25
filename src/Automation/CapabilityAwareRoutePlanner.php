@@ -9,7 +9,7 @@ use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Events\WebEventRecorder;
+use Webong\Gateway\Planning\RoutePlanObserverRegistry;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;
 
@@ -18,7 +18,7 @@ final readonly class CapabilityAwareRoutePlanner implements RoutePlanner
     public function __construct(
         private RoutePlanner $planner,
         private AutomationLanguageRegistry $languages,
-        private ?WebEventRecorder $events = null,
+        private RoutePlanObserverRegistry $observers,
     ) {}
 
     public function plan(IngressRequest $request): RoutePlan
@@ -42,7 +42,7 @@ final readonly class CapabilityAwareRoutePlanner implements RoutePlanner
             throw new RuntimeException("Planner automation language [{$language}] was not consumed by its extension.");
         }
 
-        $this->events?->record($request, $plan);
+        $this->observers->observe($request, $plan);
 
         return $plan;
     }

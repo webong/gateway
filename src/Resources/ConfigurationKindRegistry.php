@@ -7,15 +7,32 @@ namespace Webong\Gateway\Resources;
 /** Publicly manageable document kinds; new kinds must be registered deliberately. */
 final class ConfigurationKindRegistry
 {
+    /** @var array<string, true> */
+    private array $kinds = [
+        'extension' => true,
+        'schedule.notification' => true,
+        'shell.hook-grant' => true,
+        'shell.ssh-execution' => true,
+    ];
+
+    public function register(string ...$kinds): void
+    {
+        foreach ($kinds as $kind) {
+            if ($kind === '' || preg_match('/\A[a-z][a-z0-9]*(?:[.-][a-z][a-z0-9]*)*\z/D', $kind) !== 1) {
+                throw new \InvalidArgumentException("Invalid Planner resource kind [{$kind}].");
+            }
+
+            $this->kinds[$kind] = true;
+        }
+    }
+
     /** @return list<string> */
     public function all(): array
     {
-        return ['extension', 'webstream.private-source', 'webstream.route-policy', 'web.event-policy',
-            'schedule.notification', 'shell.hook-grant', 'shell.ssh-execution', 'email.submission-policy',
-            'email.runtime-policy', 'email.verification-profile', 'email.srs-policy', 'email.upstream',
-            'email.hosted-adapter', 'email.hosted-route', 'email.dkim-key', 'email.domain', 'email.alias',
-            'email.receiving-domain', 'email.receiving-route', 'email.receiving-settings',
-            'email.sending-domain', 'email.sending-route', 'email.delivery-status-hook'];
+        $kinds = array_keys($this->kinds);
+        sort($kinds);
+
+        return $kinds;
     }
 
     public function contains(string $kind): bool

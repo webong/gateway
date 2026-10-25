@@ -6,14 +6,15 @@ namespace Webong\Gateway\Schedules\Http;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use InvalidArgumentException;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
-use Webong\Gateway\Email\EmailDeliveryStatusDispatcher;
 use Webong\Gateway\Protocols\ScheduleCommand;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Schedules\NativeScheduleJobRegistry;
 use Webong\Gateway\Schedules\ScheduleStore;
 use Webong\Gateway\Schedules\ScheduleNotificationDispatcher;
 
@@ -25,7 +26,7 @@ final readonly class InternalScheduleController
         private AutomationLanguageRegistry $languages,
         private ScriptScheduleRegistrar $registrar,
         private ScheduleNotificationDispatcher $notifications,
-        private EmailDeliveryStatusDispatcher $emailDeliveryStatuses,
+        private NativeScheduleJobRegistry $nativeJobs,
     ) {}
 
     public function claim(Request $request): JsonResponse
@@ -35,17 +36,15 @@ final readonly class InternalScheduleController
         $data = $request->validate([
             'automation_languages' => ['sometimes', 'array', 'max:32'],
             'automation_languages.*' => ['required', 'string', 'regex:/^[a-z][a-z0-9_-]*$/'],
-            'native_jobs' => ['sometimes', 'array', 'max:1'],
-            'native_jobs.*' => ['required', 'in:imap'],
+            'native_jobs' => ['sometimes', 'array', 'max:32'],
+            'native_jobs.*' => ['required', Rule::in($this->nativeJobs->names())],
         ]);
         $available = array_values(array_filter(
             array_unique($data['automation_languages'] ?? []),
             fn (string $language): bool => $this->languages->supports($language, AutomationCapability::SCHEDULE)
                 && $this->languages->target($language) === AutomationExecutionTarget::SPINNER,
         ));
-        // Built-in jobs are created only by their owning Planner module. They
-        // share the scheduler's claim/lease loop but are never user scripts.
-        if (in_array('imap', $data['native_jobs'] ?? [], true)) { $available[] = 'native.imap'; }
+        $available = [...$available, ...$this->nativeJobs->languages($data['native_jobs'] ?? [])];
 
         return response()->json(['data' => $this->store->claim(languages: $available)]);
     }
@@ -96,7 +95,7 @@ final readonly class InternalScheduleController
 
         return response()->json([
             ...$this->notifications->dispatch(),
-            'email_delivery_status' => $this->emailDeliveryStatuses->dispatch(),
+            ...$this->nativeJobs->dispatchNotifications(),
         ]);
     }
 }
