@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
@@ -11,11 +11,15 @@ use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\HttpTransport;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\RegistryProtocolPlanner;
+use Webong\Gateway\Dns\DnsHookEventRecorder;
+use Webong\Gateway\Dns\DnsProtocolPlanner;
+use Webong\Gateway\Email\EmailProtocolPlanner;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
 use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\MailboxAccessGrant;
+use Webong\Gateway\Web\WebProtocolPlanner;
+use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
 use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;
 
 it('requires route opt-in for metadata-only uploads and idempotent retries', function (bool $upload, bool $enabled, string $key, int $status): void {
@@ -30,7 +34,7 @@ it('requires route opt-in for metadata-only uploads and idempotent retries', fun
         $policies->create(['host' => 'gateway.test', 'path' => '/events',
             'source' => 'https://source.test/events', 'upload' => true, 'retry' => true]);
     }
-    $planner = new RegistryProtocolPlanner($route, webstreamRoutePolicies: $policies);
+    $planner = new WebProtocolPlanner($route, app(WebstreamPrivateSourceStore::class), $policies);
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'request', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT, route: '/events', host: 'gateway.test', method: 'POST',
         headers: $key !== '' ? ['idempotency-key' => [$key]] : [], attributes: $upload ? ['upload_mode' => 'stream'] : [], payload: $upload ? '' : 'input',
@@ -58,7 +62,7 @@ it('does not route SMTP credentials through registry subscriptions', function ()
             throw new RuntimeException('AUTH was sent to the registry.');
         }
     };
-    $decision = (new RegistryProtocolPlanner($adapter))->planEvent(new GatewayEvent(
+    $decision = (new EmailProtocolPlanner($adapter))->planEvent(new GatewayEvent(
         id: 'smtp-auth-1',
         protocol: Protocol::SMTP,
         kind: EventKind::AUTHENTICATE,
@@ -85,7 +89,7 @@ it('uses a deployment-owned authenticator to grant exact SMTP senders', function
                 ? new EmailSubmissionGrant('account-123', ['sender@example.test']) : null;
         }
     };
-    $planner = new RegistryProtocolPlanner($adapter, submissionAuthenticator: $authenticator);
+    $planner = new EmailProtocolPlanner($adapter, submissionAuthenticator: $authenticator);
     $event = new GatewayEvent(
         id: 'smtp-auth-2',
         protocol: Protocol::SMTP,
@@ -126,13 +130,13 @@ it('keeps POP3 and IMAP credentials out of registry routes and accepts only conf
                 ? new MailboxAccessGrant('account-123', 'primary', 'upstream-alice', 'upstream-secret') : null;
         }
     };
-    $planner = new RegistryProtocolPlanner($routePlanner, mailboxAuthenticator: $authenticator);
+    $planner = new EmailProtocolPlanner($routePlanner, mailboxAuthenticator: $authenticator);
     foreach ([Protocol::POP3, Protocol::IMAP] as $protocol) {
         $event = new GatewayEvent(
             id: $protocol->value.'-auth-1', protocol: $protocol, kind: EventKind::AUTHENTICATE,
             route: 'alice@example.test', attributes: ['username' => 'alice@example.test', 'password' => 'secret'],
         );
-        $denied = (new RegistryProtocolPlanner($routePlanner))->planEvent($event);
+        $denied = (new EmailProtocolPlanner($routePlanner))->planEvent($event);
         $accepted = $planner->planEvent($event);
         $connected = $planner->planEvent(new GatewayEvent(
             id: $protocol->value.'-connect-1', protocol: $protocol, kind: EventKind::CONNECT, route: 'alice@example.test',
@@ -165,7 +169,7 @@ it('adapts a registry route plan to a protocol-neutral SMTP delivery decision', 
             );
         }
     };
-    $planner = new RegistryProtocolPlanner($adapter);
+    $planner = new EmailProtocolPlanner($adapter);
 
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'smtp-event-1',
@@ -210,7 +214,7 @@ it('preserves a DNS reply separately from asynchronous relays', function (): voi
             );
         }
     };
-    $planner = new RegistryProtocolPlanner($adapter);
+    $planner = new DnsProtocolPlanner($adapter, app(DnsHookEventRecorder::class));
 
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'dns-event-1',
@@ -232,7 +236,7 @@ it('preserves a DNS reply separately from asynchronous relays', function (): voi
 });
 
 it('turns an unmatched protocol route into an SMTP rejection', function (): void {
-    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+    $planner = new EmailProtocolPlanner(new class implements RoutePlanner {
         public function plan(IngressRequest $request): RoutePlan
         {
             return RoutePlan::passThrough();
@@ -252,7 +256,7 @@ it('turns an unmatched protocol route into an SMTP rejection', function (): void
 });
 
 it('uses the Proxy reply destination as the authorized Webstream source', function (string $resumeHeader): void {
-    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+    $planner = new WebProtocolPlanner(new class implements RoutePlanner {
         public function plan(IngressRequest $request): RoutePlan
         {
             return RoutePlan::relay(reply: new Delivery(
@@ -261,7 +265,7 @@ it('uses the Proxy reply destination as the authorized Webstream source', functi
                 transport: new HttpTransport(httpProxy: 'http://proxy.example.test:8080'),
             ));
         }
-    });
+    }, app(WebstreamPrivateSourceStore::class), app(WebstreamRoutePolicyStore::class));
 
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'stream-1',
@@ -280,13 +284,13 @@ it('uses the Proxy reply destination as the authorized Webstream source', functi
 })->with(['Last-Event-ID', 'Last-Event-Id', 'last-event-id']);
 
 it('authorizes POST stream bodies without forwarding client credentials', function (): void {
-    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+    $planner = new WebProtocolPlanner(new class implements RoutePlanner {
         public function plan(IngressRequest $request): RoutePlan
         {
             expect($request->method)->toBe('POST')->and($request->body)->toBe('{"input":"hello"}');
             return RoutePlan::relay(reply: new Delivery(url: 'https://events.example.test/stream'));
         }
-    });
+    }, app(WebstreamPrivateSourceStore::class), app(WebstreamRoutePolicyStore::class));
     $decision = $planner->planEvent(new GatewayEvent(
         id: 'post-stream', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT,
         method: 'POST', route: '/events', rawQuery: 'model=test',
@@ -300,12 +304,12 @@ it('authorizes POST stream bodies without forwarding client credentials', functi
 });
 
 it('rejects POST streams when the selected source requires GET', function (): void {
-    $planner = new RegistryProtocolPlanner(new class implements RoutePlanner {
+    $planner = new WebProtocolPlanner(new class implements RoutePlanner {
         public function plan(IngressRequest $request): RoutePlan
         {
             return RoutePlan::relay(reply: new Delivery(url: 'https://events.example.test/stream', method: 'GET'));
         }
-    });
+    }, app(WebstreamPrivateSourceStore::class), app(WebstreamRoutePolicyStore::class));
     $decision = $planner->planEvent(new GatewayEvent(id: 'post', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT, route: '/events', method: 'POST'));
     expect($decision->action)->toBe(GatewayAction::REJECT)->and($decision->statusCode)->toBe(405);
 });

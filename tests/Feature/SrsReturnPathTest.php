@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\QueryException;
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Email\SrsCodec;
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Protocols\EventKind;

@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\PathResolver;
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\PathResolver;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayEvent;

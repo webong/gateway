@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Protocols\EventKind;

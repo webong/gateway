@@ -20,12 +20,12 @@ fi
 
 mkdir -p "$(dirname -- "$OUTPUT")"
 STAGE=$(mktemp -d "${OUTPUT}.tmp.XXXXXX")
-mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/app" "$STAGE/src"
+mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/app" "$STAGE/mod" "$STAGE/pkg"
 
-cp -R "$REPO_DIR/src/planner" "$STAGE/src/"
-cp -R "$REPO_DIR/ext" "$STAGE/"
-mkdir -p "$STAGE/lib"
-cp -R "$REPO_DIR/lib/adapter" "$STAGE/lib/"
+cp -R "$REPO_DIR/mod/adapter" "$STAGE/mod/"
+for package in planner web dns email database centrifugo mercure reverb hookscript javascript lua php shell; do
+    cp -R "$REPO_DIR/pkg/$package" "$STAGE/pkg/"
+done
 cp "$REPO_DIR/composer.json" "$STAGE/"
 cp "$REPO_DIR/scripts/gateway-router" "$REPO_DIR/scripts/router-start" \
     "$REPO_DIR/scripts/router-artisan" "$STAGE/scripts/"
@@ -36,20 +36,22 @@ cp -R "$REPO_DIR/vendor" "$STAGE/"
 # staged package from this checkout so Planner edits cannot ship stale vendor
 # contents from an earlier composer install.
 if [ -d "$STAGE/vendor/webong/gateway" ]; then
-    mkdir -p "$STAGE/vendor/webong/gateway/lib"
-    cp -R "$REPO_DIR/lib/adapter" "$STAGE/vendor/webong/gateway/lib/"
+    mkdir -p "$STAGE/vendor/webong/gateway/mod"
+    cp -R "$REPO_DIR/mod/adapter" "$STAGE/vendor/webong/gateway/mod/"
     cp "$REPO_DIR/composer.json" "$STAGE/vendor/webong/gateway/composer.json"
 fi
-if [ -d "$STAGE/vendor/webong/gateway-planner" ]; then
-    rm -rf "$STAGE/vendor/webong/gateway-planner"
-    cp -R "$REPO_DIR/src/planner" "$STAGE/vendor/webong/gateway-planner"
-fi
+for package in gateway-planner web dns email database; do
+    source=$package
+    [ "$package" = gateway-planner ] && source=planner
+    rm -rf "$STAGE/vendor/webong/$package"
+    cp -R "$REPO_DIR/pkg/$source" "$STAGE/vendor/webong/$package"
+done
 cp "$APP_SOURCE/artisan" "$APP_SOURCE/Caddyfile" \
     "$APP_SOURCE/composer.json" "$APP_SOURCE/composer.lock" \
     "$APP_SOURCE/bootstrap.php" "$APP_SOURCE/config.php" "$APP_SOURCE/index.php" "$APP_SOURCE/commands.php" \
     "$APP_SOURCE/routes.php" "$APP_SOURCE/EndpointPathResolver.php" "$APP_TARGET/"
 
-GOTELEMETRY=off go -C "$REPO_DIR/pkg/roadrunner/cmd/router" build -mod=mod -o "$STAGE/bin/gateway-router-roadrunner" .
+GOTELEMETRY=off go -C "$REPO_DIR/pkg/roadrunner/cmd/router" build -o "$STAGE/bin/gateway-router-roadrunner" .
 if [ -n "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ]; then
     if [ ! -x "$GATEWAY_ROUTER_FRANKENPHP_BIN" ]; then
         echo "FrankenPHP binary is not executable: $GATEWAY_ROUTER_FRANKENPHP_BIN" >&2

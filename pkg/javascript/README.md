@@ -18,7 +18,7 @@ language as Spinner-executed with route and schedule capabilities:
 composer require webong/gateway-javascript
 ```
 
-The provider uses the shared PHP interfaces in `lib/adapter`; it does not
+The provider uses the shared PHP interfaces in `mod/adapter`; it does not
 import Planner implementation classes. Spinner still advertises the compiled
 engine at runtime, so installing only the companion package fails closed.
 

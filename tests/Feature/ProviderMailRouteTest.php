@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Email\EmailProviderRoute;
 use Webong\Gateway\Email\EmailProviderRouteResolver;
 use Webong\Gateway\Email\TxtResolver;

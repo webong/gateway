@@ -15,7 +15,11 @@
         "smuuf/primi": "^0.4",
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3",
+        "webong/database": "dev-main",
+        "webong/dns": "dev-main",
+        "webong/email": "dev-main",
         "webong/gateway-planner": "dev-main",
+        "webong/web": "dev-main",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
@@ -25,6 +29,26 @@
             "options": {
                 "symlink": true
             }
+        },
+        {
+            "type": "path",
+            "url": "pkg/web",
+            "options": {"symlink": true}
+        },
+        {
+            "type": "path",
+            "url": "pkg/dns",
+            "options": {"symlink": true}
+        },
+        {
+            "type": "path",
+            "url": "pkg/email",
+            "options": {"symlink": true}
+        },
+        {
+            "type": "path",
+            "url": "pkg/database",
+            "options": {"symlink": true}
         }
     ],
     "minimum-stability": "dev",

@@ -42,57 +42,6 @@ return [
         'allowed_hosts' => (string) env('GATEWAY_SCHEDULE_NOTIFICATION_ALLOWED_HOSTS', ''),
     ],
 
-    'email' => [
-        // MX-to-webhook delivery is separate from alias-to-SMTP forwarding.
-        'hook_client' => (string) env('GATEWAY_EMAIL_HOOK_CLIENT', 'gateway'),
-        'provider_route_resolver' => env('GATEWAY_EMAIL_PROVIDER_ROUTE_RESOLVER'),
-        // Exact operator-approved upstream IDs. Customer input selects IDs,
-        // never raw network addresses.
-        'oauth_refresher' => env('GATEWAY_EMAIL_OAUTH_REFRESHER', \Webong\Gateway\Email\ProviderMailboxOAuthRefresher::class),
-        // Host applications may register client-specific grant adapters here.
-        // Source records select an installed key; they cannot name arbitrary classes.
-        'credential_source_adapters' => [
-            'http' => \Webong\Gateway\Email\HttpApplicationMailboxGrantSource::class,
-            'script' => \Webong\Gateway\Email\ScriptedApplicationMailboxGrantSource::class,
-        ],
-        'oauth' => [
-            'callback_url' => env('GATEWAY_EMAIL_OAUTH_CALLBACK_URL'),
-            'google' => ['client_id' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_ID'),
-                'client_secret' => env('GATEWAY_EMAIL_GOOGLE_CLIENT_SECRET'),
-                'imap_upstream_id' => env('GATEWAY_EMAIL_GOOGLE_IMAP_UPSTREAM', 'google-imap'),
-                'smtp_upstream_id' => env('GATEWAY_EMAIL_GOOGLE_SMTP_UPSTREAM', 'google-smtp')],
-            'microsoft' => ['client_id' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_ID'),
-                'client_secret' => env('GATEWAY_EMAIL_MICROSOFT_CLIENT_SECRET'),
-                'tenant' => env('GATEWAY_EMAIL_MICROSOFT_TENANT', 'common'),
-                'imap_upstream_id' => env('GATEWAY_EMAIL_MICROSOFT_IMAP_UPSTREAM', 'microsoft-imap'),
-                'smtp_upstream_id' => env('GATEWAY_EMAIL_MICROSOFT_SMTP_UPSTREAM', 'microsoft-smtp')],
-        ],
-        // Optional deployment-owned scanner/abuse policy class. It is
-        // resolved by Planner, never selected by an SMTP client or domain.
-        'policy' => env('GATEWAY_EMAIL_POLICY'),
-        // Optional deployment-owned SMTP AUTH authority. It verifies the
-        // credential and returns exact sender grants; registry routes never
-        // receive AUTH passwords.
-        'submission_authenticator' => env('GATEWAY_EMAIL_SUBMISSION_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedSMTPAuthenticator::class),
-        // Verified operator-owned address used by opt-in shared sender routes.
-        'shared_from_address' => env('GATEWAY_EMAIL_SHARED_FROM_ADDRESS', ''),
-        // The generic relay has no provider DNS discovery API. Operators declare
-        // any SPF record their chosen adapter needs and enable DKIM resolution.
-        'managed_dkim_signing_enabled' => (bool) env('GATEWAY_EMAIL_MANAGED_DKIM_SIGNING_ENABLED', false),
-        'managed_dkim_selector' => env('GATEWAY_EMAIL_MANAGED_DKIM_SELECTOR', 'gateway1'),
-        'managed_spf_value' => env('GATEWAY_EMAIL_MANAGED_SPF_VALUE', ''),
-        // Optional deployment-owned POP3 credential authority. It returns a
-        // registered upstream ID, never a client-selected network address.
-        'mailbox_authenticator' => env('GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR', \Webong\Gateway\Email\ConnectedIMAPAuthenticator::class),
-        'hosted_allowed_hosts' => [],
-    ],
-
-    'events' => [
-        // Bounded Web ingress history is opt-in for high-volume deployments.
-        // Bodies are retained only when endpoint metadata explicitly opts in.
-        'max_body_bytes' => (int) env('GATEWAY_EVENTS_MAX_BODY_BYTES', 65536),
-    ],
-
     'automation' => [
         // Optional fallback for third-party Spinner extensions without a PHP
         // companion. Built-in extensions register through their providers,
@@ -124,17 +73,6 @@ return [
     'shell' => [
         // Separate operator approval for managing privileged local hooks.
         'subscription_token' => (string) env('GATEWAY_SHELL_SUBSCRIPTION_TOKEN', ''),
-    ],
-
-    'dns' => [
-        'client' => (string) env('GATEWAY_DNS_PROXY_CLIENT', 'gateway'),
-        'providers' => [
-            'cloudflare' => [
-                // Provider credentials remain deployment secrets; domains do not.
-                'token' => (string) env('GATEWAY_DNS_CLOUDFLARE_TOKEN', ''),
-                'base_url' => (string) env('GATEWAY_DNS_CLOUDFLARE_BASE_URL', 'https://api.cloudflare.com/client/v4'),
-            ],
-        ],
     ],
 
     // Gateway core owns the managed-server control-plane records. Configure

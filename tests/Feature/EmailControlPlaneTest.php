@@ -17,6 +17,7 @@ use Webong\Gateway\Email\VerificationRecordMissing;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
+use Webong\Gateway\Protocols\GatewayDecision;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\Protocol;
 
@@ -633,7 +634,8 @@ it('lets a trusted Email policy reject or defer a complete message before relay 
     expect($planner->planEvent($event)->action)->toBe(GatewayAction::SUBMIT);
 
     config()->set('gateway.email.policy', stdClass::class);
-    expect(fn (): ProtocolPlanner => app(ProtocolPlanner::class))->toThrow(RuntimeException::class, 'must implement EmailMessagePolicy');
+    expect(fn (): GatewayDecision => app(ProtocolPlanner::class)->planEvent($event))
+        ->toThrow(RuntimeException::class, 'must implement Webong\\Gateway\\Email\\EmailMessagePolicy');
 });
 
 it('assesses DMARC before managed forwarding and quarantines opted-in failures', function (): void {

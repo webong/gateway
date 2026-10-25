@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayDecision;

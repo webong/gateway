@@ -38,8 +38,12 @@ A worker that reconciles managed server workloads under Planner's assignment pol
 _Avoid_: Spinner node
 
 **Gateway Extension**:
-An installable package that contributes one or more Integration, Automation, or Companion capabilities to Gateway.
+An installable package that contributes Gateway behavior to one or both planes. An Extension may provide Spinner and Planner entrypoints and may also contribute Integration, Automation, or Companion capabilities.
 _Avoid_: Plugin, Integration when referring to the whole package
+
+**Planner Extension**:
+The Planner-side entrypoint of a Gateway Extension. It may contribute resource kinds, management routes, migrations, commands, and protocol policy while remaining part of the Extension's shared identity and version.
+_Avoid_: Product Module, Planner Plugin
 
 **Arranger**:
 The development interface through which an Extension declares and implements its Gateway capabilities without depending on a Gateway host.

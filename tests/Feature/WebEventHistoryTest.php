@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\IngressRequest;

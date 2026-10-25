@@ -15,6 +15,8 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 
 - [Gateway Router](router.md): run Spinner and the bundled Planner together,
   natively or in the optional FrankenPHP image.
+- [Gateway Extensions in Planner](planner-extensions.md): assemble Web, DNS,
+  Email, and Database Planner entrypoints without coupling them to Planner core.
 - [Distributed getting started](getting-started.md): install the Planner in a
   Laravel app and run a standalone Spinner.
 - [Deployment](deployment.md): run Spinner with a private Planner and TLS.

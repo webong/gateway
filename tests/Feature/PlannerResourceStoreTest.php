@@ -39,8 +39,9 @@ it('exposes only registered kind names and revision metadata through the authent
     $source = app(PlannerResourceStore::class)->create('webstream.private-source', 'http://internal.test:8080',
         ['cidrs' => ['10.42.0.0/16']]);
     $this->getJson('/configurations/kinds')->assertUnauthorized();
-    $this->withToken('registry-secret')->getJson('/configurations/kinds')
-        ->assertOk()->assertJsonPath('data.0', 'webstream.private-source');
+    $kinds = $this->withToken('registry-secret')->getJson('/configurations/kinds')
+        ->assertOk()->json('data');
+    expect($kinds)->toContain('webstream.private-source');
     $this->withToken('registry-secret')
         ->getJson('/configurations/webstream.private-source/'.$source->id.'/revisions')
         ->assertOk()->assertJsonPath('data.0.operation', 'created')

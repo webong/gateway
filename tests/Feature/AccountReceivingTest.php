@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Email\MxResolver;
 use Webong\Gateway\Email\VerificationRecordMissing;
-use Webong\Gateway\Contract\ProtocolPlanner;
+use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayEvent;

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "fe81580acc9ca603789a8da12d5460ef",
+    "content-hash": "a5683801c6f079196c34be09321b84b9",
     "packages": [
         {
             "name": "brick/math",
@@ -7221,6 +7221,40 @@
                 "source": "https://github.com/webong/proxy/tree/v0.2.0"
             },
             "time": "2026-10-22T10:42:07+00:00"
+        },
+        {
+            "name": "webong/web",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "pkg/web",
+                "reference": "f71e71457e11701e44f05a4f82c72a3c7e4d4937"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-planner": "dev-main"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Events\\": "src/Events/",
+                    "Webong\\Gateway\\Web\\": "src/",
+                    "Webong\\Gateway\\Webstream\\": "src/Webstream/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Planner entrypoint for Gateway's Web extension",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         }
     ],
     "packages-dev": [
@@ -12781,6 +12815,105 @@
             "time": "2026-10-05T23:14:19+00:00"
         },
         {
+            "name": "webong/database",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "pkg/database",
+                "reference": "526f2d683998f685e4a0350e94f623027288a81e"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-planner": "dev-main"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Database\\": "src/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Planner entrypoint for Gateway's Database extension",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/dns",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "pkg/dns",
+                "reference": "ce6a561789e537c8ffc11054e2822ccea6768dd0"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-planner": "dev-main",
+                "webong/proxy": "^0.2.0",
+                "webong/web": "dev-main"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Dns\\": "src/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Planner entrypoint for Gateway's DNS extension",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/email",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "pkg/email",
+                "reference": "907ac6b1d1b70638fa3447b6bb401e341d4466e9"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-planner": "dev-main",
+                "webong/proxy": "^0.2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Email\\": "src/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Planner entrypoint for Gateway's Email extension",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "wikimedia/composer-merge-plugin",
             "version": "v2.1.0",
             "source": {
@@ -12840,8 +12973,12 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
+        "webong/database": 20,
+        "webong/dns": 20,
+        "webong/email": 20,
         "webong/gateway": 20,
-        "webong/gateway-planner": 20
+        "webong/gateway-planner": 20,
+        "webong/web": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

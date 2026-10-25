@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
@@ -10,7 +10,8 @@ use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\RegistryProtocolPlanner;
+use Webong\Gateway\Web\WebProtocolPlanner;
+use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
 use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;
 
 it('manages exact Webstream upload and retry policies through Planner', function (): void {
@@ -41,7 +42,7 @@ it('enforces the stored route policy immediately and isolates other routes and s
             return RoutePlan::relay(reply: new Delivery(url: $this->source));
         }
     };
-    $planner = new RegistryProtocolPlanner($route, webstreamRoutePolicies: $store);
+    $planner = new WebProtocolPlanner($route, app(WebstreamPrivateSourceStore::class), $store);
     $event = static fn (string $path, bool $upload): GatewayEvent => new GatewayEvent(
         id: 'stream', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT,
         route: $path, host: 'gateway.test', method: 'POST',

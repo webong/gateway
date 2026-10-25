@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\Gateway\Contract\PathResolver;
+use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\PathBinding;
 

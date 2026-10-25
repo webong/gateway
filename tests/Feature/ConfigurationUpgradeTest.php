@@ -29,7 +29,7 @@ it('adds ownership fields to an existing generic configuration table without era
             'schema_version' => 1, 'enabled' => true, 'revision' => 1,
             'created_at' => now(), 'updated_at' => now(),
         ]);
-        $migration = require dirname(__DIR__, 2).'/src/planner/database/migrations/2026_10_19_000001_upgrade_configuration_ownership.php';
+        $migration = require dirname(__DIR__, 2).'/pkg/planner/src/database/migrations/2026_10_19_000001_upgrade_configuration_ownership.php';
         $migration->up();
         expect(Schema::hasColumn('configurations', 'owner'))->toBeTrue()
             ->and(Schema::hasColumn('configurations', 'parent_id'))->toBeTrue()

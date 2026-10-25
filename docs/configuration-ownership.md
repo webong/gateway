@@ -22,7 +22,7 @@ records such as schedules, servers, and subscriptions are not automatically
 flattened into configuration documents: they have their own transactional
 lifecycles and relationships.
 
-This audit covers active settings in `src/planner/config`, Spinner's config
+This audit covers active settings in `pkg/planner/config`, Spinner's config
 loader, and provisioning. Test and smoke variables are not product settings.
 
 For a fresh local setup, create the operator policies after migrations:

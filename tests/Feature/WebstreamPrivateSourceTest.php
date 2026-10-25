@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
@@ -10,8 +10,9 @@ use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\RegistryProtocolPlanner;
+use Webong\Gateway\Web\WebProtocolPlanner;
 use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
+use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;
 
 it('manages exact private Webstream source grants through the authenticated Planner API', function (): void {
     $input = ['origin' => 'http://events.internal:8080', 'cidrs' => ['10.42.1.0/24']];
@@ -49,7 +50,7 @@ it('carries only an active exact-origin grant in a trusted Webstream decision', 
             return RoutePlan::relay(reply: new Delivery(url: 'http://events.internal:8080/events'));
         }
     };
-    $planner = new RegistryProtocolPlanner($route, webstreamPrivateSources: $store);
+    $planner = new WebProtocolPlanner($route, $store, app(WebstreamRoutePolicyStore::class));
     $event = new GatewayEvent(id: 'stream', protocol: Protocol::WEBSTREAM, kind: EventKind::CONNECT,
         route: '/events', host: 'gateway.test', method: 'GET');
     $decision = $planner->planEvent($event);

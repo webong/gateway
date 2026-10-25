@@ -7,6 +7,7 @@ use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Planning\RoutePlanObserverRegistry;
 use Webong\Gateway\Protocols\Automation;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;
@@ -52,7 +53,7 @@ it('requires Spinner to advertise an installed Go language', function (): void {
         AutomationExecutionTarget::SPINNER,
         AutomationCapability::ROUTE,
     );
-    $guarded = new CapabilityAwareRoutePlanner($planner, $languages);
+    $guarded = new CapabilityAwareRoutePlanner($planner, $languages, new RoutePlanObserverRegistry);
 
     $request = new IngressRequest(
         deliveryId: 'delivery-1',
@@ -95,7 +96,11 @@ it('requires a Planner extension to consume its own language before the bridge',
         AutomationCapability::ROUTE,
     );
 
-    expect(fn () => (new CapabilityAwareRoutePlanner($planner, $languages))->plan(new IngressRequest(
+    expect(fn () => (new CapabilityAwareRoutePlanner(
+        $planner,
+        $languages,
+        new RoutePlanObserverRegistry,
+    ))->plan(new IngressRequest(
         deliveryId: 'delivery-1',
         method: 'POST',
         host: 'hooks.example.test',
@@ -120,6 +125,7 @@ it('fails closed when a planner selects a language without route capability', fu
     $guarded = new CapabilityAwareRoutePlanner(
         planner: $planner,
         languages: new InMemoryAutomationLanguageRegistry,
+        observers: new RoutePlanObserverRegistry,
     );
     $request = new IngressRequest(
         deliveryId: 'delivery-1',

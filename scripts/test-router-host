@@ -10,7 +10,10 @@ export SESSION_DRIVER=array
 export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
 cd "$ROOT"
 
+touch "$DB_DATABASE"
 php app/artisan package:discover --no-ansi
+php app/artisan migrate --realpath --path="$ROOT/vendor/webong/proxy/database/migrations" --force --no-ansi
+php app/artisan migrate --force --no-ansi
 check_host() {
     php <<'PHP'
 <?php
@@ -27,11 +30,11 @@ $check($app->providerIsLoaded(Webong\Proxy\WebProxyServiceProvider::class), 'Pro
 $check($app->providerIsLoaded(Webong\Gateway\GatewayServiceProvider::class), 'Planner provider missing');
 $check($app->providerIsLoaded(Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider::class), 'JavaScript companion not discovered');
 $check($app->providerIsLoaded(Webong\Gateway\Lua\LuaExtensionServiceProvider::class), 'Lua companion not discovered');
-$check($app->providerIsLoaded(Webong\Gateway\WebhookScript\WebhookScriptExtensionServiceProvider::class), 'WebhookScript extension not discovered');
-$languages = $app->make(Webong\Gateway\Contract\AutomationLanguageRegistry::class);
-$check($languages->target('javascript') === Webong\Gateway\Contract\AutomationExecutionTarget::SPINNER, 'JavaScript companion target missing');
-$check($languages->target('lua') === Webong\Gateway\Contract\AutomationExecutionTarget::SPINNER, 'Lua companion target missing');
-$check($languages->target('webhookscript') === Webong\Gateway\Contract\AutomationExecutionTarget::PLANNER, 'WebhookScript companion target missing');
+$check($app->providerIsLoaded(Webong\Gateway\HookScript\HookScriptExtensionServiceProvider::class), 'HookScript extension not discovered');
+$languages = $app->make(Webong\Gateway\Contracts\AutomationLanguageRegistry::class);
+$check($languages->target('javascript') === Webong\Gateway\Contracts\AutomationExecutionTarget::SPINNER, 'JavaScript companion target missing');
+$check($languages->target('lua') === Webong\Gateway\Contracts\AutomationExecutionTarget::SPINNER, 'Lua companion target missing');
+$check($languages->target('webhookscript') === Webong\Gateway\Contracts\AutomationExecutionTarget::SPINNER, 'HookScript automation target missing');
 $check($app->make(Illuminate\Foundation\PackageManifest::class)->vendorPath === getcwd().'/vendor', 'Discovery uses wrong vendor directory');
 $check(class_exists(Gateway\Router\EndpointPathResolver::class), 'Host namespace not autoloadable');
 $kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);

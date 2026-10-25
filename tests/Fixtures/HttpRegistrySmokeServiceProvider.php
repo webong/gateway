@@ -8,7 +8,9 @@ use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\ServiceProvider;
 use ReflectionClass;
 use Webong\Gateway\Email\TxtResolver;
+use Webong\Gateway\Email\EmailServiceProvider;
 use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Web\WebServiceProvider;
 use Webong\Proxy\WebProxyServiceProvider;
 use Webong\Gateway\Tests\Support\TestRouter;
 
@@ -69,5 +71,9 @@ final class HttpRegistrySmokeServiceProvider extends ServiceProvider
         $gatewayProvider = new ReflectionClass(GatewayServiceProvider::class);
         $migrator->run(dirname((string) $gatewayProvider->getFileName()).'/database/migrations');
 
+        foreach ([WebServiceProvider::class, EmailServiceProvider::class] as $extensionProvider) {
+            $provider = new ReflectionClass($extensionProvider);
+            $migrator->run(dirname((string) $provider->getFileName()).'/../database/migrations');
+        }
     }
 }

@@ -68,7 +68,11 @@ The monorepo publishes separate Composer packages:
 
 - `webong/gateway` contains the framework-free contracts and protocol values in
   `mod/adapter/src/`.
-- `webong/gateway-planner` contains the Laravel Planner in `src/planner/`,
+- `webong/gateway-planner` contains the Laravel Planner core in `pkg/planner/`.
+- `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are Gateway
+  Extensions with Planner entrypoints. They own their resource kinds, routes,
+  migrations, commands, and protocol policy and register through the shared
+  extension-provider contract.
   including configuration, migrations, and its service provider.
 - `webong/gateway-*` extension packages own their sources, dependencies, and
   discovery metadata. An extension may contribute one or more Integration,
@@ -122,12 +126,12 @@ unaffected by these root archive rules.
 - `pkg/caddy` is the optional FrankenPHP/Caddy runtime adapter.
 - `pkg/spinner/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
-- `src/planner` is the PHP Planner package source tree.
+- `pkg/planner` is the PHP Planner core package source tree.
 - `app/` is the thin PHP host for the bundled Planner, not a conventional
   Laravel application skeleton.
-- `src/planner/config/` contains the Laravel Planner package configuration;
+- `pkg/planner/config/` contains the Laravel Planner core configuration;
   `infra/caddy/` holds Caddy examples used by integration builds.
-- `src/planner/Servers`, `src/planner/Reconciliation`, `src/planner/database/migrations`, and
+- `pkg/planner/src/Servers`, `pkg/planner/src/Reconciliation`, `pkg/planner/src/database/migrations`, and
   `pkg/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
   state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
@@ -165,7 +169,7 @@ address. The standalone image contains no Planner application.
 ## Choose a Spinner host runtime
 
 Install the package dependencies in the Laravel application and configure a
-class implementing `Webong\Gateway\Contract\RoutePlanner`, or configure the
+class implementing `Webong\Gateway\Contracts\RoutePlanner`, or configure the
 bundled registry planner and a `PathResolver`. Then choose one of these modes:
 
 - `http` keeps Laravel independently hosted by PHP-FPM, an HTTP server,
@@ -1018,7 +1022,7 @@ bash scripts/http-smoke.sh
 ## PHP control plane
 
 The Laravel side can either implement
-`Webong\Gateway\Contract\RoutePlanner` directly and configure it as
+`Webong\Gateway\Contracts\RoutePlanner` directly and configure it as
 `GATEWAY_PLANNER`, or use the bundled `RegistryRoutePlanner` with a
 `PathResolver` configured as `GATEWAY_PATH_RESOLVER`.
 
@@ -1045,7 +1049,7 @@ identifier is carried across the bridge.
 ### Custom route planner
 
 ```php
-use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocol\Delivery;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\RoutePlan;
@@ -1073,7 +1077,7 @@ An application-owned path resolver can look up any path shape, for example
 the Go service:
 
 ```php
-use Webong\Gateway\Contract\PathResolver;
+use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Protocol\IngressRequest;
 use Webong\Gateway\Protocol\PathBinding;
 
@@ -1114,7 +1118,7 @@ headers or body fields. Implement `CacheablePathResolver` and return a key
 containing every request attribute that can change its result:
 
 ```php
-use Webong\Gateway\Contract\CacheablePathResolver;
+use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Protocol\IngressRequest;
 
 final class ApplicationPathResolver implements CacheablePathResolver

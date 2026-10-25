@@ -8,8 +8,12 @@
         "laravel/framework": "^12.0",
         "laravel/octane": "^2.17",
         "spiral/roadrunner-http": "^3.3",
+        "webong/database": "dev-main",
+        "webong/dns": "dev-main",
+        "webong/email": "dev-main",
         "webong/gateway": "dev-main",
         "webong/gateway-planner": "dev-main",
+        "webong/web": "dev-main",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
@@ -21,6 +25,26 @@
         {
             "type": "path",
             "url": "../pkg/planner",
+            "options": { "symlink": false }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/web",
+            "options": { "symlink": false }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/dns",
+            "options": { "symlink": false }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/email",
+            "options": { "symlink": false }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/database",
             "options": { "symlink": false }
         }
     ],

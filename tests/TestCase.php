@@ -9,7 +9,9 @@ use ReflectionClass;
 use Spatie\WebhookClient\WebhookClientServiceProvider;
 use Spatie\WebhookServer\WebhookServerServiceProvider;
 use Webong\Proxy\WebProxyServiceProvider;
+use Webong\Gateway\Email\EmailServiceProvider;
 use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Web\WebServiceProvider;
 
 abstract class TestCase extends Orchestra
 {
@@ -82,6 +84,11 @@ abstract class TestCase extends Orchestra
     {
         $gatewayProvider = new ReflectionClass(GatewayServiceProvider::class);
         $this->loadMigrationsFrom(dirname((string) $gatewayProvider->getFileName()).'/database/migrations');
+
+        foreach ([WebServiceProvider::class, EmailServiceProvider::class] as $extensionProvider) {
+            $provider = new ReflectionClass($extensionProvider);
+            $this->loadMigrationsFrom(dirname((string) $provider->getFileName()).'/../database/migrations');
+        }
 
         $provider = new ReflectionClass(WebProxyServiceProvider::class);
         $this->loadMigrationsFrom(dirname((string) $provider->getFileName(), 2).'/database/migrations');

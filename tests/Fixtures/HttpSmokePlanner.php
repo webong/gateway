@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Tests\Fixtures;
 
-use Webong\Gateway\Contract\RoutePlanner;
+use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\Response;

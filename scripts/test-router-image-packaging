@@ -74,9 +74,11 @@ php -r '
     $root = $argv[1];
     $manifest = json_decode(file_get_contents($root."/app/composer.json"), true, flags: JSON_THROW_ON_ERROR);
     $repositories = array_column($manifest["repositories"] ?? [], "url");
-    if (! in_array("../pkg/planner", $repositories, true)) {
-        fwrite(STDERR, "Planner host must load webong/gateway-planner from ../pkg/planner.\n");
-        exit(1);
+    foreach (["planner", "web", "dns", "email", "database"] as $directory) {
+        if (! in_array("../pkg/".$directory, $repositories, true)) {
+            fwrite(STDERR, "Planner host is missing the local package repository [".$directory."].\n");
+            exit(1);
+        }
     }
     $includes = $manifest["extra"]["merge-plugin"]["include"] ?? [];
     if (in_array("../pkg/*/composer.json", $includes, true) || in_array("../pkg/planner/composer.json", $includes, true)) {
@@ -85,7 +87,13 @@ php -r '
     }
     $lock = json_decode(file_get_contents($root."/app/composer.lock"), true, flags: JSON_THROW_ON_ERROR);
     $coreFound = false;
-    $plannerFound = false;
+    $localPackages = [
+        "webong/gateway-planner" => "../pkg/planner",
+        "webong/web" => "../pkg/web",
+        "webong/dns" => "../pkg/dns",
+        "webong/email" => "../pkg/email",
+        "webong/database" => "../pkg/database",
+    ];
     foreach ($lock["packages"] ?? [] as $package) {
         if (($package["name"] ?? null) === "webong/gateway") {
             $autoload = $package["autoload"]["psr-4"] ?? [];
@@ -97,15 +105,16 @@ php -r '
             }
             $coreFound = true;
         }
-        if (($package["name"] ?? null) === "webong/gateway-planner") {
-            if (($package["dist"]["url"] ?? null) !== "../pkg/planner") {
-                fwrite(STDERR, "Locked Planner path does not match app/composer.json.\n");
+        $name = $package["name"] ?? null;
+        if (is_string($name) && isset($localPackages[$name])) {
+            if (($package["dist"]["url"] ?? null) !== $localPackages[$name]) {
+                fwrite(STDERR, "Locked package path for [".$name."] does not match app/composer.json.\n");
                 exit(1);
             }
-            $plannerFound = true;
+            unset($localPackages[$name]);
         }
     }
-    if (! $coreFound || ! $plannerFound) {
+    if (! $coreFound || $localPackages !== []) {
         fwrite(STDERR, "app/composer.lock is missing a required local Gateway package.\n");
         exit(1);
     }

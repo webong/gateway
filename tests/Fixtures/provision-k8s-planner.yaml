@@ -20,7 +20,7 @@ spec:
           args:
             - >-
               touch /tmp/registry.sqlite &&
-              php artisan migrate --realpath --path=/app/src/planner/database/migrations --force &&
+              php artisan migrate --force &&
               exec php -S 0.0.0.0:8080 -t public public/index.php
           envFrom:
             - secretRef:
