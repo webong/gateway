@@ -19,8 +19,11 @@ use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
 use Webong\Gateway\Companion\ExtensionArtifactInstaller;
 use Webong\Gateway\Companion\ExtensionArtifactReconciler;
 use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
+use Webong\Gateway\Companion\ExtensionSecretStore;
 use Webong\Gateway\Companion\Http\CompanionExtensionController;
+use Webong\Gateway\Companion\Http\ExtensionSecretController;
 use Webong\Gateway\Companion\Http\InternalExtensionDistributionController;
+use Webong\Gateway\Companion\Http\InternalExtensionSecretController;
 use Webong\Gateway\Companion\Http\InternalCompanionActionController;
 use Webong\Gateway\Companion\PruneCompanionActionExecutionsCommand;
 use Webong\Gateway\Companion\RegisteredCompanionActions;
@@ -97,6 +100,7 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->singleton(CompanionArtifactReconciler::class);
         $this->app->singleton(CompanionActionExecutionStore::class);
         $this->app->singleton(ExtensionRuntimeConfigurationRegistry::class);
+        $this->app->singleton(ExtensionSecretStore::class);
 
         foreach (ExtensionProviderRegistry::providers() as $provider) {
             $this->app->register($provider);
@@ -245,6 +249,8 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/_internal/gateway/companion-actions', [InternalCompanionActionController::class, 'index']);
             $this->app['router']->post('/_internal/gateway/companion-actions/{action}/executions', [InternalCompanionActionController::class, 'execute']);
             $this->app['router']->get('/_internal/gateway/extensions', InternalExtensionDistributionController::class);
+            $this->app['router']->get('/_internal/gateway/extensions/{identity}/secrets/{reference}', InternalExtensionSecretController::class)
+                ->where('identity', '.+');
             $this->app['router']->post('/_internal/gateway/schedules/claim', [InternalScheduleController::class, 'claim']);
             $this->app['router']->post('/_internal/gateway/schedule-runs/{run}/complete', [InternalScheduleController::class, 'complete']);
             $this->app['router']->post('/_internal/gateway/schedules/register', [InternalScheduleController::class, 'register']);
@@ -290,6 +296,9 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/extensions/{extension}', [CompanionExtensionController::class, 'show']);
             $this->app['router']->put('/extensions/{extension}', [CompanionExtensionController::class, 'replace']);
             $this->app['router']->delete('/extensions/{extension}', [CompanionExtensionController::class, 'destroy']);
+            $this->app['router']->get('/extensions/{extension}/secrets', [ExtensionSecretController::class, 'index']);
+            $this->app['router']->put('/extensions/{extension}/secrets/{reference}', [ExtensionSecretController::class, 'put']);
+            $this->app['router']->delete('/extensions/{extension}/secrets/{reference}', [ExtensionSecretController::class, 'destroy']);
             $this->app['router']->get('/shell/hook-grants', [ShellHookGrantController::class, 'index']);
             $this->app['router']->post('/shell/hook-grants', [ShellHookGrantController::class, 'store']);
             $this->app['router']->get('/shell/hook-grants/{grant}', [ShellHookGrantController::class, 'show']);
