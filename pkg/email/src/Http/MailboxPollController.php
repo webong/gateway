@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Webong\Gateway\Accounts\AccountStore;
+use Webong\Gateway\Email\MailboxPollConflict;
 use Webong\Gateway\Email\MailboxPollStore;
 
 final readonly class MailboxPollController
@@ -28,6 +29,7 @@ final readonly class MailboxPollController
         if ($denied = $this->authorize($request, $account)) { return $denied; }
         $existing = $this->polls->find($account, $connection);
         try { $row = $this->polls->configure($account, $connection, $request->json()->all()); }
+        catch (MailboxPollConflict $exception) { return $this->error($exception->getMessage(), 409); }
         catch (InvalidArgumentException $exception) { return $this->error($exception->getMessage(), 422); }
         return $row === null ? $this->error('Mailbox connection not found.', 404)
             : $this->present($row, $existing === null ? 201 : 200);
@@ -39,6 +41,25 @@ final readonly class MailboxPollController
         return $this->polls->delete($account, $connection)
             ? response()->json(['deleted' => true])->header('Cache-Control', 'no-store')
             : $this->error('Mailbox poll not found.', 404);
+    }
+
+    public function resetToCurrent(Request $request, string $account, string $connection): JsonResponse
+    {
+        if ($denied = $this->authorize($request, $account)) { return $denied; }
+        $key = $request->header('Idempotency-Key');
+        if (! is_string($key) || preg_match('/\A[A-Za-z0-9._:-]{1,128}\z/D', $key) !== 1) {
+            return $this->error('A valid Idempotency-Key header is required.', 422);
+        }
+        try { $reset = $this->polls->resetToCurrent($account, $connection, $key); }
+        catch (MailboxPollConflict $exception) { return $this->error($exception->getMessage(), 409); }
+        catch (InvalidArgumentException $exception) { return $this->error($exception->getMessage(), 422); }
+        if ($reset === null) { return $this->error('Mailbox poll not found.', 404); }
+        return response()->json([
+            'route_id' => $reset['route_id'],
+            'run_id' => $reset['run']->id,
+            'baseline_pending' => $reset['baseline_pending'],
+            'enabled' => $reset['enabled'],
+        ], 202)->header('Cache-Control', 'no-store');
     }
 
     private function present(object $row, int $status = 200): JsonResponse
@@ -59,6 +80,7 @@ final readonly class MailboxPollController
         };
         return response()->json(['route_id' => $row->id, 'connection_id' => $row->document['connection_id'],
             'callback_url' => $row->document['callback_url'], 'enabled' => $row->enabled,
+            'initial_sync' => $row->document['initial_sync'] ?? 'new',
             'cursor' => $checkpoint === null ? null : json_decode($checkpoint->cursor, true),
             'status' => ['state' => $state, 'last_run_at' => $this->utc($latest?->created_at),
                 'last_success_at' => $this->utc($success?->completed_at),

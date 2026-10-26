@@ -17,7 +17,8 @@ final readonly class InternalMailboxPollController
     public function claim(Request $request, string $poll): JsonResponse
     {
         $this->auth->authorizeOrHide($request);
-        try { $claim = $this->polls->claim($poll); }
+        $input = $request->validate(['action' => ['sometimes', 'string', 'in:poll,baseline']]);
+        try { $claim = $this->polls->claim($poll, $input['action'] ?? 'poll'); }
         catch (Throwable) { return response()->json(['message' => 'Poll credential unavailable.'], 503)->header('Cache-Control', 'no-store'); }
         return $claim === null ? response()->json(['message' => 'Poll is unavailable.'], 409)
             : response()->json($claim)->header('Cache-Control', 'no-store');
@@ -30,6 +31,15 @@ final readonly class InternalMailboxPollController
             'uid_validity' => ['required', 'integer', 'min:1'], 'uid' => ['required', 'integer', 'min:1']]);
         return $this->polls->acknowledge($poll, $input['lease_token'], $input['uid_validity'], $input['uid'])
             ? response()->json(['acknowledged' => true]) : response()->json(['message' => 'Poll lease is stale.'], 409);
+    }
+
+    public function baseline(Request $request, string $poll): JsonResponse
+    {
+        $this->auth->authorizeOrHide($request);
+        $input = $request->validate(['lease_token' => ['required', 'uuid'],
+            'uid_validity' => ['required', 'integer', 'min:1'], 'uid' => ['required', 'integer', 'min:0']]);
+        return $this->polls->baseline($poll, $input['lease_token'], $input['uid_validity'], $input['uid'])
+            ? response()->json(['baselined' => true]) : response()->json(['message' => 'Poll lease is stale.'], 409);
     }
 
     public function release(Request $request, string $poll): JsonResponse

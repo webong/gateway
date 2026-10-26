@@ -40,6 +40,7 @@ Route::post('/_internal/gateway/email/outbound-attempts/{delivery}/reserve', [Ou
 Route::get('/_internal/gateway/email/dkim/{domain}', InternalDkimKeyController::class);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
+Route::post('/_internal/gateway/mailbox-polls/{poll}/baseline', [InternalMailboxPollController::class, 'baseline']);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);
 Route::get('/_internal/gateway/extensions/webong/email/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
 Route::get('/_internal/gateway/extensions/webong/email/hosted-adapters/{name}', InternalHostedMailAdapterController::class);
@@ -49,6 +50,7 @@ Route::post('/_internal/gateway/extensions/webong/email/outbound-attempts/{deliv
 Route::get('/_internal/gateway/extensions/webong/email/dkim/{domain}', InternalDkimKeyController::class);
 Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
 Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
+Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/baseline', [InternalMailboxPollController::class, 'baseline']);
 Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);
 Route::post('/_internal/gateway/worker-ingress/{route}/authorize', [InternalWorkerIngressController::class, 'authorize']);
 
@@ -183,6 +185,7 @@ Route::delete($accounts.'/imap-connections/{connection}', [ImapConnectionControl
 Route::get($accounts.'/imap-connections/{connection}/polling', [MailboxPollController::class, 'show']);
 Route::put($accounts.'/imap-connections/{connection}/polling', [MailboxPollController::class, 'put']);
 Route::delete($accounts.'/imap-connections/{connection}/polling', [MailboxPollController::class, 'delete']);
+Route::post($accounts.'/imap-connections/{connection}/polling/reset-to-current', [MailboxPollController::class, 'resetToCurrent']);
 
 Route::get($accounts.'/connections', [MailboxConnectionController::class, 'index']);
 Route::post($accounts.'/connections', [MailboxConnectionController::class, 'create']);
@@ -194,6 +197,7 @@ Route::delete($accounts.'/connections/{connection}', [MailboxConnectionControlle
 Route::get($accounts.'/connections/{connection}/polling', [MailboxPollController::class, 'show']);
 Route::put($accounts.'/connections/{connection}/polling', [MailboxPollController::class, 'put']);
 Route::delete($accounts.'/connections/{connection}/polling', [MailboxPollController::class, 'delete']);
+Route::post($accounts.'/connections/{connection}/polling/reset-to-current', [MailboxPollController::class, 'resetToCurrent']);
 Route::get($accounts.'/credential-sources', [MailboxCredentialSourceController::class, 'index']);
 Route::post($accounts.'/credential-sources', [MailboxCredentialSourceController::class, 'create']);
 Route::put($accounts.'/credential-sources/{source}', [MailboxCredentialSourceController::class, 'replace']);
