@@ -82,6 +82,87 @@ it('installs and activates a combined HookScript package after Planner has start
     }
 });
 
+it('installs a public release artifact through an HTTPS CDN redirect', function (): void {
+    $store = sys_get_temp_dir().'/gateway-planner-ext-store-'.bin2hex(random_bytes(6));
+    $generations = sys_get_temp_dir().'/gateway-planner-ext-generations-'.bin2hex(random_bytes(6));
+    [$archive, $cleanup] = hookScriptDistributionArchive();
+    $url = 'https://github.com/webong/gateway/releases/download/v1.0.0/webong-hookscript-1.0.0.tar.gz';
+    $cdn = 'https://release-assets.githubusercontent.com/github-production-release-asset/example';
+    Http::fake([
+        $url => Http::response('', 302, ['Location' => $cdn]),
+        $cdn => Http::response($archive, 200),
+    ]);
+    config()->set('gateway.companion_actions.plugin_dir', $store);
+    config()->set('gateway.companion_actions.generation_root', $generations);
+
+    try {
+        $this->withToken('registry-secret')->postJson('/extensions', [
+            'extension' => 'webong/hookscript',
+            'enabled' => true,
+            'mode' => 'dynamic',
+            'version' => '1.0.0',
+            'artifact' => ['url' => $url, 'sha256' => hash('sha256', $archive)],
+        ])->assertCreated();
+
+        app()->forgetInstance(CompanionActionRegistry::class);
+        app()->forgetInstance(RegisteredCompanionActions::class);
+        app()->forgetInstance(ExtCompanionPackageCatalog::class);
+        app()->forgetInstance(ExtensionArtifactInstaller::class);
+        app()->forgetInstance(CompanionArtifactReconciler::class);
+
+        $this->withHeader('X-Gateway-Internal', 'internal-secret')
+            ->getJson('/_internal/gateway/companion-actions')
+            ->assertOk()
+            ->assertJsonPath('actions.0.name', 'gateway.hookscript.execute');
+
+        Http::assertSent(fn ($request): bool => $request->url() === $url);
+        Http::assertSent(fn ($request): bool => $request->url() === $cdn);
+        expect(is_dir($store.'/webong%2fhookscript'))->toBeTrue();
+    } finally {
+        $cleanup();
+        removeDistributionDirectory($store);
+        removeDistributionDirectory($generations);
+    }
+});
+
+it('rejects an extension artifact redirect from HTTPS to HTTP', function (): void {
+    $store = sys_get_temp_dir().'/gateway-planner-ext-store-'.bin2hex(random_bytes(6));
+    [$archive, $cleanup] = hookScriptDistributionArchive();
+    $url = 'https://github.com/webong/gateway/releases/download/v1.0.0/webong-hookscript-1.0.0.tar.gz';
+    Http::fake([
+        $url => Http::response('', 302, ['Location' => 'http://artifact.example.test/package.tar.gz']),
+    ]);
+    config()->set('gateway.companion_actions.plugin_dir', $store);
+
+    try {
+        $this->withToken('registry-secret')->postJson('/extensions', [
+            'extension' => 'webong/hookscript',
+            'enabled' => true,
+            'mode' => 'dynamic',
+            'version' => '1.0.0',
+            'artifact' => ['url' => $url, 'sha256' => hash('sha256', $archive)],
+        ])->assertCreated();
+
+        foreach ([
+            CompanionActionRegistry::class,
+            RegisteredCompanionActions::class,
+            ExtCompanionPackageCatalog::class,
+            ExtensionArtifactInstaller::class,
+            CompanionArtifactReconciler::class,
+        ] as $binding) {
+            app()->forgetInstance($binding);
+        }
+
+        $this->withHeader('X-Gateway-Internal', 'internal-secret')
+            ->getJson('/_internal/gateway/companion-actions')
+            ->assertServiceUnavailable();
+        expect(is_dir($store.'/webong%2fhookscript'))->toBeFalse();
+    } finally {
+        $cleanup();
+        removeDistributionDirectory($store);
+    }
+});
+
 it('fails closed before Planner discovers a package with the wrong artifact digest', function (): void {
     $store = sys_get_temp_dir().'/gateway-planner-ext-store-'.bin2hex(random_bytes(6));
     $url = 'https://extensions.example.test/tampered.tar.gz';

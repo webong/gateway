@@ -39,7 +39,15 @@ final readonly class ExtensionArtifactInstaller
             }
         }
 
-        $response = $this->http->timeout(60)->withOptions(['allow_redirects' => false])->get($artifact['url']);
+        // Public release asset hosts may redirect to a CDN. Keep that flow
+        // bounded and TLS-only; the archive digest below pins the bytes.
+        $response = $this->http->timeout(60)->withOptions([
+            'allow_redirects' => [
+                'max' => 5,
+                'protocols' => ['https'],
+                'referer' => false,
+            ],
+        ])->get($artifact['url']);
         if (! $response->successful()) {
             throw new RuntimeException('Unable to download the desired Gateway extension artifact.');
         }
