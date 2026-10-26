@@ -420,8 +420,14 @@ it('exposes managed-zone query history and usage through the same observation in
 });
 
 it('automates Cloudflare subdomain delegation and removes only provider-created records', function (): void {
-    config()->set('gateway.dns.provisioners.cloudflare.token', 'cloudflare-secret');
     config()->set('gateway.dns.provisioners.cloudflare.base_url', 'https://cloudflare.test/client/v4');
+    $extension = $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'webong/dns', 'enabled' => true,
+    ])->assertCreated()->json();
+    $this->withToken('registry-secret')->putJson(
+        'https://localhost/extensions/'.$extension['id'].'/secrets/cloudflare-primary',
+        ['value' => ['api_token' => 'cloudflare-secret']],
+    )->assertCreated();
     $recordLookups = 0;
     Http::fake([
         'https://cloudflare.test/client/v4/zones?*' => Http::response([
@@ -448,19 +454,44 @@ it('automates Cloudflare subdomain delegation and removes only provider-created 
     $zone = $this->withToken('registry-secret')->postJson('/dns/zones', [
         'name' => 'hooks.customer.test',
         'provisioner' => 'cloudflare',
+        'provisioner_options' => ['credential_ref' => 'cloudflare-primary'],
         'nameservers' => ['ns1.gateway.test', 'ns2.gateway.test'],
         'ttl' => 300,
     ])->assertCreated()
         ->assertJsonPath('status', 'active')
-        ->assertJsonPath('provisioner', 'cloudflare');
+        ->assertJsonPath('provisioner', 'cloudflare')
+        ->assertDontSee('cloudflare-secret');
 
     Http::assertSentCount(5);
+    $this->withToken('registry-secret')->withHeader('If-Match', '"1"')->putJson(
+        'https://localhost/extensions/'.$extension['id'].'/secrets/cloudflare-primary',
+        ['value' => ['api_token' => 'rotated-cloudflare-secret']],
+    )->assertOk()->assertJsonPath('version', 2);
     $reconciled = $this->withToken('registry-secret')->withHeader('If-Match', $zone->headers->get('ETag'))
         ->postJson('/dns/zones/'.$zone->json('id').'/provision')->assertOk();
     Http::assertSentCount(8);
     $this->withToken('registry-secret')->withHeader('If-Match', $reconciled->headers->get('ETag'))
         ->deleteJson('/dns/zones/'.$zone->json('id'))->assertNoContent();
     Http::assertSentCount(10);
+    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer cloudflare-secret'));
+    Http::assertSent(fn ($request): bool => $request->hasHeader('Authorization', 'Bearer rotated-cloudflare-secret'));
+});
+
+it('fails Cloudflare provisioning closed without its identity-scoped secret', function (): void {
+    $this->withToken('registry-secret')->postJson('/extensions', [
+        'extension' => 'webong/dns', 'enabled' => true,
+    ])->assertCreated();
+
+    $this->withToken('registry-secret')->postJson('/dns/zones', [
+        'name' => 'hooks.customer.test',
+        'provisioner' => 'cloudflare',
+        'provisioner_options' => ['credential_ref' => 'missing-cloudflare'],
+        'nameservers' => ['ns1.gateway.test'],
+    ])->assertStatus(502)
+        ->assertJsonPath('data.status', 'error')
+        ->assertJsonPath('data.enabled', false);
+
+    Http::assertNothingSent();
 });
 
 it('persists provisioner failures and retries provisioning without recreating the zone', function (): void {

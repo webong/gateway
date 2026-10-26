@@ -55,7 +55,8 @@ final readonly class DnsZoneController
             'soa_email' => ['nullable', 'string', 'max:253', 'regex:/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.?$/i'],
             'ttl' => ['sometimes', 'integer', 'min:60', 'max:86400'],
             'provisioner' => ['sometimes', 'string', 'max:64'],
-            'provisioner_options' => ['sometimes', 'array:parent_zone_id,parent_zone'],
+            'provisioner_options' => ['sometimes', 'array:credential_ref,parent_zone_id,parent_zone'],
+            'provisioner_options.credential_ref' => ['sometimes', 'string', 'regex:/^[a-z][a-z0-9._-]{0,63}$/'],
             'provisioner_options.parent_zone_id' => ['sometimes', 'string', 'max:255'],
             'provisioner_options.parent_zone' => ['sometimes', 'string', 'max:253'],
         ]);

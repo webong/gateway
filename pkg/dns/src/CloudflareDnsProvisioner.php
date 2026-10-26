@@ -7,17 +7,18 @@ namespace Webong\Gateway\Dns;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use RuntimeException;
 use Throwable;
+use Webong\Gateway\Companion\ExtensionSecretStore;
 
 final readonly class CloudflareDnsProvisioner implements DnsProvisioner
 {
-    public function __construct(private HttpFactory $http) {}
+    private const string EXTENSION = 'webong/dns';
+
+    public function __construct(private HttpFactory $http, private ExtensionSecretStore $secrets) {}
 
     public function provision(array $zone, array $options = [], array $state = []): array
     {
-        $token = trim((string) config('gateway.dns.provisioners.cloudflare.token', ''));
-        if ($token === '') {
-            throw new RuntimeException('Cloudflare DNS provisioning is not configured.');
-        }
+        $reference = $this->credentialReference($options['credential_ref'] ?? null);
+        $token = $this->token($reference);
 
         $parent = $this->parentZone($zone['name'], $token, $options);
         $previousRecords = is_array($state['managed_record_ids'] ?? null) ? $state['managed_record_ids'] : [];
@@ -60,22 +61,48 @@ final readonly class CloudflareDnsProvisioner implements DnsProvisioner
             throw $exception;
         }
 
-        return ['parent_zone_id' => $parent['id'], 'managed_record_ids' => array_values(array_unique($managed))];
+        return [
+            'credential_ref' => $reference,
+            'parent_zone_id' => $parent['id'],
+            'managed_record_ids' => array_values(array_unique($managed)),
+        ];
     }
 
     public function deprovision(array $zone, array $state = []): void
     {
-        $token = trim((string) config('gateway.dns.provisioners.cloudflare.token', ''));
         $parent = $state['parent_zone_id'] ?? null;
         $records = $state['managed_record_ids'] ?? [];
-        if ($token === '' || ! is_string($parent) || ! is_array($records)) {
+        if (! is_string($parent) || ! is_array($records) || $records === []) {
             return;
         }
+        $reference = $this->credentialReference($state['credential_ref'] ?? null);
+        $token = $this->token($reference);
         foreach ($records as $record) {
             if (is_string($record) && $record !== '') {
                 $this->request($token, 'delete', "/zones/{$parent}/dns_records/{$record}");
             }
         }
+    }
+
+    private function credentialReference(mixed $reference): string
+    {
+        if (! is_string($reference) || preg_match('/\A[a-z][a-z0-9._-]{0,63}\z/D', $reference) !== 1) {
+            throw new RuntimeException('Cloudflare DNS provisioning requires a valid credential_ref.');
+        }
+
+        return $reference;
+    }
+
+    private function token(string $reference): string
+    {
+        $secret = $this->secrets->resolve(self::EXTENSION, $reference);
+        $value = $secret['value'] ?? null;
+        if (! is_array($value) || array_keys($value) !== ['api_token']
+            || ! is_string($value['api_token']) || trim($value['api_token']) === '') {
+            throw new RuntimeException('Cloudflare DNS credential is unavailable.');
+        }
+
+        return trim($value['api_token']);
     }
 
     /** @param array<string, mixed> $options
