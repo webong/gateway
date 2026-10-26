@@ -133,6 +133,9 @@ jobs:
           COMPOSER_ROOT_VERSION: dev-main
         run: composer install --no-interaction --prefer-dist
 
+      - name: Install HookScript companion dependencies
+        run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative
+
       - name: Test extension artifact reconciliation
         run: vendor/bin/pest tests/Feature/ExtensionArtifactReconciliationTest.php --compact
 
