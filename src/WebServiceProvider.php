@@ -6,6 +6,7 @@ namespace Webong\Gateway\Web;
 
 use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
+use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Events\WebEventRecorder;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
@@ -30,6 +31,22 @@ final class WebServiceProvider extends ServiceProvider
             static fn (ConfigurationKindRegistry $kinds) => $kinds->register(
                 'web.event-policy', 'webstream.private-source', 'webstream.route-policy',
             ));
+        $this->app->afterResolving(ExtensionRuntimeConfigurationRegistry::class,
+            static function (ExtensionRuntimeConfigurationRegistry $runtime): void {
+                $runtime->register('webong/web', static fn (array $configuration): array => array_replace_recursive([
+                    'websocket' => [
+                        'max_connections' => 1000,
+                        'max_duration_ms' => 86_400_000,
+                    ],
+                    'webstream' => [
+                        'heartbeat_ms' => 15_000,
+                        'retry_ms' => 3_000,
+                        'max_connections' => 1000,
+                        'max_duration_ms' => 86_400_000,
+                        'private_network_cidrs' => [],
+                    ],
+                ], $configuration));
+            });
         $this->app->afterResolving(ProtocolPlannerRegistry::class, function (ProtocolPlannerRegistry $planners): void {
             $factory = fn (): WebProtocolPlanner => $this->app->make(WebProtocolPlanner::class);
             $planners->register(Protocol::WEBSOCKET, $factory);
