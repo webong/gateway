@@ -10,6 +10,7 @@ module github.com/webong/gateway/tools/spinner
 go 1.26.0
 
 require (
+	github.com/emersion/go-smtp v0.24.0
 	github.com/miekg/dns v1.1.65
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
 	github.com/webong/gateway/arranger v0.0.0
@@ -29,6 +30,7 @@ require (
 require (
 	ergo.services/ergo v1.999.330 // indirect
 	github.com/buke/quickjs-go v0.7.7 // indirect
+	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/webong/gateway/pkg/email v0.0.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect

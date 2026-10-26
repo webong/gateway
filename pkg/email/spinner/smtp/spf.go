@@ -25,6 +25,11 @@ type SPFEvaluator interface {
 
 type dnsSPFEvaluator struct{ resolver spf.Resolver }
 
+// NewDNSSPFEvaluator binds SPF evaluation to a controlled DNS capability.
+func NewDNSSPFEvaluator(resolver spf.Resolver) SPFEvaluator {
+	return dnsSPFEvaluator{resolver: resolver}
+}
+
 func (e dnsSPFEvaluator) Evaluate(ctx context.Context, peer net.IP, from, helo string) SPFEvidence {
 	identity, domain, sender := spfIdentity(from, helo)
 	if domain == "" {

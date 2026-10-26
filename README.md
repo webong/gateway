@@ -272,18 +272,14 @@ only on the PHP planner call and must match the Laravel configuration.
 The planner path `/_internal/gateway/plan` is reserved and cannot be called
 as a public request through the Go middleware.
 
-To run SMTP alongside the embedded RoadRunner HTTP listener, add:
-
-```bash
-export GATEWAY_SMTP_ADDR=':2525'
-export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
-go run ./cmd/gateway
-```
-
-The `gateway` middleware must remain enabled in `.rr.yaml`. Go waits until
-RoadRunner has assembled that middleware around the PHP worker, then starts
-SMTP with the same in-process PHP event planner. No second Laravel HTTP port
-is opened.
+To run SMTP alongside the embedded RoadRunner HTTP listener, install and
+activate `webong/dns` and `webong/email` through Planner's `/extensions` API.
+Put the SMTP listener under the Email Extension's `configuration.smtp` object;
+do not set an SMTP listener environment variable on the generic Router host.
+The `gateway` middleware must remain enabled in `.rr.yaml`. Spinner reconciles
+the verified packages, starts DNS before Email, and Email uses the same
+in-process PHP event planner without opening a second Laravel HTTP port. See
+[Gateway Extension packages](docs/planner-extensions.md).
 
 ### HTTP Planner
 
@@ -322,22 +318,21 @@ separate containers or nodes; use their private HTTP network address instead.
 
 ### SMTP listener
 
-SMTP is available in `http` and `roadrunner` modes. `cmd/gateway` starts the Go
-HTTP edge and SMTP listener as sibling listeners, while both use the same PHP
-control-plane bridge. The SMTP protocol itself is provided by
+SMTP is available in `http` and bundled Router deployments through the
+installable `webong/email` Spinner entrypoint. The generic Spinner reconciles
+the package desired state from Planner; the Email child owns its listener while
+both use the same PHP control-plane bridge. The SMTP protocol itself is provided by
 [`emersion/go-smtp`](https://pkg.go.dev/github.com/emersion/go-smtp), including
 ESMTP parsing, message framing, limits, graceful shutdown, and optional
 STARTTLS support. The gateway adapter handles session metadata, calls PHP for
 the decision, and queues the resolved HTTP subscriber deliveries.
 
-```bash
-export GATEWAY_RUNTIME=http
-export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
-export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-export GATEWAY_SMTP_ADDR=':2525'
-export GATEWAY_SMTP_HOSTNAME='smtp.example.test'
-go run ./cmd/gateway
-```
+Activate both `webong/dns` and `webong/email` with pinned HTTPS artifacts. An
+Email runtime configuration can set `smtp.address`, `smtp.hostname`, TLS file
+paths, authentication, recipient preflight, and bounded limits. Email declares
+DNS resolution as an exact package capability dependency, so the host will not
+start it when DNS is missing or incompatible. See the complete example in
+[Planner Extensions](docs/planner-extensions.md).
 
 Each accepted SMTP transaction is sent to
 `POST /_internal/gateway/event` as a protocol-neutral event. PHP validates the
@@ -351,13 +346,13 @@ stays in-process; in `http` mode it
 uses the Planner URL. Embedded Caddy/FrankenPHP deployments use the
 `gateway_smtp` app below.
 
-The current adapter does not advertise SMTP AUTH unless
-`GATEWAY_SMTP_AUTH_ENABLED=true` is explicitly set. AUTH uses the
+The Email runtime does not advertise SMTP AUTH unless
+`configuration.smtp.auth_enabled` is explicitly set. AUTH uses the
 `authenticate` protocol event, so the Laravel application remains responsible
 for validating the username and password. AUTH requires TLS and advertises
 PLAIN only after a certificate/key pair is configured. STARTTLS is enabled by
 providing the same certificate/key pair; set
-`GATEWAY_SMTP_IMPLICIT_TLS=true` for SMTPS-style TLS from the first byte.
+`configuration.smtp.implicit_tls` for SMTPS-style TLS from the first byte.
 
 The optional Email control plane manages TXT-verified domains, exact aliases,
 `prefix*` patterns, and an optional catch-all alias at `/email/domains`. After a domain is enabled, Planner can return one
@@ -736,60 +731,26 @@ bidirectional sessions.
 - DNS listener, timeout, response-bound, and rate-limit settings belong to the
   `webong/dns` resource managed through `/extensions`; zones and Forwarders are
   projected into that desired state by Planner
-- `GATEWAY_SMTP_ADDR` - enables the sibling Go SMTP listener in `http` or
-  `roadrunner` mode
-- `GATEWAY_POP3_ADDR` - enables the implicit-TLS POP3 upstream proxy in standalone
-  Spinner or the bundled Router; see [mail forwarding](docs/mail-forwarding.md)
-- `GATEWAY_POP3_TLS_CERT_FILE`, `GATEWAY_POP3_TLS_KEY_FILE` - required PEM
-  certificate and key for POP3 client connections
+- SMTP, IMAP, and POP3 listener addresses, TLS files, protocol limits, and
+  registered upstreams belong to the revisioned `webong/email` Extension
+  configuration. Generic Spinner and Router hosts reject the legacy
+  `GATEWAY_SMTP_ADDR`, `GATEWAY_IMAP_ADDR`, and `GATEWAY_POP3_ADDR` settings.
+  See [mail forwarding](docs/mail-forwarding.md).
 - POP3 endpoint IDs, addresses, and network scope are managed through
   `/email/upstreams`; no exact-host environment list is required
-- `GATEWAY_POP3_AUTH_PER_MINUTE`, `GATEWAY_POP3_AUTH_BURST` - per-socket-peer
-  password-attempt limit local to each Spinner process (defaults `30` and `5`)
-- `GATEWAY_IMAP_ADDR` - enables the implicit-TLS IMAP upstream proxy; see
-  [mail forwarding](docs/mail-forwarding.md)
-- `GATEWAY_IMAP_TLS_CERT_FILE`, `GATEWAY_IMAP_TLS_KEY_FILE` - required IMAP
-  listener certificate and key
 - IMAP endpoint IDs, addresses, and network scope are managed through
   `/email/upstreams`; no exact-host environment list is required
-- `GATEWAY_IMAP_AUTH_PER_MINUTE`, `GATEWAY_IMAP_AUTH_BURST` - per-socket-peer
-  password-attempt limit local to each Spinner process (defaults `30` and `5`)
 - `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` - Planner-owned mailbox credential
   verifier; unset means POP3 login is denied
-- `GATEWAY_SMTP_HOSTNAME` - SMTP greeting/domain (default `gateway.local`)
-- `GATEWAY_SMTP_MAX_MESSAGE_SIZE` - accepted message limit (default `10MB`)
-- `GATEWAY_SMTP_MAX_RECIPIENTS` - recipients per transaction (default `100`)
-- `GATEWAY_SMTP_MAX_CONNECTIONS` - simultaneous SMTP connections per Spinner
-  process (default `1000`); additional connections wait in the TCP backlog
-- `GATEWAY_SMTP_MESSAGES_PER_MINUTE`, `GATEWAY_SMTP_MESSAGE_BURST` - per-source
-  IP rate limit on SMTP `MAIL` commands (defaults `120` per minute with a
-  burst of `20`). The limit is local to each Spinner process.
-- `GATEWAY_SMTP_READ_TIMEOUT`, `GATEWAY_SMTP_WRITE_TIMEOUT` - SMTP socket
-  timeouts
-- `GATEWAY_SMTP_PLANNER_TIMEOUT` - PHP planning timeout (default `30s`)
-- `GATEWAY_SMTP_TLS_CERT_FILE`, `GATEWAY_SMTP_TLS_KEY_FILE` - PEM certificate
-  and private-key files for STARTTLS or implicit TLS
-- `GATEWAY_SMTP_IMPLICIT_TLS` - use implicit TLS instead of plain SMTP with
-  STARTTLS (default `false`)
-- `GATEWAY_SMTP_AUTH_ENABLED` - require PHP-planned SMTP AUTH (default
-  `false`; TLS is required). The AUTH decision must grant exact envelope
-  senders, and the message's visible From address must also be granted.
 - `GATEWAY_EMAIL_DKIM_RESOLVER_URL` - private Planner origin for per-domain
   DKIM keys managed through `/email/dkim-keys`; see
   [mail forwarding](docs/mail-forwarding.md)
 - Authenticated SMTP and HTTP submission quotas are managed through
   `POST /email/submission-policy`; an authenticator may return per-account
   overrides.
-- `GATEWAY_SMTP_RECIPIENT_PREFLIGHT` - `smtp`/`recipient` planning at
-  each `RCPT TO`; defaults on when an outbound relay is configured and off
-  otherwise. Custom planners must support this event or explicitly set `false`.
-- `GATEWAY_EMAIL_CLAMD_NETWORK`, `GATEWAY_EMAIL_CLAMD_ADDR`,
-  `GATEWAY_EMAIL_CLAMD_TIMEOUT` - optional private `clamd` scanner connection
-  (`tcp` or `unix`, default timeout `10s`); scanner failures defer SMTP DATA
-- `GATEWAY_EMAIL_QUARANTINE_PATH` - optional private, persistent directory for
-  malware-positive mail; requires clamd. See [mail forwarding](docs/mail-forwarding.md).
-- `GATEWAY_EMAIL_QUARANTINE_RETENTION` - optional Go duration for automatic
-  quarantine deletion (default `0`, disabled); requires a quarantine path
+- SMTP recipient preflight, clamd scanning, quarantine storage and retention
+  are typed `configuration.smtp` fields on `webong/email`. Custom Planners must
+  support the recipient event when preflight is enabled.
 - `GATEWAY_EMAIL_DSN_DOMAIN` - optional reporting hostname for durable SMTP
   failure notices from authenticated, Planner-approved asynchronous deliveries;
   requires an outbound relay and spool (see [mail forwarding](docs/mail-forwarding.md))
@@ -1348,23 +1309,26 @@ built-in HTTP server, then starts Go as the public edge:
 bash scripts/http-smoke.sh
 ```
 
-Run the SMTP smoke test for both the HTTP Planner and embedded
-RoadRunner. It sends a real SMTP transaction through Go, the PHP protocol
-planner, and the subscriber delivery worker:
+Run the installable Email Extension smoke. It builds the real DNS and Email
+packages, resolves Email's declared DNS dependency, launches both child
+processes through the generic Spinner host, sends a real SMTP transaction, and
+verifies the durable delivery handoff:
 
 ```bash
 bash scripts/smtp-smoke.sh
 # or: make test-smtp
 ```
 
-Run the managed Email smoke test across the public domain/alias API, private
-Planner, Go SMTP listener, and a loopback outbound relay. It verifies a
-two-alias transaction becomes one three-recipient relay handoff, and checks
-temporary relay refusal and permanent recipient rejections:
+Run the local Email verification suite. It combines the packaged-process smoke,
+the complete Go Email package suite, and focused Planner control-plane tests:
 
 ```bash
 make test-email
 ```
+
+The production-like extension distribution and container boundary are covered
+separately by `scripts/test-kubernetes-email`, which activates DNS and Email
+through Planner's `/extensions` API before exposing SMTP.
 
 Run the WebSocket smoke test for both HTTP and RoadRunner. It upgrades a real
 connection, sends a message through the PHP protocol planner, and verifies

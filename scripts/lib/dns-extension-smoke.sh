@@ -15,22 +15,26 @@ gateway_require_dns_extension_artifact() {
 
 gateway_activate_dns_extension() {
     local namespace=$1
+    local public_listener=${2:-true}
 
     kubectl -n "$namespace" exec deployment/planner -- php -r '
+        $configuration = [
+            "planner_timeout_ms" => 750,
+            "read_timeout_ms" => 2000,
+            "write_timeout_ms" => 2000,
+            "max_response_records" => 16,
+            "queries_per_second" => 5000,
+            "query_burst" => 10000,
+        ];
+        if ($argv[4] === "true") {
+            $configuration["address"] = ":5353";
+        }
         $body = json_encode([
             "extension" => "webong/dns",
             "enabled" => true,
             "version" => $argv[1],
             "artifact" => ["url" => $argv[2], "sha256" => $argv[3]],
-            "configuration" => [
-                "address" => ":5353",
-                "planner_timeout_ms" => 750,
-                "read_timeout_ms" => 2000,
-                "write_timeout_ms" => 2000,
-                "max_response_records" => 16,
-                "queries_per_second" => 5000,
-                "query_burst" => 10000,
-            ],
+            "configuration" => $configuration,
         ], JSON_THROW_ON_ERROR);
         $context = stream_context_create(["http" => [
             "method" => "POST",
@@ -45,5 +49,5 @@ gateway_activate_dns_extension() {
             fwrite(STDERR, "DNS Extension activation failed: HTTP ".($matches[1] ?? "0")." ".($response ?: "")."\n");
             exit(1);
         }
-    ' "$GATEWAY_DNS_EXTENSION_VERSION" "$GATEWAY_DNS_EXTENSION_URL" "$GATEWAY_DNS_EXTENSION_SHA256"
+    ' "$GATEWAY_DNS_EXTENSION_VERSION" "$GATEWAY_DNS_EXTENSION_URL" "$GATEWAY_DNS_EXTENSION_SHA256" "$public_listener"
 }

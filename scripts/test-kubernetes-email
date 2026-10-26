@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/dns-extension-smoke.sh"
+source "$ROOT/scripts/lib/email-extension-smoke.sh"
 
 WITH_DNS=false
 WITH_RELAY=false
@@ -21,9 +22,8 @@ if [[ "$WITH_DNS" == true ]] && ! command -v dig >/dev/null 2>&1; then
     echo 'dig is required for the combined Email/DNS smoke.' >&2
     exit 2
 fi
-if [[ "$WITH_DNS" == true ]]; then
-    gateway_require_dns_extension_artifact
-fi
+gateway_require_dns_extension_artifact
+gateway_require_email_extension_artifact
 
 NAMESPACE="gateway-email-smoke-$$-$RANDOM"
 CERT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-email-cert.XXXXXX")
@@ -85,8 +85,6 @@ if [[ "$WITH_RELAY" == true ]]; then
     unset DB_PASSWORD DB_URL
 fi
 PLANNER_SECRET_ARGS+=("${PLANNER_DB_ARGS[@]}")
-kubectl -n "$NAMESPACE" create configmap gateway-smtp \
-    --from-literal=hostname=smtp.managed.test >/dev/null
 kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
     --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" >/dev/null
 kubectl -n "$NAMESPACE" create secret generic planner-credentials \
@@ -114,9 +112,8 @@ if [[ "$WITH_RELAY" == true ]]; then
 fi
 kubectl -n "$NAMESPACE" exec deployment/planner -- \
     php /app/tests/Fixtures/kubernetes-smtp-register.php
-if [[ "$WITH_DNS" == true ]]; then
-    gateway_activate_dns_extension "$NAMESPACE"
-fi
+gateway_activate_dns_extension "$NAMESPACE" "$WITH_DNS"
+gateway_activate_email_extension "$NAMESPACE" smtp.managed.test
 
 OVERLAY=infra/kubernetes/spinner-email
 if [[ "$WITH_DNS" == true ]]; then OVERLAY=infra/kubernetes/spinner-email-dns; fi

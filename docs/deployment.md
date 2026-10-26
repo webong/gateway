@@ -149,14 +149,13 @@ headers or expose the Planner listener directly.
 ## Protocol notes
 
 - **WebSocket:** make sure the public TLS proxy supports upgrades.
-- **SMTP:** set `GATEWAY_SMTP_ADDR`; STARTTLS uses
-  `GATEWAY_SMTP_TLS_CERT_FILE` and `GATEWAY_SMTP_TLS_KEY_FILE`. SMTP AUTH is
-  disabled by default and requires TLS. When `GATEWAY_SMTP_RELAY_ADDR` enables
-  outbound delivery, set `GATEWAY_DELIVERY_SPOOL_PATH` to persistent local
-  storage and do not share that path between Gateway processes.
-- **POP3/IMAP retrieval:** set `GATEWAY_POP3_ADDR` and/or `GATEWAY_IMAP_ADDR`,
-  the corresponding TLS certificate/key files and registered upstream maps on
-  Spinner. Configure a Planner
+- **SMTP:** install and activate `webong/dns` and `webong/email`, then configure
+  `smtp.address` and the optional TLS files under the Email Extension resource.
+  SMTP AUTH is disabled by default and requires TLS. When a deployed outbound
+  adapter is enabled, retain persistent durable delivery storage.
+- **POP3/IMAP retrieval:** configure the listeners, TLS certificate/key files,
+  limits, and registered upstream maps under the `webong/email` Extension.
+  Configure a Planner
   `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR`; without one, login is denied.
   Publish only the implicit-TLS listeners (normally ports 995 and 993) and keep the
   Spinner-to-Planner connection private. See [mail forwarding](mail-forwarding.md).
@@ -166,7 +165,8 @@ headers or expose the Planner listener directly.
   versioned desired state; Spinner replaces only the verified Extension process
   when that snapshot changes. Publish both UDP and TCP. Each active zone requires
   parent-zone delegation. Gateway is
-  authoritative-only, not recursive. See [DNS high availability](dns-ha.md)
+  authoritative-only on its public listener. Its separately bounded private
+  resolver capability may serve dependent Extensions such as Email. See [DNS high availability](dns-ha.md)
   for the two-node deployment and validation shape.
 - **Realtime:** planner state can reconcile Reverb, Mercure, and Centrifugo
   workloads via Local, Docker, or Kubernetes drivers. A separate HTTP Spinner

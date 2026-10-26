@@ -24,20 +24,16 @@ import (
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
 
-func TestRunServesBundledTLSAndIMAP(t *testing.T) {
+func TestRunServesBundledTLS(t *testing.T) {
 	certFile, keyFile := testTLSFiles(t)
 	t.Setenv("GATEWAY_RUNTIME", "")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
 	t.Setenv("GATEWAY_ROUTER_APP_DIR", t.TempDir())
 	t.Setenv("GATEWAY_ROUTER_LISTEN", "127.0.0.1:0")
 	httpsAddr := unusedLoopbackAddress(t)
-	imapAddr := unusedLoopbackAddress(t)
 	t.Setenv("GATEWAY_ROUTER_TLS_LISTEN", httpsAddr)
 	t.Setenv("GATEWAY_ROUTER_TLS_CERT_FILE", certFile)
 	t.Setenv("GATEWAY_ROUTER_TLS_KEY_FILE", keyFile)
-	t.Setenv("GATEWAY_IMAP_ADDR", imapAddr)
-	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", certFile)
-	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", keyFile)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	finished := make(chan error, 1)
@@ -58,17 +54,6 @@ func TestRunServesBundledTLSAndIMAP(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	connection, err := tls.DialWithDialer(&net.Dialer{Timeout: time.Second}, "tcp", imapAddr,
-		&tls.Config{InsecureSkipVerify: true})
-	if err != nil {
-		t.Fatalf("bundled IMAP listener unavailable: %v", err)
-	}
-	buffer := make([]byte, 512)
-	n, err := connection.Read(buffer)
-	_ = connection.Close()
-	if err != nil || !strings.Contains(string(buffer[:n]), "IMAP") {
-		t.Fatalf("bundled IMAP greeting = %q, err = %v", buffer[:n], err)
-	}
 	cancel()
 	select {
 	case err := <-finished:
@@ -77,6 +62,23 @@ func TestRunServesBundledTLSAndIMAP(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("bundled Router did not stop")
+	}
+}
+
+func TestRunRejectsLegacyIMAPListenerConfiguration(t *testing.T) {
+	t.Setenv("GATEWAY_RUNTIME", "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
+	t.Setenv("GATEWAY_ROUTER_APP_DIR", t.TempDir())
+	t.Setenv("GATEWAY_IMAP_ADDR", "127.0.0.1:1993")
+	certFile, keyFile := testTLSFiles(t)
+	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", certFile)
+	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", keyFile)
+	err := Run(t.Context(), func(string) (Planner, error) {
+		t.Fatal("Planner started before legacy listener configuration was rejected")
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "webong/email Extension") {
+		t.Fatalf("Run returned %v", err)
 	}
 }
 

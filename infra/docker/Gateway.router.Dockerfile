@@ -99,7 +99,6 @@ ENV GATEWAY_ROUTER_DATA_DIR=/data \
     GATEWAY_ROUTER_LISTEN=127.0.0.1:8080 \
     GATEWAY_ROUTER_TLS_LISTEN=:8443 \
     GATEWAY_ROUTER_TLS_NAME=gateway \
-    GATEWAY_IMAP_ADDR=:993 \
     GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php \
     GATEWAY_ROUTER_LIBRARY_BIN=/usr/local/bin/gateway-router-library
 RUN mkdir -p /data/cache /data/spinner-extensions /data/planner-extensions \
@@ -110,7 +109,7 @@ RUN mkdir -p /data/cache /data/spinner-extensions /data/planner-extensions \
         /gateway/scripts/router-start /gateway/scripts/router-artisan
 
 VOLUME /data
-EXPOSE 8080/tcp 8443/tcp 993/tcp 2525/tcp
+EXPOSE 8080/tcp 8443/tcp 2525/tcp 993/tcp 995/tcp
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD gosu www-data curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
 ENTRYPOINT ["/gateway/scripts/router-container-entrypoint", "library"]

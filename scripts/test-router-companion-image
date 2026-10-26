@@ -43,7 +43,6 @@ chmod 0755 "$PACKAGE/bin/companion" "$PACKAGE/bin/spinner"
 
 docker run -d --name "$NAME" \
     -e GATEWAY_COMPANION_PLUGIN_DIR=/extensions \
-    -e GATEWAY_IMAP_ADDR= \
     -e GATEWAY_ROUTER_LISTEN=:8080 \
     -e GATEWAY_ROUTER_TLS_LISTEN= \
     -v "$PACKAGE_ROOT:/extensions" \

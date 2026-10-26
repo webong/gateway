@@ -29,7 +29,6 @@ type workerServer interface {
 }
 
 type plannerReady struct {
-	planner bridge.ProtocolPlanner
 	handler http.Handler
 	control *transport.ScheduleControl
 	err     error
@@ -112,7 +111,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			})
 		}
 		select {
-		case ready <- plannerReady{planner: protocolPlanner, handler: next, control: control, err: controlErr}:
+		case ready <- plannerReady{handler: next, control: control, err: controlErr}:
 		default:
 		}
 		if controlErr != nil {
@@ -128,7 +127,6 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 	log.Print("Planner connection: managed RoadRunner PHP workers")
 	done := make(chan error, 1)
 	go func() { done <- server.Serve() }()
-	var listeners []transport.ProtocolListener
 	listenerErrors := make(chan error, 4)
 	controlListen := os.Getenv("GATEWAY_ROUTER_CONTROL_LISTEN")
 	var controlServer *http.Server
@@ -139,7 +137,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			}
 		}()
 	}
-	if spinner.HasProtocolListeners() || spinner.SchedulesEnabled || controlListen != "" {
+	if spinner.SchedulesEnabled || controlListen != "" {
 		startup, cancel := context.WithTimeout(ctx, spinner.RequestTimeout)
 		var prepared plannerReady
 		var err error
@@ -191,22 +189,6 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 			}
 			log.Print("Schedule polling enabled")
 		}
-		listeners, err = spinner.ProtocolListeners(prepared.planner)
-		if err != nil {
-			server.Stop()
-			<-done
-			return err
-		}
-		for _, listener := range listeners {
-			go func(listener transport.ProtocolListener) { listenerErrors <- listener.ListenAndServe() }(listener)
-		}
-		defer func() {
-			shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
-			defer cancel()
-			for _, listener := range listeners {
-				_ = listener.Shutdown(shutdown)
-			}
-		}()
 	}
 	select {
 	case err := <-listenerErrors:

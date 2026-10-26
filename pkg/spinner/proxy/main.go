@@ -15,9 +15,6 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
-	imapgateway "github.com/webong/gateway/pkg/email/spinner/imap"
-	pop3gateway "github.com/webong/gateway/pkg/email/spinner/pop3"
-	smtpgateway "github.com/webong/gateway/pkg/email/spinner/smtp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryadmin"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliverymembership"
@@ -38,11 +35,6 @@ import (
 
 type extensionRouteHandler interface {
 	ServeIfMatched(http.ResponseWriter, *http.Request) bool
-}
-
-type protocolListener interface {
-	ListenAndServe() error
-	Shutdown(context.Context) error
 }
 
 type Server struct {
@@ -301,8 +293,8 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
-	if config.Runtime == "diagnostic" && (config.SMTPAddress != "" || config.POP3Address != "" || config.IMAPAddress != "") {
-		return fmt.Errorf("protocol listeners require GATEWAY_RUNTIME=http")
+	if config.SMTPAddress != "" || config.POP3Address != "" || config.IMAPAddress != "" {
+		return fmt.Errorf("SMTP, IMAP, and POP3 listeners are configured through the webong/email Extension")
 	}
 	server, err := NewServer(config, logger)
 	if err != nil {
@@ -334,26 +326,22 @@ func runDiagnostic(config *relayconfig.Config, server *Server, logger *logging.L
 	return runServices(config, server, logger)
 }
 
-func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger, listeners ...protocolListener) error {
-	serverErrors := make(chan error, 2+len(listeners))
+func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
+	serverErrors := make(chan error, 2)
 	go func() { serverErrors <- server.Start() }()
 	if server.deliveryAdminServer != nil {
 		go func() {
 			serverErrors <- deliverymembership.ListenAndServe(server.deliveryAdminServer, config.DeliveryDatabaseURL, config.DeliveryAdminAdvertiseURL, config.InternalToken)
 		}()
 	}
-	for _, listener := range listeners {
-		go func(listener protocolListener) { serverErrors <- listener.ListenAndServe() }(listener)
-	}
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	var listenerErr error
 	select {
 	case <-sigChan:
 		logger.Info("Received shutdown signal")
 	case err := <-serverErrors:
-		if !expectedListenerClose(err) {
-			listenerErr = err
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
 		}
 	}
 
@@ -365,76 +353,11 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 		}
 	}
 
-	for _, listener := range listeners {
-		if err := listener.Shutdown(ctx); err != nil && !expectedListenerClose(err) {
-			return fmt.Errorf("protocol listener shutdown error: %w", err)
-		}
-	}
 	if err := server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown error: %w", err)
 	}
-	if listenerErr != nil {
-		return fmt.Errorf("gateway listener failed: %w", listenerErr)
-	}
-
 	logger.Info("Server stopped gracefully")
 	return nil
-}
-
-func expectedListenerClose(err error) bool {
-	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, smtpgateway.ErrServerClosed) || errors.Is(err, pop3gateway.ErrServerClosed) || errors.Is(err, imapgateway.ErrServerClosed)
-}
-
-func newSMTPServer(config *relayconfig.Config, planner bridge.ProtocolPlanner, executor bridge.GatewayExecutor) (*smtpgateway.Server, error) {
-	tlsConfig, err := smtpgateway.LoadTLSConfig(config.SMTPTLSCertFile, config.SMTPTLSKeyFile)
-	if err != nil {
-		return nil, err
-	}
-	submitter, err := transport.NewSMTPAdapter(config)
-	if err != nil {
-		return nil, err
-	}
-	var submitAdapter bridge.GatewayDeliveryAdapter
-	var signingChecker smtpgateway.SigningDomainChecker
-	if submitter != nil {
-		submitAdapter = submitter
-		signingChecker = submitter
-	}
-	scanner, quarantine, err := transport.NewEmailProtection(config)
-	if err != nil {
-		return nil, err
-	}
-	domainResolver, err := transport.NewEmailDomainResolver(config)
-	if err != nil {
-		return nil, err
-	}
-
-	return smtpgateway.NewServer(smtpgateway.Config{
-		Address:                 config.SMTPAddress,
-		Hostname:                config.SMTPHostname,
-		MaxMessageSize:          config.SMTPMaxMessageSize,
-		MaxRecipients:           config.SMTPMaxRecipients,
-		MaxConnections:          config.SMTPMaxConnections,
-		MessagesPerMinute:       config.SMTPMessagesPerMinute,
-		MessageBurst:            config.SMTPMessageBurst,
-		ReadTimeout:             config.SMTPReadTimeout,
-		WriteTimeout:            config.SMTPWriteTimeout,
-		PlannerTimeout:          config.SMTPPlannerTimeout,
-		SubmitTimeout:           config.SMTPRelayTimeout,
-		Submitter:               submitAdapter,
-		SigningDomainChecker:    signingChecker,
-		Scanner:                 scanner,
-		ScanTimeout:             config.EmailClamdTimeout,
-		Quarantine:              quarantine,
-		QuarantineRetention:     config.EmailQuarantineRetention,
-		DomainExistenceResolver: domainResolver,
-		DomainExistenceTimeout:  config.EmailDomainLookupTimeout,
-		LoopKey:                 []byte(config.InternalToken),
-		TLSConfig:               tlsConfig,
-		ImplicitTLS:             config.SMTPImplicitTLS,
-		AuthEnabled:             config.SMTPAuthEnabled,
-		RecipientPreflight:      config.SMTPRecipientPreflight,
-	}, planner, executor)
 }
 
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
@@ -575,35 +498,5 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		logger.Info("Provisioning reconciliation enabled for node %s", config.Provisioning.NodeID)
 	}
 
-	executor := server.NewGatewayExecutor()
-	listeners := make([]protocolListener, 0, 4)
-	if config.SMTPAddress != "" {
-		smtpServer, smtpErr := newSMTPServer(config, protocolPlanner, executor)
-		if smtpErr != nil {
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize SMTP listener: %w", smtpErr)
-		}
-		logger.Info("Using SMTP listener on %s", config.SMTPAddress)
-		listeners = append(listeners, smtpServer)
-	}
-	if config.POP3Address != "" {
-		pop3Server, pop3Err := transport.NewPOP3Server(config, protocolPlanner)
-		if pop3Err != nil {
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize POP3 listener: %w", pop3Err)
-		}
-		logger.Info("Using TLS POP3 listener on %s", config.POP3Address)
-		listeners = append(listeners, pop3Server)
-	}
-	if config.IMAPAddress != "" {
-		imapServer, imapErr := transport.NewIMAPServer(config, protocolPlanner)
-		if imapErr != nil {
-			server.workerPool.Shutdown()
-			return fmt.Errorf("failed to initialize IMAP listener: %w", imapErr)
-		}
-		logger.Info("Using TLS IMAP listener on %s", config.IMAPAddress)
-		listeners = append(listeners, imapServer)
-	}
-
-	return runServices(config, server, logger, listeners...)
+	return runServices(config, server, logger)
 }

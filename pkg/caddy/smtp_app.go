@@ -171,9 +171,12 @@ func (a *SMTPApp) Provision(_ caddy.Context) error {
 		EmailQuarantineRetention:   time.Duration(a.QuarantineRetention),
 		EmailDSNDomain:             a.DSNDomain,
 	}
-	domainResolver, err := transport.NewEmailDomainResolver(settings)
-	if err != nil {
-		return err
+	var domainResolver smtpgateway.DomainExistenceResolver
+	if settings.EmailDomainResolverAddress != "" {
+		domainResolver, err = smtpgateway.NewDomainExistenceResolver(settings.EmailDomainResolverAddress)
+		if err != nil {
+			return err
+		}
 	}
 	logger := spinnerapi.NewLogger(a.LogLevel)
 	a.forwarder = spinnerapi.NewForwarder(settings, logger)

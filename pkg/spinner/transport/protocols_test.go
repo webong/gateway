@@ -18,12 +18,6 @@ func TestNewEmailProtectionAllowsQuarantineWithoutMalwareScanner(t *testing.T) {
 	}
 }
 
-func TestNewEmailDomainResolverRejectsAnUntrustedAddress(t *testing.T) {
-	if _, err := NewEmailDomainResolver(&relayconfig.Config{EmailDomainResolverAddress: "dns.example.test:53"}); err == nil {
-		t.Fatal("author-domain resolver accepted a hostname instead of an explicit IP endpoint")
-	}
-}
-
 func TestNewSMTPAdapterRejectsInvalidPrivateDKIMResolver(t *testing.T) {
 	_, err := NewSMTPAdapter(&relayconfig.Config{
 		SMTPRelayAddress:     "127.0.0.1:2526",

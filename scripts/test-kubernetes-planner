@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/lib/dns-extension-smoke.sh"
+source "$ROOT/scripts/lib/email-extension-smoke.sh"
 
 WITH_DNS=false
 WITH_EMAIL=false
@@ -23,8 +24,11 @@ if [[ "$WITH_DNS" == true ]] && ! command -v dig >/dev/null 2>&1; then
     echo 'dig is required for the Planner/DNS smoke.' >&2
     exit 2
 fi
-if [[ "$WITH_DNS" == true ]]; then
+if [[ "$WITH_DNS" == true || "$WITH_EMAIL" == true ]]; then
     gateway_require_dns_extension_artifact
+fi
+if [[ "$WITH_EMAIL" == true ]]; then
+    gateway_require_email_extension_artifact
 fi
 
 NAMESPACE="gateway-planner-smoke-$$-$RANDOM"
@@ -76,8 +80,6 @@ if [[ "$WITH_EMAIL" == true ]]; then
         -keyout "$SMTP_DIR/tls.key" -out "$SMTP_DIR/tls.crt" >/dev/null 2>&1
     kubectl -n "$NAMESPACE" create secret tls gateway-smtp-tls \
         --cert="$SMTP_DIR/tls.crt" --key="$SMTP_DIR/tls.key" >/dev/null
-    kubectl -n "$NAMESPACE" create configmap gateway-smtp \
-        --from-literal=hostname=smtp.managed.test >/dev/null
     kubectl -n "$NAMESPACE" create configmap gateway-email-relay \
         --from-literal=address=smtp-relay:2527 \
         --from-literal=tls-mode=none >/dev/null
@@ -144,8 +146,11 @@ if [[ "$HEALTHY" != true ]]; then
     kubectl -n "$NAMESPACE" logs deployment/planner >&2 || true
     exit 1
 fi
-if [[ "$WITH_DNS" == true ]]; then
-    gateway_activate_dns_extension "$NAMESPACE"
+if [[ "$WITH_DNS" == true || "$WITH_EMAIL" == true ]]; then
+    gateway_activate_dns_extension "$NAMESPACE" "$WITH_DNS"
+fi
+if [[ "$WITH_EMAIL" == true ]]; then
+    gateway_activate_email_extension "$NAMESPACE" smtp.managed.test
 fi
 
 SPINNER_OVERLAY=infra/kubernetes/spinner

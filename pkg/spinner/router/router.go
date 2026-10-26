@@ -68,10 +68,6 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	protocolPlanner := bridge.NewPHPProtocolPlanner(planner, spinner.MaxBodySize)
 	protocolPlanner.InternalToken = spinner.InternalToken
 	observations := bridge.NewPHPObservationSink(planner, spinner.InternalToken)
-	protocolListeners, err := spinner.ProtocolListeners(protocolPlanner)
-	if err != nil {
-		return fmt.Errorf("configure protocol listeners: %w", err)
-	}
 	control, err := transport.EmbeddedScheduleControl(planner, spinner, engine)
 	if err != nil {
 		return err
@@ -181,12 +177,6 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if spinner.DeliveryAdminServer != nil {
 		go func() { adminErrors <- spinner.ServeDeliveryAdmin() }()
 	}
-	protocolErrors := make(chan error, len(protocolListeners))
-	for _, protocolListener := range protocolListeners {
-		go func(listener transport.ProtocolListener) {
-			protocolErrors <- listener.ListenAndServe()
-		}(protocolListener)
-	}
 	var runErr error
 	select {
 	case err := <-serverErrors:
@@ -205,8 +195,6 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 		if !errors.Is(err, http.ErrServerClosed) {
 			runErr = fmt.Errorf("private Planner control listener: %w", err)
 		}
-	case err := <-protocolErrors:
-		runErr = fmt.Errorf("protocol listener stopped: %w", err)
 	case <-ctx.Done():
 	}
 	shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
@@ -214,9 +202,6 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	publicShutdownErr := server.Shutdown(shutdown)
 	if tlsServer != nil {
 		publicShutdownErr = errors.Join(publicShutdownErr, tlsServer.Shutdown(shutdown))
-	}
-	for _, listener := range protocolListeners {
-		_ = listener.Shutdown(shutdown)
 	}
 	if controlServer != nil {
 		if err := controlServer.Shutdown(shutdown); err != nil {

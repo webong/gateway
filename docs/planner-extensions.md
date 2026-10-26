@@ -26,12 +26,23 @@ DNS contribute protocol-specific recording and presentation behavior without
 depending on each other.
 
 Spinner entrypoints are verified `ext.package/v1` processes. A host reconciles
-the package selected by Planner, launches only its named `spinner` entrypoint,
-and exposes narrowly declared reverse capabilities from Arranger. The child
-never receives a Planner URL or internal token. Web currently advertises a
-private loopback HTTP endpoint that Spinner proxies; DNS opens its configured
-UDP/TCP listener inside the verified child. Closing, replacing, or failing
-integrity validation for a package closes that process and its listeners.
+the complete package set selected by Planner, resolves exact `requires`
+capabilities, launches providers before consumers, and exposes only the
+selected reverse bindings from Arranger. The child never receives a Planner URL,
+an internal token, or another package's process handle. Web advertises a private
+loopback HTTP endpoint that Spinner proxies; DNS and Email open their configured
+protocol listeners inside their verified child processes. Closing, replacing,
+or failing integrity validation for a package closes that process and its
+listeners.
+
+Dependencies are capabilities rather than source dependencies. `webong/email`
+declares `gateway.dns/v1 exchange`; `webong/dns` provides it. Both packages must
+be active in Planner desired state. Spinner starts DNS before Email and pins
+Email's calls to that exact DNS package revision. A missing, inactive,
+ambiguous, cyclic, incompatible, or replaced provider prevents the dependent
+package from starting. Resolver-only DNS configuration does not bind a public
+authoritative port, so Email can use Gateway DNS without publishing a DNS
+service.
 
 `POST /extensions` and `PUT /extensions/{id}` accept an optional
 `configuration` object alongside the pinned artifact. Planner stores it in the
@@ -80,8 +91,37 @@ For example, DNS listener and zone state travels with the DNS Extension:
 Create and update authoritative zones through `/dns/zones`; the DNS Planner
 entrypoint projects them into the runtime snapshot above.
 
+Email listener state is carried by the Email Extension and depends on DNS:
+
+```json
+{
+  "extension": "webong/email",
+  "enabled": true,
+  "version": "1.0.0",
+  "artifact": {
+    "url": "https://extensions.example.com/webong-email-1.0.0.tar.gz",
+    "sha256": "<archive-sha256>"
+  },
+  "configuration": {
+    "smtp": {
+      "address": ":2525",
+      "hostname": "mail.example.com",
+      "max_message_size": 10485760
+    }
+  }
+}
+```
+
+The DNS Extension may omit its public `address`, zones, and forwarders and run
+only the private resolver capability. Set `resolver_address` to an explicit IP
+and port when the host's `/etc/resolv.conf` should not be used. Legacy
+`GATEWAY_SMTP_ADDR`, `GATEWAY_IMAP_ADDR`, and `GATEWAY_POP3_ADDR` listener
+configuration is rejected by Spinner hosts; those listeners now belong to the
+revisioned `webong/email` configuration.
+
 The same package can be built locally with:
 
 ```sh
 scripts/build-gateway-runtime-extension pkg/dns /tmp/extensions/webong%2fdns 1.0.0
+scripts/build-gateway-runtime-extension pkg/email /tmp/extensions/webong%2femail 1.0.0
 ```

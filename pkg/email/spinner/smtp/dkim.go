@@ -37,6 +37,12 @@ type dnsDKIMVerifier struct {
 	lookupTXT func(context.Context, string) ([]string, error)
 }
 
+// NewDNSDKIMVerifier binds DKIM verification to a controlled DNS capability.
+// A nil lookup is rejected by callers that require dependency-owned DNS.
+func NewDNSDKIMVerifier(lookup func(context.Context, string) ([]string, error)) DKIMVerifier {
+	return dnsDKIMVerifier{lookupTXT: lookup}
+}
+
 func (v dnsDKIMVerifier) Verify(ctx context.Context, message []byte) DKIMEvidence {
 	lookupTXT := v.lookupTXT
 	if lookupTXT == nil {

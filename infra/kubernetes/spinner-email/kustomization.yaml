@@ -25,20 +25,6 @@ patches:
                   - name: smtp
                     containerPort: 2525
                     protocol: TCP
-                env:
-                  - name: GATEWAY_SMTP_ADDR
-                    value: ":2525"
-                  - name: GATEWAY_SMTP_HOSTNAME
-                    valueFrom:
-                      configMapKeyRef:
-                        name: gateway-smtp
-                        key: hostname
-                  - name: GATEWAY_SMTP_RECIPIENT_PREFLIGHT
-                    value: "true"
-                  - name: GATEWAY_SMTP_TLS_CERT_FILE
-                    value: /etc/gateway-smtp/tls.crt
-                  - name: GATEWAY_SMTP_TLS_KEY_FILE
-                    value: /etc/gateway-smtp/tls.key
                 volumeMounts:
                   - name: smtp-tls
                     mountPath: /etc/gateway-smtp

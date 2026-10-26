@@ -26,20 +26,22 @@ An operator creates a generic account through HTTPS `POST /accounts` (or the
 Mail alias `POST /email/mailbox-accounts`) with the registry bearer token. The
 returned account token manages resources under
 `/email/mailbox-accounts/{account}`; it cannot address another account.
-The bundled Router image serves HTTPS on container port 8443 and optional
-external-mailbox IMAP over TLS on 993, preserving the prior single-service
-ports. Its plain HTTP listener on 8080 is loopback-only for health and private
-use. It also starts an SMTP listener at container port 2525; publish host port
-25 to 2525 when testing MX ingress. It uses the Router's durable delivery queue
+The bundled Router image serves HTTPS on container port 8443. Its plain HTTP
+listener on 8080 is loopback-only for health and private use. SMTP and optional
+external-mailbox IMAP/POP3 listeners are started by an activated
+`webong/email` Extension; publish their configured ports when testing MX or
+mailbox ingress. The Email package requires an active `webong/dns` resolver
+capability. The composition uses the Router's durable delivery queue
 on the persisted `/data` volume, requires recipient preflight, and resolves
 sending credentials through the private loopback Planner listener. A PostgreSQL
 deployment uses the shared delivery
 database instead. This is a local transport setup, not evidence of public MX
 readiness; production also needs TLS, abuse controls, public DNS and reachability
 checks.
-The Router persists its generated HTTPS/IMAP certificate under `/data/tls`;
-clients must trust that certificate or mount an operator-managed certificate
-and key. Keep the existing `/data` volume and `gateway.env` together when
+The Router persists its generated HTTPS certificate under `/data/tls`; Email
+listener certificate paths are explicit Extension configuration and should
+point at operator-managed mounted files. Keep the existing `/data` volume and
+deployment secrets together when
 changing images so account tokens and encrypted Planner resources remain
 readable.
 First, an operator sets `PUT /email/receiving-settings` over HTTPS with the
@@ -662,26 +664,25 @@ transaction; an unknown, disabled, or mixed managed/unmanaged recipient set
 rejects the whole inbound transaction. Spinner returns success only after the
 configured relay accepts the full message. This avoids a Gateway-side deferred
 bounce obligation for this path, but does not guarantee final mailbox delivery.
-Configure `GATEWAY_SMTP_RELAY_ADDR` and `GATEWAY_DELIVERY_SPOOL_PATH` on
-standalone Spinner, or `relay_address` and `spool_path` in the Caddy SMTP app.
-When an outbound relay is configured, recipient preflight is enabled by
-default in standalone Spinner and the Caddy SMTP app. Spinner asks Planner for
+Configure the outbound delivery adapter and durable queue on the Spinner host;
+configure the SMTP listener through the `webong/email` Extension resource.
+When recipient preflight is enabled for that listener, Email asks Planner for
 an `smtp`/`recipient` decision at each `RCPT TO`, including the recipients
 already accepted for that transaction as a JSON array in
 `attributes.accepted_recipients`. Unknown, disabled, or mixed managed and
 unmanaged recipients receive a `550` before DATA; Planner failures receive a
 temporary `451`. A custom planner that does not support recipient events may
-explicitly set `GATEWAY_SMTP_RECIPIENT_PREFLIGHT=false` or
-`recipient_preflight false`; with no outbound relay, preflight remains off by
-default. A custom planner used with preflight enabled must return `accept` or
+set `recipient_preflight` to `false` in the Extension configuration. A custom
+planner used with preflight enabled must return `accept` or
 `reject`/`close` for recipient events. DATA is still
 planned and checked independently because alias state may change between the
 commands.
 Without a relay, the submit path returns a temporary SMTP error.
-`make test-email` exercises domain creation and verification, alias setup,
-multi-recipient forwarding, and exact SMTP rejection codes against a local
-Planner, Spinner, and test relay. The TXT resolver used by this smoke is
-test-only; production verification performs a real DNS TXT lookup.
+`make test-email` exercises the packaged DNS/Email process boundary, the Go
+Email suite, and focused Planner control-plane tests. The production-like
+artifact, `/extensions`, container, and relay flow is exercised by
+`scripts/test-kubernetes-email --with-relay`; production verification performs
+a real DNS TXT lookup.
 
 ### 3. Forwarding correctness
 
@@ -766,10 +767,10 @@ retention window and backup policy that match your obligations.
 Local operators can inspect and export an item without a public API:
 
 ```sh
-GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine list -path /var/mod/gateway/email-quarantine
-GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine show -path /var/mod/gateway/email-quarantine -id ID
-GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine export -path /var/mod/gateway/email-quarantine -id ID -output /absolute/review.eml
-GOWORK=off go -C pkg/spinner run -mod=mod ./cmd/email-quarantine delete -path /var/mod/gateway/email-quarantine -id ID
+GOWORK=off go -C pkg/email run -mod=mod ./cmd/quarantine list -path /var/mod/gateway/email-quarantine
+GOWORK=off go -C pkg/email run -mod=mod ./cmd/quarantine show -path /var/mod/gateway/email-quarantine -id ID
+GOWORK=off go -C pkg/email run -mod=mod ./cmd/quarantine export -path /var/mod/gateway/email-quarantine -id ID -output /absolute/review.eml
+GOWORK=off go -C pkg/email run -mod=mod ./cmd/quarantine delete -path /var/mod/gateway/email-quarantine -id ID
 ```
 
 There is no automatic release, spam verdict, or tenant-facing quarantine.
@@ -949,8 +950,8 @@ submission service.
 
 ### 5. IMAP and POP3 retrieval gateways
 
-The initial POP3 and IMAP paths are implemented in Spinner for standalone
-HTTP/RoadRunner and bundled Router deployments. Both accept implicit TLS only
+The POP3 and IMAP paths are implemented by the installable `webong/email`
+Spinner entrypoint. Both accept implicit TLS only
 (normally ports 995 and 993), authenticate through a deployment-owned Planner
 `MailboxAuthenticator`, then proxy the authenticated session to a native
 upstream over verified implicit TLS. POP3 accepts `USER`/`PASS`; IMAP accepts
@@ -968,9 +969,9 @@ calling Planner. Each protocol defaults to 30 attempts/minute with a burst of
 5, local to each Spinner process; this is not a distributed account-lockout
 policy.
 
-Set `GATEWAY_POP3_ADDR=:995`, `GATEWAY_POP3_HOSTNAME`,
-`GATEWAY_POP3_TLS_CERT_FILE`, and `GATEWAY_POP3_TLS_KEY_FILE`.
-Create a `POST /email/upstreams` resource for each POP3 ID.
+Set `pop3.address`, `pop3.hostname`, `pop3.tls_cert_file`, and
+`pop3.tls_key_file` in the Email Extension configuration. Create a
+`POST /email/upstreams` resource for each POP3 ID.
 The address must point to an operator-trusted POP3 server with a certificate
 valid for `server_name`; Spinner verifies it against the host trust store.
 Planner sets `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` to a container-resolvable
@@ -978,17 +979,13 @@ class implementing `Webong\Gateway\Email\MailboxAuthenticator`, returning a
 `MailboxAccessGrant` after validating client credentials. The private
 Spinner-to-Planner connection carries the client password; protect it with
 Unix socket or private TLS and never expose the internal event endpoint.
-Optional limits are `GATEWAY_POP3_MAX_CONNECTIONS`,
-`GATEWAY_POP3_AUTH_PER_MINUTE`, `GATEWAY_POP3_AUTH_BURST`,
-`GATEWAY_POP3_IDLE_TIMEOUT` (minimum ten minutes),
-`GATEWAY_POP3_PLANNER_TIMEOUT`, and `GATEWAY_POP3_UPSTREAM_TIMEOUT`.
+Optional per-listener fields include `max_connections`, `auth_per_minute`,
+`auth_burst`, `idle_timeout_ms` (minimum ten minutes), `planner_timeout_ms`,
+and `upstream_timeout_ms`.
 
-For IMAP set `GATEWAY_IMAP_ADDR=:993`, `GATEWAY_IMAP_HOSTNAME`,
-`GATEWAY_IMAP_TLS_CERT_FILE`, and `GATEWAY_IMAP_TLS_KEY_FILE`, then create IMAP upstream resources
-pointing to native implicit-TLS IMAP servers. Optional
-limits are `GATEWAY_IMAP_MAX_CONNECTIONS`, `GATEWAY_IMAP_AUTH_PER_MINUTE`,
-`GATEWAY_IMAP_AUTH_BURST`, `GATEWAY_IMAP_IDLE_TIMEOUT` (minimum ten minutes),
-`GATEWAY_IMAP_PLANNER_TIMEOUT`, and `GATEWAY_IMAP_UPSTREAM_TIMEOUT`.
+For IMAP set the corresponding `imap` configuration object, then create IMAP
+upstream resources pointing to native implicit-TLS IMAP servers. It accepts the
+same bounded connection, authentication, idle, Planner, and upstream limits.
 
 The custom FrankenPHP/Caddy build also registers `gateway.pop3` and
 `gateway.imap` sibling TCP apps. They use the same TLS-only POP3/IMAP servers

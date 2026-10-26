@@ -166,8 +166,8 @@ also calls out the need for a bounce mailbox when rewriting.
   tokens, wrong domains, non-null bounce senders, and SRS-looking catch-all
   addresses are rejected before DATA.
 - A relay acceptance followed by a lost SMTP response does not silently erase
-  the bounce record. `make test-email` makes its relay persist a message and
-  drop the connection before the DATA acknowledgment, then stops the original
+  the bounce record. The Kubernetes Email relay smoke persists a message and
+  drops the connection before the DATA acknowledgment, then stops the original
   Planner/Spinner pair and reverses that message's bounce through a fresh pair
   sharing the database and key. Also test independently deployed nodes with
   the production database and secret distribution.

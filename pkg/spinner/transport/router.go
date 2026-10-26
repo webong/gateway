@@ -57,6 +57,9 @@ func NewRouterFromEnvironment() (*Router, error) {
 	if settings.InternalToken == "" {
 		return nil, fmt.Errorf("GATEWAY_INTERNAL_TOKEN is required")
 	}
+	if settings.SMTPAddress != "" || settings.IMAPAddress != "" || settings.POP3Address != "" {
+		return nil, fmt.Errorf("SMTP, IMAP, and POP3 listeners are configured through the webong/email Extension")
+	}
 	logger := logging.NewLogger(settings.LogLevel)
 	forwarder := forwarding.NewForwarder(settings, logger)
 	workerPool := workers.NewWorkerPool(settings.MaxWorkers, settings.MaxQueueSize, forwarder, logger)

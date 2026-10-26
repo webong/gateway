@@ -42,12 +42,13 @@ COPY --from=planner-builder /src/gateway/scripts/gateway-router /src/gateway/scr
 COPY --from=planner-builder /src/gateway/vendor /gateway/vendor
 WORKDIR /gateway
 ENV GATEWAY_ROUTER_DATA_DIR=/data \
+    GATEWAY_PLUGIN_DIR=/data/spinner-extensions \
+    GATEWAY_COMPANION_PLUGIN_DIR=/data/planner-extensions \
     GATEWAY_ROUTER_LISTEN=127.0.0.1:8080 \
     GATEWAY_ROUTER_TLS_LISTEN=:8443 \
-    GATEWAY_IMAP_ADDR=:993 \
     GATEWAY_SHELL_HOOKS_DIR=/data/hooks \
     GATEWAY_ROUTER_ROADRUNNER_BIN=/usr/local/bin/gateway-router-roadrunner
-RUN mkdir -p /data/cache /data/hooks /data/storage/framework/cache/data \
+RUN mkdir -p /data/cache /data/hooks /data/spinner-extensions /data/planner-extensions /data/storage/framework/cache/data \
         /data/storage/framework/sessions /data/storage/framework/views \
     && command -v openssl \
     && chown -R www-data:www-data /data \
@@ -55,7 +56,7 @@ RUN mkdir -p /data/cache /data/hooks /data/storage/framework/cache/data \
     && chmod +x /gateway/scripts/gateway-router /gateway/scripts/router-container-entrypoint \
         /gateway/scripts/router-start /gateway/scripts/router-artisan
 VOLUME /data
-EXPOSE 8443/tcp 993/tcp
+EXPOSE 8443/tcp 2525/tcp 993/tcp 995/tcp
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
     CMD su-exec www-data curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1
 ENTRYPOINT ["/gateway/scripts/router-container-entrypoint", "roadrunner"]
