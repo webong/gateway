@@ -41,6 +41,12 @@ Route::get('/_internal/gateway/email/dkim/{domain}', InternalDkimKeyController::
 Route::post('/_internal/gateway/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);
+Route::get('/_internal/gateway/extensions/webong/email/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
+Route::get('/_internal/gateway/extensions/webong/email/hosted-adapters/{name}', InternalHostedMailAdapterController::class);
+Route::post('/_internal/gateway/extensions/webong/email/outbound-plan', [OutboundTransportController::class, 'plan']);
+Route::post('/_internal/gateway/extensions/webong/email/outbound-attempts/{delivery}', [OutboundTransportController::class, 'record']);
+Route::post('/_internal/gateway/extensions/webong/email/outbound-attempts/{delivery}/reserve', [OutboundTransportController::class, 'reserve']);
+Route::get('/_internal/gateway/extensions/webong/email/dkim/{domain}', InternalDkimKeyController::class);
 Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
 Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
 Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);

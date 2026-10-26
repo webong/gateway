@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/webong/gateway/pkg/email/spinner/plannerclient"
 )
 
 type HTTPMailboxResolver struct {
 	origin string
 	token  string
 	client *http.Client
+	prefix string
 }
 
 var ErrMailboxConnectionUnavailable = errors.New("mailbox connection is disabled or missing")
@@ -25,7 +28,17 @@ func NewHTTPMailboxResolver(origin, token string) (*HTTPMailboxResolver, error) 
 		return nil, errors.New("private mailbox credential resolver is invalid")
 	}
 	return &HTTPMailboxResolver{origin: strings.TrimRight(origin, "/"), token: token,
-		client: &http.Client{Timeout: RetryableLookupTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+		client: &http.Client{Timeout: RetryableLookupTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		prefix: "/_internal/gateway/mailbox-connections/"}, nil
+}
+
+func NewPlannerMailboxResolver(handler http.Handler) (*HTTPMailboxResolver, error) {
+	client, err := plannerclient.New(handler)
+	if err != nil {
+		return nil, err
+	}
+	return &HTTPMailboxResolver{origin: plannerclient.Origin, token: "extension-scoped", client: client,
+		prefix: "/_internal/gateway/extensions/webong/email/mailbox-connections/"}, nil
 }
 
 func (r *HTTPMailboxResolver) Resolve(ctx context.Context, id string) (MailboxCredential, error) {
@@ -33,7 +46,7 @@ func (r *HTTPMailboxResolver) Resolve(ctx context.Context, id string) (MailboxCr
 		return MailboxCredential{}, errors.New("mailbox connection ID is invalid")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		r.origin+"/_internal/gateway/mailbox-connections/"+id+"/smtp", nil)
+		r.origin+r.prefix+id+"/smtp", nil)
 	if err != nil {
 		return MailboxCredential{}, err
 	}

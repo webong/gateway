@@ -58,6 +58,13 @@
             "operations": [
                 {"name": "exchange"}
             ]
+        },
+        {
+            "name": "gateway.secret",
+            "version": "v1",
+            "operations": [
+                {"name": "resolve"}
+            ]
         }
     ],
     "requires": [

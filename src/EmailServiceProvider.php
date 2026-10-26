@@ -8,6 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
+use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
@@ -103,6 +104,20 @@ final class EmailServiceProvider extends ServiceProvider
             $jobs->registerNotification('email_delivery_status',
                 fn (): array => $this->app->make(EmailDeliveryStatusDispatcher::class)->dispatch());
         });
+        $this->app->afterResolving(ExtensionRuntimeConfigurationRegistry::class,
+            static function (ExtensionRuntimeConfigurationRegistry $runtime): void {
+                $runtime->register('webong/email', static function (array $configuration): array {
+                    $allowed = config('gateway.email.hosted_allowed_hosts', []);
+                    if (! is_array($allowed) || $allowed === []) {
+                        return $configuration;
+                    }
+                    $hosted = is_array($configuration['hosted_mail'] ?? null) ? $configuration['hosted_mail'] : [];
+                    $hosted['allowed_hosts'] = array_values(array_unique($allowed));
+                    $configuration['hosted_mail'] = $hosted;
+
+                    return $configuration;
+                });
+            });
     }
 
     public function boot(): void
