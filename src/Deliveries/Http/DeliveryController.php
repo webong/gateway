@@ -176,7 +176,7 @@ final readonly class DeliveryController
             || ! in_array($value['state'] ?? null, ['queued', 'deferred', 'failed', 'delivered'], true)
             || ! is_int($value['attempts'] ?? null)
             || (array_key_exists('event_id', $value) && ! $this->validEventId($value['event_id']))
-            || (array_key_exists('failure_notice_id', $value) && ! $this->validId($value['failure_notice_id']))) {
+            || (array_key_exists('follow_up_id', $value) && ! $this->validId($value['follow_up_id']))) {
             return null;
         }
         $resource = [
@@ -189,8 +189,8 @@ final readonly class DeliveryController
                 $resource[$field] = $value[$field];
             }
         }
-        if (array_key_exists('failure_notice_id', $value)) {
-            $resource['failure_notice_id'] = $value['failure_notice_id'];
+        if (array_key_exists('follow_up_id', $value)) {
+            $resource['follow_up_id'] = $value['follow_up_id'];
         }
         foreach (['expected_status', 'response_status'] as $field) {
             if (array_key_exists($field, $value)) {
@@ -201,7 +201,7 @@ final readonly class DeliveryController
             }
         }
         if (array_key_exists('body_assertion', $value)) {
-            if (! in_array($value['body_assertion'], ['matched', 'mismatched', 'smtp_acceptance_unknown'], true)) {
+            if (! in_array($value['body_assertion'], ['matched', 'mismatched', 'acceptance_unknown'], true)) {
                 return null;
             }
             $resource['body_assertion'] = $value['body_assertion'];
