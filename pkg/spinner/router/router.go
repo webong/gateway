@@ -74,12 +74,9 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	}
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		Planner: httpPlanner, ProtocolPlanner: protocolPlanner, PassThrough: planner, Observations: observations,
-		Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
+		Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control, InternalToken: spinner.InternalToken,
 		Start: integration.RuntimeStartRequest{
 			MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
-			WebSocketMaxConnections: spinner.WebSocketMaxConnections, WebSocketMaxDuration: spinner.WebSocketMaxDuration,
-			WebstreamHeartbeat: spinner.WebstreamHeartbeat, WebstreamRetry: spinner.WebstreamRetry,
-			WebstreamMaxConnections: spinner.WebstreamMaxConnections, WebstreamMaxDuration: spinner.WebstreamMaxDuration,
 			AutomationLanguages: automation.Languages(spinner.Automation),
 		},
 	})
@@ -95,15 +92,10 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
 		}
 	}
-	mailboxPoller, err := transport.EmbeddedMailboxPoller(planner, spinner)
-	if err != nil {
-		return err
-	}
-	control.EnableNativeIMAP()
 	if spinner.SchedulesEnabled {
 		scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 		defer cancelSchedules()
-		if err := transport.StartSchedulePolling(scheduleCtx, spinner, control, engine, mailboxPoller.Run); err != nil {
+		if err := transport.StartSchedulePolling(scheduleCtx, spinner, control, engine, integrationextensions.DefaultRegistry); err != nil {
 			return err
 		}
 	}
@@ -111,7 +103,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err != nil {
 		return err
 	}
-	handler := NewHandler(planner, integrationextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(planner)...)
+	handler := NewHandler(planner, integrationextensions.DefaultRegistry.Handler(), managed)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"
@@ -128,7 +120,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			_ = listener.Close()
 			return fmt.Errorf("listen for private Planner control: %w", err)
 		}
-		controlServer = NewInternalControlServer(planner, transport.InternalRequestPolicies()...)
+		controlServer = NewInternalControlServer(planner)
 	}
 	server := &http.Server{
 		Handler:           handler,
@@ -257,7 +249,7 @@ func ManagedRouteProxy(spinner *transport.Router) (ManagedRouteHandler, error) {
 	return provision.NewRemoteRouter("http://planner.internal", spinner.InternalToken, nil, spinner.ProvisioningRouteCIDRs)
 }
 
-func NewHandler(planner, edge, websocket, webstream http.Handler, managed ManagedRouteHandler, routes ...integration.PublicRoute) http.Handler {
+func NewHandler(planner, edge http.Handler, managed ManagedRouteHandler, routes ...integration.PublicRoute) http.Handler {
 	hooks := edge
 	mounted := append([]integration.PublicRoute(nil), routes...)
 	for index := range mounted {

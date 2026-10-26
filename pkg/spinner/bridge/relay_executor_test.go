@@ -2,9 +2,6 @@ package gateway
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"net/netip"
 	"testing"
 	"time"
 
@@ -13,31 +10,6 @@ import (
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
 	"github.com/webong/gateway/pkg/spinner/internal/workers"
 )
-
-func TestRelayExecutorPassesPlannerPrivateSourceGrantToBoundedWebstreamDial(t *testing.T) {
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer source.Close()
-	forwarder := forwarding.NewForwarder(&relayconfig.Config{
-		RequestTimeout:           time.Second,
-		WebstreamPrivateNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
-	}, logging.NewLogger("error"))
-	defer forwarder.CloseIdleConnections()
-	executor := NewRelayExecutor(forwarder, nil)
-	delivery := GatewayDelivery{Protocol: ProtocolHTTP, Target: source.URL + "/events",
-		Attributes: map[string]string{"private_source_cidrs": "127.0.0.0/8"}}
-	response, err := executor.OpenWebstream(context.Background(), delivery)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	delete(delivery.Attributes, "private_source_cidrs")
-	if _, err := executor.OpenWebstream(context.Background(), delivery); err == nil {
-		t.Fatal("private source reached without a Planner grant")
-	}
-}
 
 type capturingQueue struct{ deliveries []GatewayDelivery }
 
@@ -187,24 +159,6 @@ func TestForwardTransportCopiesNormalizedProfileSettings(t *testing.T) {
 	}
 	if forward.ConnectTimeout != 2500*time.Millisecond || forward.RequestTimeout != 12*time.Second {
 		t.Fatalf("unexpected timeout mapping: %+v", forward)
-	}
-}
-
-func TestWebstreamSourceHeadersPreferEndpointProfileCredentials(t *testing.T) {
-	headers := streamHeaders(GatewayDelivery{
-		Protocol: ProtocolHTTP, Target: "https://events.example.test/stream",
-		Headers:   map[string][]string{"Last-Event-ID": {"event-42"}, "Authorization": {"Bearer client-token"}},
-		Transport: &HTTPTransport{StreamHeaders: map[string][]string{"Authorization": {"Bearer source-secret"}, "X-Source-Scope": {"orders"}}},
-	})
-	if headers.Get("Authorization") != "Bearer source-secret" || headers.Get("Last-Event-ID") != "event-42" || headers.Get("X-Source-Scope") != "orders" {
-		t.Fatalf("unexpected source headers: %v", headers)
-	}
-}
-
-func TestStreamProfileOverridesHeadersCaseInsensitively(t *testing.T) {
-	headers := streamHeaders(GatewayDelivery{Headers: map[string][]string{"AUTHORIZATION": {"client"}}, Transport: &HTTPTransport{StreamHeaders: map[string][]string{"authorization": {"source"}}}})
-	if len(headers.Values("Authorization")) != 1 || headers.Get("Authorization") != "source" {
-		t.Fatal("profile did not replace existing credential")
 	}
 }
 

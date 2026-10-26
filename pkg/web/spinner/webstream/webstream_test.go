@@ -101,6 +101,26 @@ func TestHandlerRequiresExplicitSSEAcceptHeader(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsNonHTTPStreamSourceInsideWebExtension(t *testing.T) {
+	opened := false
+	handler := NewHandler(plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{
+			Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebstream, Action: bridge.GatewayStream,
+			Stream: &bridge.GatewayDelivery{Protocol: bridge.ProtocolSMTP, Target: "not-an-http-source"},
+		}, nil
+	}), sourceFunc(func(context.Context, bridge.GatewayDelivery) (*http.Response, error) {
+		opened = true
+		return nil, nil
+	}), Config{})
+	request := httptest.NewRequest(http.MethodGet, "/hooks/updates", nil)
+	request.Header.Set("Accept", "text/event-stream")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway || opened {
+		t.Fatalf("non-HTTP Webstream source was used: status=%d opened=%v", response.Code, opened)
+	}
+}
+
 func TestHandlerPassesLastEventIDToPlanner(t *testing.T) {
 	events := make(chan bridge.GatewayEvent, 1)
 	handler := NewHandler(plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {

@@ -39,9 +39,6 @@ const (
 	GatewayClose      = protocol.GatewayClose
 	GatewayStream     = protocol.GatewayStream
 	GatewayAutomate   = protocol.GatewayAutomate
-
-	FailureNoticeToAttribute   = protocol.FailureNoticeToAttribute
-	DKIMSigningDomainAttribute = protocol.DKIMSigningDomainAttribute
 )
 
 var (
@@ -54,32 +51,36 @@ var (
 )
 
 type (
-	PlanAction                   = protocol.PlanAction
-	IngressRequest               = protocol.IngressRequest
-	RuntimeCapabilities          = protocol.RuntimeCapabilities
-	RoutePlan                    = protocol.RoutePlan
-	Automation                   = protocol.Automation
-	Delivery                     = protocol.Delivery
-	HTTPTransport                = protocol.HTTPTransport
-	HTTPProxy                    = protocol.HTTPProxy
-	Response                     = protocol.Response
-	Planner                      = protocol.Planner
-	Executor                     = protocol.Executor
-	ProtocolPlanner              = protocol.ProtocolPlanner
-	GatewayExecutor              = protocol.GatewayExecutor
-	DurableGatewayExecutor       = protocol.DurableGatewayExecutor
-	DurableGatewayBatchExecutor  = protocol.DurableGatewayBatchExecutor
-	GatewayDeliveryAdapter       = protocol.GatewayDeliveryAdapter
-	GatewayDeliveryResult        = protocol.GatewayDeliveryResult
-	GatewayDeliveryResultAdapter = protocol.GatewayDeliveryResultAdapter
-	GatewayDeliveryAdapterFunc   = protocol.GatewayDeliveryAdapterFunc
-	GatewayDeliveryQueue         = protocol.GatewayDeliveryQueue
-	Protocol                     = protocol.Protocol
-	EventKind                    = protocol.EventKind
-	GatewayEvent                 = protocol.GatewayEvent
-	GatewayAction                = protocol.GatewayAction
-	GatewayDelivery              = protocol.GatewayDelivery
-	GatewayDecision              = protocol.GatewayDecision
+	PlanAction                    = protocol.PlanAction
+	IngressRequest                = protocol.IngressRequest
+	RuntimeCapabilities           = protocol.RuntimeCapabilities
+	RoutePlan                     = protocol.RoutePlan
+	Automation                    = protocol.Automation
+	Delivery                      = protocol.Delivery
+	HTTPTransport                 = protocol.HTTPTransport
+	HTTPProxy                     = protocol.HTTPProxy
+	Response                      = protocol.Response
+	Planner                       = protocol.Planner
+	Executor                      = protocol.Executor
+	ProtocolPlanner               = protocol.ProtocolPlanner
+	GatewayExecutor               = protocol.GatewayExecutor
+	DurableGatewayExecutor        = protocol.DurableGatewayExecutor
+	IdempotentGatewayExecutor     = protocol.IdempotentGatewayExecutor
+	GatewayDeliveryAdapterSupport = protocol.GatewayDeliveryAdapterSupport
+	DurableGatewayBatchExecutor   = protocol.DurableGatewayBatchExecutor
+	GatewayDeliveryAdapter        = protocol.GatewayDeliveryAdapter
+	GatewayDeliveryResult         = protocol.GatewayDeliveryResult
+	GatewayDeliveryResultAdapter  = protocol.GatewayDeliveryResultAdapter
+	GatewayDeliveryAdapterFunc    = protocol.GatewayDeliveryAdapterFunc
+	GatewayDeliveryQueue          = protocol.GatewayDeliveryQueue
+	Protocol                      = protocol.Protocol
+	EventKind                     = protocol.EventKind
+	GatewayEvent                  = protocol.GatewayEvent
+	GatewayAction                 = protocol.GatewayAction
+	GatewayDelivery               = protocol.GatewayDelivery
+	GatewayDecision               = protocol.GatewayDecision
+	DeliveryFailureRequest        = protocol.DeliveryFailureRequest
+	DeliveryFailureHandler        = protocol.DeliveryFailureHandler
 )
 
 func GatewayEventFromHTTP(ingress IngressRequest) GatewayEvent {

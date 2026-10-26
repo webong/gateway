@@ -13,6 +13,7 @@ import (
 	"github.com/emersion/go-msgauth/dkim"
 	smtpserver "github.com/emersion/go-smtp"
 	bridge "github.com/webong/gateway/arranger/integration"
+	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
 )
 
 func TestGatewayAdapterDeliversResolvedSMTPMessage(t *testing.T) {
@@ -76,7 +77,7 @@ func TestGatewayAdapterDeliversResolvedSMTPMessage(t *testing.T) {
 	if err := signingAdapter.DeliverGateway(context.Background(), bridge.GatewayDelivery{
 		Protocol: bridge.ProtocolSMTP, Target: "signed@example.net",
 		Attributes: map[string]string{
-			"mail_from": "sender@example.test", bridge.DKIMSigningDomainAttribute: "example.test",
+			"mail_from": "sender@example.test", emailattrs.DKIMSigningDomain: "example.test",
 		},
 		Payload: []byte("From: Sender <sender@example.test>\r\nSubject: signed\r\n\r\nbody\r\n"),
 	}); err != nil {

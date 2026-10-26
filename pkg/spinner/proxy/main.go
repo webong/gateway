@@ -144,25 +144,9 @@ func (s *Server) ConfigureDeliveryQueue() error {
 	if s.config.DeliveryAdminAddress != "" {
 		var options []deliveryadmin.HandlerOption
 		options = append(options, deliveryadmin.WithAutomationExecutor(s.automation))
+		options = append(options, deliveryadmin.WithPrivateFallback(integrationextensions.DefaultRegistry.PrivateHandler()))
 		if history := automationextensions.RunHistory(); history != nil {
 			options = append(options, deliveryadmin.WithShellRunHistory(history))
-		}
-		if s.config.SMTPRelayAddress != "" || s.config.MailboxSMTPResolverURL != "" {
-			adapter, adapterErr := transport.NewSMTPAdapter(s.config)
-			if adapterErr != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				_ = queue.Close(ctx)
-				cancel()
-				return adapterErr
-			}
-			scanner, _, protectionErr := transport.NewEmailProtection(s.config)
-			if protectionErr != nil {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				_ = queue.Close(ctx)
-				cancel()
-				return protectionErr
-			}
-			options = append(options, deliveryadmin.WithEmailSubmission(queue, adapter, scanner, s.config.SMTPMaxMessageSize, []byte(s.config.InternalToken), s.config.EmailDSNDomain != ""))
 		}
 		handler, err := deliveryadmin.NewHandler(queue, s.config.InternalToken, options...)
 		if err != nil {
@@ -183,9 +167,6 @@ func (s *Server) ConfigureDeliveryQueue() error {
 	}
 	s.deliveryQueue = queue
 	s.executorOptions = append(s.executorOptions, bridge.WithGatewayDeliveryQueue(queue))
-	if s.config.SMTPRelayAddress != "" {
-		s.logger.Info("Configured outbound SMTP relay at %s", s.config.SMTPRelayAddress)
-	}
 	if s.config.DeliveryDatabaseURL != "" {
 		s.logger.Info("Using shared PostgreSQL delivery queue")
 	} else {
@@ -293,9 +274,6 @@ func run() error {
 	}
 
 	logger := logging.NewLogger(config.LogLevel)
-	if config.SMTPAddress != "" || config.POP3Address != "" || config.IMAPAddress != "" {
-		return fmt.Errorf("SMTP, IMAP, and POP3 listeners are configured through the webong/email Extension")
-	}
 	server, err := NewServer(config, logger)
 	if err != nil {
 		return err
@@ -375,16 +353,18 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		return fmt.Errorf("failed to initialize schedule control plane: %w", controlErr)
 	}
 	server.SetScheduleRegistrar(control)
+	control.SetNativeJobProvider(integrationextensions.DefaultRegistry)
 	if config.SchedulesEnabled {
 		scheduleCtx, cancelSchedules := context.WithCancel(context.Background())
 		defer cancelSchedules()
 		executor := server.NewGatewayExecutor()
 		if err := (schedules.Runtime{
-			Control:   control,
-			Executor:  server.automationRuntime,
-			Registrar: control,
-			Interval:  config.SchedulePollInterval,
-			LogError:  logger.Error,
+			Control:    control,
+			Executor:   server.automationRuntime,
+			NativeJobs: integrationextensions.DefaultRegistry,
+			Registrar:  control,
+			Interval:   config.SchedulePollInterval,
+			LogError:   logger.Error,
 			Enqueue: func(runID string, delivery automation.Delivery) bool {
 				return transport.EnqueueScheduledDelivery(executor, runID, delivery)
 			},
@@ -435,12 +415,9 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	}
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		Planner: runtime.Planner(), ProtocolPlanner: protocolPlanner, PassThrough: runtime.PassThrough(), Observations: observations,
-		Executor: server.NewGatewayExecutor(), Automation: server.automation, Schedules: control,
+		Executor: server.NewGatewayExecutor(), Automation: server.automation, Schedules: control, InternalToken: config.InternalToken,
 		Start: runtimecontract.RuntimeStartRequest{
 			MaxBodySize: config.MaxBodySize, PlannerTimeout: config.RequestTimeout,
-			WebSocketMaxConnections: config.WebSocketMaxConnections, WebSocketMaxDuration: config.WebSocketMaxDuration,
-			WebstreamHeartbeat: config.WebstreamHeartbeat, WebstreamRetry: config.WebstreamRetry,
-			WebstreamMaxConnections: config.WebstreamMaxConnections, WebstreamMaxDuration: config.WebstreamMaxDuration,
 			AutomationLanguages: automation.Languages(server.automationRuntime),
 		},
 	})

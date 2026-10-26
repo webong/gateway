@@ -46,11 +46,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/emersion/go-imap/v2 v2.0.0-beta.8 // indirect
-	github.com/emersion/go-message v0.18.2 // indirect
-	github.com/emersion/go-msgauth v0.7.0 // indirect
-	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
-	github.com/emersion/go-smtp v0.24.0 // indirect
 	github.com/emicklei/proto v1.14.1 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -182,8 +177,6 @@ require (
 	github.com/valyala/fasthttp v1.61.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/webong/gateway/pkg/email v0.0.0 // indirect
-	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
@@ -240,5 +233,3 @@ replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 replace github.com/webong/gateway/pkg/roadrunner => ../..
 
 replace github.com/webong/gateway/pkg/spinner => ../../../../pkg/spinner
-
-replace github.com/webong/gateway/pkg/email => ../../../../pkg/email

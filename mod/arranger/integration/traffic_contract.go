@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/webong/gateway/arranger/automation"
 )
@@ -168,6 +169,19 @@ type DurableGatewayExecutor interface {
 	DurableGatewayDeliveries() bool
 }
 
+// IdempotentGatewayExecutor durably accepts a caller-reserved receipt. It is
+// used by installable Extensions that own an authenticated ingress protocol
+// while the generic host owns persistence and retry scheduling.
+type IdempotentGatewayExecutor interface {
+	EnqueueGatewayIdempotent(GatewayDelivery, string, string, time.Time) (bool, error)
+}
+
+// GatewayDeliveryAdapterSupport lets an Extension fail closed before it
+// accepts work for an adapter that is not currently installed.
+type GatewayDeliveryAdapterSupport interface {
+	SupportsAdapter(string) bool
+}
+
 // DurableGatewayBatchExecutor persists one fanout manifest before SMTP DATA
 // is acknowledged. Child receipts are created idempotently by the worker.
 type DurableGatewayBatchExecutor interface {
@@ -303,11 +317,11 @@ func (t HTTPTransport) Validate() error {
 	}
 	for name, values := range t.StreamHeaders {
 		if !validStreamHeaderName(name) {
-			return fmt.Errorf("invalid webstream header name %q", name)
+			return fmt.Errorf("invalid streaming header name %q", name)
 		}
 		for _, value := range values {
 			if strings.ContainsAny(value, "\r\n") {
-				return fmt.Errorf("webstream header %q contains a line break", name)
+				return fmt.Errorf("streaming header %q contains a line break", name)
 			}
 		}
 	}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +25,6 @@ type SharedQueue struct {
 	store     *sharedpg.Store
 	db        *sql.DB
 	owner     string
-	adapters  []string
 	wake      chan struct{}
 	stop      chan struct{}
 	done      chan struct{}
@@ -36,7 +34,11 @@ type SharedQueue struct {
 var _ Backend = (*SharedQueue)(nil)
 
 func (queue *SharedQueue) SupportsAdapter(name string) bool {
-	return queue != nil && queue.config.Adapters[name] != nil
+	if queue == nil {
+		return false
+	}
+	_, ok := resolveAdapter(queue.config, name)
+	return ok
 }
 
 func NewShared(config Config, databaseURL string) (*SharedQueue, error) {
@@ -48,7 +50,11 @@ func NewShared(config Config, databaseURL string) (*SharedQueue, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(config.Adapters) == 0 {
+	fanout, err := installFanout(&config)
+	if err != nil {
+		return nil, err
+	}
+	if len(config.Adapters) == 0 && config.AdapterResolver == nil {
 		return nil, errors.New("shared delivery queue requires at least one adapter")
 	}
 	owner, err := newID()
@@ -83,10 +89,7 @@ func NewShared(config Config, databaseURL string) (*SharedQueue, error) {
 		config: config, store: store, db: db, owner: owner,
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 	}
-	for name := range config.Adapters {
-		queue.adapters = append(queue.adapters, name)
-	}
-	sort.Strings(queue.adapters)
+	fanout.bind(queue)
 	go queue.run()
 	return queue, nil
 }
@@ -122,17 +125,8 @@ func (queue *SharedQueue) enqueue(delivery bridge.GatewayDelivery, id, fingerpri
 	if err := delivery.Validate(); err != nil {
 		return false, err
 	}
-	if queue.config.Adapters[delivery.AdapterName()] == nil {
+	if _, ok := resolveAdapter(queue.config, delivery.AdapterName()); !ok {
 		return false, fmt.Errorf("delivery adapter %q is not registered", delivery.AdapterName())
-	}
-	if recipient := delivery.Attributes[bridge.FailureNoticeToAttribute]; recipient != "" {
-		if delivery.Protocol != bridge.ProtocolSMTP || delivery.AdapterName() != string(bridge.ProtocolSMTP) ||
-			queue.config.FailureNoticeDomain == "" || recipient != delivery.Attributes["mail_from"] || !validFailureNoticeAddress(recipient) {
-			return false, errors.New("SMTP failure notice requires a configured domain and authenticated envelope sender")
-		}
-		if _, err := failureNoticeRecipients(delivery); err != nil {
-			return false, err
-		}
 	}
 	now := time.Now().UTC()
 	queued := item{
@@ -280,17 +274,18 @@ func (queue *SharedQueue) Retry(id string) error {
 	if err := json.Unmarshal(record.Payload, &queued); err != nil || queued.ID != id {
 		return errors.New("invalid shared delivery record")
 	}
-	if queued.FailureNoticeID != "" || queued.Delivery.Attributes[bridge.FailureNoticeToAttribute] != "" {
+	if queued.FollowUpID != "" {
 		return ErrInvalidState
 	}
 	if err := queued.Delivery.Validate(); err != nil {
 		return fmt.Errorf("failed delivery cannot be retried: %w", err)
 	}
-	if queue.config.Adapters[queued.Delivery.AdapterName()] == nil {
+	if _, ok := resolveAdapter(queue.config, queued.Delivery.AdapterName()); !ok {
 		return fmt.Errorf("delivery adapter %q is not registered", queued.Delivery.AdapterName())
 	}
 	queued.State, queued.Attempts, queued.ResponseStatus = StateQueued, 0, 0
 	queued.BodyAssertion, queued.LastError = "", ""
+	queued.FollowUpHandled = false
 	queued.NextAttemptAt, queued.UpdatedAt = time.Now().UTC(), time.Now().UTC()
 	payload, err := json.Marshal(queued)
 	if err != nil {
@@ -339,7 +334,7 @@ func (queue *SharedQueue) processDue() {
 		default:
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		lease, err := queue.store.ClaimCompatible(ctx, queue.owner, queue.leaseDuration(), queue.adapters)
+		lease, err := queue.store.ClaimCompatible(ctx, queue.owner, queue.leaseDuration(), adapterNames(queue.config))
 		cancel()
 		if err != nil {
 			log.Printf("Gateway shared delivery claim failed: %v", err)
@@ -377,14 +372,12 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 		}
 		return
 	}
-	adapter := queue.config.Adapters[queued.Delivery.AdapterName()]
-	if queued.Delivery.AdapterName() == "managed.smtp" {
-		if queued.Delivery.Attributes == nil {
-			queued.Delivery.Attributes = make(map[string]string)
-		}
-		queued.Delivery.Attributes["gateway_delivery_id"] = queued.ID
-		queued.Delivery.Attributes["gateway_attempt_index"] = strconv.Itoa(queued.Attempts)
+	adapter, _ := resolveAdapter(queue.config, queued.Delivery.AdapterName())
+	if queued.Delivery.Attributes == nil {
+		queued.Delivery.Attributes = make(map[string]string)
 	}
+	queued.Delivery.Attributes["gateway_delivery_id"] = queued.ID
+	queued.Delivery.Attributes["gateway_attempt_index"] = strconv.Itoa(queued.Attempts)
 	ctx, cancel := context.WithTimeout(context.Background(), queue.config.DeliveryTimeout)
 	renewDone := make(chan error, 1)
 	stopRenew := make(chan struct{})
@@ -422,7 +415,7 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 	} else {
 		queued.LastError = err.Error()
 		if errors.Is(err, bridge.ErrUncertainDelivery) {
-			queued.BodyAssertion = "smtp_acceptance_unknown"
+			queued.BodyAssertion = "acceptance_unknown"
 		}
 		if queued.Attempts >= queue.config.MaxAttempts || adapter == nil || errors.Is(err, bridge.ErrPermanentDelivery) || errors.Is(err, bridge.ErrUncertainDelivery) {
 			queued.State = StateFailed
@@ -431,22 +424,13 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 			queued.NextAttemptAt = queued.UpdatedAt.Add(queue.backoff(queued.Attempts))
 		}
 	}
-	var notice item
-	if queued.State == StateFailed && !errors.Is(err, bridge.ErrUncertainDelivery) && queued.Delivery.Attributes[bridge.FailureNoticeToAttribute] != "" {
-		delivery, noticeErr := failureNoticeDelivery(queued, queue.config.FailureNoticeDomain)
-		if noticeErr != nil {
-			log.Printf("Gateway shared delivery %s could not construct failure notice: %v", lease.ID, noticeErr)
-			return
+	var followUp item
+	if queued.State == StateFailed && !errors.Is(err, bridge.ErrUncertainDelivery) {
+		var followUpErr error
+		queued, followUp, followUpErr = failureFollowUp(context.Background(), queue.config, queued)
+		if followUpErr != nil {
+			log.Printf("Gateway shared delivery %s could not construct failure follow-up: %v", lease.ID, followUpErr)
 		}
-		id := failureNoticeID(queued.ID)
-		now := time.Now().UTC()
-		notice = item{
-			Version: spoolVersion, ID: id, EventID: queued.EventID, Delivery: delivery,
-			Protocol: bridge.ProtocolSMTP, Adapter: string(bridge.ProtocolSMTP),
-			SubscriberID: delivery.SubscriberID, State: StateQueued,
-			NextAttemptAt: now, CreatedAt: now, UpdatedAt: now,
-		}
-		queued.FailureNoticeID = id
 	}
 	payload, marshalErr := json.Marshal(queued)
 	if marshalErr != nil {
@@ -455,16 +439,16 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 	}
 	settleCtx, settleCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	var settleErr error
-	if notice.ID != "" {
-		noticePayload, noticeErr := json.Marshal(notice)
-		if noticeErr != nil {
+	if followUp.ID != "" {
+		followUpPayload, followUpErr := json.Marshal(followUp)
+		if followUpErr != nil {
 			settleCancel()
-			log.Printf("Gateway shared delivery %s could not encode failure notice: %v", lease.ID, noticeErr)
+			log.Printf("Gateway shared delivery %s could not encode failure follow-up: %v", lease.ID, followUpErr)
 			return
 		}
-		settleErr = queue.store.SettleWithNotice(settleCtx, lease, payload, sharedpg.Record{
-			ID: notice.ID, Payload: noticePayload, State: string(StateQueued),
-			EventID: notice.EventID, NextAttemptAt: notice.NextAttemptAt,
+		settleErr = queue.store.SettleWithFollowUp(settleCtx, lease, payload, sharedpg.Record{
+			ID: followUp.ID, Payload: followUpPayload, State: string(StateQueued),
+			EventID: followUp.EventID, NextAttemptAt: followUp.NextAttemptAt,
 		})
 	} else {
 		settleErr = queue.store.Settle(settleCtx, lease, string(queued.State), payload, queued.NextAttemptAt)
@@ -475,8 +459,8 @@ func (queue *SharedQueue) deliver(lease sharedpg.Lease) {
 		return
 	}
 	queue.observe(observed, queued.State)
-	if notice.ID != "" {
-		queue.observe(notice, StateQueued)
+	if followUp.ID != "" {
+		queue.observe(followUp, StateQueued)
 		select {
 		case queue.wake <- struct{}{}:
 		default:

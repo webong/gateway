@@ -6,6 +6,8 @@ package integrationextensions
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,6 +37,7 @@ type Services struct {
 	Automation      automation.Executor
 	Schedules       automation.ScheduleRegistrar
 	Observations    integration.ObservationSink
+	InternalToken   string
 	Start           integration.RuntimeStartRequest
 }
 
@@ -61,19 +64,31 @@ func (h *Host) current() Services {
 	return h.services
 }
 
-func (h *Host) StartRequest(configuration json.RawMessage) integration.RuntimeStartRequest {
-	request := h.current().Start
+func (h *Host) StartRequest(identity plugin.Identity, configuration json.RawMessage) integration.RuntimeStartRequest {
+	services := h.current()
+	request := services.Start
 	request.Configuration = append(json.RawMessage(nil), configuration...)
+	if services.InternalToken != "" && identity.ID != "" && identity.Validate() == nil {
+		mac := hmac.New(sha256.New, []byte(services.InternalToken))
+		_, _ = mac.Write([]byte("gateway-extension-instance-v1\x00" + identity.ID + "\x00" + identity.Revision + "\x00" + identity.Version))
+		request.InstanceKey = mac.Sum(nil)
+	}
 	return request
 }
 
 // ReverseOptions combines the integration host services with an optional existing
 // reverse host such as Companion Actions.
 func (h *Host) ReverseOptions(fallback *plugin.ReverseOptions) *plugin.ReverseOptions {
+	return h.ReverseOptionsFor(plugin.Identity{}, fallback)
+}
+
+// ReverseOptionsFor binds private Planner access to the verified package
+// identity. An Extension can reach only its own private route namespace.
+func (h *Host) ReverseOptionsFor(identity plugin.Identity, fallback *plugin.ReverseOptions) *plugin.ReverseOptions {
 	return &plugin.ReverseOptions{
 		Authorize: func(ctx context.Context, request plugin.Request) error {
 			if h.owns(request.Contract) {
-				return h.authorize(request)
+				return h.authorize(identity, request)
 			}
 			if fallback == nil || fallback.Authorize == nil {
 				return plugin.ErrDenied
@@ -82,7 +97,7 @@ func (h *Host) ReverseOptions(fallback *plugin.ReverseOptions) *plugin.ReverseOp
 		},
 		Handle: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
 			if h.owns(request.Contract) {
-				return h.handle(ctx, request)
+				return h.handle(ctx, identity, request)
 			}
 			if fallback == nil || fallback.Handle == nil {
 				return nil, plugin.ErrDenied
@@ -101,19 +116,27 @@ func (h *Host) owns(ref plugin.ContractRef) bool {
 		ref == integration.ObservationContract
 }
 
-func (h *Host) authorize(request plugin.Request) error {
+func (h *Host) authorize(identity plugin.Identity, request plugin.Request) error {
 	services := h.current()
 	switch request.Contract {
 	case integration.PlannerContract:
 		if request.Operation == integration.OperationPlanHTTP && services.Planner != nil ||
 			request.Operation == integration.OperationPlanEvent && services.ProtocolPlanner != nil ||
-			request.Operation == integration.OperationPassThrough && services.PassThrough != nil {
+			request.Operation == integration.OperationPassThrough && services.PassThrough != nil ||
+			request.Operation == integration.OperationPrivatePassThrough && services.PassThrough != nil &&
+				strings.TrimSpace(services.InternalToken) != "" && identity.ID != "" && identity.Validate() == nil {
 			return nil
 		}
 	case integration.DeliveryContract:
 		if services.Executor != nil && (request.Operation == integration.OperationDeliver ||
 			request.Operation == integration.OperationEnqueue || request.Operation == integration.OperationEnqueueGateway ||
 			request.Operation == integration.OperationDurable) {
+			return nil
+		}
+		if _, ok := services.Executor.(integration.IdempotentGatewayExecutor); ok && request.Operation == integration.OperationEnqueueGatewayIdempotent {
+			return nil
+		}
+		if _, ok := services.Executor.(integration.GatewayDeliveryAdapterSupport); ok && request.Operation == integration.OperationSupportsDeliveryAdapter {
 			return nil
 		}
 	case integration.AutomationContract:
@@ -132,11 +155,11 @@ func (h *Host) authorize(request plugin.Request) error {
 	return plugin.ErrDenied
 }
 
-func (h *Host) handle(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+func (h *Host) handle(ctx context.Context, identity plugin.Identity, request plugin.Request) (json.RawMessage, error) {
 	services := h.current()
 	switch request.Contract {
 	case integration.PlannerContract:
-		return handlePlanner(ctx, services, request)
+		return handlePlanner(ctx, services, identity, request)
 	case integration.DeliveryContract:
 		return handleDelivery(ctx, services, request)
 	case integration.AutomationContract:
@@ -172,7 +195,7 @@ func (h *Host) handle(ctx context.Context, request plugin.Request) (json.RawMess
 	}
 }
 
-func handlePlanner(ctx context.Context, services Services, request plugin.Request) (json.RawMessage, error) {
+func handlePlanner(ctx context.Context, services Services, identity plugin.Identity, request plugin.Request) (json.RawMessage, error) {
 	switch request.Operation {
 	case integration.OperationPlanHTTP:
 		var input integration.IngressRequest
@@ -194,10 +217,17 @@ func handlePlanner(ctx context.Context, services Services, request plugin.Reques
 			return nil, err
 		}
 		return json.Marshal(result)
-	case integration.OperationPassThrough:
+	case integration.OperationPassThrough, integration.OperationPrivatePassThrough:
 		var input integration.PassThroughRequest
-		if err := decode(request.Payload, &input); err != nil || input.Method == "" || input.Path == "" || pathUnder(input.Path, "/_internal") {
+		if err := decode(request.Payload, &input); err != nil || input.Method == "" || input.Path == "" {
 			return nil, plugin.ErrInvalid
+		}
+		if request.Operation == integration.OperationPassThrough && pathUnder(input.Path, "/_internal") {
+			return nil, plugin.ErrInvalid
+		}
+		if request.Operation == integration.OperationPrivatePassThrough &&
+			(identity.ID == "" || !pathUnder(input.Path, "/_internal/gateway/extensions/"+identity.ID)) {
+			return nil, plugin.ErrDenied
 		}
 		target := input.Scheme + "://" + input.Host + input.Path
 		if input.Scheme == "" {
@@ -211,6 +241,12 @@ func handlePlanner(ctx context.Context, services Services, request plugin.Reques
 			return nil, plugin.ErrInvalid
 		}
 		req.Header = input.Headers.Clone()
+		if request.Operation == integration.OperationPrivatePassThrough {
+			if req.Header == nil {
+				req.Header = make(http.Header)
+			}
+			req.Header.Set("X-Gateway-Internal", services.InternalToken)
+		}
 		req.Host = input.Host
 		req.RemoteAddr = input.RemoteAddr
 		recorder := httptest.NewRecorder()
@@ -251,6 +287,33 @@ func handleDelivery(ctx context.Context, services Services, request plugin.Reque
 			return nil, plugin.ErrInvalid
 		}
 		return json.Marshal(integration.EnqueueResponse{Accepted: services.Executor.EnqueueGateway(input)})
+	case integration.OperationEnqueueGatewayIdempotent:
+		var input integration.IdempotentEnqueueRequest
+		if err := decode(request.Payload, &input); err != nil || input.Delivery.Validate() != nil {
+			return nil, plugin.ErrInvalid
+		}
+		executor, ok := services.Executor.(integration.IdempotentGatewayExecutor)
+		if !ok {
+			return nil, plugin.ErrDenied
+		}
+		replayed, err := executor.EnqueueGatewayIdempotent(input.Delivery, input.ID, input.Fingerprint, input.ExpiresAt)
+		if errors.Is(err, integration.ErrIdempotencyConflict) {
+			return json.Marshal(integration.IdempotentEnqueueResponse{Conflict: true})
+		}
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(integration.IdempotentEnqueueResponse{Replayed: replayed})
+	case integration.OperationSupportsDeliveryAdapter:
+		var input integration.DeliveryAdapterSupportRequest
+		if err := decode(request.Payload, &input); err != nil || !integration.ValidAdapterName(input.Adapter) {
+			return nil, plugin.ErrInvalid
+		}
+		executor, ok := services.Executor.(integration.GatewayDeliveryAdapterSupport)
+		if !ok {
+			return nil, plugin.ErrDenied
+		}
+		return json.Marshal(integration.DeliveryAdapterSupportResponse{Supported: executor.SupportsAdapter(input.Adapter)})
 	case integration.OperationDurable:
 		durable, ok := services.Executor.(integration.DurableGatewayExecutor)
 		return json.Marshal(integration.DurableResponse{Enabled: ok && durable.DurableGatewayDeliveries()})

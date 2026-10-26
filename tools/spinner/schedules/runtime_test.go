@@ -26,6 +26,16 @@ type fakeRegistrar struct {
 	schedules []automation.Schedule
 }
 
+type fakeNativeJobs struct {
+	called string
+}
+
+func (*fakeNativeJobs) NativeJobNames() []string { return []string{"imap"} }
+func (jobs *fakeNativeJobs) RunNativeJob(_ context.Context, language, source string, _ map[string]any) error {
+	jobs.called = language + ":" + source
+	return nil
+}
+
 func (f *fakeRegistrar) RegisterSchedules(_ context.Context, origin string, schedules []automation.Schedule) error {
 	f.origin = origin
 	f.schedules = append([]automation.Schedule(nil), schedules...)
@@ -76,15 +86,12 @@ func TestPollReportsScriptFailure(t *testing.T) {
 	}
 }
 
-func TestPollDispatchesNativeIMAPThroughExistingScheduleClaim(t *testing.T) {
+func TestPollDispatchesExtensionNativeJobThroughExistingScheduleClaim(t *testing.T) {
 	control := &fakeControl{runs: []Run{{ID: "run-imap", Language: "native.imap", Source: "poll-resource-id"}}}
-	called := ""
-	(Runtime{Control: control, NativeIMAP: func(_ context.Context, routeID string) error {
-		called = routeID
-		return nil
-	}, Enqueue: func(string, automation.Delivery) bool { return true }}).Poll(context.Background())
-	if called != "poll-resource-id" || control.status != "succeeded" || control.queued != 0 {
-		t.Fatalf("native job was not dispatched through schedules: called=%q control=%+v", called, control)
+	jobs := &fakeNativeJobs{}
+	(Runtime{Control: control, NativeJobs: jobs, Enqueue: func(string, automation.Delivery) bool { return true }}).Poll(context.Background())
+	if jobs.called != "native.imap:poll-resource-id" || control.status != "succeeded" || control.queued != 0 {
+		t.Fatalf("native job was not dispatched through schedules: called=%q control=%+v", jobs.called, control)
 	}
 }
 
@@ -219,7 +226,7 @@ func TestEmptyLanguageListIsAnArrayForPlannerValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	control.EnableNativeIMAP()
+	control.SetNativeJobProvider(&fakeNativeJobs{})
 	if _, err := control.Claim(context.Background()); err != nil {
 		t.Fatal(err)
 	}

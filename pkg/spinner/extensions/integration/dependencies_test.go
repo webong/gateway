@@ -32,8 +32,12 @@ func (p *dependencyProcess) Call(_ context.Context, method string, params any, r
 	if p.err != nil {
 		return p.err
 	}
-	if output, ok := result.(*json.RawMessage); ok {
-		*output = append((*output)[:0], p.response...)
+	if result != nil && len(p.response) > 0 {
+		if output, ok := result.(*json.RawMessage); ok {
+			*output = append((*output)[:0], p.response...)
+		} else if err := json.Unmarshal(p.response, result); err != nil {
+			return err
+		}
 	}
 	return nil
 }

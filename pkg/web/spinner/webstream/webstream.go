@@ -167,7 +167,8 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		Headers: cloneHeaders(headers), Attributes: attributes, Payload: payload,
 	})
 	cancel()
-	if err != nil || decision.Validate() != nil || decision.Protocol != bridge.ProtocolWebstream {
+	if err != nil || decision.Validate() != nil || decision.Protocol != bridge.ProtocolWebstream ||
+		(decision.Action == bridge.GatewayStream && (decision.Stream == nil || decision.Stream.Protocol != bridge.ProtocolHTTP)) {
 		h.failed.Add(1)
 		http.Error(writer, "Webstream connection planning failed", http.StatusBadGateway)
 		return

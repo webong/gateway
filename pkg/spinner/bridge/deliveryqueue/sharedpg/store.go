@@ -100,7 +100,7 @@ func (store *Store) Claim(ctx context.Context, owner string, duration time.Durat
 
 // ClaimCompatible only leases deliveries supported by this worker. Multiple
 // Caddy modules can therefore share one table without a HTTP-only worker
-// terminally failing a delivery that belongs to an SMTP-capable worker.
+// terminally failing a delivery that belongs to another adapter-capable worker.
 func (store *Store) ClaimCompatible(ctx context.Context, owner string, duration time.Duration, adapters []string) (*Lease, error) {
 	if len(adapters) == 0 {
 		return nil, errors.New("shared delivery worker has no adapters")
@@ -214,19 +214,19 @@ WHERE id = $1 AND lease_owner = $2 AND lease_token = $3 AND lease_until > now()
 	return nil
 }
 
-// SettleWithNotice atomically fails an original delivery and queues its
-// deterministic SMTP failure notice. A crash cannot leave one without the
-// other, and the lease fence prevents a stale worker from creating a notice.
-func (store *Store) SettleWithNotice(ctx context.Context, lease Lease, failedPayload []byte, notice Record) error {
+// SettleWithFollowUp atomically fails an original delivery and queues the
+// deterministic follow-up returned by its owning Extension. A crash cannot
+// leave one without the other, and the lease fence rejects stale workers.
+func (store *Store) SettleWithFollowUp(ctx context.Context, lease Lease, failedPayload []byte, followUp Record) error {
 	if !validLease(lease) || !json.Valid(failedPayload) ||
-		!idPattern.MatchString(notice.ID) || notice.ID == lease.ID ||
-		!json.Valid(notice.Payload) || notice.State != "queued" || notice.NextAttemptAt.IsZero() ||
-		notice.IdempotencyFingerprint != "" || !notice.IdempotencyExpiresAt.IsZero() {
-		return errors.New("invalid shared delivery failure notice")
+		!idPattern.MatchString(followUp.ID) || followUp.ID == lease.ID ||
+		!json.Valid(followUp.Payload) || followUp.State != "queued" || followUp.NextAttemptAt.IsZero() ||
+		followUp.IdempotencyFingerprint != "" || !followUp.IdempotencyExpiresAt.IsZero() {
+		return errors.New("invalid shared delivery failure follow-up")
 	}
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin shared failure notice transaction: %w", err)
+		return fmt.Errorf("begin shared failure follow-up transaction: %w", err)
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
@@ -236,7 +236,7 @@ SET state = 'failed', payload = $4, lease_owner = NULL,
 WHERE id = $1 AND lease_owner = $2 AND lease_token = $3 AND lease_until > now()
   AND state IN ('queued', 'deferred')`, lease.ID, lease.Owner, lease.Token, string(failedPayload))
 	if err != nil {
-		return fmt.Errorf("settle shared delivery before failure notice: %w", err)
+		return fmt.Errorf("settle shared delivery before failure follow-up: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
@@ -249,12 +249,12 @@ WHERE id = $1 AND lease_owner = $2 AND lease_token = $3 AND lease_until > now()
 INSERT INTO deliveries (id, payload, state, event_id, next_attempt_at,
                         lease_token, created_at, updated_at)
 VALUES ($1, $2, 'queued', NULLIF($3, ''), $4, 0, now(), now())`,
-		notice.ID, string(notice.Payload), notice.EventID, notice.NextAttemptAt)
+		followUp.ID, string(followUp.Payload), followUp.EventID, followUp.NextAttemptAt)
 	if err != nil {
-		return fmt.Errorf("persist shared failure notice: %w", err)
+		return fmt.Errorf("persist shared failure follow-up: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit shared failure notice: %w", err)
+		return fmt.Errorf("commit shared failure follow-up: %w", err)
 	}
 	return nil
 }

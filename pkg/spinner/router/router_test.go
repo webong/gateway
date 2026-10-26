@@ -16,7 +16,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -62,23 +61,6 @@ func TestRunServesBundledTLS(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("bundled Router did not stop")
-	}
-}
-
-func TestRunRejectsLegacyIMAPListenerConfiguration(t *testing.T) {
-	t.Setenv("GATEWAY_RUNTIME", "")
-	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
-	t.Setenv("GATEWAY_ROUTER_APP_DIR", t.TempDir())
-	t.Setenv("GATEWAY_IMAP_ADDR", "127.0.0.1:1993")
-	certFile, keyFile := testTLSFiles(t)
-	t.Setenv("GATEWAY_IMAP_TLS_CERT_FILE", certFile)
-	t.Setenv("GATEWAY_IMAP_TLS_KEY_FILE", keyFile)
-	err := Run(t.Context(), func(string) (Planner, error) {
-		t.Fatal("Planner started before legacy listener configuration was rejected")
-		return nil, nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "webong/email Extension") {
-		t.Fatalf("Run returned %v", err)
 	}
 }
 
@@ -230,7 +212,7 @@ func TestRouterHandlerRoutesOnlyHooksToSpinner(t *testing.T) {
 			planner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("planner")) })
 			edge := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("edge")) })
 			response := httptest.NewRecorder()
-			NewHandler(planner, edge, edge, nil, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			NewHandler(planner, edge, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
 			if response.Body.String() != test.want {
 				t.Fatalf("got %q, want %q", response.Body.String(), test.want)
 			}
@@ -245,7 +227,7 @@ func TestDisabledManagedRouteIsNilAtRouterHandler(t *testing.T) {
 	}
 	planner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("healthy")) })
 	response := httptest.NewRecorder()
-	NewHandler(planner, planner, planner, nil, managed).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
+	NewHandler(planner, planner, managed).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if response.Code != http.StatusOK || response.Body.String() != "healthy" {
 		t.Fatalf("default Router returned %d %q", response.Code, response.Body.String())
 	}
@@ -299,7 +281,7 @@ func TestInternalControlOnlyForwardsCapabilityOwnedRoutes(t *testing.T) {
 func TestRouterHandlerMountsHostProvidedPublicRoutes(t *testing.T) {
 	planner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("planner")) })
 	extension := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("extension")) })
-	handler := NewHandler(planner, planner, nil, nil, nil, arrangerrouter.PublicRoute{
+	handler := NewHandler(planner, planner, nil, arrangerrouter.PublicRoute{
 		Prefix:  "/extension",
 		Handler: extension,
 	})
@@ -394,7 +376,7 @@ func TestRouterHandlerRoutesManagedWorkloadsBeforeLaravelAndHooks(t *testing.T) 
 	planner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("planner")) })
 	edge := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("edge")) })
 	managed := &testManagedRoute{}
-	handler := NewHandler(planner, edge, edge, nil, managed)
+	handler := NewHandler(planner, edge, managed)
 	for path, want := range map[string]string{
 		"/connection/websocket": "managed",
 		"/hooks/order":          "edge",

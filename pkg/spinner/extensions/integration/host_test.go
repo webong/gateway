@@ -1,6 +1,7 @@
 package integrationextensions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -27,10 +28,10 @@ func TestIntegrationHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
 		Contract: integration.PlannerContract, Operation: integration.OperationPlanHTTP,
 		Deadline: time.Now().Add(time.Second), Payload: payload,
 	}
-	if err := host.authorize(request); err != nil {
+	if err := host.authorize(plugin.Identity{}, request); err != nil {
 		t.Fatal(err)
 	}
-	result, err := host.handle(context.Background(), request)
+	result, err := host.handle(context.Background(), plugin.Identity{}, request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestIntegrationHostExecutesOnlyConfiguredDeclaredService(t *testing.T) {
 		t.Fatalf("unexpected plan: %+v err=%v", plan, err)
 	}
 	request.Operation = integration.OperationPassThrough
-	if err := host.authorize(request); err == nil {
+	if err := host.authorize(plugin.Identity{}, request); err == nil {
 		t.Fatal("host authorized an unconfigured pass-through service")
 	}
 }
@@ -50,7 +51,7 @@ func TestIntegrationHostRejectsInternalPlannerPassThrough(t *testing.T) {
 		t.Fatal("internal request reached Planner")
 	})})
 	payload, _ := json.Marshal(integration.PassThroughRequest{Method: http.MethodGet, Scheme: "http", Host: "gateway.test", Path: "/_internal/gateway/ready"})
-	_, err := host.handle(context.Background(), plugin.Request{
+	_, err := host.handle(context.Background(), plugin.Identity{}, plugin.Request{
 		Contract: integration.PlannerContract, Operation: integration.OperationPassThrough,
 		Deadline: time.Now().Add(time.Second), Payload: payload,
 	})
@@ -59,14 +60,48 @@ func TestIntegrationHostRejectsInternalPlannerPassThrough(t *testing.T) {
 	}
 }
 
+func TestIntegrationHostScopesPrivatePlannerPassThroughToPackageIdentity(t *testing.T) {
+	called := false
+	host := NewHost()
+	host.Configure(Services{InternalToken: "host-secret", PassThrough: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		if request.Header.Get("X-Gateway-Internal") != "host-secret" {
+			t.Errorf("private Planner token = %q", request.Header.Get("X-Gateway-Internal"))
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})})
+	identity := plugin.Identity{ID: "webong/email", Revision: "r1"}
+	private := func(path string) plugin.Request {
+		payload, _ := json.Marshal(integration.PassThroughRequest{Method: http.MethodPost, Scheme: "http", Host: "gateway.test", Path: path})
+		return plugin.Request{Contract: integration.PlannerContract, Operation: integration.OperationPrivatePassThrough, Payload: payload}
+	}
+	request := private("/_internal/gateway/extensions/webong/email/mailbox-polls/one/claim")
+	if err := host.authorize(identity, request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.handle(context.Background(), identity, request); err != nil || !called {
+		t.Fatalf("own private Planner route was unavailable: %v", err)
+	}
+	called = false
+	if _, err := host.handle(context.Background(), identity, private("/_internal/gateway/extensions/webong/dns/zones")); err == nil || called {
+		t.Fatalf("cross-extension private route was accepted: %v", err)
+	}
+}
+
 func TestIntegrationHostClonesPlannerOwnedConfiguration(t *testing.T) {
 	host := NewHost()
+	host.Configure(Services{InternalToken: "host-internal-token"})
 	configuration := json.RawMessage(`{"listener":{"address":"127.0.0.1:0"}}`)
-	request := host.StartRequest(configuration)
+	identity := plugin.Identity{ID: "webong/email", Revision: "r1", Version: "1.0.0"}
+	request := host.StartRequest(identity, configuration)
 	configuration[2] = 'X'
 
 	if string(request.Configuration) != `{"listener":{"address":"127.0.0.1:0"}}` {
 		t.Fatalf("integration configuration was not isolated from the desired-state buffer: %s", request.Configuration)
+	}
+	other := host.StartRequest(plugin.Identity{ID: "webong/web", Revision: "r1", Version: "1.0.0"}, nil)
+	if len(request.InstanceKey) != 32 || bytes.Equal(request.InstanceKey, []byte("host-internal-token")) || bytes.Equal(request.InstanceKey, other.InstanceKey) {
+		t.Fatal("runtime instance key was not opaque and identity-scoped")
 	}
 }
 
@@ -83,10 +118,10 @@ func TestIntegrationHostRecordsOnlyValidatedObservations(t *testing.T) {
 	}
 	payload, _ := json.Marshal(observation)
 	request := plugin.Request{Contract: integration.ObservationContract, Operation: integration.OperationRecordObservation, Payload: payload}
-	if err := host.authorize(request); err != nil {
+	if err := host.authorize(plugin.Identity{}, request); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := host.handle(context.Background(), request); err != nil {
+	if _, err := host.handle(context.Background(), plugin.Identity{}, request); err != nil {
 		t.Fatal(err)
 	}
 	if recorded.ID != observation.ID || recorded.Attributes["mode"] != "forwarded" {
@@ -96,7 +131,7 @@ func TestIntegrationHostRecordsOnlyValidatedObservations(t *testing.T) {
 	observation.Version = "v2"
 	payload, _ = json.Marshal(observation)
 	request.Payload = payload
-	if _, err := host.handle(context.Background(), request); err == nil {
+	if _, err := host.handle(context.Background(), plugin.Identity{}, request); err == nil {
 		t.Fatal("invalid observation was accepted")
 	}
 }

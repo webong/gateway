@@ -56,11 +56,19 @@ func TestSharedQueueAcrossTwoWorkers(t *testing.T) {
 		return nil
 	})
 	config := Config{
-		Adapters:    map[string]bridge.GatewayDeliveryAdapter{"smtp": adapter},
+		Adapters: map[string]bridge.GatewayDeliveryAdapter{"smtp": adapter},
+		FailureHandlerResolver: failureResolver{"smtp": failureHandlerFunc(func(_ context.Context, request bridge.DeliveryFailureRequest) (*bridge.GatewayDelivery, error) {
+			if request.Delivery.Attributes["request_follow_up"] != "yes" {
+				return nil, nil
+			}
+			return &bridge.GatewayDelivery{
+				Protocol: bridge.ProtocolSMTP, Adapter: "smtp", Target: "sender@example.test",
+				Attributes: map[string]string{"mail_from": ""}, Payload: []byte("extension-owned failure follow-up"),
+			}, nil
+		})},
 		MaxAttempts: 1, InitialBackoff: 10 * time.Millisecond,
 		MaxBackoff: time.Second, DeliveryTimeout: time.Second,
 		PollInterval: 10 * time.Millisecond, ReceiptRetention: time.Hour,
-		FailureNoticeDomain: "gateway.example.test",
 	}
 	first, err := NewShared(config, dsn)
 	if err != nil {
@@ -110,27 +118,27 @@ func TestSharedQueueAcrossTwoWorkers(t *testing.T) {
 
 	fail.Store(true)
 	bounced := testDelivery()
-	bounced.Attributes[bridge.FailureNoticeToAttribute] = "sender@example.test"
+	bounced.Attributes["request_follow_up"] = "yes"
 	bouncedID, err := first.EnqueueGatewayWithID(bounced)
 	if err != nil {
 		t.Fatal(err)
 	}
 	failed := waitSharedState(t, second, bouncedID, StateFailed)
-	if failed.FailureNoticeID != failureNoticeID(bouncedID) {
-		t.Fatalf("failed original was not linked to its notice: %+v", failed)
+	if failed.FollowUpID != failureFollowUpID(bouncedID) {
+		t.Fatalf("failed original was not linked to its follow-up: %+v", failed)
 	}
-	waitSharedState(t, first, failed.FailureNoticeID, StateDelivered)
+	waitSharedState(t, first, failed.FollowUpID, StateDelivered)
 	select {
-	case notice := <-notices:
-		if notice.Target != "sender@example.test" || notice.Attributes["mail_from"] != "" ||
-			!strings.Contains(string(notice.Payload), "Delivery Status Notification") {
-			t.Fatalf("shared failure notice has wrong envelope or content: %+v", notice)
+	case followUp := <-notices:
+		if followUp.Target != "sender@example.test" || followUp.Attributes["mail_from"] != "" ||
+			string(followUp.Payload) != "extension-owned failure follow-up" {
+			t.Fatalf("shared failure follow-up has wrong content: %+v", followUp)
 		}
 	default:
-		t.Fatal("shared failure notice was not delivered")
+		t.Fatal("shared failure follow-up was not delivered")
 	}
 	if err := first.Retry(bouncedID); !errors.Is(err, ErrInvalidState) {
-		t.Fatalf("failed original with a notice was retried: %v", err)
+		t.Fatalf("failed original with a follow-up was retried: %v", err)
 	}
 
 	corruptID := "cccccccccccccccccccccccccccccccc"

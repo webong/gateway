@@ -47,7 +47,7 @@ func TestGatewayDecisionRequiresTypedDeliveryDestinations(t *testing.T) {
 	}
 }
 
-func TestHTTPGatewayEventRejectsSessionKinds(t *testing.T) {
+func TestGatewayEventLetsTheOwningExtensionChooseEventKinds(t *testing.T) {
 	event := GatewayEvent{
 		ID:       "event-1",
 		Protocol: ProtocolHTTP,
@@ -55,12 +55,12 @@ func TestHTTPGatewayEventRejectsSessionKinds(t *testing.T) {
 		Route:    "/events",
 	}
 
-	if err := event.Validate(); err == nil {
-		t.Fatal("expected HTTP message event to fail validation")
+	if err := event.Validate(); err != nil {
+		t.Fatalf("Core rejected an Extension-owned event kind: %v", err)
 	}
 }
 
-func TestDNSGatewayEventRequiresQueryKind(t *testing.T) {
+func TestGatewayEventValidatesSafeKindsWithoutKnowingTheProtocol(t *testing.T) {
 	event := GatewayEvent{
 		ID:       "dns-event-1",
 		Protocol: ProtocolDNS,
@@ -71,8 +71,8 @@ func TestDNSGatewayEventRequiresQueryKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	event.Kind = EventMessage
-	if err := event.Validate(); err == nil {
-		t.Fatal("expected DNS message event to fail validation")
+	if err := event.Validate(); err != nil {
+		t.Fatalf("Core rejected a safe event kind: %v", err)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestGatewayDecisionAllowsSynchronousReply(t *testing.T) {
 	}
 }
 
-func TestGatewayDecisionRequiresOneSMTPSubmitEnvelope(t *testing.T) {
+func TestGatewayDecisionRequiresOneGenericSubmitEnvelope(t *testing.T) {
 	decision := GatewayDecision{
 		Version: ProtocolVersion, Protocol: ProtocolSMTP, Action: GatewaySubmit,
 		Deliveries: []GatewayDelivery{{Protocol: ProtocolSMTP, Target: "first@example.net"}},
@@ -109,19 +109,19 @@ func TestGatewayDecisionRequiresOneSMTPSubmitEnvelope(t *testing.T) {
 	}
 	decision.Deliveries = decision.Deliveries[:1]
 	decision.Deliveries[0].Protocol = ProtocolHTTP
-	if err := decision.Validate(); err == nil {
-		t.Fatal("submit accepted a non-SMTP delivery")
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("Core rejected an Extension-owned submit protocol: %v", err)
 	}
 }
 
-func TestGatewayDecisionQuarantineIsSMTPOnlyAndHasNoDelivery(t *testing.T) {
+func TestGatewayDecisionQuarantineHasNoDelivery(t *testing.T) {
 	decision := GatewayDecision{Version: ProtocolVersion, Protocol: ProtocolSMTP, Action: GatewayQuarantine}
 	if err := decision.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	decision.Protocol = ProtocolHTTP
-	if err := decision.Validate(); err == nil {
-		t.Fatal("quarantine accepted a non-SMTP protocol")
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("Core rejected an Extension-owned quarantine protocol: %v", err)
 	}
 	decision.Protocol = ProtocolSMTP
 	decision.Deliveries = []GatewayDelivery{{Protocol: ProtocolSMTP, Target: "recipient@example.test"}}
@@ -130,7 +130,7 @@ func TestGatewayDecisionQuarantineIsSMTPOnlyAndHasNoDelivery(t *testing.T) {
 	}
 }
 
-func TestGatewayDecisionRequiresHTTPSourceForWebstream(t *testing.T) {
+func TestGatewayDecisionRequiresOneGenericStreamSource(t *testing.T) {
 	decision := GatewayDecision{
 		Version: ProtocolVersion, Protocol: ProtocolWebstream, Action: GatewayStream,
 		Stream: &GatewayDelivery{Protocol: ProtocolHTTP, Target: "https://events.example.test/stream"},
@@ -139,8 +139,8 @@ func TestGatewayDecisionRequiresHTTPSourceForWebstream(t *testing.T) {
 		t.Fatal(err)
 	}
 	decision.Stream.Protocol = ProtocolSMTP
-	if err := decision.Validate(); err == nil {
-		t.Fatal("expected non-HTTP Webstream source to fail")
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("Core rejected an Extension-owned stream source: %v", err)
 	}
 }
 

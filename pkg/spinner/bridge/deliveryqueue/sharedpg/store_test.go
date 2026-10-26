@@ -97,7 +97,7 @@ func TestConcurrentClaimsAndLeaseFencing(t *testing.T) {
 		ID: "cccccccccccccccccccccccccccccccc", Payload: []byte(`{"notice":true}`),
 		State: "queued", NextAttemptAt: time.Now().UTC(),
 	}
-	if err := store.SettleWithNotice(ctx, *first, []byte(`{"failed":true}`), notice); !errors.Is(err, ErrLeaseLost) {
+	if err := store.SettleWithFollowUp(ctx, *first, []byte(`{"failed":true}`), notice); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("stale worker created a failure notice: %v", err)
 	}
 	if record, err := store.Find(ctx, notice.ID); err != nil || record != nil {
@@ -109,7 +109,7 @@ func TestConcurrentClaimsAndLeaseFencing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SettleWithNotice(ctx, *second, []byte(`{"failed":true}`), notice); err == nil {
+	if err := store.SettleWithFollowUp(ctx, *second, []byte(`{"failed":true}`), notice); err == nil {
 		t.Fatal("notice ID collision did not roll back original settlement")
 	}
 	if current, err := store.Find(ctx, first.ID); err != nil || current == nil || current.State != "queued" {

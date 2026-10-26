@@ -16,6 +16,7 @@ import (
 	smtpclient "github.com/emersion/go-smtp"
 
 	bridge "github.com/webong/gateway/arranger/integration"
+	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
 )
 
 type plannerFunc func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error)
@@ -388,7 +389,7 @@ func TestAuthenticatedSMTPSubmitMarksOnlyAuthorizedAuthorForSigning(t *testing.T
 				Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolSMTP, Action: bridge.GatewaySubmit,
 				Deliveries: []bridge.GatewayDelivery{{
 					Protocol: bridge.ProtocolSMTP, Target: "recipient@example.net",
-					Attributes: map[string]string{"mail_from": "sender@example.test", bridge.DKIMSigningDomainAttribute: "forged.example"},
+					Attributes: map[string]string{"mail_from": "sender@example.test", emailattrs.DKIMSigningDomain: "forged.example"},
 				}},
 			}, nil
 		}),
@@ -404,7 +405,7 @@ func TestAuthenticatedSMTPSubmitMarksOnlyAuthorizedAuthorForSigning(t *testing.T
 	if err := s.Data(strings.NewReader("From: Sender <sender@example.test>\r\nSubject: test\r\n\r\nbody\r\n")); err != nil {
 		t.Fatal(err)
 	}
-	if submitted.Attributes[bridge.DKIMSigningDomainAttribute] != "example.test" {
+	if submitted.Attributes[emailattrs.DKIMSigningDomain] != "example.test" {
 		t.Fatalf("unexpected DKIM signing domain: %+v", submitted.Attributes)
 	}
 }
@@ -685,5 +686,18 @@ func TestAuthenticatedSMTPRejectsUnapprovedMessageAuthor(t *testing.T) {
 	var smtpErr *smtpclient.SMTPError
 	if err := session.Data(strings.NewReader("From: Impostor <impostor@example.test>\r\nSubject: test\r\n\r\nbody\r\n")); !errors.As(err, &smtpErr) || smtpErr.Code != 553 {
 		t.Fatalf("expected SMTP 553 for an unapproved RFC 5322 From author, got %v", err)
+	}
+}
+
+func TestSMTPRejectsAProtocolNeutralSubmitForAnotherExtension(t *testing.T) {
+	decision := bridge.GatewayDecision{
+		Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolSMTP, Action: bridge.GatewaySubmit,
+		Deliveries: []bridge.GatewayDelivery{{Protocol: bridge.ProtocolHTTP, Target: "https://example.test"}},
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("shared contract should accept the generic shape: %v", err)
+	}
+	if err := validateSMTPDecision(decision); err == nil {
+		t.Fatal("Email accepted a non-SMTP submission")
 	}
 }

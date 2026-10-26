@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -61,7 +62,11 @@ func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 		Executor: runtimeExecutor{},
 		Start:    integration.RuntimeStartRequest{MaxBodySize: 1024},
 	})
-	if err := integrationextensions.LoadExternalInstalled(context.Background(), registry, installed); err != nil {
+	configuration := json.RawMessage(`{
+		"websocket":{"max_connections":1000,"max_duration_ms":86400000},
+		"webstream":{"heartbeat_ms":15000,"retry_ms":3000,"max_connections":1000,"max_duration_ms":86400000,"private_network_cidrs":[]}
+	}`)
+	if err := integrationextensions.LoadExternalInstalledWithConfiguration(context.Background(), registry, installed, configuration); err != nil {
 		t.Fatal(err)
 	}
 	defer registry.Unregister("webong/web")

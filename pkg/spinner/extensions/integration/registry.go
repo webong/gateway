@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,10 @@ type mounted struct {
 	identity plugin.Identity
 	process  extensionProcess
 	http     []httpMount
+	private  []httpMount
+	adapters map[string]struct{}
+	jobs     map[string]integrationcontract.RuntimeJob
+	failures map[string]struct{}
 }
 
 type extensionProcess interface {
@@ -104,7 +109,7 @@ func LoadExternalInstalledWithDependencies(ctx context.Context, registry *Regist
 		Reverse: registry.DependencyReverseOptions(
 			inst.Manifest.Descriptor.Identity,
 			bindings,
-			DefaultHost.ReverseOptions(companionextensions.DefaultHost.ReverseOptions()),
+			DefaultHost.ReverseOptionsFor(inst.Manifest.Descriptor.Identity, companionextensions.DefaultHost.ReverseOptions()),
 		),
 		Launch: launch,
 	})
@@ -113,7 +118,7 @@ func LoadExternalInstalledWithDependencies(ctx context.Context, registry *Regist
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	var advertisement integrationcontract.RuntimeStartResponse
-	err = proc.Call(callCtx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStart), DefaultHost.StartRequest(configuration), &advertisement)
+	err = proc.Call(callCtx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStart), DefaultHost.StartRequest(inst.Manifest.Descriptor.Identity, configuration), &advertisement)
 	cancel()
 	if err != nil {
 		_ = proc.Close()
@@ -123,31 +128,275 @@ func LoadExternalInstalledWithDependencies(ctx context.Context, registry *Regist
 		return fmt.Errorf("start Spinner integration: %w", err)
 	}
 	mounts := make([]httpMount, 0, len(advertisement.HTTP))
+	privateMounts := make([]httpMount, 0, len(advertisement.PrivateHTTP))
 	seenPrefixes := make(map[string]bool, len(advertisement.HTTP))
-	for _, advertised := range advertisement.HTTP {
-		prefix, err := validHTTPPrefix(advertised.Prefix)
-		if err != nil || seenPrefixes[prefix] {
+	buildMounts := func(advertisedMounts []integrationcontract.HTTPMount, destination *[]httpMount) error {
+		for _, advertised := range advertisedMounts {
+			prefix, err := validHTTPPrefix(advertised.Prefix)
+			if err != nil || seenPrefixes[prefix] {
+				return errors.New("Spinner integration advertised an invalid or duplicate HTTP prefix")
+			}
+			seenPrefixes[prefix] = true
+			target, err := url.Parse(advertised.Address)
+			if err != nil || target.Scheme != "http" || target.User != nil || target.Path != "" || target.RawQuery != "" || target.Fragment != "" || !loopback(target.Host) {
+				return errors.New("Spinner integration advertised an invalid private HTTP endpoint")
+			}
+			reverseProxy := httputil.NewSingleHostReverseProxy(target)
+			reverseProxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, _ error) {
+				http.Error(writer, "Gateway integration is unavailable", http.StatusBadGateway)
+			}
+			*destination = append(*destination, httpMount{prefix: prefix, proxy: reverseProxy})
+		}
+		return nil
+	}
+	if err := buildMounts(advertisement.HTTP, &mounts); err != nil {
+		_ = proc.Close()
+		return err
+	}
+	seenPrefixes = make(map[string]bool, len(advertisement.PrivateHTTP))
+	if err := buildMounts(advertisement.PrivateHTTP, &privateMounts); err != nil {
+		_ = proc.Close()
+		return err
+	}
+	adapters := make(map[string]struct{}, len(advertisement.DeliveryAdapters))
+	for _, name := range advertisement.DeliveryAdapters {
+		if !integrationcontract.ValidAdapterName(name) || strings.HasPrefix(name, "gateway.") {
 			_ = proc.Close()
-			return errors.New("Spinner integration advertised an invalid or duplicate HTTP prefix")
+			return errors.New("Spinner integration advertised an invalid delivery adapter")
 		}
-		seenPrefixes[prefix] = true
-		target, err := url.Parse(advertised.Address)
-		if err != nil || target.Scheme != "http" || target.User != nil || target.Path != "" || target.RawQuery != "" || target.Fragment != "" || !loopback(target.Host) {
+		if _, duplicate := adapters[name]; duplicate {
 			_ = proc.Close()
-			return errors.New("Spinner integration advertised an invalid private HTTP endpoint")
+			return errors.New("Spinner integration advertised a duplicate delivery adapter")
 		}
-		reverseProxy := httputil.NewSingleHostReverseProxy(target)
-		reverseProxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, _ error) {
-			http.Error(writer, "Gateway integration is unavailable", http.StatusBadGateway)
+		adapters[name] = struct{}{}
+	}
+	jobs := make(map[string]integrationcontract.RuntimeJob, len(advertisement.Jobs))
+	seenJobNames := make(map[string]struct{}, len(advertisement.Jobs))
+	for _, job := range advertisement.Jobs {
+		language := string(job.Language)
+		if !integrationcontract.ValidAdapterName(job.Name) || strings.HasPrefix(job.Name, "gateway.") ||
+			language != "native."+job.Name {
+			_ = proc.Close()
+			return errors.New("Spinner integration advertised an invalid native job")
 		}
-		mounts = append(mounts, httpMount{prefix: prefix, proxy: reverseProxy})
+		if _, duplicate := jobs[language]; duplicate {
+			_ = proc.Close()
+			return errors.New("Spinner integration advertised a duplicate native job language")
+		}
+		if _, duplicate := seenJobNames[job.Name]; duplicate {
+			_ = proc.Close()
+			return errors.New("Spinner integration advertised a duplicate native job name")
+		}
+		jobs[language] = job
+		seenJobNames[job.Name] = struct{}{}
+	}
+	failures := make(map[string]struct{}, len(advertisement.DeliveryFailureHandlers))
+	if len(advertisement.DeliveryFailureHandlers) > 0 {
+		if _, err := proc.Descriptor().Lookup(integrationcontract.DeliveryFailureContract, integrationcontract.OperationDeliveryFailure); err != nil {
+			_ = proc.Close()
+			return errors.New("Spinner integration advertised a failure handler without implementing its contract")
+		}
+	}
+	for _, name := range advertisement.DeliveryFailureHandlers {
+		if !integrationcontract.ValidAdapterName(name) || strings.HasPrefix(name, "gateway.") {
+			_ = proc.Close()
+			return errors.New("Spinner integration advertised an invalid delivery failure handler")
+		}
+		if _, duplicate := failures[name]; duplicate {
+			_ = proc.Close()
+			return errors.New("Spinner integration advertised a duplicate delivery failure handler")
+		}
+		failures[name] = struct{}{}
 	}
 	registry.register(inst.Manifest.Descriptor.Identity.ID, mounted{
 		identity: inst.Manifest.Descriptor.Identity,
 		process:  proc,
 		http:     mounts,
+		private:  privateMounts,
+		adapters: adapters,
+		jobs:     jobs,
+		failures: failures,
 	})
 	return nil
+}
+
+// ResolveDeliveryFailureHandler returns a late-bound failure hook backed by
+// exactly one installed Extension. Missing and ambiguous providers fail closed.
+func (r *Registry) ResolveDeliveryFailureHandler(adapter string) (integrationcontract.DeliveryFailureHandler, bool) {
+	if _, ok := r.failureProcess(adapter); !ok {
+		return nil, false
+	}
+	return extensionDeliveryFailureHandler{registry: r, adapter: adapter}, true
+}
+
+func (r *Registry) failureProcess(adapter string) (extensionProcess, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var selected extensionProcess
+	for _, extension := range r.mounted {
+		if _, ok := extension.failures[adapter]; !ok || extension.process == nil {
+			continue
+		}
+		if selected != nil {
+			return nil, false
+		}
+		selected = extension.process
+	}
+	return selected, selected != nil
+}
+
+type extensionDeliveryFailureHandler struct {
+	registry *Registry
+	adapter  string
+}
+
+func (handler extensionDeliveryFailureHandler) FollowUp(ctx context.Context, request integrationcontract.DeliveryFailureRequest) (*integrationcontract.GatewayDelivery, error) {
+	process, ok := handler.registry.failureProcess(handler.adapter)
+	if !ok {
+		return nil, errors.New("delivery failure Extension is unavailable")
+	}
+	var response integrationcontract.DeliveryFailureResponse
+	if err := process.Call(ctx, plugin.Method(integrationcontract.DeliveryFailureContract, integrationcontract.OperationDeliveryFailure), request, &response); err != nil {
+		return nil, err
+	}
+	if response.FollowUp != nil {
+		if err := response.FollowUp.Validate(); err != nil {
+			return nil, errors.New("delivery failure Extension returned an invalid follow-up")
+		}
+	}
+	return response.FollowUp, nil
+}
+
+// NativeJobNames reports only names with one live provider. Planner uses this
+// list while claiming schedules, so unavailable jobs are never advertised.
+func (r *Registry) NativeJobNames() []string {
+	r.mu.RLock()
+	counts := make(map[string]int)
+	for _, extension := range r.mounted {
+		for _, job := range extension.jobs {
+			counts[job.Name]++
+		}
+	}
+	r.mu.RUnlock()
+	result := make([]string, 0, len(counts))
+	for name, count := range counts {
+		if count == 1 {
+			result = append(result, name)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+// RunNativeJob routes one claimed schedule to exactly one live Extension.
+// Missing and ambiguous providers fail closed.
+func (r *Registry) RunNativeJob(ctx context.Context, language string, source string, payload map[string]any) error {
+	process, job, ok := r.jobProcess(language)
+	if !ok {
+		return errors.New("native job Extension is unavailable")
+	}
+	var response struct{}
+	return process.Call(ctx, plugin.Method(integrationcontract.JobContract, integrationcontract.OperationRunJob),
+		integrationcontract.JobRequest{Name: job.Name, Source: source, Payload: payload}, &response)
+}
+
+func (r *Registry) jobProcess(language string) (extensionProcess, integrationcontract.RuntimeJob, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var selected extensionProcess
+	var selectedJob integrationcontract.RuntimeJob
+	for _, extension := range r.mounted {
+		job, ok := extension.jobs[language]
+		if !ok || extension.process == nil {
+			continue
+		}
+		if selected != nil {
+			return nil, integrationcontract.RuntimeJob{}, false
+		}
+		selected, selectedJob = extension.process, job
+	}
+	return selected, selectedJob, selected != nil
+}
+
+// ResolveDeliveryAdapter returns a late-bound adapter backed by exactly one
+// installed Extension. Missing and ambiguous providers fail closed.
+func (r *Registry) ResolveDeliveryAdapter(name string) (integrationcontract.GatewayDeliveryAdapter, bool) {
+	if _, ok := r.adapterProcess(name); !ok {
+		return nil, false
+	}
+	return extensionDeliveryAdapter{registry: r, name: name}, true
+}
+
+// DeliveryAdapterNames reports only unambiguous live adapter names so shared
+// delivery workers never claim work they cannot currently execute.
+func (r *Registry) DeliveryAdapterNames() []string {
+	r.mu.RLock()
+	counts := make(map[string]int)
+	for _, extension := range r.mounted {
+		for name := range extension.adapters {
+			counts[name]++
+		}
+	}
+	r.mu.RUnlock()
+	result := make([]string, 0, len(counts))
+	for name, count := range counts {
+		if count == 1 {
+			result = append(result, name)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func (r *Registry) adapterProcess(name string) (extensionProcess, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var selected extensionProcess
+	for _, extension := range r.mounted {
+		if _, ok := extension.adapters[name]; !ok || extension.process == nil {
+			continue
+		}
+		if selected != nil {
+			return nil, false
+		}
+		selected = extension.process
+	}
+	return selected, selected != nil
+}
+
+type extensionDeliveryAdapter struct {
+	registry *Registry
+	name     string
+}
+
+func (adapter extensionDeliveryAdapter) DeliverGateway(ctx context.Context, delivery integrationcontract.GatewayDelivery) error {
+	_, err := adapter.DeliverGatewayResult(ctx, delivery)
+	return err
+}
+
+func (adapter extensionDeliveryAdapter) DeliverGatewayResult(ctx context.Context, delivery integrationcontract.GatewayDelivery) (integrationcontract.GatewayDeliveryResult, error) {
+	process, ok := adapter.registry.adapterProcess(adapter.name)
+	if !ok {
+		return integrationcontract.GatewayDeliveryResult{}, errors.New("delivery adapter Extension is unavailable")
+	}
+	var response integrationcontract.DeliveryAdapterResponse
+	err := process.Call(ctx, plugin.Method(integrationcontract.DeliveryAdapterContract, integrationcontract.OperationDeliverAdapter),
+		integrationcontract.DeliveryAdapterRequest{Adapter: adapter.name, Delivery: delivery}, &response)
+	if err != nil {
+		return integrationcontract.GatewayDeliveryResult{}, err
+	}
+	switch response.Failure {
+	case "":
+		return response.Result, nil
+	case integrationcontract.AdapterFailurePermanent:
+		return response.Result, integrationcontract.ErrPermanentDelivery
+	case integrationcontract.AdapterFailureUncertain:
+		return response.Result, integrationcontract.ErrUncertainDelivery
+	case integrationcontract.AdapterFailureTransient:
+		return response.Result, errors.New("delivery adapter reported a transient failure")
+	default:
+		return integrationcontract.GatewayDeliveryResult{}, errors.New("delivery adapter returned an invalid failure classification")
+	}
 }
 
 // DependencyReverseOptions exposes only dependency operations resolved for one
@@ -279,13 +528,27 @@ func (r *Registry) ExternalExtensions() []string {
 }
 
 func (r *Registry) Handler() http.Handler {
+	return r.handler(false)
+}
+
+// PrivateHandler exposes only Extension mounts advertised for Spinner's
+// authenticated admin listener. Public mounts can never be reached through it.
+func (r *Registry) PrivateHandler() http.Handler {
+	return r.handler(true)
+}
+
+func (r *Registry) handler(private bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		r.mu.RLock()
 		var selected http.Handler
 		selectedLength := -1
 		ambiguous := false
 		for _, extension := range r.mounted {
-			for _, mount := range extension.http {
+			mounts := extension.http
+			if private {
+				mounts = extension.private
+			}
+			for _, mount := range mounts {
 				if !pathMatches(request.URL.Path, mount.prefix) {
 					continue
 				}

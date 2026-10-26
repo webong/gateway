@@ -162,7 +162,7 @@ it('emits a provider-neutral dead event without leaking the delivery error', fun
         if (str_starts_with($request->url(), 'http://spinner.internal:5052/deliveries/')) {
             $id = basename(parse_url($request->url(), PHP_URL_PATH));
             return Http::response(['id' => $id, 'state' => 'failed', 'attempts' => 1,
-                'body_assertion' => 'smtp_acceptance_unknown',
+                'body_assertion' => 'acceptance_unknown',
                 'error' => '550 provider-specific secret diagnostic',
                 'updated_at' => '2026-10-23T11:00:00Z'], 200);
         }

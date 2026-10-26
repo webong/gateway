@@ -3,9 +3,7 @@
 package deliveryadmin
 
 import (
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,12 +12,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/webong/gateway/arranger/automation"
-	emailspinner "github.com/webong/gateway/pkg/email/spinner"
-	"github.com/webong/gateway/pkg/email/spinner/smtp"
-	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 )
 
@@ -33,30 +27,14 @@ type queue interface {
 type Handler struct {
 	queue      queue
 	token      string
-	email      *emailSubmission
 	runs       runHistoryReader
 	automation automation.Executor
+	routes     map[string]http.Handler
+	fallback   http.Handler
 }
 
 type runHistoryReader interface {
 	ReadRun(string) ([]byte, error)
-}
-
-type emailQueue interface {
-	EnqueueGatewayIdempotent(bridge.GatewayDelivery, string, string, time.Time) (bool, error)
-}
-
-type signingChecker interface {
-	CheckSigningDomain(string) error
-}
-
-type emailSubmission struct {
-	queue          emailQueue
-	checker        signingChecker
-	scanner        smtp.MalwareScanner
-	maxMessageSize int64
-	loopKey        []byte
-	failureNotices bool
 }
 
 type HandlerOption func(*Handler) error
@@ -86,16 +64,40 @@ func WithShellRunHistory(reader runHistoryReader) HandlerOption {
 	}
 }
 
-// WithEmailSubmission enables the private handoff when a durable SMTP adapter
-// is present on this node, including per-connection mailbox SMTP routing.
-func WithEmailSubmission(queue emailQueue, checker signingChecker, scanner smtp.MalwareScanner, maxMessageSize int64, loopKey []byte, failureNotices bool) HandlerOption {
+// WithPrivateRoute mounts one authenticated extension-owned operation on the
+// private admin listener without teaching the host its protocol semantics.
+func WithPrivateRoute(path string, route http.Handler) HandlerOption {
 	return func(handler *Handler) error {
-		if queue == nil || maxMessageSize < 1 || len(loopKey) == 0 {
-			return errors.New("email submission requires a durable queue, size limit and loop key")
+		if route == nil || !strings.HasPrefix(path, "/") || path == "/" || strings.ContainsAny(path, "?#") ||
+			privatePathUnder(path, "/deliveries") || privatePathUnder(path, "/shell") || privatePathUnder(path, "/automation") {
+			return errors.New("private extension route is invalid or reserved")
 		}
-		handler.email = &emailSubmission{queue: queue, checker: checker, scanner: scanner, maxMessageSize: maxMessageSize, loopKey: append([]byte(nil), loopKey...), failureNotices: failureNotices}
+		if handler.routes == nil {
+			handler.routes = make(map[string]http.Handler)
+		}
+		if _, exists := handler.routes[path]; exists {
+			return errors.New("private extension route is already registered")
+		}
+		handler.routes[path] = route
 		return nil
 	}
+}
+
+// WithPrivateFallback delegates otherwise-unclaimed private paths to a
+// dynamic, protocol-neutral Extension registry. Authentication is always
+// completed by this handler before delegation.
+func WithPrivateFallback(fallback http.Handler) HandlerOption {
+	return func(handler *Handler) error {
+		if fallback == nil {
+			return errors.New("private extension fallback is required")
+		}
+		handler.fallback = fallback
+		return nil
+	}
+}
+
+func privatePathUnder(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
 func NewHandler(queue queue, token string, options ...HandlerOption) (*Handler, error) {
@@ -108,8 +110,8 @@ func NewHandler(queue queue, token string, options ...HandlerOption) (*Handler, 
 			return nil, err
 		}
 	}
-	if queue == nil && handler.runs == nil && handler.automation == nil {
-		return nil, errors.New("private admin requires a delivery queue, shell run history or automation executor")
+	if queue == nil && handler.runs == nil && handler.automation == nil && len(handler.routes) == 0 && handler.fallback == nil {
+		return nil, errors.New("private admin requires a delivery queue, shell run history, automation executor or extension route")
 	}
 	return handler, nil
 }
@@ -122,6 +124,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	path := request.URL.Path
+	if route := handler.routes[path]; route != nil {
+		route.ServeHTTP(writer, request)
+		return
+	}
 	if path == "/automation/credential-hook" {
 		handler.executeCredentialHook(writer, request)
 		return
@@ -148,12 +154,13 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		_, _ = writer.Write(record)
 		return
 	}
-	if handler.queue == nil {
-		http.NotFound(writer, request)
+	if handler.fallback != nil && !privatePathUnder(path, "/deliveries") &&
+		!privatePathUnder(path, "/shell") && !privatePathUnder(path, "/automation") {
+		handler.fallback.ServeHTTP(writer, request)
 		return
 	}
-	if path == emailspinner.SubmissionPath {
-		handler.submitEmail(writer, request)
+	if handler.queue == nil {
+		http.NotFound(writer, request)
 		return
 	}
 	if path == "/deliveries" {
@@ -270,175 +277,6 @@ func (handler *Handler) executeCredentialHook(writer http.ResponseWriter, reques
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"delivery": outcome.Deliveries[0]})
-}
-
-func (handler *Handler) submitEmail(writer http.ResponseWriter, request *http.Request) {
-	if handler.email == nil {
-		http.NotFound(writer, request)
-		return
-	}
-	if request.Method != http.MethodPost {
-		methodNotAllowed(writer, http.MethodPost)
-		return
-	}
-	if request.Header.Get("Content-Type") != "application/json" {
-		writeError(writer, http.StatusUnsupportedMediaType, "JSON content type is required.")
-		return
-	}
-	var input struct {
-		ReceiptID           string   `json:"receipt_id"`
-		MailFrom            string   `json:"mail_from"`
-		AuthorizedSenders   []string `json:"authorized_senders"`
-		Recipients          []string `json:"recipients"`
-		Message             []byte   `json:"message"`
-		MailboxConnectionID string   `json:"mailbox_connection_id"`
-		OutboundBinding     *struct {
-			PoolID       string `json:"pool_id"`
-			AccountID    string `json:"account_id"`
-			RouteID      string `json:"route_id"`
-			DomainID     string `json:"domain_id"`
-			SenderDomain string `json:"sender_domain"`
-		} `json:"outbound_binding"`
-	}
-	// Base64 expands the raw RFC 5322 message; leave room for the JSON envelope.
-	limit := handler.email.maxMessageSize*2 + 65536
-	decoder := json.NewDecoder(http.MaxBytesReader(writer, request.Body, limit))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil || decoder.Decode(new(any)) != io.EOF {
-		writeError(writer, http.StatusBadRequest, "Invalid email submission.")
-		return
-	}
-	if len(input.ReceiptID) != 32 || !validReceiptID(input.ReceiptID) {
-		writeError(writer, http.StatusBadRequest, "Invalid email submission receipt.")
-		return
-	}
-	if int64(len(input.Message)) > handler.email.maxMessageSize {
-		writeError(writer, http.StatusRequestEntityTooLarge, "Email message is too large.")
-		return
-	}
-	message, signingDomain, err := smtp.PrepareAuthenticatedSubmission(input.MailFrom, input.AuthorizedSenders, input.Recipients, input.Message, handler.email.loopKey)
-	if err != nil {
-		writeError(writer, http.StatusUnprocessableEntity, "Email submission is not authorized or valid.")
-		return
-	}
-	// A mailbox connection provides its own SMTP transport and signing policy.
-	// Only Gateway-managed SMTP deliveries require a Planner-managed DKIM key.
-	gatewayManagedSigning := input.MailboxConnectionID == ""
-	if gatewayManagedSigning && handler.email.checker != nil && handler.email.checker.CheckSigningDomain(signingDomain) != nil {
-		writeError(writer, http.StatusServiceUnavailable, "Email signing key is unavailable.")
-		return
-	}
-	if handler.email.scanner != nil {
-		verdict, scanErr := handler.email.scanner.Scan(request.Context(), input.Message)
-		if scanErr != nil {
-			writeError(writer, http.StatusServiceUnavailable, "Email malware scanner is unavailable.")
-			return
-		}
-		if verdict.Infected {
-			writeError(writer, http.StatusUnprocessableEntity, "Email submission was rejected.")
-			return
-		}
-	}
-	recipients, _ := json.Marshal(input.Recipients)
-	attributes := map[string]string{
-		"mail_from":  input.MailFrom,
-		"recipients": string(recipients),
-	}
-	if gatewayManagedSigning {
-		attributes[bridge.DKIMSigningDomainAttribute] = signingDomain
-	}
-	adapter := ""
-	if input.MailboxConnectionID != "" {
-		if !validMailboxConnectionID(input.MailboxConnectionID) {
-			writeError(writer, http.StatusUnprocessableEntity, "Mailbox connection is invalid.")
-			return
-		}
-		attributes["mailbox_connection_id"] = input.MailboxConnectionID
-		adapter = "mailbox.smtp"
-		supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool })
-		if !ok || !supported.SupportsAdapter(adapter) {
-			writeError(writer, http.StatusServiceUnavailable, "Mailbox SMTP transport is unavailable.")
-			return
-		}
-	} else if input.OutboundBinding != nil {
-		binding := input.OutboundBinding
-		if !validMailboxConnectionID(binding.PoolID) || !validMailboxConnectionID(binding.RouteID) ||
-			(binding.DomainID != "" && !validMailboxConnectionID(binding.DomainID)) ||
-			binding.AccountID == "" || len(binding.AccountID) > 200 || binding.SenderDomain != signingDomain {
-			writeError(writer, http.StatusUnprocessableEntity, "Invalid outbound binding.")
-			return
-		}
-		adapter = "managed.smtp"
-		for key, value := range map[string]string{
-			"outbound_pool_id": binding.PoolID, "account_id": binding.AccountID,
-			"outbound_route_id": binding.RouteID, "outbound_domain_id": binding.DomainID,
-			"outbound_sender_domain": binding.SenderDomain,
-		} {
-			attributes[key] = value
-		}
-		if supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool }); !ok || !supported.SupportsAdapter(adapter) {
-			writeError(writer, http.StatusServiceUnavailable, "Gateway outbound transport is unavailable.")
-			return
-		}
-	} else if supported, ok := handler.email.queue.(interface{ SupportsAdapter(string) bool }); ok && !supported.SupportsAdapter("smtp") {
-		writeError(writer, http.StatusServiceUnavailable, "Gateway outbound SMTP transport is unavailable.")
-		return
-	}
-	if handler.email.failureNotices && adapter == "" {
-		attributes[bridge.FailureNoticeToAttribute] = input.MailFrom
-	}
-	fingerprintInput, _ := json.Marshal(struct {
-		MailFrom   string   `json:"mail_from"`
-		Recipients []string `json:"recipients"`
-		Message    []byte   `json:"message"`
-	}{input.MailFrom, input.Recipients, input.Message})
-	if adapter != "" {
-		fingerprintInput = append(fingerprintInput, []byte(input.MailboxConnectionID)...)
-	}
-	fingerprint := sha256.Sum256(fingerprintInput)
-	replayed, err := handler.email.queue.EnqueueGatewayIdempotent(bridge.GatewayDelivery{
-		Protocol:   bridge.ProtocolSMTP,
-		Adapter:    adapter,
-		Target:     input.Recipients[0],
-		Payload:    message,
-		Attributes: attributes,
-	}, input.ReceiptID, hex.EncodeToString(fingerprint[:]), time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		if errors.Is(err, deliveryqueue.ErrIdempotencyConflict) {
-			writeError(writer, http.StatusConflict, "Email submission receipt conflicts with another message.")
-			return
-		}
-		writeError(writer, http.StatusServiceUnavailable, "Email delivery queue is unavailable.")
-		return
-	}
-	writeJSON(writer, http.StatusAccepted, map[string]any{"id": input.ReceiptID, "state": "queued", "replayed": replayed})
-}
-
-func validMailboxConnectionID(id string) bool {
-	if len(id) != 36 {
-		return false
-	}
-	for i, char := range id {
-		if i == 8 || i == 13 || i == 18 || i == 23 {
-			if char != '-' {
-				return false
-			}
-			continue
-		}
-		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-func validReceiptID(id string) bool {
-	for _, char := range id {
-		if char < '0' || (char > '9' && char < 'a') || char > 'f' {
-			return false
-		}
-	}
-	return true
 }
 
 func validEventID(value string) bool {

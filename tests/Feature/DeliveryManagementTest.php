@@ -33,7 +33,7 @@ it('lists and shows redacted delivery statuses through the private Spinner API',
         'expected_status' => 204,
         'response_status' => 200,
         'body_assertion' => 'mismatched',
-        'failure_notice_id' => 'fedcba9876543210fedcba9876543210',
+        'follow_up_id' => 'fedcba9876543210fedcba9876543210',
         'target' => 'https://secret.example.test/?token=private',
         'payload' => 'secret-body',
     ];
@@ -47,7 +47,7 @@ it('lists and shows redacted delivery statuses through the private Spinner API',
         ->assertJsonPath('data.0.expected_status', 204)
         ->assertJsonPath('data.0.response_status', 200)
         ->assertJsonPath('data.0.body_assertion', 'mismatched')
-        ->assertJsonPath('data.0.failure_notice_id', 'fedcba9876543210fedcba9876543210')
+        ->assertJsonPath('data.0.follow_up_id', 'fedcba9876543210fedcba9876543210')
         ->assertJsonMissingPath('data.0.target')
         ->assertJsonMissingPath('data.0.payload');
     $shown = $this->withToken('registry-secret')->getJson('/deliveries/'.DELIVERY_ID)->assertOk();
@@ -55,7 +55,7 @@ it('lists and shows redacted delivery statuses through the private Spinner API',
         ->assertJsonPath('expected_status', 204)
         ->assertJsonPath('response_status', 200)
         ->assertJsonPath('body_assertion', 'mismatched')
-        ->assertJsonPath('failure_notice_id', 'fedcba9876543210fedcba9876543210')
+        ->assertJsonPath('follow_up_id', 'fedcba9876543210fedcba9876543210')
         ->assertJsonMissingPath('target')
         ->assertJsonMissingPath('payload');
 
@@ -85,10 +85,10 @@ it('finds deliveries for an ingress event without exposing payloads', function (
 it('keeps ambiguous SMTP acceptance visible without exposing the message', function (): void {
     Http::fake(['http://spinner.internal:5052/deliveries/'.DELIVERY_ID => Http::response([
         'id' => DELIVERY_ID, 'state' => 'failed', 'attempts' => 1,
-        'body_assertion' => 'smtp_acceptance_unknown', 'payload' => 'secret-body',
+        'body_assertion' => 'acceptance_unknown', 'payload' => 'secret-body',
     ])]);
     $this->withToken('registry-secret')->getJson('/deliveries/'.DELIVERY_ID)->assertOk()
-        ->assertJsonPath('body_assertion', 'smtp_acceptance_unknown')->assertJsonMissingPath('payload');
+        ->assertJsonPath('body_assertion', 'acceptance_unknown')->assertJsonMissingPath('payload');
 });
 
 it('retries only a valid delivery ID and maps missing or pending states', function (): void {
@@ -126,7 +126,7 @@ it('fails closed for an invalid failure notice reference from Spinner', function
         'id' => DELIVERY_ID,
         'state' => 'failed',
         'attempts' => 1,
-        'failure_notice_id' => '../unsafe',
+        'follow_up_id' => '../unsafe',
     ]]])]);
 
     $this->withToken('registry-secret')->getJson('/deliveries')->assertServiceUnavailable();

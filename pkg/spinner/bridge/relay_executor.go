@@ -3,78 +3,14 @@ package gateway
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"io"
+	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/workers"
 )
-
-// OpenWebstream opens a Planner-authorized long-lived HTTP source. Unlike a
-// webhook reply, the response body is not buffered and follows ctx lifetime.
-func (e *RelayExecutor) OpenWebstream(ctx context.Context, delivery GatewayDelivery) (*http.Response, error) {
-	return e.openWebstream(ctx, delivery, nil)
-}
-
-func (e *RelayExecutor) OpenWebstreamUpload(ctx context.Context, delivery GatewayDelivery, body io.ReadCloser) (*http.Response, error) {
-	if delivery.Attributes["method"] != "POST" || delivery.Attributes["upload_mode"] != "stream" || delivery.Attributes["retry_idempotent"] == "true" || len(delivery.Payload) > 0 {
-		return nil, fmt.Errorf("invalid streaming upload policy")
-	}
-	return e.openWebstream(ctx, delivery, body)
-}
-
-func (e *RelayExecutor) openWebstream(ctx context.Context, delivery GatewayDelivery, body io.ReadCloser) (*http.Response, error) {
-	if e == nil || e.forwarder == nil {
-		return nil, fmt.Errorf("webstream transport is not configured")
-	}
-	method := delivery.Attributes["method"]
-	if method == "" {
-		method = http.MethodGet
-	}
-	target, err := url.Parse(delivery.Target)
-	if err != nil {
-		return nil, err
-	}
-	if query := delivery.Attributes["raw_query"]; method == http.MethodPost && query != "" {
-		if target.RawQuery != "" {
-			target.RawQuery += "&"
-		}
-		target.RawQuery += query
-	}
-	headers := streamHeaders(delivery)
-	headers.Del("Content-Encoding") // Source bodies are decoded by the ingress.
-	retry := delivery.Attributes["retry_idempotent"] == "true"
-	if retry && (headers.Get("Idempotency-Key") != http.Header(delivery.Headers).Get("Idempotency-Key")) {
-		return nil, fmt.Errorf("source profile cannot override replay key")
-	}
-	if body != nil {
-		settings := forwardTransport(delivery.Transport)
-		settings.PrivateSourceCIDRs = delivery.Attributes["private_source_cidrs"]
-		return e.forwarder.OpenStreamUpload(ctx, target.String(), headers, body, settings)
-	}
-	settings := forwardTransport(delivery.Transport)
-	settings.PrivateSourceCIDRs = delivery.Attributes["private_source_cidrs"]
-	return e.forwarder.OpenStreamRequestPolicy(ctx, method, target.String(), headers, delivery.Payload, settings, retry)
-}
-
-func streamHeaders(delivery GatewayDelivery) http.Header {
-	headers := make(http.Header)
-	for name, values := range delivery.Headers {
-		for _, value := range values {
-			headers.Add(name, value)
-		}
-	}
-	if delivery.Transport != nil {
-		for name, values := range delivery.Transport.StreamHeaders {
-			headers[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
-		}
-	}
-	return headers
-}
 
 // RelayExecutor adapts the Go transport implementation to the Go/PHP bridge.
 // It contains no registry or route-binding logic.
@@ -241,9 +177,28 @@ func (e *RelayExecutor) EnqueueGateway(delivery GatewayDelivery) bool {
 	})
 }
 
-// EnqueueGatewayBatch writes one durable fanout manifest, so a partial child
-// enqueue cannot make SMTP return a transient error after some destinations
-// have already been scheduled.
+func (e *RelayExecutor) EnqueueGatewayIdempotent(delivery GatewayDelivery, id, fingerprint string, expiresAt time.Time) (bool, error) {
+	if e == nil || e.queue == nil {
+		return false, errors.New("durable delivery queue is unavailable")
+	}
+	queue, ok := e.queue.(IdempotentGatewayExecutor)
+	if !ok {
+		return false, errors.New("durable delivery queue does not support reserved receipts")
+	}
+	return queue.EnqueueGatewayIdempotent(delivery, id, fingerprint, expiresAt)
+}
+
+func (e *RelayExecutor) SupportsAdapter(name string) bool {
+	if e == nil || e.queue == nil {
+		return false
+	}
+	support, ok := e.queue.(GatewayDeliveryAdapterSupport)
+	return ok && support.SupportsAdapter(name)
+}
+
+// EnqueueGatewayBatch writes one protocol-neutral durable fanout manifest so
+// a partial child enqueue cannot make an ingress adapter return a transient
+// error after some destinations have already been scheduled.
 func (e *RelayExecutor) EnqueueGatewayBatch(eventID string, deliveries []GatewayDelivery) bool {
 	if e == nil || e.queue == nil || eventID == "" || len(deliveries) < 2 || len(deliveries) > 100 {
 		return false
@@ -260,7 +215,7 @@ func (e *RelayExecutor) EnqueueGatewayBatch(eventID string, deliveries []Gateway
 		children[index] = cloneGatewayDelivery(delivery)
 		children[index].Payload = nil
 	}
-	batch := GatewayDelivery{Protocol: ProtocolSMTP, Adapter: "gateway.fanout", Target: eventID,
+	batch := GatewayDelivery{Protocol: deliveries[0].Protocol, Adapter: "gateway.fanout", Target: eventID,
 		Payload: append([]byte(nil), payload...), Batch: children,
 		Attributes: map[string]string{"event_id": eventID}}
 	return e.queue.EnqueueGateway(batch) == nil

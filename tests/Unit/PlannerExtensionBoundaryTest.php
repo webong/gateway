@@ -66,7 +66,7 @@ it('keeps Planner core independent of transport extension namespaces', function 
         }
     }
 
-    expect($source)->not->toMatch('/use Webong\\\\Gateway\\\\(?:Dns|Email|Web|Webstream)\\\\/');
+    expect($source)->not->toMatch('/use Webong\\\\Gateway\\\\(?:Dns|Email|Web|Webstream|Database)\\\\/');
 
     $manifest = json_decode((string) file_get_contents($planner.'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
     expect(array_keys($manifest['require']))
@@ -127,6 +127,16 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
     expect(file_get_contents($root.'/pkg/spinner/spinnerapi/api.go'))
         ->not->toContain('ParseWebstreamPrivateNetworks')
         ->not->toContain('ParseHTTPPrivateNetworks');
+
+    $genericRuntime = file_get_contents($root.'/mod/arranger/integration/runtime_contract.go');
+    expect($genericRuntime)
+        ->not->toContain('WebSocketMaxConnections')
+        ->not->toContain('WebstreamMaxConnections')
+        ->not->toContain('WebstreamPrivateSourceCIDRs')
+        ->and(file_get_contents($root.'/pkg/spinner/bridge/deliveryqueue/queue.go'))
+        ->not->toContain('FailureNotice')
+        ->not->toContain('managed.smtp')
+        ->not->toContain('smtp_acceptance_unknown');
 
     $automationHostSource = '';
     $automationHostFiles = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/pkg/spinner/extensions/automation'));

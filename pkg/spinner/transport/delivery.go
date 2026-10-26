@@ -4,24 +4,20 @@ import (
 	"fmt"
 	"time"
 
-	emaildelivery "github.com/webong/gateway/pkg/email/spinner/delivery"
-	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	"github.com/webong/gateway/pkg/spinner/bridge/httpout"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	"github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
 )
 
-// NewDeliveryQueue wires either the local spool or the optional PostgreSQL
-// shared queue to the transport adapters configured in this Spinner process.
-// With neither backend configured, HTTP keeps its legacy in-memory delivery.
+// NewDeliveryQueue constructs Spinner's protocol-neutral durable delivery
+// queue. Product delivery adapters are supplied by installable Extensions;
+// the core host owns only HTTP callback delivery.
 func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, logger *logging.Logger) (deliveryqueue.Backend, error) {
 	if settings.DeliverySpoolPath == "" && settings.DeliveryDatabaseURL == "" {
-		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.HostedMailResolverURL != "" || settings.OutboundResolverURL != "" {
-			return nil, fmt.Errorf("durable delivery storage is required for outbound SMTP")
-		}
 		return nil, nil
 	}
 	if settings.DeliverySpoolPath != "" && settings.DeliveryDatabaseURL != "" {
@@ -31,72 +27,17 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 	if err != nil {
 		return nil, err
 	}
-	adapters := map[string]bridge.GatewayDeliveryAdapter{string(bridge.ProtocolHTTP): httpAdapter}
-	if settings.SMTPRelayAddress != "" {
-		adapter, err := NewSMTPAdapter(settings)
-		if err != nil {
-			return nil, err
-		}
-		adapters[string(bridge.ProtocolSMTP)] = adapter
-	}
-	if settings.OutboundResolverURL != "" {
-		var signer smtpout.DKIMSigning
-		if settings.EmailDKIMResolverURL != "" {
-			resolved, err := smtpout.NewHTTPDKIMSigner(settings.EmailDKIMResolverURL, settings.InternalToken)
-			if err != nil {
-				return nil, err
-			}
-			signer = resolved
-		}
-		adapter, err := emaildelivery.NewManagedSMTPAdapter(settings.OutboundResolverURL, settings.InternalToken, settings.SMTPRelayTimeout, signer)
-		if err != nil {
-			return nil, err
-		}
-		adapters["managed.smtp"] = adapter
-	}
-	if settings.MailboxSMTPResolverURL != "" {
-		resolver, err := smtpout.NewHTTPMailboxResolver(settings.MailboxSMTPResolverURL, settings.InternalToken)
-		if err != nil {
-			return nil, err
-		}
-		adapter, err := smtpout.NewManagedMailboxAdapter(resolver, settings.SMTPRelayTimeout)
-		if err != nil {
-			return nil, err
-		}
-		adapters["mailbox.smtp"] = adapter
-	}
-	providerAdapters, err := registeredDeliveryAdapters(settings)
-	if err != nil {
-		return nil, err
-	}
-	for name, adapter := range providerAdapters {
-		adapters[name] = adapter
-	}
-	if settings.HostedMailResolverURL != "" {
-		if adapters["hosted.mail"] != nil {
-			return nil, fmt.Errorf("hosted.mail is reserved for Planner-managed hosted delivery")
-		}
-		resolver, err := emaildelivery.NewHTTPHostedMailResolver(settings.HostedMailResolverURL, settings.InternalToken)
-		if err != nil {
-			return nil, err
-		}
-		adapter, err := emaildelivery.NewManagedHostedMailAdapter(resolver, settings.HostedMailAllowedHosts, nil)
-		if err != nil {
-			return nil, err
-		}
-		adapters["hosted.mail"] = adapter
-	}
-	fanout := newFanoutAdapter()
-	adapters["gateway.fanout"] = fanout
 	deliveryTimeout := settings.RequestTimeout
-	if (settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.OutboundResolverURL != "") && settings.SMTPRelayTimeout > deliveryTimeout {
-		deliveryTimeout = settings.SMTPRelayTimeout
-	}
 	if deliveryTimeout <= 0 {
 		deliveryTimeout = 30 * time.Second
 	}
 	queueConfig := deliveryqueue.Config{
-		Path: settings.DeliverySpoolPath, Adapters: adapters,
+		Path: settings.DeliverySpoolPath,
+		Adapters: map[string]bridge.GatewayDeliveryAdapter{
+			string(bridge.ProtocolHTTP): httpAdapter,
+		},
+		AdapterResolver:        integrationextensions.DefaultRegistry,
+		FailureHandlerResolver: integrationextensions.DefaultRegistry,
 		Observer: deliveryqueue.ObserverFunc(func(event deliveryqueue.Event) {
 			if logger == nil {
 				return
@@ -113,47 +54,10 @@ func NewDeliveryQueue(settings *config.Config, forwarder *forwarding.Forwarder, 
 		MaxAttempts: settings.DeliveryMaxAttempts, InitialBackoff: settings.DeliveryInitialBackoff,
 		MaxBackoff: settings.DeliveryMaxBackoff, DeliveryTimeout: deliveryTimeout,
 		PollInterval: settings.DeliveryPollInterval, ReceiptRetention: settings.DeliveryReceiptRetention,
-		FailureNoticeDomain: settings.EmailDSNDomain,
 	}
 	if settings.DeliveryDatabaseURL != "" {
 		queueConfig.Path = ""
-		queue, err := deliveryqueue.NewShared(queueConfig, settings.DeliveryDatabaseURL)
-		if err != nil {
-			return nil, err
-		}
-		fanout.bind(queue)
-		return queue, nil
+		return deliveryqueue.NewShared(queueConfig, settings.DeliveryDatabaseURL)
 	}
-	queue, err := deliveryqueue.New(queueConfig)
-	if err != nil {
-		return nil, err
-	}
-	fanout.bind(queue)
-	return queue, nil
-}
-
-// NewSMTPAdapter constructs the configured outbound relay for durable queue
-// attempts and for the synchronous SMTP submit handoff.
-func NewSMTPAdapter(settings *config.Config) (*smtpout.GatewayAdapter, error) {
-	if settings == nil || settings.SMTPRelayAddress == "" {
-		return nil, nil
-	}
-	sender, err := smtpout.NewSender(smtpout.Config{
-		Address: settings.SMTPRelayAddress, LocalName: settings.SMTPRelayLocalName,
-		ServerName: settings.SMTPRelayServerName, Username: settings.SMTPRelayUsername,
-		Password: settings.SMTPRelayPassword, TLSMode: smtpout.TLSMode(settings.SMTPRelayTLSMode),
-		Timeout: settings.SMTPRelayTimeout,
-	})
-	if err != nil {
-		return nil, err
-	}
-	var signer smtpout.DKIMSigning
-	if settings.EmailDKIMResolverURL != "" {
-		resolved, err := smtpout.NewHTTPDKIMSigner(settings.EmailDKIMResolverURL, settings.InternalToken)
-		if err != nil {
-			return nil, err
-		}
-		signer = resolved
-	}
-	return smtpout.NewGatewayAdapter(sender, signer)
+	return deliveryqueue.New(queueConfig)
 }

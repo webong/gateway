@@ -3,16 +3,11 @@ package transport
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/webong/gateway/arranger/automation"
-	"github.com/webong/gateway/pkg/email/spinner/mailnet"
-	"github.com/webong/gateway/pkg/email/spinner/mailpoll"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
-	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/schedules"
 )
 
@@ -25,33 +20,16 @@ func EmbeddedScheduleControl(handler http.Handler, spinner *Router, executor aut
 }
 
 func StartSchedulePolling(ctx context.Context, spinner *Router, control *ScheduleControl, executor automation.Executor,
-	nativeIMAP func(context.Context, string) error) error {
+	nativeJobs schedules.NativeJobExecutor) error {
+	control.SetNativeJobProvider(nativeJobs)
 	return (schedules.Runtime{
-		Control: control, Executor: executor, Registrar: control, NativeIMAP: nativeIMAP,
+		Control: control, Executor: executor, Registrar: control, NativeJobs: nativeJobs,
 		Interval: spinner.SchedulePollInterval,
 		LogError: func(format string, args ...any) { log.Printf(format, args...) },
 		Enqueue: func(runID string, delivery automation.Delivery) bool {
 			return EnqueueScheduledDelivery(spinner.Executor, runID, delivery)
 		},
 	}).Start(ctx)
-}
-
-func EmbeddedMailboxPoller(handler http.Handler, spinner *Router) (mailpoll.Runner, error) {
-	control, err := mailpoll.NewHandlerControlPlane(handler, spinner.InternalToken)
-	if err != nil {
-		return mailpoll.Runner{}, err
-	}
-	return mailpoll.Runner{Control: control,
-		Dial: func(ctx context.Context, claim mailpoll.Claim) (net.Conn, error) {
-			return mailnet.DialTLSMailUpstream(ctx, claim.UpstreamAddress, claim.UpstreamServerName,
-				claim.UpstreamNetworkScope, 10*time.Second, nil)
-		},
-		Deliver: func(ctx context.Context, target string, headers http.Header, body []byte) (int, error) {
-			return spinner.forwarder.ForwardStatus(forwarding.ForwardRequest{
-				TargetURL: target, Method: http.MethodPost, Headers: headers, RequestBody: body, Context: ctx,
-			})
-		},
-	}, nil
 }
 
 // EnqueueScheduledDelivery preserves the legacy callback path unless a status

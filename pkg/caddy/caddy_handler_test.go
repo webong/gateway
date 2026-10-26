@@ -3,7 +3,6 @@ package caddy
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +14,6 @@ import (
 
 	caddyserver "github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
-	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
@@ -25,123 +23,6 @@ import (
 type recordingExecutor struct {
 	delivered []bridge.Delivery
 	queued    []bridge.Delivery
-}
-
-type postStreamExecutor struct {
-	recordingExecutor
-	calls int
-}
-
-func (e *postStreamExecutor) OpenWebstream(_ context.Context, d bridge.GatewayDelivery) (*http.Response, error) {
-	e.calls++
-	return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: " + string(d.Payload) + "\n\n"))}, nil
-}
-
-func TestSMTPAppParsesCaddyfileGlobalOption(t *testing.T) {
-	value, err := parseSMTPApp(caddyfile.NewTestDispenser(`gateway_smtp {
-	listen :2526
-	planner_url http://127.0.0.1:8081
-	internal_token test-token
-	hostname smtp.example.test
-	max_message_size 2048
-	max_recipients 4
-	max_connections 7
-	messages_per_minute 12
-	message_burst 3
-	read_timeout 2m
-	relay_address smtp-relay.example.test:587
-	relay_local_name smtp.example.test
-	relay_username gateway
-	relay_password secret
-	relay_tls_mode starttls
-	relay_timeout 12s
-	dkim_resolver_url http://127.0.0.1:8081
-	clamd_network unix
-	clamd_address /run/clamav/clamd.sock
-	clamd_timeout 7s
-	domain_resolver_address 127.0.0.1:5353
-	domain_lookup_timeout 2s
-	quarantine_path /var/lib/gateway/email-quarantine
-	quarantine_retention 720h
-	dsn_domain gateway.example.test
-	spool_path /var/lib/gateway/deliveries
-	max_attempts 6
-	initial_backoff 3s
-	max_backoff 20m
-	poll_interval 500ms
-	receipt_retention 2160h
-}`), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	app, ok := value.(httpcaddyfile.App)
-	if !ok || app.Name != "gateway.smtp" {
-		t.Fatalf("unexpected Caddy app value: %#v", value)
-	}
-
-	var config SMTPApp
-	if err := json.Unmarshal(app.Value, &config); err != nil {
-		t.Fatal(err)
-	}
-	if config.Listen != ":2526" || config.PlannerURL != "http://127.0.0.1:8081" || config.InternalToken != "test-token" || config.MaxMessageSize != 2048 || config.MaxRecipients != 4 || config.MaxConnections != 7 || config.MessagesPerMinute != 12 || config.MessageBurst != 3 {
-		t.Fatalf("unexpected parsed SMTP app: %+v", config)
-	}
-	if config.RelayAddress != "smtp-relay.example.test:587" || config.RelayLocalName != "smtp.example.test" || config.RelayUsername != "gateway" || config.RelayTLSMode != "starttls" || time.Duration(config.RelayTimeout) != 12*time.Second {
-		t.Fatalf("unexpected parsed outbound SMTP relay: %+v", config)
-	}
-	if config.DKIMResolverURL != "http://127.0.0.1:8081" {
-		t.Fatalf("unexpected DKIM resolver URL: %q", config.DKIMResolverURL)
-	}
-	if config.ClamdNetwork != "unix" || config.ClamdAddress != "/run/clamav/clamd.sock" || time.Duration(config.ClamdTimeout) != 7*time.Second || config.QuarantinePath != "/var/lib/gateway/email-quarantine" || time.Duration(config.QuarantineRetention) != 720*time.Hour {
-		t.Fatalf("unexpected parsed malware protection: %+v", config)
-	}
-	if config.DomainResolverAddress != "127.0.0.1:5353" || time.Duration(config.DomainLookupTimeout) != 2*time.Second {
-		t.Fatalf("unexpected author-domain resolver: %+v", config)
-	}
-	if config.DSNDomain != "gateway.example.test" {
-		t.Fatalf("unexpected failure notice domain: %q", config.DSNDomain)
-	}
-	config.applyDefaults()
-	config.QuarantinePath = ""
-	if err := config.Validate(); err == nil {
-		t.Fatal("SMTP retention without quarantine path was accepted")
-	}
-	if config.SpoolPath != "/var/lib/gateway/deliveries" || config.MaxAttempts != 6 || time.Duration(config.InitialBackoff) != 3*time.Second || time.Duration(config.MaxBackoff) != 20*time.Minute || time.Duration(config.PollInterval) != 500*time.Millisecond || config.ReceiptRetention == nil || time.Duration(*config.ReceiptRetention) != 90*24*time.Hour {
-		t.Fatalf("unexpected parsed delivery spool: %+v", config)
-	}
-}
-
-func TestSMTPAppRequiresPlannerAndToken(t *testing.T) {
-	app := &SMTPApp{Listen: ":2525", MaxMessageSize: 1, MaxLineSize: 1, MaxRecipients: 1, MaxWorkers: 1, MaxQueueSize: 1, MaxIdleConns: 1, MaxConnsPerHost: 1, ReadTimeout: 1, WriteTimeout: 1, PlannerTimeout: 1, RequestTimeout: 1, IdleConnTimeout: 1}
-	if err := app.Validate(); err == nil {
-		t.Fatal("expected missing SMTP planner URL and token to fail validation")
-	}
-}
-
-func TestSMTPAppRecipientPreflightDefaultsOnForRelayAndCanBeDisabled(t *testing.T) {
-	app := &SMTPApp{RelayAddress: "relay.example.test:587"}
-	app.applyDefaults()
-	if app.RecipientPreflight == nil || !*app.RecipientPreflight {
-		t.Fatal("relay-backed SMTP should preflight recipients by default")
-	}
-
-	value, err := parseSMTPApp(caddyfile.NewTestDispenser(`gateway_smtp {
-		relay_address relay.example.test:587
-		recipient_preflight false
-	}`), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed := value.(httpcaddyfile.App)
-	var disabled SMTPApp
-	if err := json.Unmarshal(parsed.Value, &disabled); err != nil {
-		t.Fatal(err)
-	}
-	disabled.applyDefaults()
-	if disabled.RecipientPreflight == nil || *disabled.RecipientPreflight {
-		t.Fatal("explicit preflight opt-out was lost")
-	}
 }
 
 func (e *recordingExecutor) Deliver(_ context.Context, delivery bridge.Delivery) (bridge.Response, error) {
@@ -284,10 +165,6 @@ func TestCaddyHandlerParsesCaddyfile(t *testing.T) {
 	max_workers 4
 	max_queue_size 8
 	request_timeout 3s
-	websocket_max_connections 9
-	websocket_max_duration 3h
-	webstream_max_connections 7
-	webstream_max_duration 2h
 	max_idle_conns 12
 	max_conns_per_host 6
 	idle_conn_timeout 45s
@@ -316,12 +193,6 @@ func TestCaddyHandlerParsesCaddyfile(t *testing.T) {
 	if time.Duration(handler.RequestTimeout) != 3*time.Second || time.Duration(handler.IdleConnTimeout) != 45*time.Second {
 		t.Fatalf("unexpected parsed duration settings: %+v", handler)
 	}
-	if handler.WebstreamMaxConnections != 7 || time.Duration(handler.WebstreamMaxDuration) != 2*time.Hour {
-		t.Fatalf("unexpected parsed Webstream bounds: %+v", handler)
-	}
-	if handler.WebSocketMaxConnections != 9 || time.Duration(handler.WebSocketMaxDuration) != 3*time.Hour {
-		t.Fatalf("unexpected parsed WebSocket bounds: %+v", handler)
-	}
 	if handler.SpoolPath != "/var/lib/gateway/deliveries" || handler.AdminAddress != "127.0.0.1:5052" || handler.MaxAttempts != 6 || handler.ReceiptRetention == nil || time.Duration(*handler.ReceiptRetention) != 90*24*time.Hour {
 		t.Fatalf("unexpected parsed spool settings: %+v", handler)
 	}
@@ -348,17 +219,6 @@ func TestCaddyHandlerUsesSeparateHTTPSpoolAndRejectsOverlappingReload(t *testing
 		t.Fatalf("spool did not reopen after old handler stopped: %v", err)
 	}
 	t.Cleanup(func() { _ = third.Cleanup() })
-}
-
-func TestSMTPAppSpoolsHTTPDeliveriesWithoutOutboundRelay(t *testing.T) {
-	app := &SMTPApp{InternalToken: "test-token", SpoolPath: t.TempDir()}
-	if err := app.Provision(caddyserver.Context{}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.Stop() })
-	if app.deliveryQueue == nil {
-		t.Fatal("SMTP ingress did not create a durable HTTP queue without an outbound SMTP relay")
-	}
 }
 
 func TestCaddyHandlerPrivateDeliveryAdminListener(t *testing.T) {

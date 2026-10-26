@@ -8,6 +8,27 @@
             "operations": [
                 {"name": "start", "surface": "spinner"}
             ]
+        },
+        {
+            "name": "gateway.delivery-adapter",
+            "version": "v1",
+            "operations": [
+                {"name": "deliver", "surface": "spinner"}
+            ]
+        },
+        {
+            "name": "gateway.job",
+            "version": "v1",
+            "operations": [
+                {"name": "run", "surface": "spinner"}
+            ]
+        },
+        {
+            "name": "gateway.delivery-failure",
+            "version": "v1",
+            "operations": [
+                {"name": "follow-up", "surface": "spinner"}
+            ]
         }
     ],
     "reverse": [
@@ -15,7 +36,9 @@
             "name": "gateway.planner",
             "version": "v1",
             "operations": [
-                {"name": "plan-event"}
+                {"name": "plan-event"},
+                {"name": "pass-through"},
+                {"name": "private-pass-through"}
             ]
         },
         {
@@ -24,6 +47,8 @@
             "operations": [
                 {"name": "deliver"},
                 {"name": "enqueue-gateway"},
+                {"name": "enqueue-gateway-idempotent"},
+                {"name": "supports-delivery-adapter"},
                 {"name": "durable"}
             ]
         },

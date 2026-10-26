@@ -82,12 +82,9 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		control, controlErr := transport.EmbeddedScheduleControl(next, spinner, engine)
 		integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: next, Observations: observations,
-			Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control,
+			Executor: spinner.Executor, Automation: spinner.Automation, Schedules: control, InternalToken: spinner.InternalToken,
 			Start: runtimecontract.RuntimeStartRequest{
 				MaxBodySize: spinner.MaxBodySize, PlannerTimeout: spinner.RequestTimeout,
-				WebSocketMaxConnections: spinner.WebSocketMaxConnections, WebSocketMaxDuration: spinner.WebSocketMaxDuration,
-				WebstreamHeartbeat: spinner.WebstreamHeartbeat, WebstreamRetry: spinner.WebstreamRetry,
-				WebstreamMaxConnections: spinner.WebstreamMaxConnections, WebstreamMaxDuration: spinner.WebstreamMaxDuration,
 				AutomationLanguages: automation.Languages(spinner.Automation),
 			},
 		})
@@ -119,7 +116,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				http.Error(writer, "Planner schedule control is unavailable", http.StatusServiceUnavailable)
 			})
 		}
-		return router.NewHandler(next, integrationextensions.DefaultRegistry.Handler(), nil, nil, managed, spinner.PublicRoutes(next)...)
+		return router.NewHandler(next, integrationextensions.DefaultRegistry.Handler(), managed)
 	})
 	if err != nil {
 		return err
@@ -167,7 +164,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 				<-done
 				return fmt.Errorf("listen for private Planner control: %w", listenErr)
 			}
-			controlServer = router.NewInternalControlServer(prepared.handler, transport.InternalRequestPolicies()...)
+			controlServer = router.NewInternalControlServer(prepared.handler)
 			go func() {
 				if serveErr := controlServer.Serve(controlListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 					listenerErrors <- fmt.Errorf("private Planner control listener: %w", serveErr)
@@ -182,7 +179,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		if spinner.SchedulesEnabled {
 			scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 			defer cancelSchedules()
-			if err := transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, nil); err != nil {
+			if err := transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, integrationextensions.DefaultRegistry); err != nil {
 				server.Stop()
 				<-done
 				return err

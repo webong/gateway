@@ -16,6 +16,7 @@ import (
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	automationexecution "github.com/webong/gateway/pkg/spinner/extensions/automation/execution"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	"github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
@@ -23,25 +24,19 @@ import (
 )
 
 type Router struct {
-	settings                *config.Config
-	Executor                *bridge.RelayExecutor
-	InternalToken           string
-	MaxBodySize             int64
-	RequestTimeout          time.Duration
-	WebSocketMaxConnections int
-	WebSocketMaxDuration    time.Duration
-	WebstreamHeartbeat      time.Duration
-	WebstreamRetry          time.Duration
-	WebstreamMaxConnections int
-	WebstreamMaxDuration    time.Duration
-	SchedulesEnabled        bool
-	SchedulePollInterval    time.Duration
-	ProvisioningRouteProxy  bool
-	ProvisioningRouteCIDRs  []string
-	ShutdownTimeout         time.Duration
-	DeliveryAdminServer     *http.Server
-	Automation              automation.Executor
-	CompanionActions        companion.Runner
+	settings               *config.Config
+	Executor               *bridge.RelayExecutor
+	InternalToken          string
+	MaxBodySize            int64
+	RequestTimeout         time.Duration
+	SchedulesEnabled       bool
+	SchedulePollInterval   time.Duration
+	ProvisioningRouteProxy bool
+	ProvisioningRouteCIDRs []string
+	ShutdownTimeout        time.Duration
+	DeliveryAdminServer    *http.Server
+	Automation             automation.Executor
+	CompanionActions       companion.Runner
 
 	forwarder      *forwarding.Forwarder
 	workerPool     *workers.WorkerPool
@@ -56,9 +51,6 @@ func NewRouterFromEnvironment() (*Router, error) {
 	}
 	if settings.InternalToken == "" {
 		return nil, fmt.Errorf("GATEWAY_INTERNAL_TOKEN is required")
-	}
-	if settings.SMTPAddress != "" || settings.IMAPAddress != "" || settings.POP3Address != "" {
-		return nil, fmt.Errorf("SMTP, IMAP, and POP3 listeners are configured through the webong/email Extension")
 	}
 	logger := logging.NewLogger(settings.LogLevel)
 	forwarder := forwarding.NewForwarder(settings, logger)
@@ -89,33 +81,9 @@ func NewRouterFromEnvironment() (*Router, error) {
 	}
 	var adminServer *http.Server
 	if settings.DeliveryAdminAddress != "" {
-		options := []deliveryadmin.HandlerOption{deliveryadmin.WithAutomationExecutor(automationextensions.Runtime())}
-		if settings.SMTPRelayAddress != "" || settings.MailboxSMTPResolverURL != "" || settings.OutboundResolverURL != "" {
-			var checker interface{ CheckSigningDomain(string) error }
-			if settings.SMTPRelayAddress != "" {
-				adapter, adapterErr := NewSMTPAdapter(settings)
-				if adapterErr != nil {
-					automationPool.Close()
-					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-					_ = deliveryQueue.Close(ctx)
-					cancel()
-					workerPool.Shutdown()
-					forwarder.CloseIdleConnections()
-					return nil, adapterErr
-				}
-				checker = adapter
-			}
-			scanner, _, protectionErr := NewEmailProtection(settings)
-			if protectionErr != nil {
-				automationPool.Close()
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-				_ = deliveryQueue.Close(ctx)
-				cancel()
-				workerPool.Shutdown()
-				forwarder.CloseIdleConnections()
-				return nil, protectionErr
-			}
-			options = append(options, deliveryadmin.WithEmailSubmission(deliveryQueue, checker, scanner, settings.SMTPMaxMessageSize, []byte(settings.InternalToken), settings.EmailDSNDomain != ""))
+		options := []deliveryadmin.HandlerOption{
+			deliveryadmin.WithAutomationExecutor(automationextensions.Runtime()),
+			deliveryadmin.WithPrivateFallback(integrationextensions.DefaultRegistry.PrivateHandler()),
 		}
 		handler, err := deliveryadmin.NewHandler(deliveryQueue, settings.InternalToken, options...)
 		if err != nil {
@@ -133,28 +101,22 @@ func NewRouterFromEnvironment() (*Router, error) {
 		}
 	}
 	return &Router{
-		settings:                settings,
-		Executor:                bridge.NewRelayExecutor(forwarder, workerPool, executorOptions...),
-		InternalToken:           settings.InternalToken,
-		MaxBodySize:             settings.MaxBodySize,
-		RequestTimeout:          settings.RequestTimeout,
-		WebSocketMaxConnections: settings.WebSocketMaxConnections,
-		WebSocketMaxDuration:    settings.WebSocketMaxDuration,
-		WebstreamHeartbeat:      settings.WebstreamHeartbeat,
-		WebstreamRetry:          settings.WebstreamRetry,
-		WebstreamMaxConnections: settings.WebstreamMaxConnections,
-		WebstreamMaxDuration:    settings.WebstreamMaxDuration,
-		SchedulesEnabled:        settings.SchedulesEnabled,
-		SchedulePollInterval:    settings.SchedulePollInterval,
-		ProvisioningRouteProxy:  settings.ProvisioningRouteProxy,
-		ProvisioningRouteCIDRs:  settings.ProvisioningRouteCIDRs,
-		ShutdownTimeout:         settings.ShutdownTimeout,
-		DeliveryAdminServer:     adminServer,
-		Automation:              automationPool,
-		forwarder:               forwarder,
-		workerPool:              workerPool,
-		deliveryQueue:           deliveryQueue,
-		automationPool:          automationPool,
+		settings:               settings,
+		Executor:               bridge.NewRelayExecutor(forwarder, workerPool, executorOptions...),
+		InternalToken:          settings.InternalToken,
+		MaxBodySize:            settings.MaxBodySize,
+		RequestTimeout:         settings.RequestTimeout,
+		SchedulesEnabled:       settings.SchedulesEnabled,
+		SchedulePollInterval:   settings.SchedulePollInterval,
+		ProvisioningRouteProxy: settings.ProvisioningRouteProxy,
+		ProvisioningRouteCIDRs: settings.ProvisioningRouteCIDRs,
+		ShutdownTimeout:        settings.ShutdownTimeout,
+		DeliveryAdminServer:    adminServer,
+		Automation:             automationPool,
+		forwarder:              forwarder,
+		workerPool:             workerPool,
+		deliveryQueue:          deliveryQueue,
+		automationPool:         automationPool,
 	}, nil
 }
 

@@ -70,7 +70,7 @@ it('returns provider-neutral submission status only to the owning credential', f
     $state = 'delivered';
     $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret')])->getJson($url)
         ->assertOk()->assertJsonPath('state', 'accepted');
-    $state = 'failed'; $assertion = 'smtp_acceptance_unknown';
+    $state = 'failed'; $assertion = 'acceptance_unknown';
     $this->withHeaders(['Authorization' => 'Basic '.base64_encode('alice:secret')])->getJson($url)
         ->assertOk()->assertJsonPath('state', 'ambiguous')->assertJsonMissingPath('body_assertion');
 });

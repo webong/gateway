@@ -1,4 +1,4 @@
-package transport
+package deliveryqueue
 
 import (
 	"context"
@@ -17,34 +17,23 @@ type fanoutEnqueuer interface {
 	EnqueueGatewayIdempotent(bridge.GatewayDelivery, string, string, time.Time) (bool, error)
 }
 
-// fanoutAdapter expands one durable SMTP manifest into independently tracked
-// child receipts. Deterministic child IDs make a partial expansion safe to
-// retry after a process crash or transient queue failure.
-type fanoutAdapter struct {
-	ready chan struct{}
-	queue fanoutEnqueuer
-}
+// fanoutAdapter expands one protocol-neutral durable manifest into
+// independently tracked child receipts.
+type fanoutAdapter struct{ queue fanoutEnqueuer }
 
-func newFanoutAdapter() *fanoutAdapter { return &fanoutAdapter{ready: make(chan struct{})} }
-
-func (adapter *fanoutAdapter) bind(queue fanoutEnqueuer) {
-	adapter.queue = queue
-	close(adapter.ready)
-}
+func (adapter *fanoutAdapter) bind(queue fanoutEnqueuer) { adapter.queue = queue }
 
 func (adapter *fanoutAdapter) DeliverGateway(ctx context.Context, parent bridge.GatewayDelivery) error {
 	if adapter == nil || parent.Adapter != "gateway.fanout" || parent.Validate() != nil {
 		return fmt.Errorf("%w: invalid fanout manifest", bridge.ErrPermanentDelivery)
 	}
-	select {
-	case <-adapter.ready:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 	if adapter.queue == nil {
 		return errors.New("fanout queue is unavailable")
 	}
 	for index, child := range parent.Batch {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		child.Payload = append([]byte(nil), parent.Payload...)
 		if child.Attributes == nil {
 			child.Attributes = make(map[string]string)
@@ -59,12 +48,18 @@ func (adapter *fanoutAdapter) DeliverGateway(ctx context.Context, parent bridge.
 		fingerprint := sha256.Sum256(fingerprintBody)
 		key := sha256.Sum256([]byte(parent.Target + "\x00" + strconv.Itoa(index)))
 		id := hex.EncodeToString(key[:16])
-		_, err = adapter.queue.EnqueueGatewayIdempotent(child, id, hex.EncodeToString(fingerprint[:]), time.Now().UTC().Add(30*24*time.Hour))
-		if err != nil {
+		if _, err := adapter.queue.EnqueueGatewayIdempotent(child, id, hex.EncodeToString(fingerprint[:]), time.Now().UTC().Add(30*24*time.Hour)); err != nil {
 			return fmt.Errorf("enqueue fanout child %d: %w", index, err)
 		}
 	}
 	return nil
 }
 
-var _ bridge.GatewayDeliveryAdapter = (*fanoutAdapter)(nil)
+func installFanout(config *Config) (*fanoutAdapter, error) {
+	if config.Adapters["gateway.fanout"] != nil {
+		return nil, errors.New("gateway.fanout is reserved by the delivery queue")
+	}
+	adapter := &fanoutAdapter{}
+	config.Adapters["gateway.fanout"] = adapter
+	return adapter, nil
+}

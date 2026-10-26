@@ -55,27 +55,45 @@ type Event struct {
 // Status is the metadata-only view of a spool item. It deliberately omits
 // payload, headers, transport credentials, destination URL, and error text.
 type Status struct {
-	ID              string    `json:"id"`
-	EventID         string    `json:"event_id,omitempty"`
-	State           State     `json:"state"`
-	Protocol        string    `json:"protocol"`
-	Adapter         string    `json:"adapter"`
-	SubscriberID    string    `json:"subscriber_id,omitempty"`
-	FailureNoticeID string    `json:"failure_notice_id,omitempty"`
-	Attempts        int       `json:"attempts"`
-	ExpectedStatus  int       `json:"expected_status,omitempty"`
-	ResponseStatus  int       `json:"response_status,omitempty"`
-	BodyAssertion   string    `json:"body_assertion,omitempty"`
-	NextAttemptAt   time.Time `json:"next_attempt_at,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	EventID        string    `json:"event_id,omitempty"`
+	State          State     `json:"state"`
+	Protocol       string    `json:"protocol"`
+	Adapter        string    `json:"adapter"`
+	SubscriberID   string    `json:"subscriber_id,omitempty"`
+	FollowUpID     string    `json:"follow_up_id,omitempty"`
+	Attempts       int       `json:"attempts"`
+	ExpectedStatus int       `json:"expected_status,omitempty"`
+	ResponseStatus int       `json:"response_status,omitempty"`
+	BodyAssertion  string    `json:"body_assertion,omitempty"`
+	NextAttemptAt  time.Time `json:"next_attempt_at,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // SupportsAdapter reports whether this worker can redrive a delivery of the
 // named kind. Shared stores may be visible to several workers with disjoint
 // adapter sets, so a private admin aggregator must select the right one.
 func (queue *Queue) SupportsAdapter(name string) bool {
-	return queue != nil && queue.config.Adapters[name] != nil
+	if queue == nil {
+		return false
+	}
+	_, ok := resolveAdapter(queue.config, name)
+	return ok
+}
+
+// AdapterResolver supplies adapters from live installable Extensions. Static
+// adapters remain useful for host-owned protocols and focused tests.
+type AdapterResolver interface {
+	ResolveDeliveryAdapter(string) (bridge.GatewayDeliveryAdapter, bool)
+	DeliveryAdapterNames() []string
+}
+
+// FailureHandlerResolver supplies optional, adapter-owned follow-up behavior
+// after terminal delivery failure. The queue persists the returned delivery;
+// it never interprets product-specific attributes or constructs the payload.
+type FailureHandlerResolver interface {
+	ResolveDeliveryFailureHandler(string) (bridge.DeliveryFailureHandler, bool)
 }
 
 type Observer interface {
@@ -87,16 +105,17 @@ type ObserverFunc func(Event)
 func (function ObserverFunc) RecordDeliveryEvent(event Event) { function(event) }
 
 type Config struct {
-	Path                string
-	Adapters            map[string]bridge.GatewayDeliveryAdapter
-	Observer            Observer
-	MaxAttempts         int
-	InitialBackoff      time.Duration
-	MaxBackoff          time.Duration
-	DeliveryTimeout     time.Duration
-	PollInterval        time.Duration
-	ReceiptRetention    time.Duration
-	FailureNoticeDomain string
+	Path                   string
+	Adapters               map[string]bridge.GatewayDeliveryAdapter
+	AdapterResolver        AdapterResolver
+	Observer               Observer
+	MaxAttempts            int
+	InitialBackoff         time.Duration
+	MaxBackoff             time.Duration
+	DeliveryTimeout        time.Duration
+	PollInterval           time.Duration
+	ReceiptRetention       time.Duration
+	FailureHandlerResolver FailureHandlerResolver
 }
 
 type Queue struct {
@@ -123,7 +142,8 @@ type item struct {
 	Protocol               bridge.Protocol        `json:"protocol,omitempty"`
 	Adapter                string                 `json:"adapter,omitempty"`
 	SubscriberID           string                 `json:"subscriber_id,omitempty"`
-	FailureNoticeID        string                 `json:"failure_notice_id,omitempty"`
+	FollowUpID             string                 `json:"follow_up_id,omitempty"`
+	FollowUpHandled        bool                   `json:"follow_up_handled,omitempty"`
 	IdempotencyFingerprint string                 `json:"idempotency_fingerprint,omitempty"`
 	IdempotencyExpiresAt   time.Time              `json:"idempotency_expires_at,omitempty"`
 	State                  State                  `json:"state,omitempty"`
@@ -141,6 +161,10 @@ func New(config Config) (*Queue, error) {
 	}
 	var err error
 	config, err = normalizeConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	fanout, err := installFanout(&config)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +197,7 @@ func New(config Config) (*Queue, error) {
 	}
 	queue.config.Path = canonical
 	queue.lockFile = lockFile
+	fanout.bind(queue)
 
 	go queue.run()
 	return queue, nil
@@ -196,9 +221,6 @@ func normalizeConfig(config Config) (Config, error) {
 	}
 	if config.MaxAttempts < 1 || config.InitialBackoff < 1 || config.MaxBackoff < config.InitialBackoff || config.DeliveryTimeout < 1 || config.PollInterval < 1 || config.ReceiptRetention < 0 {
 		return Config{}, errors.New("delivery spool attempts and durations must be positive")
-	}
-	if config.FailureNoticeDomain != "" && !validFailureNoticeDomain(config.FailureNoticeDomain) {
-		return Config{}, errors.New("failure notice domain must be a valid DNS hostname")
 	}
 	adapters := make(map[string]bridge.GatewayDeliveryAdapter, len(config.Adapters))
 	for name, adapter := range config.Adapters {
@@ -247,16 +269,8 @@ func (queue *Queue) enqueueGateway(delivery bridge.GatewayDelivery, id, fingerpr
 	if err := delivery.Validate(); err != nil {
 		return false, err
 	}
-	if queue.config.Adapters[delivery.AdapterName()] == nil {
+	if _, ok := resolveAdapter(queue.config, delivery.AdapterName()); !ok {
 		return false, fmt.Errorf("delivery adapter %q is not registered", delivery.AdapterName())
-	}
-	if recipient := delivery.Attributes[bridge.FailureNoticeToAttribute]; recipient != "" {
-		if delivery.Protocol != bridge.ProtocolSMTP || delivery.AdapterName() != string(bridge.ProtocolSMTP) || queue.config.FailureNoticeDomain == "" || recipient != delivery.Attributes["mail_from"] || !validFailureNoticeAddress(recipient) {
-			return false, errors.New("SMTP failure notice requires a configured domain and authenticated envelope sender")
-		}
-		if _, err := failureNoticeRecipients(delivery); err != nil {
-			return false, err
-		}
 	}
 	queue.transitionMu.Lock()
 	defer queue.transitionMu.Unlock()
@@ -488,28 +502,20 @@ func (queue *Queue) Retry(id string) error {
 	if queued.ID != id {
 		return errors.New("delivery spool ID does not match filename")
 	}
-	if queued.FailureNoticeID != "" {
+	if queued.FollowUpID != "" {
 		return ErrInvalidState
-	}
-	if queued.Delivery.Attributes[bridge.FailureNoticeToAttribute] != "" {
-		exists, err := queue.failureNoticeExists(failureNoticeID(queued.ID))
-		if err != nil {
-			return err
-		}
-		if exists {
-			return ErrInvalidState
-		}
 	}
 	if err := queued.Delivery.Validate(); err != nil {
 		return fmt.Errorf("failed delivery cannot be retried: %w", err)
 	}
-	if queue.config.Adapters[queued.Delivery.AdapterName()] == nil {
+	if _, ok := resolveAdapter(queue.config, queued.Delivery.AdapterName()); !ok {
 		return fmt.Errorf("delivery adapter %q is not registered", queued.Delivery.AdapterName())
 	}
 	queued.State = StateQueued
 	queued.Attempts = 0
 	queued.ResponseStatus = 0
 	queued.BodyAssertion = ""
+	queued.FollowUpHandled = false
 	queued.LastError = ""
 	queued.NextAttemptAt = time.Now().UTC()
 	queued.UpdatedAt = queued.NextAttemptAt
@@ -553,7 +559,7 @@ func statusOf(queued item, state State) Status {
 	status := Status{
 		ID: queued.ID, State: state, Protocol: string(protocol),
 		EventID: eventID,
-		Adapter: adapter, SubscriberID: subscriberID, FailureNoticeID: queued.FailureNoticeID,
+		Adapter: adapter, SubscriberID: subscriberID, FollowUpID: queued.FollowUpID,
 		Attempts: queued.Attempts, CreatedAt: queued.CreatedAt, UpdatedAt: queued.UpdatedAt,
 		ExpectedStatus: queued.ExpectedStatus, ResponseStatus: queued.ResponseStatus,
 		BodyAssertion: queued.BodyAssertion,
@@ -586,11 +592,11 @@ func (queue *Queue) run() {
 	defer ticker.Stop()
 	pruneTicker := time.NewTicker(time.Hour)
 	defer pruneTicker.Stop()
-	noticeTicker := time.NewTicker(time.Minute)
-	defer noticeTicker.Stop()
+	followUpTicker := time.NewTicker(time.Minute)
+	defer followUpTicker.Stop()
 	_, _ = queue.PruneReceipts()
-	if err := queue.processFailureNotices(); err != nil {
-		log.Printf("Gateway delivery failure notice recovery failed: %v", err)
+	if err := queue.processFailureFollowUps(); err != nil {
+		log.Printf("Gateway delivery failure follow-up recovery failed: %v", err)
 	}
 	for {
 		queue.processDue()
@@ -601,9 +607,9 @@ func (queue *Queue) run() {
 		case <-ticker.C:
 		case <-pruneTicker.C:
 			_, _ = queue.PruneReceipts()
-		case <-noticeTicker.C:
-			if err := queue.processFailureNotices(); err != nil {
-				log.Printf("Gateway delivery failure notice recovery failed: %v", err)
+		case <-followUpTicker.C:
+			if err := queue.processFailureFollowUps(); err != nil {
+				log.Printf("Gateway delivery failure follow-up recovery failed: %v", err)
 			}
 		}
 	}
@@ -695,14 +701,12 @@ func (queue *Queue) processDue() {
 }
 
 func (queue *Queue) deliver(path, name string, queued item) {
-	if queued.Delivery.AdapterName() == "managed.smtp" {
-		if queued.Delivery.Attributes == nil {
-			queued.Delivery.Attributes = make(map[string]string)
-		}
-		queued.Delivery.Attributes["gateway_delivery_id"] = queued.ID
-		queued.Delivery.Attributes["gateway_attempt_index"] = strconv.Itoa(queued.Attempts)
+	if queued.Delivery.Attributes == nil {
+		queued.Delivery.Attributes = make(map[string]string)
 	}
-	adapter := queue.config.Adapters[queued.Delivery.AdapterName()]
+	queued.Delivery.Attributes["gateway_delivery_id"] = queued.ID
+	queued.Delivery.Attributes["gateway_attempt_index"] = strconv.Itoa(queued.Attempts)
+	adapter, _ := resolveAdapter(queue.config, queued.Delivery.AdapterName())
 	var err error
 	var result bridge.GatewayDeliveryResult
 	if adapter == nil {
@@ -742,7 +746,7 @@ func (queue *Queue) deliver(path, name string, queued item) {
 	uncertain := errors.Is(err, bridge.ErrUncertainDelivery)
 	queued.LastError = err.Error()
 	if uncertain {
-		queued.BodyAssertion = "smtp_acceptance_unknown"
+		queued.BodyAssertion = "acceptance_unknown"
 	}
 	if queued.Attempts >= queue.config.MaxAttempts || adapter == nil || errors.Is(err, bridge.ErrPermanentDelivery) || uncertain {
 		queued.State = StateFailed
@@ -758,8 +762,8 @@ func (queue *Queue) deliver(path, name string, queued item) {
 		}
 		queue.transitionMu.Unlock()
 		if failed && !uncertain {
-			if err := queue.ensureFailureNotice(queued); err != nil {
-				log.Printf("Gateway delivery failure notice enqueue failed for %s: %v", queued.ID, err)
+			if err := queue.ensureFailureFollowUp(queued); err != nil {
+				log.Printf("Gateway delivery failure follow-up enqueue failed for %s: %v", queued.ID, err)
 			}
 		}
 		return
@@ -771,6 +775,38 @@ func (queue *Queue) deliver(path, name string, queued item) {
 		queue.observe(queued, StateDeferred)
 	}
 	queue.transitionMu.Unlock()
+}
+
+func resolveAdapter(config Config, name string) (bridge.GatewayDeliveryAdapter, bool) {
+	if adapter := config.Adapters[name]; adapter != nil {
+		return adapter, true
+	}
+	if config.AdapterResolver == nil {
+		return nil, false
+	}
+	return config.AdapterResolver.ResolveDeliveryAdapter(name)
+}
+
+func adapterNames(config Config) []string {
+	names := make(map[string]struct{}, len(config.Adapters))
+	for name, adapter := range config.Adapters {
+		if adapter != nil {
+			names[name] = struct{}{}
+		}
+	}
+	if config.AdapterResolver != nil {
+		for _, name := range config.AdapterResolver.DeliveryAdapterNames() {
+			if _, ok := resolveAdapter(config, name); ok {
+				names[name] = struct{}{}
+			}
+		}
+	}
+	result := make([]string, 0, len(names))
+	for name := range names {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (queue *Queue) backoff(attempt int) time.Duration {

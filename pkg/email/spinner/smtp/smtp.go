@@ -24,6 +24,7 @@ import (
 	smtpserver "github.com/emersion/go-smtp"
 
 	bridge "github.com/webong/gateway/arranger/integration"
+	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
 )
 
 var ErrServerClosed = errors.New("SMTP server closed")
@@ -555,11 +556,8 @@ func (s *session) Data(reader io.Reader) error {
 	if err != nil {
 		return smtpError(451, "gateway planning failed")
 	}
-	if err := decision.Validate(); err != nil {
+	if err := validateSMTPDecision(decision); err != nil {
 		return smtpError(451, "gateway returned an invalid decision")
-	}
-	if decision.Protocol != bridge.ProtocolSMTP {
-		return smtpError(451, "gateway returned a decision for the wrong protocol")
 	}
 	if s.config.Scanner != nil && (decision.Action == bridge.GatewaySubmit || decision.Action == bridge.GatewayDeliver) {
 		scanCtx, scanCancel := context.WithTimeout(context.Background(), s.config.ScanTimeout)
@@ -651,7 +649,7 @@ func (s *session) Data(reader io.Reader) error {
 			if delivery.Attributes != nil {
 				attributes := make(map[string]string, len(delivery.Attributes))
 				for key, value := range delivery.Attributes {
-					if key != bridge.FailureNoticeToAttribute && key != bridge.DKIMSigningDomainAttribute {
+					if key != emailattrs.FailureNoticeTo && key != emailattrs.DKIMSigningDomain {
 						attributes[key] = value
 					}
 				}
@@ -661,13 +659,13 @@ func (s *session) Data(reader io.Reader) error {
 				if delivery.Attributes == nil {
 					delivery.Attributes = make(map[string]string)
 				}
-				delivery.Attributes[bridge.FailureNoticeToAttribute] = failureNoticeTo
+				delivery.Attributes[emailattrs.FailureNoticeTo] = failureNoticeTo
 			}
 			if signingDomain != "" && delivery.Protocol == bridge.ProtocolSMTP {
 				if delivery.Attributes == nil {
 					delivery.Attributes = make(map[string]string)
 				}
-				delivery.Attributes[bridge.DKIMSigningDomainAttribute] = signingDomain
+				delivery.Attributes[emailattrs.DKIMSigningDomain] = signingDomain
 			}
 			if len(delivery.Payload) == 0 {
 				delivery.Payload = append([]byte(nil), message...)
@@ -695,7 +693,7 @@ func (s *session) Data(reader io.Reader) error {
 		if delivery.Attributes != nil {
 			attributes := make(map[string]string, len(delivery.Attributes))
 			for key, value := range delivery.Attributes {
-				if key != bridge.DKIMSigningDomainAttribute {
+				if key != emailattrs.DKIMSigningDomain {
 					attributes[key] = value
 				}
 			}
@@ -705,7 +703,7 @@ func (s *session) Data(reader io.Reader) error {
 			if delivery.Attributes == nil {
 				delivery.Attributes = make(map[string]string)
 			}
-			delivery.Attributes[bridge.DKIMSigningDomainAttribute] = signingDomain
+			delivery.Attributes[emailattrs.DKIMSigningDomain] = signingDomain
 		}
 		if len(delivery.Payload) == 0 {
 			delivery.Payload = append([]byte(nil), message...)
@@ -740,6 +738,19 @@ func (s *session) Data(reader io.Reader) error {
 	default:
 		return smtpError(451, "gateway returned an unsupported action")
 	}
+}
+
+func validateSMTPDecision(decision bridge.GatewayDecision) error {
+	if err := decision.Validate(); err != nil {
+		return err
+	}
+	if decision.Protocol != bridge.ProtocolSMTP {
+		return errors.New("decision is for a different protocol")
+	}
+	if decision.Action == bridge.GatewaySubmit && decision.Deliveries[0].Protocol != bridge.ProtocolSMTP {
+		return errors.New("submission delivery is not SMTP")
+	}
+	return nil
 }
 
 func (s *session) Reset() {

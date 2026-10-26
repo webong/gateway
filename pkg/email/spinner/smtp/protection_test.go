@@ -15,6 +15,7 @@ import (
 
 	smtpclient "github.com/emersion/go-smtp"
 	bridge "github.com/webong/gateway/arranger/integration"
+	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
 )
 
 type scannerFunc func(context.Context, []byte) (ScanVerdict, error)
@@ -476,7 +477,7 @@ func TestSMTPFailureNoticeRequiresAuthenticatedPlannerApproval(t *testing.T) {
 						Metadata: test.metadata,
 						Deliveries: []bridge.GatewayDelivery{{
 							Protocol: bridge.ProtocolSMTP, Target: "inbox@example.test",
-							Attributes: map[string]string{"mail_from": "sender@example.test", bridge.FailureNoticeToAttribute: "forged@example.test", bridge.DKIMSigningDomainAttribute: "forged.example"},
+							Attributes: map[string]string{"mail_from": "sender@example.test", emailattrs.FailureNoticeTo: "forged@example.test", emailattrs.DKIMSigningDomain: "forged.example"},
 						}},
 					}, nil
 				}),
@@ -501,14 +502,14 @@ func TestSMTPFailureNoticeRequiresAuthenticatedPlannerApproval(t *testing.T) {
 			if test.wantNotice {
 				want = "sender@example.test"
 			}
-			if deliveries[0].Attributes[bridge.FailureNoticeToAttribute] != want {
+			if deliveries[0].Attributes[emailattrs.FailureNoticeTo] != want {
 				t.Fatalf("unsafe failure notice routing: %+v", deliveries[0].Attributes)
 			}
 			wantSigningDomain := ""
 			if test.authEnabled {
 				wantSigningDomain = "example.test"
 			}
-			if deliveries[0].Attributes[bridge.DKIMSigningDomainAttribute] != wantSigningDomain {
+			if deliveries[0].Attributes[emailattrs.DKIMSigningDomain] != wantSigningDomain {
 				t.Fatalf("unsafe DKIM signing domain: %+v", deliveries[0].Attributes)
 			}
 		})

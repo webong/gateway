@@ -19,3 +19,9 @@ capability for SPF, DKIM, sender-domain existence, and managed IMAP/POP3
 upstream address resolution. The dependency is an Arranger contract: Email does
 not import the DNS implementation, and DNS may run resolver-only without a
 public port-53 listener.
+
+Outbound relay and failure-notice behavior are owned by this Extension as well.
+Set `smtp_relay` and optional `failure_notice_domain` in the `webong/email`
+runtime configuration. Email advertises its adapter and terminal-failure
+handler after startup; the generic queue only invokes the selected provider and
+durably persists any returned follow-up delivery.

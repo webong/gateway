@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -91,6 +94,7 @@ func TestEmailCanBeInstalledWithDNSAfterSpinnerStarts(t *testing.T) {
 		}),
 	}
 	executor := &runtimeEmailExecutor{deliveries: make(chan protocol.GatewayDelivery, 1)}
+	submissions := make(chan string, 1)
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 		ProtocolPlanner: runtimeProtocolPlanner(func(_ context.Context, event protocol.GatewayEvent) (protocol.GatewayDecision, error) {
 			if event.Protocol != protocol.ProtocolSMTP || event.Kind != protocol.EventTransaction {
@@ -104,6 +108,13 @@ func TestEmailCanBeInstalledWithDNSAfterSpinnerStarts(t *testing.T) {
 			}, nil
 		}),
 		Executor: executor,
+		PassThrough: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			body := new(bytes.Buffer)
+			_, _ = body.ReadFrom(request.Body)
+			submissions <- body.String()
+			writer.WriteHeader(http.StatusAccepted)
+			_, _ = writer.Write([]byte("accepted by Planner"))
+		}),
 	})
 	registry := integrationextensions.NewRegistry()
 	for _, identity := range plan.Order {
@@ -123,6 +134,21 @@ func TestEmailCanBeInstalledWithDNSAfterSpinnerStarts(t *testing.T) {
 		registry.Unregister("webong/email")
 		registry.Unregister("webong/dns")
 	})
+
+	submission := httptest.NewRequest(http.MethodPost, "http://gateway.test/email/submissions", strings.NewReader(`{"message":"hello"}`))
+	submissionResponse := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(submissionResponse, submission)
+	if submissionResponse.Code != http.StatusAccepted || submissionResponse.Body.String() != "accepted by Planner" {
+		t.Fatalf("packaged Email HTTP mount returned %d %q", submissionResponse.Code, submissionResponse.Body.String())
+	}
+	select {
+	case body := <-submissions:
+		if body != `{"message":"hello"}` {
+			t.Fatalf("unexpected Email submission body: %q", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("packaged Email HTTP mount did not pass through to Planner")
+	}
 
 	client, err := smtpclient.Dial(smtpAddress)
 	if err != nil {

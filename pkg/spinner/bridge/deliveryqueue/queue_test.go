@@ -17,6 +17,47 @@ type statusReportingAdapter struct {
 	bodyAssertion string
 }
 
+type liveAdapterResolver struct {
+	adapter bridge.GatewayDeliveryAdapter
+}
+
+func (resolver *liveAdapterResolver) ResolveDeliveryAdapter(name string) (bridge.GatewayDeliveryAdapter, bool) {
+	return resolver.adapter, name == "provider.dynamic" && resolver.adapter != nil
+}
+
+func (resolver *liveAdapterResolver) DeliveryAdapterNames() []string {
+	if resolver.adapter == nil {
+		return nil
+	}
+	return []string{"provider.dynamic"}
+}
+
+func TestQueueUsesAdaptersInstalledAfterStartup(t *testing.T) {
+	resolver := &liveAdapterResolver{}
+	queue, err := New(Config{Path: t.TempDir(), AdapterResolver: resolver, MaxAttempts: 1, PollInterval: 5 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { closeQueue(t, queue) })
+	delivery := testDelivery()
+	delivery.Adapter = "provider.dynamic"
+	if err := queue.EnqueueGateway(delivery); err == nil {
+		t.Fatal("queue accepted an unavailable dynamic adapter")
+	}
+	var attempts atomic.Int32
+	resolver.adapter = bridge.GatewayDeliveryAdapterFunc(func(context.Context, bridge.GatewayDelivery) error {
+		attempts.Add(1)
+		return nil
+	})
+	if err := queue.EnqueueGateway(delivery); err != nil {
+		t.Fatal(err)
+	}
+	waitForState(t, queue, StateDelivered)
+	if attempts.Load() != 1 {
+		t.Fatalf("dynamic adapter attempts = %d", attempts.Load())
+	}
+}
+
 func (adapter statusReportingAdapter) DeliverGateway(context.Context, bridge.GatewayDelivery) error {
 	return nil
 }
@@ -190,7 +231,7 @@ func TestQueueStopsOnUncertainSMTPAcceptance(t *testing.T) {
 		t.Fatalf("uncertain delivery was retried %d times", attempts.Load())
 	}
 	statuses, err := queue.List(StateFailed, 10)
-	if err != nil || len(statuses) != 1 || statuses[0].BodyAssertion != "smtp_acceptance_unknown" {
+	if err != nil || len(statuses) != 1 || statuses[0].BodyAssertion != "acceptance_unknown" {
 		t.Fatalf("uncertain outcome is not visible: %+v %v", statuses, err)
 	}
 }

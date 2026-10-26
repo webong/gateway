@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	bridge "github.com/webong/gateway/arranger/integration"
+	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
 )
 
 // GatewayAdapter translates one resolved SMTP delivery into a relay
@@ -54,7 +55,7 @@ func (adapter *GatewayAdapter) DeliverGateway(ctx context.Context, delivery brid
 		}
 	}
 	data := append([]byte(nil), delivery.Payload...)
-	if domain := delivery.Attributes[bridge.DKIMSigningDomainAttribute]; domain != "" && adapter.signer != nil {
+	if domain := delivery.Attributes[emailattrs.DKIMSigningDomain]; domain != "" && adapter.signer != nil {
 		var err error
 		data, err = adapter.signer.Sign(domain, data)
 		if err != nil {

@@ -9,14 +9,12 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptrace"
 	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/internal/config"
@@ -46,7 +44,6 @@ type Forwarder struct {
 	totalRequests           atomic.Uint64
 	maxBodySize             int64
 	addressAllowed          func(net.IP) bool
-	privateStreamNetworks   []netip.Prefix
 	privateCallbackNetworks []netip.Prefix
 }
 
@@ -55,7 +52,6 @@ func NewForwarder(settings *config.Config, logger *logging.Logger) *Forwarder {
 		logger:                  logger,
 		maxBodySize:             settings.MaxBodySize,
 		addressAllowed:          isAllowedTargetAddress,
-		privateStreamNetworks:   settings.WebstreamPrivateNetworks,
 		privateCallbackNetworks: settings.HTTPPrivateNetworks,
 		clients:                 make(map[[sha256.Size]byte]*http.Client),
 	}
@@ -166,177 +162,6 @@ func (f *Forwarder) ForwardStatus(req ForwardRequest) (int, error) {
 	}
 	return response.StatusCode, nil
 }
-
-// OpenStream keeps the response body open. Its caller's context owns the
-// stream lifetime, including cancellation when the downstream client leaves.
-func (f *Forwarder) OpenStream(ctx context.Context, target string, headers http.Header, settings HTTPTransport) (*http.Response, error) {
-	return f.OpenStreamRequest(ctx, http.MethodGet, target, headers, nil, settings)
-}
-
-// OpenStreamRequest sends a single bounded request, never a replayable upload.
-func (f *Forwarder) OpenStreamRequest(ctx context.Context, method, target string, headers http.Header, payload []byte, settings HTTPTransport) (*http.Response, error) {
-	return f.OpenStreamRequestPolicy(ctx, method, target, headers, payload, settings, false)
-}
-
-func (f *Forwarder) OpenStreamUpload(ctx context.Context, target string, headers http.Header, body io.ReadCloser, settings HTTPTransport) (*http.Response, error) {
-	return f.openStream(ctx, http.MethodPost, target, headers, body, 0, settings, false, nil, true)
-}
-
-func (f *Forwarder) OpenStreamRequestPolicy(ctx context.Context, method, target string, headers http.Header, payload []byte, settings HTTPTransport, retry bool) (*http.Response, error) {
-	if method != http.MethodGet && method != http.MethodPost {
-		return nil, fmt.Errorf("unsupported Webstream method %q", method)
-	}
-	var body io.Reader
-	if method == http.MethodPost {
-		// Hide GetBody, including for empty POSTs: net/http must not replay it.
-		body = io.NopCloser(bytes.NewReader(payload))
-	}
-	if retry && (method != http.MethodPost || len(headers.Values("Idempotency-Key")) != 1 || strings.TrimSpace(headers.Get("Idempotency-Key")) == "") {
-		return nil, fmt.Errorf("retry requires an idempotent POST with one key")
-	}
-	return f.openStream(ctx, method, target, headers, body, int64(len(payload)), settings, retry, payload, false)
-}
-
-func (f *Forwarder) openStream(ctx context.Context, method, target string, headers http.Header, body io.Reader, length int64, settings HTTPTransport, retry bool, payload []byte, upload bool) (*http.Response, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	// Bound DNS, dialing, TLS and response headers, but not the response body.
-	timeout := settings.RequestTimeout
-	if timeout <= 0 {
-		timeout = f.client.Timeout
-	}
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-	if upload {
-		timeout = 5 * time.Minute
-	}
-	timer := time.AfterFunc(timeout, cancel)
-	defer timer.Stop()
-	request, err := http.NewRequestWithContext(ctx, method, target, body)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	request.Header = headers.Clone()
-	if request.Header == nil {
-		request.Header = make(http.Header)
-	}
-	for _, name := range request.Header.Values("Connection") {
-		for _, token := range strings.Split(name, ",") {
-			request.Header.Del(strings.TrimSpace(token))
-		}
-	}
-	for _, name := range []string{"Host", "Content-Length", "Connection", "Transfer-Encoding", "Upgrade", "Proxy-Authorization", "Proxy-Connection", "Keep-Alive", "Trailer", "Te", "Expect"} {
-		request.Header.Del(name)
-	}
-	request.Header.Set("Accept", "text/event-stream")
-	if method == http.MethodPost && length > 0 {
-		request.ContentLength = length
-	}
-	if retry && request.Header.Get("Idempotency-Key") != headers.Get("Idempotency-Key") {
-		cancel()
-		return nil, fmt.Errorf("idempotency key removed by connection headers")
-	}
-	client, err := f.clientFor(settings)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	var ranges []netip.Prefix
-	if settings.PrivateSourceCIDRs != "" {
-		for _, item := range strings.Split(settings.PrivateSourceCIDRs, ",") {
-			prefix, parseErr := netip.ParsePrefix(item)
-			if parseErr != nil || prefix != prefix.Masked() || prefix.Addr().Is4In6() {
-				cancel()
-				return nil, fmt.Errorf("invalid Planner Webstream private CIDR")
-			}
-			withinCeiling := false
-			for _, ceiling := range f.privateStreamNetworks {
-				if prefix.Bits() >= ceiling.Bits() && ceiling.Contains(prefix.Addr()) {
-					withinCeiling = true
-					break
-				}
-			}
-			if !withinCeiling {
-				cancel()
-				return nil, fmt.Errorf("Planner Webstream private CIDR is outside deployment ceiling")
-			}
-			ranges = append(ranges, prefix)
-		}
-	}
-	if len(ranges) > 0 {
-		// An operator grant applies only to this exact SSE origin. Bypass any
-		// profile proxy and pin the DNS result at dial time to granted ranges.
-		if settings.HTTPProxy != "" || settings.HTTPSProxy != "" {
-			cancel()
-			return nil, fmt.Errorf("private Webstream source cannot use an HTTP proxy")
-		}
-		transport := f.transport.Clone()
-		transport.Proxy = nil
-		transport.DialContext = f.dialContextAllowed(settings.ConnectTimeout, func(ip net.IP) bool {
-			address, ok := netip.AddrFromSlice(ip)
-			if !ok {
-				return false
-			}
-			address = address.Unmap()
-			for _, prefix := range ranges {
-				if prefix.Contains(address) {
-					return true
-				}
-			}
-			return false
-		})
-		defer transport.CloseIdleConnections()
-		privateClient := *client
-		privateClient.Transport = transport
-		client = &privateClient
-	}
-	streamClient := *client
-	streamClient.Timeout = 0
-	// A selected source must not redirect its credentials to another URL.
-	streamClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	var received atomic.Bool
-	request = request.WithContext(httptrace.WithClientTrace(request.Context(), &httptrace.ClientTrace{GotFirstResponseByte: func() { received.Store(true) }}))
-	response, err := streamClient.Do(request)
-	if retry && err != nil && !received.Load() && ctx.Err() == nil && transientStreamError(err) {
-		// Exactly one explicit retry; GetBody remains nil on both attempts.
-		retryRequest := request.Clone(request.Context())
-		retryRequest.Body = io.NopCloser(bytes.NewReader(payload))
-		select {
-		case <-ctx.Done():
-			cancel()
-			return nil, ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-		response, err = streamClient.Do(retryRequest)
-	}
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	if !timer.Stop() {
-		response.Body.Close()
-		cancel()
-		return nil, context.DeadlineExceeded
-	}
-	response.Body = &streamBody{ReadCloser: response.Body, cancel: cancel}
-	return response, nil
-}
-
-func transientStreamError(err error) bool {
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNREFUSED) {
-		return true
-	}
-	var network net.Error
-	return errors.As(err, &network) && network.Timeout()
-}
-
-type streamBody struct {
-	io.ReadCloser
-	cancel context.CancelFunc
-}
-
-func (b *streamBody) Close() error { b.cancel(); return b.ReadCloser.Close() }
 
 func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardResponse, error) {
 	targetURL, err := url.Parse(req.TargetURL)

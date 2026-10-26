@@ -19,13 +19,24 @@ var ErrUnavailable = errors.New("mailbox poll is unavailable or already leased")
 type HandlerControlPlane struct {
 	handler http.Handler
 	token   string
+	prefix  string
 }
 
 func NewHandlerControlPlane(handler http.Handler, token string) (*HandlerControlPlane, error) {
 	if handler == nil || token == "" {
 		return nil, fmt.Errorf("private mailbox poll Planner requires a handler and token")
 	}
-	return &HandlerControlPlane{handler: handler, token: token}, nil
+	return &HandlerControlPlane{handler: handler, token: token, prefix: "/_internal/gateway/mailbox-polls/"}, nil
+}
+
+// NewExtensionControlPlane uses the identity-scoped private Planner
+// capability granted to the installed Email Extension. The host injects its
+// internal credential; Email never receives it.
+func NewExtensionControlPlane(handler http.Handler) (*HandlerControlPlane, error) {
+	if handler == nil {
+		return nil, fmt.Errorf("private mailbox poll Planner requires a handler")
+	}
+	return &HandlerControlPlane{handler: handler, prefix: "/_internal/gateway/extensions/webong/email/mailbox-polls/"}, nil
 }
 
 func (c *HandlerControlPlane) Claim(ctx context.Context, routeID string) (Claim, error) {
@@ -53,14 +64,16 @@ func (c *HandlerControlPlane) call(ctx context.Context, routeID, action string, 
 		return err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"http://gateway.internal/_internal/gateway/mailbox-polls/"+url.PathEscape(routeID)+"/"+action,
+		"http://gateway.internal"+c.prefix+url.PathEscape(routeID)+"/"+action,
 		bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	request.Header.Set("X-Gateway-Internal", c.token)
+	if c.token != "" {
+		request.Header.Set("X-Gateway-Internal", c.token)
+	}
 	recorder := httptest.NewRecorder()
 	c.handler.ServeHTTP(recorder, request)
 	response := recorder.Result()

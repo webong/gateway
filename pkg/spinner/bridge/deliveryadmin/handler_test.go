@@ -8,13 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
-	"github.com/webong/gateway/pkg/email/spinner/smtp"
-	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 )
 
@@ -25,7 +22,47 @@ type fakeQueue struct {
 	retries int
 }
 
+func (queue *fakeQueue) Status(id string) (deliveryqueue.Status, error) {
+	if id != queue.status.ID {
+		return deliveryqueue.Status{}, deliveryqueue.ErrNotFound
+	}
+	return queue.status, nil
+}
+
+func (queue *fakeQueue) List(state deliveryqueue.State, limit int) ([]deliveryqueue.Status, error) {
+	if state != deliveryqueue.StateFailed {
+		return nil, deliveryqueue.ErrInvalidState
+	}
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("invalid limit")
+	}
+	return []deliveryqueue.Status{queue.status}, nil
+}
+
+func (queue *fakeQueue) ListEvent(eventID string, limit int) ([]deliveryqueue.Status, error) {
+	if eventID == queue.status.EventID && limit > 0 && limit <= 100 {
+		return []deliveryqueue.Status{queue.status}, nil
+	}
+	return []deliveryqueue.Status{}, nil
+}
+
+func (queue *fakeQueue) Retry(id string) error {
+	if id != queue.status.ID {
+		return deliveryqueue.ErrNotFound
+	}
+	queue.retries++
+	queue.status.State = deliveryqueue.StateQueued
+	return nil
+}
+
 type fakeRunHistory struct{ id string }
+
+func (history fakeRunHistory) ReadRun(id string) ([]byte, error) {
+	if id != history.id {
+		return nil, os.ErrNotExist
+	}
+	return []byte(`{"id":"` + id + `","hook":"deploy"}`), nil
+}
 
 type fakeAutomationExecutor struct{ outcome automation.Outcome }
 
@@ -67,13 +104,6 @@ func TestHandlerExecutesOneCredentialRequestOnPrivateListener(t *testing.T) {
 	}
 }
 
-func (history fakeRunHistory) ReadRun(id string) ([]byte, error) {
-	if id != history.id {
-		return nil, os.ErrNotExist
-	}
-	return []byte(`{"id":"` + id + `","hook":"deploy"}`), nil
-}
-
 func TestHandlerServesShellHistoryOnlyWithPrivateToken(t *testing.T) {
 	handler, err := NewHandler(nil, "private-token", WithShellRunHistory(fakeRunHistory{id: deliveryID}))
 	if err != nil {
@@ -98,135 +128,47 @@ func TestHandlerServesShellHistoryOnlyWithPrivateToken(t *testing.T) {
 	}
 }
 
-type adapterQueue struct {
-	*fakeQueue
-	adapter string
-}
-
-type managedEmailQueue struct{ *fakeEmailQueue }
-
-func (*managedEmailQueue) SupportsAdapter(name string) bool { return name == "managed.smtp" }
-
-type mailboxEmailQueue struct{ *fakeEmailQueue }
-
-func (*mailboxEmailQueue) SupportsAdapter(name string) bool { return name == "mailbox.smtp" }
-
-func TestPrivateEmailSubmissionUsesManagedBindingWithoutExposingTransport(t *testing.T) {
-	spool := &managedEmailQueue{fakeEmailQueue: &fakeEmailQueue{}}
-	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("private-loop-key"), false))
+func TestHandlerAuthenticatesExtensionOwnedPrivateRoute(t *testing.T) {
+	calls := 0
+	handler, err := NewHandler(nil, "private-token", WithPrivateRoute("/extension/status", http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls++
+		writer.WriteHeader(http.StatusAccepted)
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := map[string]any{
-		"receipt_id": deliveryID, "mail_from": "support@operator.test",
-		"authorized_senders": []string{"support@operator.test"},
-		"recipients":         []string{"buyer@example.test"},
-		"message":            []byte("From: support@operator.test\r\nReply-To: conversation@reply.operator.test\r\n\r\nhello"),
-		"outbound_binding": map[string]string{
-			"pool_id": "11111111-1111-4111-8111-111111111111", "account_id": "one", "route_id": "22222222-2222-4222-8222-222222222222", "domain_id": "", "sender_domain": "operator.test",
-		},
+	if response := serve(handler, http.MethodPost, "/extension/status", "wrong-token"); response.Code != http.StatusUnauthorized || calls != 0 {
+		t.Fatalf("unauthorized extension route returned %d after %d calls", response.Code, calls)
 	}
-	body, _ := json.Marshal(input)
-	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer private-token")
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusAccepted || spool.delivery.AdapterName() != "managed.smtp" ||
-		spool.delivery.Attributes["outbound_pool_id"] != "11111111-1111-4111-8111-111111111111" ||
-		!bytes.Contains(spool.delivery.Payload, []byte("Reply-To: conversation@reply.operator.test")) {
-		t.Fatalf("managed submission was not queued with the original sender identity: %d %s", response.Code, response.Body.String())
+	if response := serve(handler, http.MethodPost, "/extension/status", "private-token"); response.Code != http.StatusAccepted || calls != 1 {
+		t.Fatalf("authenticated extension route returned %d after %d calls", response.Code, calls)
+	}
+	if _, err := NewHandler(nil, "private-token", WithPrivateRoute("/deliveries/custom", http.NotFoundHandler())); err == nil {
+		t.Fatal("reserved private route was accepted")
 	}
 }
 
-func TestPrivateEmailSubmissionUsesMailboxTransportWithoutGatewaySigning(t *testing.T) {
-	spool := &mailboxEmailQueue{fakeEmailQueue: &fakeEmailQueue{}}
-	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, failingSubmissionSigner{}, nil, 1024, []byte("private-loop-key"), false))
+func TestHandlerAuthenticatesDynamicExtensionFallback(t *testing.T) {
+	calls := 0
+	handler, err := NewHandler(nil, "private-token", WithPrivateFallback(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls++
+		if request.URL.Path != "/email/submissions" {
+			t.Fatalf("fallback path = %q", request.URL.Path)
+		}
+		writer.WriteHeader(http.StatusAccepted)
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := json.Marshal(map[string]any{
-		"receipt_id": deliveryID, "mail_from": "support@example.test",
-		"authorized_senders":    []string{"support@example.test"},
-		"recipients":            []string{"buyer@example.test"},
-		"message":               []byte("From: support@example.test\r\n\r\nhello"),
-		"mailbox_connection_id": "11111111-1111-4111-8111-111111111111",
-	})
-	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer private-token")
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusAccepted || spool.delivery.AdapterName() != "mailbox.smtp" ||
-		spool.delivery.Attributes["mailbox_connection_id"] != "11111111-1111-4111-8111-111111111111" {
-		t.Fatalf("mailbox submission did not use its provided SMTP transport: %d %s", response.Code, response.Body.String())
+	if response := serve(handler, http.MethodPost, "/email/submissions", "wrong-token"); response.Code != http.StatusUnauthorized || calls != 0 {
+		t.Fatalf("unauthorized fallback returned %d after %d calls", response.Code, calls)
 	}
-	if _, signed := spool.delivery.Attributes[bridge.DKIMSigningDomainAttribute]; signed {
-		t.Fatal("mailbox submission requested Gateway-managed DKIM signing")
+	if response := serve(handler, http.MethodPost, "/email/submissions", "private-token"); response.Code != http.StatusAccepted || calls != 1 {
+		t.Fatalf("authenticated fallback returned %d after %d calls", response.Code, calls)
 	}
-}
-
-func (queue *adapterQueue) SupportsAdapter(name string) bool { return name == queue.adapter }
-
-type fakeEmailQueue struct {
-	delivery bridge.GatewayDelivery
-	accepted int
-}
-
-type unavailableSMTPQueue struct{ *fakeEmailQueue }
-
-func (*unavailableSMTPQueue) SupportsAdapter(string) bool { return false }
-
-type fakeSubmissionScanner struct{ infected bool }
-
-func (scanner fakeSubmissionScanner) Scan(context.Context, []byte) (smtp.ScanVerdict, error) {
-	return smtp.ScanVerdict{Infected: scanner.infected}, nil
-}
-
-type failingSubmissionSigner struct{}
-
-func (failingSubmissionSigner) CheckSigningDomain(string) error { return errors.New("no key") }
-
-func (queue *fakeEmailQueue) EnqueueGatewayIdempotent(delivery bridge.GatewayDelivery, id, fingerprint string, expiresAt time.Time) (bool, error) {
-	if id != deliveryID || len(fingerprint) != 64 || !expiresAt.After(time.Now()) {
-		return false, errors.New("invalid receipt")
+	if response := serve(handler, http.MethodGet, "/deliveries", "private-token"); response.Code != http.StatusNotFound || calls != 1 {
+		t.Fatalf("reserved admin path reached fallback: %d after %d calls", response.Code, calls)
 	}
-	queue.delivery = delivery
-	queue.accepted++
-	return false, nil
-}
-
-func (queue *fakeQueue) Status(id string) (deliveryqueue.Status, error) {
-	if id != queue.status.ID {
-		return deliveryqueue.Status{}, deliveryqueue.ErrNotFound
-	}
-	return queue.status, nil
-}
-
-func (queue *fakeQueue) List(state deliveryqueue.State, limit int) ([]deliveryqueue.Status, error) {
-	if state != deliveryqueue.StateFailed {
-		return nil, deliveryqueue.ErrInvalidState
-	}
-	if limit < 1 || limit > 100 {
-		return nil, errors.New("invalid limit")
-	}
-	return []deliveryqueue.Status{queue.status}, nil
-}
-
-func (queue *fakeQueue) ListEvent(eventID string, limit int) ([]deliveryqueue.Status, error) {
-	if eventID == queue.status.EventID && limit > 0 && limit <= 100 {
-		return []deliveryqueue.Status{queue.status}, nil
-	}
-	return []deliveryqueue.Status{}, nil
-}
-
-func (queue *fakeQueue) Retry(id string) error {
-	if id != queue.status.ID {
-		return deliveryqueue.ErrNotFound
-	}
-	queue.retries++
-	queue.status.State = deliveryqueue.StateQueued
-	return nil
 }
 
 func TestHandlerRequiresTokenBeforeInspectionOrRetry(t *testing.T) {
@@ -260,15 +202,20 @@ func TestHandlerListsShowsAndRetriesFailedDelivery(t *testing.T) {
 	if err := json.Unmarshal(listed.Body.Bytes(), &result); err != nil || len(result.Data) != 1 || result.Data[0].ID != deliveryID {
 		t.Fatalf("unexpected list result: %+v, %v", result, err)
 	}
-	shown := serve(handler, http.MethodGet, "/deliveries/"+deliveryID, "private-token")
-	if shown.Code != http.StatusOK {
+	if shown := serve(handler, http.MethodGet, "/deliveries/"+deliveryID, "private-token"); shown.Code != http.StatusOK {
 		t.Fatalf("unexpected show response: %d", shown.Code)
 	}
-	retried := serve(handler, http.MethodPost, "/deliveries/"+deliveryID+"/retry", "private-token")
-	if retried.Code != http.StatusAccepted || queue.retries != 1 {
+	if retried := serve(handler, http.MethodPost, "/deliveries/"+deliveryID+"/retry", "private-token"); retried.Code != http.StatusAccepted || queue.retries != 1 {
 		t.Fatalf("unexpected retry response: %d %s", retried.Code, retried.Body.String())
 	}
 }
+
+type adapterQueue struct {
+	*fakeQueue
+	adapter string
+}
+
+func (queue *adapterQueue) SupportsAdapter(name string) bool { return name == queue.adapter }
 
 func TestMultiQueueListsAndRetriesAcrossSeparateSpools(t *testing.T) {
 	first := &fakeQueue{status: deliveryqueue.Status{ID: deliveryID, State: deliveryqueue.StateFailed, UpdatedAt: time.Now().Add(-time.Minute)}}
@@ -343,210 +290,6 @@ func TestHandlerRejectsInvalidRequestsWithoutLeakingErrors(t *testing.T) {
 		if response.Code != test.expected {
 			t.Fatalf("%s %s returned %d, expected %d", test.method, test.path, response.Code, test.expected)
 		}
-	}
-}
-
-func TestPrivateEmailSubmissionRequiresTokenAndAuthorizedAuthor(t *testing.T) {
-	spool := &fakeEmailQueue{}
-	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("private-loop-key"), false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := map[string]any{
-		"receipt_id": deliveryID,
-		"mail_from":  "alice@example.test", "authorized_senders": []string{"alice@example.test"},
-		"recipients": []string{"bob@example.test"}, "message": []byte("From: alice@example.test\r\n\r\nhello"),
-	}
-	encoded, _ := json.Marshal(input)
-	submit := func(token string, body []byte) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-		request.Header.Set("Authorization", "Bearer "+token)
-		request.Header.Set("Content-Type", "application/json")
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		return response
-	}
-	if response := submit("wrong-token", encoded); response.Code != http.StatusUnauthorized || spool.accepted != 0 {
-		t.Fatalf("unauthorized submission reached spool: %d", response.Code)
-	}
-	if response := submit("private-token", encoded); response.Code != http.StatusAccepted || spool.accepted != 1 || spool.delivery.Protocol != bridge.ProtocolSMTP || spool.delivery.Attributes[bridge.DKIMSigningDomainAttribute] != "example.test" || spool.delivery.Attributes[bridge.FailureNoticeToAttribute] != "" {
-		t.Fatalf("valid submission was not queued: %d %s", response.Code, response.Body.String())
-	}
-	input["mail_from"] = "spoof@example.test"
-	encoded, _ = json.Marshal(input)
-	if response := submit("private-token", encoded); response.Code != http.StatusUnprocessableEntity || spool.accepted != 1 {
-		t.Fatalf("spoofed sender reached spool: %d", response.Code)
-	}
-	input["mail_from"] = "alice@example.test"
-	input["message"] = []byte("From: spoof@example.test\r\n\r\nhello")
-	encoded, _ = json.Marshal(input)
-	if response := submit("private-token", encoded); response.Code != http.StatusUnprocessableEntity || spool.accepted != 1 {
-		t.Fatalf("spoofed author reached spool: %d", response.Code)
-	}
-}
-
-func TestPrivateEmailSubmissionRequiresGatewayOutboundAdapter(t *testing.T) {
-	spool := &unavailableSMTPQueue{fakeEmailQueue: &fakeEmailQueue{}}
-	handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("private-loop-key"), false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := json.Marshal(map[string]any{
-		"receipt_id": deliveryID, "mail_from": "alice@example.test",
-		"authorized_senders": []string{"alice@example.test"},
-		"recipients":         []string{"bob@example.test"},
-		"message":            []byte("From: alice@example.test\r\n\r\nhello"),
-	})
-	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer private-token")
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusServiceUnavailable || spool.accepted != 0 {
-		t.Fatalf("submission without an outbound adapter was accepted: %d %s", response.Code, response.Body.String())
-	}
-}
-
-func TestPrivateEmailSubmissionFailsClosedForSigningAndMalware(t *testing.T) {
-	body, _ := json.Marshal(map[string]any{
-		"receipt_id": deliveryID,
-		"mail_from":  "alice@example.test", "authorized_senders": []string{"alice@example.test"},
-		"recipients": []string{"bob@example.test"}, "message": []byte("From: alice@example.test\r\n\r\nhello"),
-	})
-	for _, test := range []struct {
-		name    string
-		checker signingChecker
-		scanner smtp.MalwareScanner
-		status  int
-	}{
-		{"missing key", failingSubmissionSigner{}, nil, http.StatusServiceUnavailable},
-		{"infected", nil, fakeSubmissionScanner{infected: true}, http.StatusUnprocessableEntity},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			spool := &fakeEmailQueue{}
-			handler, err := NewHandler(&fakeQueue{}, "private-token", WithEmailSubmission(spool, test.checker, test.scanner, 1024, []byte("loop-key"), false))
-			if err != nil {
-				t.Fatal(err)
-			}
-			request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-			request.Header.Set("Authorization", "Bearer private-token")
-			request.Header.Set("Content-Type", "application/json")
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, request)
-			if response.Code != test.status || spool.accepted != 0 {
-				t.Fatalf("unsafe message reached spool: status=%d accepted=%d", response.Code, spool.accepted)
-			}
-		})
-	}
-}
-
-func TestPrivateEmailSubmissionFailureNoticeUsesAuthenticatedSender(t *testing.T) {
-	notices := make(chan bridge.GatewayDelivery, 2)
-	spool, err := deliveryqueue.New(deliveryqueue.Config{
-		Path: t.TempDir(), MaxAttempts: 1, PollInterval: 10 * time.Millisecond,
-		FailureNoticeDomain: "gateway.example.test",
-		Adapters: map[string]bridge.GatewayDeliveryAdapter{
-			"smtp": bridge.GatewayDeliveryAdapterFunc(func(_ context.Context, delivery bridge.GatewayDelivery) error {
-				if delivery.Attributes["mail_from"] == "" {
-					notices <- delivery
-					return nil
-				}
-				return errors.New("test relay rejected the message")
-			}),
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if err := spool.Close(ctx); err != nil {
-			t.Error(err)
-		}
-	})
-	handler, err := NewHandler(spool, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("loop-key"), true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := json.Marshal(map[string]any{
-		"receipt_id": deliveryID, "mail_from": "alice@example.test",
-		"authorized_senders": []string{"alice@example.test"},
-		"recipients":         []string{"bob@example.test"},
-		"message":            []byte("From: alice@example.test\r\nSubject: failed\r\n\r\nhello"),
-	})
-	request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-	request.Header.Set("Authorization", "Bearer private-token")
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusAccepted {
-		t.Fatalf("valid submission was not queued: %d %s", response.Code, response.Body.String())
-	}
-	select {
-	case notice := <-notices:
-		if notice.Target != "alice@example.test" || notice.Attributes["mail_from"] != "" ||
-			!bytes.Contains(notice.Payload, []byte("Delivery ID: "+deliveryID)) {
-			t.Fatalf("failure notice was not safely addressed to the authenticated sender: %+v", notice)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("failed HTTP submission did not generate a failure notice")
-	}
-}
-
-func TestPrivateEmailSubmissionReplaysOneDurableReceipt(t *testing.T) {
-	var deliveries atomic.Int32
-	spool, err := deliveryqueue.New(deliveryqueue.Config{
-		Path: t.TempDir(),
-		Adapters: map[string]bridge.GatewayDeliveryAdapter{
-			"smtp": bridge.GatewayDeliveryAdapterFunc(func(context.Context, bridge.GatewayDelivery) error {
-				deliveries.Add(1)
-				return nil
-			}),
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if err := spool.Close(ctx); err != nil {
-			t.Error(err)
-		}
-	})
-	handler, err := NewHandler(spool, "private-token", WithEmailSubmission(spool, nil, nil, 1024, []byte("loop-key"), false))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input := map[string]any{
-		"receipt_id": deliveryID, "mail_from": "alice@example.test",
-		"authorized_senders": []string{"alice@example.test"},
-		"recipients":         []string{"bob@example.test"},
-		"message":            []byte("From: alice@example.test\r\n\r\nhello"),
-	}
-	submit := func() *httptest.ResponseRecorder {
-		body, _ := json.Marshal(input)
-		request := httptest.NewRequest(http.MethodPost, "/email/submissions", bytes.NewReader(body))
-		request.Header.Set("Authorization", "Bearer private-token")
-		request.Header.Set("Content-Type", "application/json")
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		return response
-	}
-	first := submit()
-	second := submit()
-	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted || !bytes.Contains(second.Body.Bytes(), []byte(`"replayed":true`)) {
-		t.Fatalf("idempotent submission did not replay: first=%d second=%d %s", first.Code, second.Code, second.Body.String())
-	}
-	input["message"] = []byte("From: alice@example.test\r\n\r\nchanged")
-	if response := submit(); response.Code != http.StatusConflict {
-		t.Fatalf("changed message returned %d", response.Code)
-	}
-	for deadline := time.Now().Add(time.Second); deliveries.Load() == 0 && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-	}
-	if deliveries.Load() != 1 {
-		t.Fatalf("expected one relay attempt, got %d", deliveries.Load())
 	}
 }
 

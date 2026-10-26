@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/arranger/automation"
@@ -23,6 +24,8 @@ type RuntimeHost struct {
 type RuntimeExecutor interface {
 	Executor
 	GatewayExecutor
+	IdempotentGatewayExecutor
+	GatewayDeliveryAdapterSupport
 }
 
 func NewRuntimeHost(caller plugin.ReverseCaller, languages []automation.Language) *RuntimeHost {
@@ -33,6 +36,9 @@ func (h *RuntimeHost) Planner() Planner                 { return plannerClient{c
 func (h *RuntimeHost) ProtocolPlanner() ProtocolPlanner { return plannerClient{caller: h.caller} }
 func (h *RuntimeHost) Executor() RuntimeExecutor        { return deliveryClient{caller: h.caller} }
 func (h *RuntimeHost) PassThrough() http.Handler        { return passThroughClient{caller: h.caller} }
+func (h *RuntimeHost) PrivatePlanner() http.Handler {
+	return passThroughClient{caller: h.caller, operation: OperationPrivatePassThrough}
+}
 func (h *RuntimeHost) Automation() automation.Executor {
 	return automationClient{caller: h.caller, languages: append([]automation.Language(nil), h.languages...)}
 }
@@ -71,6 +77,25 @@ func (d deliveryClient) Enqueue(input Delivery) bool {
 func (d deliveryClient) EnqueueGateway(input GatewayDelivery) bool {
 	var result EnqueueResponse
 	return call(context.Background(), d.caller, DeliveryContract, OperationEnqueueGateway, input, &result) == nil && result.Accepted
+}
+
+func (d deliveryClient) EnqueueGatewayIdempotent(input GatewayDelivery, id, fingerprint string, expiresAt time.Time) (bool, error) {
+	var result IdempotentEnqueueResponse
+	err := call(context.Background(), d.caller, DeliveryContract, OperationEnqueueGatewayIdempotent,
+		IdempotentEnqueueRequest{Delivery: input, ID: id, Fingerprint: fingerprint, ExpiresAt: expiresAt}, &result)
+	if err != nil {
+		return false, err
+	}
+	if result.Conflict {
+		return false, ErrIdempotencyConflict
+	}
+	return result.Replayed, nil
+}
+
+func (d deliveryClient) SupportsAdapter(adapter string) bool {
+	var result DeliveryAdapterSupportResponse
+	return call(context.Background(), d.caller, DeliveryContract, OperationSupportsDeliveryAdapter,
+		DeliveryAdapterSupportRequest{Adapter: adapter}, &result) == nil && result.Supported
 }
 
 func (d deliveryClient) DurableGatewayDeliveries() bool {
@@ -120,7 +145,10 @@ func (o observationClient) RecordObservation(ctx context.Context, observation Ob
 	return call(ctx, o.caller, ObservationContract, OperationRecordObservation, observation, nil)
 }
 
-type passThroughClient struct{ caller plugin.ReverseCaller }
+type passThroughClient struct {
+	caller    plugin.ReverseCaller
+	operation string
+}
 
 func (p passThroughClient) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	body, err := io.ReadAll(request.Body)
@@ -133,7 +161,11 @@ func (p passThroughClient) ServeHTTP(writer http.ResponseWriter, request *http.R
 		scheme = "https"
 	}
 	var result PassThroughResponse
-	err = call(request.Context(), p.caller, PlannerContract, OperationPassThrough, PassThroughRequest{
+	operation := p.operation
+	if operation == "" {
+		operation = OperationPassThrough
+	}
+	err = call(request.Context(), p.caller, PlannerContract, operation, PassThroughRequest{
 		Method: request.Method, Scheme: scheme, Host: request.Host, Path: request.URL.Path,
 		RawQuery: request.URL.RawQuery, Headers: request.Header.Clone(), Body: body, RemoteAddr: request.RemoteAddr,
 	}, &result)

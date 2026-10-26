@@ -38,10 +38,15 @@ type NotificationControlPlane interface {
 
 type EnqueueFunc func(string, automation.Delivery) bool
 
+type NativeJobExecutor interface {
+	NativeJobNames() []string
+	RunNativeJob(context.Context, string, string, map[string]any) error
+}
+
 type Runtime struct {
 	Control    ControlPlane
 	Executor   automation.Executor
-	NativeIMAP func(context.Context, string) error
+	NativeJobs NativeJobExecutor
 	Registrar  automation.ScheduleRegistrar
 	Enqueue    EnqueueFunc
 	LogError   func(string, ...any)
@@ -119,7 +124,7 @@ func (r Runtime) poll(ctx context.Context, dispatch func(context.Context, Run)) 
 		if ctx.Err() != nil {
 			break
 		}
-		if dispatch != nil || run.Language == "native.imap" {
+		if dispatch != nil || strings.HasPrefix(string(run.Language), "native.") {
 			if slots != nil {
 				select {
 				case slots <- struct{}{}:
@@ -150,11 +155,11 @@ func (r Runtime) poll(ctx context.Context, dispatch func(context.Context, Run)) 
 func (r Runtime) execute(ctx context.Context, run Run) {
 	var result automation.Outcome
 	var err error
-	if run.Language == "native.imap" {
-		if r.NativeIMAP == nil {
-			err = fmt.Errorf("native IMAP poller is unavailable")
+	if strings.HasPrefix(string(run.Language), "native.") {
+		if r.NativeJobs == nil {
+			err = fmt.Errorf("native job %q is unavailable", run.Language)
 		} else {
-			err = r.NativeIMAP(ctx, run.Source)
+			err = r.NativeJobs.RunNativeJob(ctx, string(run.Language), run.Source, run.Payload)
 		}
 	} else if r.Executor == nil {
 		err = fmt.Errorf("automation language %q is not installed", run.Language)
@@ -223,11 +228,12 @@ type HTTPControlPlane struct {
 	base       *url.URL
 	token      string
 	languages  []automation.Language
-	nativeIMAP bool
+	nativeJobs interface{ NativeJobNames() []string }
 }
 
-// EnableNativeIMAP advertises the built-in executor to Planner's scheduler.
-func (c *HTTPControlPlane) EnableNativeIMAP() { c.nativeIMAP = true }
+func (c *HTTPControlPlane) SetNativeJobProvider(provider interface{ NativeJobNames() []string }) {
+	c.nativeJobs = provider
+}
 
 func NewHTTPControlPlane(baseURL, token string, client *http.Client, languages ...automation.Language) (*HTTPControlPlane, error) {
 	base, err := url.Parse(baseURL)
@@ -271,8 +277,8 @@ func (transport handlerTransport) RoundTrip(request *http.Request) (*http.Respon
 
 func (c *HTTPControlPlane) Claim(ctx context.Context) ([]Run, error) {
 	request := map[string]any{"automation_languages": c.languages}
-	if c.nativeIMAP {
-		request["native_jobs"] = []string{"imap"}
+	if c.nativeJobs != nil {
+		request["native_jobs"] = c.nativeJobs.NativeJobNames()
 	}
 	payload, err := json.Marshal(request)
 	if err != nil {

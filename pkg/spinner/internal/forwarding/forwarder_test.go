@@ -1,100 +1,17 @@
 package forwarding
 
 import (
-	"context"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
 )
-
-func TestPostStreamPreservesBodyAndDoesNotRedirect(t *testing.T) {
-	for _, body := range []string{"", "{\"input\":\"hello\"}"} {
-		t.Run(body, func(t *testing.T) {
-			calls := 0
-			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				data, _ := io.ReadAll(r.Body)
-				if r.Method != "POST" || string(data) != body || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("X-Remove") != "" {
-					t.Errorf("bad source request: %s %q %v", r.Method, data, r.Header)
-				}
-				http.Redirect(w, r, "/redirected", 307)
-			}))
-			defer s.Close()
-			f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
-			f.addressAllowed = func(net.IP) bool { return true }
-			defer f.CloseIdleConnections()
-			response, err := f.OpenStreamRequest(context.Background(), "POST", s.URL, http.Header{"Content-Type": {"application/json"}, "Connection": {"X-Remove"}, "X-Remove": {"secret"}}, []byte(body), HTTPTransport{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			response.Body.Close()
-			if response.StatusCode != 307 || calls != 1 {
-				t.Fatal("POST was redirected")
-			}
-		})
-	}
-}
-
-func TestPostStreamIsNotReplayable(t *testing.T) {
-	f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
-	defer f.CloseIdleConnections()
-	f.client.Transport = streamRoundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.GetBody != nil || r.Body == nil || r.Body == http.NoBody {
-			t.Error("POST is replayable")
-		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
-	})
-	for _, body := range []string{"", "hello"} {
-		r, err := f.OpenStreamRequest(context.Background(), "POST", "https://source.test", http.Header{"Idempotency-Key": {"key"}}, []byte(body), HTTPTransport{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		r.Body.Close()
-	}
-}
-
-type streamRoundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f streamRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-func TestPlannerPrivateSourceGrantDoesNotApplyToOrdinaryForwarding(t *testing.T) {
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: authorized\n\n")
-	}))
-	defer source.Close()
-	f := NewForwarder(&config.Config{
-		RequestTimeout:           time.Second,
-		WebstreamPrivateNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
-	}, logging.NewLogger("error"))
-	defer f.CloseIdleConnections()
-	policy := HTTPTransport{PrivateSourceCIDRs: "127.0.0.0/8"}
-	response, err := f.OpenStream(context.Background(), source.URL+"/events", nil, policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, err := io.ReadAll(response.Body)
-	response.Body.Close()
-	if err != nil || string(body) != "data: authorized\n\n" {
-		t.Fatalf("private Webstream response = %q, %v", body, err)
-	}
-	if _, err := f.ForwardSync(ForwardRequest{TargetURL: source.URL + "/events", Method: http.MethodGet}); err == nil {
-		t.Fatal("private grant leaked into ordinary webhook forwarding")
-	}
-	policy.HTTPProxy = "http://proxy.invalid:8080"
-	if _, err := f.OpenStream(context.Background(), source.URL+"/events", nil, policy); err == nil {
-		t.Fatal("private grant accepted a profile proxy")
-	}
-}
 
 func TestPrivateCallbackNeedsSeparateBoundedGrant(t *testing.T) {
 	callback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,8 +21,7 @@ func TestPrivateCallbackNeedsSeparateBoundedGrant(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer callback.Close()
-	f := NewForwarder(&config.Config{RequestTimeout: time.Second,
-		WebstreamPrivateNetworks: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}}, logging.NewLogger("error"))
+	f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
 	defer f.CloseIdleConnections()
 	req := ForwardRequest{TargetURL: callback.URL, Method: http.MethodPost,
 		Headers: map[string][]string{"X-Gateway-Route-Id": {"route-1"}}}
@@ -128,96 +44,6 @@ func TestPrivateCallbackNeedsSeparateBoundedGrant(t *testing.T) {
 	req.Transport.HTTPProxy = "http://proxy.invalid:8080"
 	if _, err := f.ForwardStatus(req); err == nil {
 		t.Fatal("private callback accepted a proxy")
-	}
-}
-
-func TestPlannerPrivateSourceRequiresDeploymentCeiling(t *testing.T) {
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: permitted\n\n")
-	}))
-	defer source.Close()
-	policy := HTTPTransport{PrivateSourceCIDRs: "127.0.0.0/8"}
-	forwarder := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
-	defer forwarder.CloseIdleConnections()
-	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
-		t.Fatal("Planner private grant bypassed missing deployment ceiling")
-	}
-	forwarder.privateStreamNetworks = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/16")}
-	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
-		t.Fatal("Planner grant wider than deployment ceiling was accepted")
-	}
-	forwarder.privateStreamNetworks = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
-	response, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	policy.PrivateSourceCIDRs = "127.0.0.1/8"
-	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
-		t.Fatal("noncanonical Planner CIDR was accepted")
-	}
-	policy.PrivateSourceCIDRs = "127.0.0.0/8"
-	policy.HTTPProxy = "http://proxy.invalid:8080"
-	if _, err := forwarder.OpenStream(context.Background(), source.URL, nil, policy); err == nil {
-		t.Fatal("private Planner grant accepted proxy")
-	}
-}
-
-func TestStreamOpeningDeadlineAndRedirectPolicy(t *testing.T) {
-	f := NewForwarder(&config.Config{RequestTimeout: 50 * time.Millisecond}, logging.NewLogger("error"))
-	f.addressAllowed = func(net.IP) bool { return true }
-	defer f.CloseIdleConnections()
-	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
-	defer stalled.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if _, err := f.OpenStream(ctx, stalled.URL, nil, HTTPTransport{}); err == nil || ctx.Err() != nil {
-		t.Fatalf("opening deadline not applied: %v", err)
-	}
-	called := make(chan struct{}, 1)
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called <- struct{}{} }))
-	defer other.Close()
-	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, other.URL, http.StatusFound) }))
-	defer redirect.Close()
-	response, err := f.OpenStream(context.Background(), redirect.URL, http.Header{"X-Api-Key": {"secret"}}, HTTPTransport{RequestTimeout: time.Second})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response.Body.Close()
-	if response.StatusCode != http.StatusFound {
-		t.Fatal("redirect followed")
-	}
-	select {
-	case <-called:
-		t.Fatal("credential destination was contacted")
-	default:
-	}
-}
-
-func TestEstablishedStreamOutlivesOpeningTimeout(t *testing.T) {
-	f := NewForwarder(&config.Config{RequestTimeout: time.Second}, logging.NewLogger("error"))
-	f.addressAllowed = func(net.IP) bool { return true }
-	defer f.CloseIdleConnections()
-	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.WriteHeader(http.StatusOK)
-		w.(http.Flusher).Flush()
-		select {
-		case <-time.After(150 * time.Millisecond):
-			io.WriteString(w, "data: still open\n\n")
-		case <-r.Context().Done():
-		}
-	}))
-	defer source.Close()
-	response, err := f.OpenStream(context.Background(), source.URL, nil, HTTPTransport{RequestTimeout: 50 * time.Millisecond})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
-	if err != nil || string(body) != "data: still open\n\n" {
-		t.Fatalf("opening timeout affected established stream: %q %v", body, err)
 	}
 }
 

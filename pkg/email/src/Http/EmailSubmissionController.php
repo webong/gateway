@@ -73,7 +73,7 @@ final readonly class EmailSubmissionController
             $state = match ($queue['state'] ?? null) {
                 'queued' => 'queued', 'deferred' => 'temporarily_delayed',
                 'delivered' => 'accepted',
-                'failed' => ($queue['body_assertion'] ?? null) === 'smtp_acceptance_unknown'
+                'failed' => ($queue['body_assertion'] ?? null) === 'acceptance_unknown'
                     ? 'ambiguous' : 'rejected',
                 default => null,
             };
