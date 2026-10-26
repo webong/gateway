@@ -125,7 +125,7 @@ final class ScheduleStore
                     'claim_token' => $token,
                     'language' => $schedule->language,
                     'source' => $schedule->source,
-                    'payload' => json_decode($schedule->payload, true),
+                    'payload' => (object) (json_decode($schedule->payload, true, 512, JSON_THROW_ON_ERROR) ?? []),
                 ];
             }
 

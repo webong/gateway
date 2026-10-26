@@ -73,6 +73,21 @@ it('claims once, rejects stale tokens and records completion', function (): void
         ->assertJsonPath('data.0.deliveries_queued', 1);
 });
 
+it('preserves empty object payloads when claiming a newly due cron schedule', function (): void {
+    $id = $this->withToken('registry-secret')->postJson('/schedules', [
+        'name' => 'Empty object payload', 'cron' => '* * * * *',
+        'language' => 'test-script', 'source' => 'run()', 'payload' => new stdClass(),
+    ])->assertCreated()->json('id');
+    DB::table('schedules')->where('id', $id)->update(['next_run_at' => now('UTC')->subMinute()]);
+
+    $response = $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/schedules/claim', ['automation_languages' => ['test-script']])
+        ->assertOk();
+    $payload = json_decode($response->getContent(), false, 512, JSON_THROW_ON_ERROR)->data[0]->payload;
+
+    expect($payload)->toBeInstanceOf(stdClass::class);
+});
+
 it('reclaims expired leases without creating a second occurrence', function (): void {
     $id = $this->withToken('registry-secret')->postJson('/schedules', [
         'name' => 'Minute job', 'cron' => '* * * * *',
