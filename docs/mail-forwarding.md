@@ -1111,18 +1111,44 @@ or `/email/mailbox-accounts/{account}/imap-connections/{connection}/polling`:
 {
   "callback_url": "https://zorvia.example.com/webhooks/gateway-mail",
   "webhook_secret": "64-hex-character-shared-secret",
-  "enabled": true
+  "enabled": true,
+  "initial_sync": "new"
 }
 ```
 
+`initial_sync` defaults to `new`: the first successful poll records the current
+INBOX UID position and sends no existing messages. Later messages are delivered
+normally. Set `initial_sync` to `all` explicitly only when importing existing
+mail is intended. If IMAP changes `UIDVALIDITY`, Gateway establishes a new
+baseline rather than replaying the mailbox's current contents.
+
 The callback must be a public HTTPS URL without credentials, query, or
 fragment. The response has a stable `route_id`; `GET` returns its current
-`uid_validity` and `last_uid` checkpoint without the secret. `DELETE` removes
+`uid_validity`, `last_uid`, and baseline status without the secret. `DELETE` removes
 the poll schedule and checkpoint. The operator can disable polling by sending
 `enabled: false` in another complete `PUT`. The secret is encrypted in the
 Planner resource and never returned by `GET`. There is no mailbox-polling
 environment toggle in the bundled image; the shared schedule loop starts by
 default and stays idle until a poll resource is enabled.
+
+For a previously configured but paused poll that has never recorded a cursor,
+explicitly baseline it before enabling it. Send `POST` to the same polling URL
+with `/reset-to-current` appended and an `Idempotency-Key` header:
+
+```sh
+curl --fail-with-body --request POST \
+  --header "Authorization: Bearer $ACCOUNT_TOKEN" \
+  --header 'Idempotency-Key: longomba-reset-2026-10-26' \
+  "https://gateway.example.com/email/mailbox-accounts/longomba/connections/$CONNECTION_ID/polling/reset-to-current"
+```
+
+The route must already be disabled. Gateway queues one `native.imap` baseline
+run, keeps the route disabled, and rejects re-enabling until that run succeeds.
+The operation uses the idempotency key, so retrying the same request cannot
+move the cursor a second time. After the API reports `baseline_pending: false`,
+enable polling with a complete `PUT` and `initial_sync: "new"`. The baseline
+only records the mailbox's current UIDNEXT position; it does not send the
+existing messages to the callback.
 
 The account-owned response also includes `status` with `state`
 (`disabled`, `awaiting_first_run`, `running`, `retry_pending`, `healthy`, or
@@ -1150,8 +1176,11 @@ Only a 2xx callback advances the UID checkpoint. A failure leaves the UID
 pending for the next scheduled run, which retries with the same event ID.
 Zorvia must deduplicate by route ID plus event ID, register the poll's
 `route_id` with its Gateway-mail callback, and permit its mailhook connection
-to import that callback. A changed IMAP UIDVALIDITY resets the UID cursor and
-changes event IDs. This is local code, not a published image or a
+to import that callback. A changed IMAP UIDVALIDITY establishes a new baseline
+and changes event IDs for later messages. RoadRunner advertises `native.imap`
+only when the installed Email Integration reports that job; the same schedule
+claim and job dispatch path is covered by the local Router tests. This is local
+code, not a published image or a
 provider-interoperability claim; OAuth, mailbox-size, and real-provider
 behavior still require deployment tests.
 
