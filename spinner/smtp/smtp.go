@@ -684,9 +684,6 @@ func (s *session) Data(reader io.Reader) error {
 		}
 		return nil
 	case bridge.GatewaySubmit:
-		if s.config.Submitter == nil && decision.Deliveries[0].AdapterName() != "managed.smtp" {
-			return smtpError(451, "outbound SMTP relay is unavailable")
-		}
 		if signingDomain != "" && s.config.SigningDomainChecker != nil {
 			if err := s.config.SigningDomainChecker.CheckSigningDomain(signingDomain); err != nil {
 				return smtpError(451, "DKIM signing key is unavailable for the message author")
@@ -720,8 +717,9 @@ func (s *session) Data(reader io.Reader) error {
 		if err != nil {
 			return smtpError(451, "gateway forwarding trace is unavailable")
 		}
-		if delivery.AdapterName() == "managed.smtp" {
-			if s.executor == nil || !s.executor.EnqueueGateway(delivery) {
+		if s.config.Submitter == nil || delivery.AdapterName() == "managed.smtp" {
+			durable, ok := s.executor.(bridge.DurableGatewayExecutor)
+			if !ok || !durable.DurableGatewayDeliveries() || !s.executor.EnqueueGateway(delivery) {
 				return smtpError(452, "gateway outbound queue is unavailable")
 			}
 			return nil

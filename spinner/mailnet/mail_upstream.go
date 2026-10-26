@@ -27,6 +27,8 @@ var blockedMailNetworks = []netip.Prefix{
 // MailTLSDialer is the internal seam used by mailbox transport tests.
 type MailTLSDialer func(context.Context, string, string, string, time.Duration, *x509.CertPool) (net.Conn, error)
 
+type IPAddrLookup func(context.Context, string) ([]net.IPAddr, error)
+
 // ValidMailUpstream checks a Planner-selected TLS endpoint. Network policy is
 // enforced against resolved IPs at dial time, not just against a DNS name.
 func ValidMailUpstream(address, serverName, networkScope string) bool {
@@ -53,7 +55,16 @@ func ValidMailUpstream(address, serverName, networkScope string) bool {
 // DialMailUpstream resolves once, checks every candidate IP, and dials the
 // checked IP rather than asking net.Dialer to resolve the hostname again.
 func DialMailUpstream(ctx context.Context, address, networkScope string, timeout time.Duration) (net.Conn, error) {
-	return dialMailUpstream(ctx, address, networkScope, timeout, net.DefaultResolver.LookupIPAddr,
+	return DialMailUpstreamWithResolver(ctx, address, networkScope, timeout, net.DefaultResolver.LookupIPAddr)
+}
+
+// DialMailUpstreamWithResolver keeps resolution behind the DNS capability
+// selected for this Email Extension while preserving dial-time IP policy.
+func DialMailUpstreamWithResolver(ctx context.Context, address, networkScope string, timeout time.Duration, lookup IPAddrLookup) (net.Conn, error) {
+	if lookup == nil {
+		return nil, errors.New("mail DNS resolver is required")
+	}
+	return dialMailUpstream(ctx, address, networkScope, timeout, lookup,
 		(&net.Dialer{Timeout: timeout}).DialContext)
 }
 
@@ -61,7 +72,12 @@ func DialMailUpstream(ctx context.Context, address, networkScope string, timeout
 // server name while the TCP connection stays pinned to an approved IP.
 func DialTLSMailUpstream(ctx context.Context, address, serverName, networkScope string,
 	timeout time.Duration, roots *x509.CertPool) (net.Conn, error) {
-	connection, err := DialMailUpstream(ctx, address, networkScope, timeout)
+	return DialTLSMailUpstreamWithResolver(ctx, address, serverName, networkScope, timeout, roots, net.DefaultResolver.LookupIPAddr)
+}
+
+func DialTLSMailUpstreamWithResolver(ctx context.Context, address, serverName, networkScope string,
+	timeout time.Duration, roots *x509.CertPool, lookup IPAddrLookup) (net.Conn, error) {
+	connection, err := DialMailUpstreamWithResolver(ctx, address, networkScope, timeout, lookup)
 	if err != nil {
 		return nil, err
 	}

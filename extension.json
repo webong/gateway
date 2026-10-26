@@ -1,0 +1,44 @@
+{
+    "identity": "webong/email",
+    "spinner": "./cmd/spinner",
+    "contracts": [
+        {
+            "name": "gateway.runtime",
+            "version": "v1",
+            "operations": [
+                {"name": "start", "surface": "spinner"}
+            ]
+        }
+    ],
+    "reverse": [
+        {
+            "name": "gateway.planner",
+            "version": "v1",
+            "operations": [
+                {"name": "plan-event"}
+            ]
+        },
+        {
+            "name": "gateway.delivery",
+            "version": "v1",
+            "operations": [
+                {"name": "deliver"},
+                {"name": "enqueue-gateway"},
+                {"name": "durable"}
+            ]
+        },
+        {
+            "name": "gateway.dns",
+            "version": "v1",
+            "operations": [
+                {"name": "exchange"}
+            ]
+        }
+    ],
+    "requires": [
+        {
+            "contract": {"name": "gateway.dns", "version": "v1"},
+            "operation": "exchange"
+        }
+    ]
+}

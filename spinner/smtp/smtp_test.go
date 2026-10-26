@@ -322,12 +322,36 @@ func TestSMTPSubmitAcknowledgesOnlyAfterRelayAccepts(t *testing.T) {
 	failedRelay := bridge.GatewayDeliveryAdapterFunc(func(context.Context, bridge.GatewayDelivery) error {
 		return errors.New("relay refused DATA")
 	})
-	for _, submitter := range []bridge.GatewayDeliveryAdapter{failedRelay, nil} {
-		err := makeSession(submitter).Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
-		var smtpErr *smtpclient.SMTPError
-		if !errors.As(err, &smtpErr) || smtpErr.Code != 451 {
-			t.Fatalf("unaccepted relay handoff was acknowledged: %v", err)
-		}
+	err := makeSession(failedRelay).Data(strings.NewReader("Subject: test\r\n\r\nbody\r\n"))
+	var smtpErr *smtpclient.SMTPError
+	if !errors.As(err, &smtpErr) || smtpErr.Code != 451 {
+		t.Fatalf("unaccepted relay handoff was acknowledged: %v", err)
+	}
+}
+
+func TestSMTPSubmitUsesDurableHostQueueWithoutAnInProcessAdapter(t *testing.T) {
+	executor := &recordingExecutor{}
+	s := &session{
+		planner: plannerFunc(func(context.Context, bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+			return bridge.GatewayDecision{
+				Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolSMTP, Action: bridge.GatewaySubmit,
+				Deliveries: []bridge.GatewayDelivery{{
+					Protocol: bridge.ProtocolSMTP, Target: "inbox@example.net",
+					Attributes: map[string]string{"mail_from": "sender@example.test", "recipients": `["inbox@example.net"]`},
+				}},
+			}, nil
+		}),
+		executor: executor,
+		config: Config{MaxMessageSize: 1024, PlannerTimeout: time.Second, SubmitTimeout: time.Second,
+			LoopKey: []byte("process-owned-loop-key")},
+		from: "sender@example.test", recipients: []string{"inbox@example.net"},
+	}
+	if err := s.Data(strings.NewReader("Subject: queued submit\r\n\r\nbody\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	queued := executor.snapshot()
+	if len(queued) != 1 || queued[0].AdapterName() != "smtp" || forwardingHops(queued[0].Payload, []byte("process-owned-loop-key")) != 1 {
+		t.Fatalf("SMTP submission was not handed to the durable host queue: %+v", queued)
 	}
 }
 
