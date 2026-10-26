@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
@@ -26,16 +28,24 @@ type configuration struct {
 	MaxResponseRecords int             `json:"max_response_records,omitempty"`
 	QueriesPerSecond   int             `json:"queries_per_second,omitempty"`
 	QueryBurst         int             `json:"query_burst,omitempty"`
+	ResolverAddress    string          `json:"resolver_address,omitempty"`
+	ResolverTimeoutMS  int             `json:"resolver_timeout_ms,omitempty"`
+}
+
+type runtime struct {
+	mu       sync.RWMutex
+	resolver *dns.RecursiveResolver
 }
 
 func main() {
-	if err := runtimecontract.ServeRuntime(context.Background(), runtimecontract.RuntimeStarterFunc(start)); err != nil {
+	runtime := &runtime{}
+	if err := runtimecontract.ServeRuntimeWithHandler(context.Background(), runtimecontract.RuntimeStarterFunc(runtime.start), runtimecontract.RuntimeOperationHandlerFunc(runtime.handle)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func start(ctx context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
+func (runtime *runtime) start(ctx context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
 	var configured configuration
 	if len(request.Configuration) == 0 {
 		return runtimecontract.RuntimeStartResponse{}, errors.New("DNS runtime configuration is required")
@@ -47,6 +57,19 @@ func start(ctx context.Context, request runtimecontract.RuntimeStartRequest, cal
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return runtimecontract.RuntimeStartResponse{}, errors.New("DNS runtime configuration contains trailing data")
+	}
+
+	resolver, err := dns.NewRecursiveResolver(strings.TrimSpace(configured.ResolverAddress), durationMS(configured.ResolverTimeoutMS))
+	if err != nil {
+		return runtimecontract.RuntimeStartResponse{}, err
+	}
+	runtime.mu.Lock()
+	runtime.resolver = resolver
+	runtime.mu.Unlock()
+
+	listenerConfigured := strings.TrimSpace(configured.Address) != "" || len(configured.Zones) > 0 || len(configured.Forwarders) > 0
+	if !listenerConfigured {
+		return runtimecontract.RuntimeStartResponse{}, nil
 	}
 
 	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
@@ -79,6 +102,27 @@ func start(ctx context.Context, request runtimecontract.RuntimeStartRequest, cal
 	}()
 
 	return runtimecontract.RuntimeStartResponse{}, nil
+}
+
+func (runtime *runtime) handle(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+	if request.Contract != runtimecontract.DNSContract || request.Operation != runtimecontract.OperationDNSExchange {
+		return nil, plugin.ErrUnsupported
+	}
+	var input runtimecontract.DNSExchangeRequest
+	if err := plugin.Decode(request.Payload, &input); err != nil {
+		return nil, plugin.ErrInvalid
+	}
+	runtime.mu.RLock()
+	resolver := runtime.resolver
+	runtime.mu.RUnlock()
+	if resolver == nil {
+		return nil, errors.New("DNS resolver is not ready")
+	}
+	response, err := resolver.Exchange(ctx, input.Message)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(runtimecontract.DNSExchangeResponse{Message: response})
 }
 
 func durationMS(value int) time.Duration {

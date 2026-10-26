@@ -4,7 +4,8 @@ Gateway Extension for managed authoritative DNS, application-provided answers,
 and policy-scoped forwarding to upstream resolvers.
 
 The Composer entrypoint contributes Planner zones, policy, and management APIs.
-The Go `spinner` package owns UDP/TCP DNS serving. Its installable
+The Go `spinner` package owns UDP/TCP DNS serving and the private recursive
+resolver capability used by other Extensions. Its installable
 `cmd/spinner` process receives listener limits from Planner's revisioned
 `/extensions` resource. The DNS Planner entrypoint projects active `/dns/zones`
 resources into the same integrity-bound runtime snapshot, so Spinner core does
@@ -21,8 +22,24 @@ snapshot. Both entrypoints are released as one Extension identity and version.
   each returns the same bounded DNS answer document.
 - **Forwarded DNS**: when no managed zone matches, Gateway may proxy the query
   to an upstream resolver selected by longest domain suffix and most-specific
-  permitted client network. Gateway does not implement recursion, caching, or
-  DNSSEC validation; the forwarded resolver owns those behaviors.
+  permitted client network. Gateway does not expose general recursion on the
+  public authoritative listener, cache answers, or perform DNSSEC validation;
+  the forwarded resolver owns those behaviors.
+
+## Extension resolver capability
+
+DNS provides the private `gateway.dns/v1 exchange` capability to other verified
+Gateway Extensions. It accepts one bounded standard IN query, rejects transfer
+and ANY queries, resolves over UDP with TCP fallback for truncated responses,
+and validates that the response matches the query. The resolver uses an
+explicit IP-and-port `resolver_address` or the host's `/etc/resolv.conf`, with a
+bounded `resolver_timeout_ms`.
+
+This capability is independent of authoritative serving. A DNS process with no
+public `address`, zones, or forwarders runs resolver-only. `webong/email`
+declares the capability as a package dependency; Spinner resolves the active
+package graph, starts DNS first, and binds Email to the exact selected DNS
+revision. DNS and Email remain separate modules and neither imports the other.
 
 Forwarded DNS is configured through Planner rather than environment variables:
 
