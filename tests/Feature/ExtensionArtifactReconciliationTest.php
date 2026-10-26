@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\Process\Process;
 use Webong\Gateway\Automation\ExtAutomationPackageCatalog;
 use Webong\Gateway\Companion\CompanionArtifactReconciler;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
@@ -345,19 +346,16 @@ function hookScriptDistributionArchive(): array
         ],
     ];
     file_put_contents($package.'/plugin.json', json_encode($manifest, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
-    $tar = $root.'/hookscript.tar';
-    $phar = new PharData($tar);
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($package, FilesystemIterator::SKIP_DOTS));
-    foreach ($iterator as $file) {
-        if ($file->isFile()) {
-            $relative = 'webong%2fhookscript/'.str_replace('\\', '/', substr($file->getPathname(), strlen($package) + 1));
-            $phar->addFile($file->getPathname(), $relative);
-        }
+    $archivePath = $root.'/hookscript.tar.gz';
+    $archiveProcess = new Process([$project.'/scripts/archive-gateway-extension', $package, $archivePath]);
+    $archiveProcess->run();
+    if (! $archiveProcess->isSuccessful()) {
+        throw new RuntimeException($archiveProcess->getErrorOutput() ?: 'Unable to archive the HookScript fixture.');
     }
-    $compressed = $phar->compress(Phar::GZ);
-    unset($compressed);
-    unset($phar);
-    $archive = file_get_contents($tar.'.gz');
+    $archive = file_get_contents($archivePath);
+    if (! is_string($archive)) {
+        throw new RuntimeException('Unable to read the HookScript fixture archive.');
+    }
 
     return [$archive, static function () use ($root): void { removeDistributionDirectory($root); }];
 }

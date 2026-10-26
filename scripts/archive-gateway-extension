@@ -28,7 +28,9 @@ trap 'rm -f -- "$TEMPORARY"' EXIT
 
 # COPYFILE_DISABLE prevents macOS tar from adding AppleDouble ._ files that
 # would change the reviewed package contents and introduce extra archive roots.
-COPYFILE_DISABLE=1 tar -C "$(dirname -- "$PACKAGE_DIR")" -czf "$TEMPORARY" "$(basename -- "$PACKAGE_DIR")"
+# USTAR stores long paths in its prefix/name fields; GNU long-name records are not
+# readable by PHP PharData, which Planner uses to verify and install releases.
+COPYFILE_DISABLE=1 tar --format=ustar -C "$(dirname -- "$PACKAGE_DIR")" -czf "$TEMPORARY" "$(basename -- "$PACKAGE_DIR")"
 mv -- "$TEMPORARY" "$DESTINATION"
 trap - EXIT
 
