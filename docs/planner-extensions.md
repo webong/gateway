@@ -64,10 +64,20 @@ snapshot; for example, `webong/dns` injects the active `/dns/zones` catalog, so
 operators do not maintain a duplicate zone list. Spinner verifies the projected
 configuration digest and passes the object only to the selected package
 revision; the Extension owns its schema and validation. Configuration is
-bounded to 64 KiB and is not a secret store. Package revisions, configuration
+bounded to 64 KiB and is not a secret store. It may contain an opaque reference
+to a write-only Extension secret, but never the value. Package revisions, configuration
 changes, and projected-resource changes
 restart the runtime, while missing, malformed, inactive, ambiguous, or
 integrity-invalid providers fail closed.
+
+`PUT /extensions/{activation-id}/secrets/{reference}` stores a bounded JSON
+object encrypted outside configuration revisions. `GET
+/extensions/{activation-id}/secrets` returns only references and versions;
+rotation and deletion require the current version in `If-Match`. A verified
+runtime that declares `gateway.secret/v1 resolve` can resolve only secrets owned
+by its package identity through Spinner's authenticated private Planner
+connection. Planner-side providers use the same identity-scoped store. See
+[ADR 0008](adr/0008-resolve-extension-secrets-through-planner.md).
 
 The bundled Planner host requires all four packages. A separately assembled
 Laravel Planner and Spinner may install only the Gateway Extensions they need.
@@ -115,6 +125,12 @@ Email listener state is carried by the Email Extension and depends on DNS:
     "sha256": "<archive-sha256>"
   },
   "configuration": {
+    "smtp_relay": {
+      "address": "relay.example.com:587",
+      "server_name": "relay.example.com",
+      "tls_mode": "starttls",
+      "credential_ref": "primary-relay"
+    },
     "smtp": {
       "address": ":2525",
       "hostname": "mail.example.com",
@@ -133,12 +149,15 @@ revisioned `webong/email` configuration.
 
 Every generic host supplies the host-owned HTTP adapter and durable queue.
 Installed Extensions advertise additional adapters and failure handlers at
-runtime. For example, `webong/email` advertises `smtp` when its revisioned
-`smtp_relay` configuration is present and owns construction of optional Email
-delivery-status follow-ups. The same package owns the public submission prefix
-and the private durable-submission handler; Spinner sees only two advertised
-HTTP mounts. Missing, inactive, duplicate, or incompatible providers fail
-closed.
+runtime. `webong/email` always advertises `managed.smtp` and `mailbox.smtp`,
+advertises `smtp` when its revisioned `smtp_relay` configuration is present,
+and advertises `hosted.mail` only when Planner projects a trusted outbound-host
+ceiling. Direct-relay credentials use `credential_ref`; managed, mailbox, hosted,
+and DKIM credentials retain their narrower typed Email resources and are
+resolved through Email's identity-scoped private routes. The same package owns
+optional delivery-status follow-ups, the public submission prefix, and the
+private durable-submission handler. Missing, inactive, duplicate, incompatible,
+or unavailable private providers fail closed.
 
 The same package can be built locally with:
 

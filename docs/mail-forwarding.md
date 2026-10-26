@@ -359,10 +359,10 @@ HTTPS submission listeners, create `/email/runtime-policy` with
 `connected_smtp_enabled: true`,
 and give Spinner durable delivery storage, `GATEWAY_INTERNAL_TOKEN`,
 a private delivery admin listener, and an active `webong/email` revision. The
-`mailbox.smtp` adapter remains inside Email but is not advertised by the
-installable runtime yet; it must resolve current credentials through Email's
-identity-scoped private Planner route before this delivery path is portable to
-every host.
+installable Email runtime advertises `mailbox.smtp` and resolves current
+credentials through Email's identity-scoped private Planner route for each
+attempt. Missing, disabled, or malformed credentials fail closed without
+entering runtime configuration.
 
 An operator creates an account with `POST /accounts` using the
 registry token and `{"id":"customer-id"}`. Mail currently uses the returned
@@ -854,11 +854,11 @@ resource. No Spinner restart is needed; retain the old public key until
 previously sent mail has cleared. The private key is resolved over authenticated
 private HTTP for signing and never enters the delivery queue or a generated file.
 
-The `managed.smtp` adapter and its private DKIM lookup remain inside
-`webong/email`, but the installable runtime does not advertise them yet. They
-must move behind Email's identity-scoped private Planner route before managed
-sending is available from every host; affected deliveries fail closed rather
-than reading a legacy resolver environment variable.
+The installable `webong/email` runtime advertises `managed.smtp` and resolves
+its outbound plan, capacity reservation, attempt result, and private DKIM key
+through Email's identity-scoped private Planner routes. An unavailable or
+invalid lookup fails closed rather than reading a legacy resolver environment
+variable.
 
 For shared submission quotas, create `POST /email/submission-policy` with
 `daily_limit`, `daily_byte_limit`, `domain_daily_limit`, and

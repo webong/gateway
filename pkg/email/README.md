@@ -25,3 +25,18 @@ Set `smtp_relay` and optional `failure_notice_domain` in the `webong/email`
 runtime configuration. Email advertises its adapter and terminal-failure
 handler after startup; the generic queue only invokes the selected provider and
 durably persists any returned follow-up delivery.
+
+Put only the relay address, TLS policy, and `credential_ref` in `smtp_relay`.
+Create the referenced write-only secret on the Email activation with either
+`{"username":"...","password":"..."}` or
+`{"username":"...","oauth_token":"..."}`. Email resolves it immediately
+before every attempt, so rotation takes effect without restarting Spinner.
+Raw passwords and tokens in Extension configuration are rejected.
+
+The same installable runtime advertises `managed.smtp` and `mailbox.smtp` and
+resolves their current plans, DKIM keys, and mailbox credentials through
+`webong/email`'s authenticated private Planner namespace. `hosted.mail` is
+advertised only when Planner projects a trusted allowed-host ceiling; its fixed
+adapter URL and bearer token remain in the typed hosted-adapter resource. These
+resource-specific paths intentionally remain narrower than the generic secret
+contract.

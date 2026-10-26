@@ -39,12 +39,13 @@ second message. `408`, `429`, `5xx`, and network failures are retried; ordinary
 
 The hosted-mail implementation now lives entirely in `webong/email`; generic
 Spinner, Caddy, and RoadRunner hosts neither import it nor expose an in-process
-registration hook. Its installable runtime wiring is still incomplete: it does
-not yet advertise `hosted.mail` or resolve the protected adapter through the
-identity-scoped private Planner route. Until that capability is added, a route
-selecting `hosted.mail` fails closed. A third-party implementation should ship
-as its own Gateway Extension and advertise its adapter through Arranger rather
-than linking code into a host binary.
+registration hook. The installable runtime advertises `hosted.mail` only when
+Planner projects the trusted outbound-host ceiling, then resolves the protected
+adapter through Email's identity-scoped private Planner route for each attempt.
+A missing, disabled, unapproved, or malformed adapter fails closed. A
+third-party implementation should ship as its own Gateway Extension and
+advertise its adapter through Arranger rather than linking code into a host
+binary.
 
 ## Send and retrieve
 

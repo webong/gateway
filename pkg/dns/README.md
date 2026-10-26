@@ -75,6 +75,17 @@ responses at 256 records, query rate at 100,000 per second, and burst at
 200,000. Infrastructure still controls whether the configured address is
 reachable or published.
 
+## DNS provider credentials
+
+Cloudflare delegation is Planner-side Extension behavior and no longer reads a
+token from an environment variable. Create an enabled `webong/dns` activation,
+write a DNS-owned secret such as `cloudflare-primary` with
+`{"api_token":"..."}`, then create the zone with `provisioner: "cloudflare"`
+and `provisioner_options.credential_ref: "cloudflare-primary"`. The versioned
+zone stores only the reference. Provision and deprovision resolve the current
+token at execution time; a missing, disabled, malformed, or cross-Extension
+secret fails closed.
+
 ## Provided answers
 
 A DNS Endpoint is an ordinary Gateway route. Exactly one synchronous answer source

@@ -280,11 +280,12 @@ relay still uses the shared PostgreSQL queue. Configure the relay itself on the
 {"smtp_relay":{"address":"relay.internal:587","server_name":"relay.internal","tls_mode":"starttls"}}
 ```
 
-Relay credentials do not belong in a generic Spinner Deployment. Until
-Gateway's Extension secret references are available, the installable runtime
-supports only relays that do not require credentials; do not put a username or
-password in the non-secret Extension configuration. The database URL remains a
-deployment secret. Use `starttls` or `implicit` in production.
+Relay credentials do not belong in a generic Spinner Deployment or non-secret
+Extension configuration. Put `credential_ref` in `smtp_relay`, then write the
+referenced `{"username":"...","password":"..."}` or OAuth-token object to
+`/extensions/{activation-id}/secrets/{reference}` over HTTPS. Spinner resolves
+it through the authenticated private Planner connection for each attempt. The
+database URL remains a deployment secret. Use `starttls` or `implicit` in production.
 Do not substitute `sslmode=disable` for a remote production database. The
 overlay does not deploy PostgreSQL or the relay; operate them with persistent
 storage, backups, TLS, and appropriate network policy. See [Delivery queue

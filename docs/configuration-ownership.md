@@ -89,15 +89,17 @@ local multi-Spinner deployment:
 
 ## Remaining work, in order
 
-1. The installable Email package's direct `smtp` adapter is covered end to end
-   by the production-like Docker smoke, including Planner submission, its
-   authenticated private Extension mount, durable receipt/replay, Spinner
-   restart, relay acceptance, and failure follow-up. `managed.smtp`,
-   `mailbox.smtp`, and `hosted.mail` still need the same installable-runtime
-   wiring plus identity-scoped private Planner lookups before their legacy host
-   implementations can be removed. Provider health is still observed through
-   the mailbox health-state machine rather than a real healthy upstream. Keep
-   OAuth app registration and listener/TLS bootstrap in deployment config.
+1. The installable Email package now advertises `managed.smtp` and
+   `mailbox.smtp`, conditionally advertises `hosted.mail` inside Planner's
+   trusted host ceiling, and resolves each through identity-scoped private
+   Planner routes. Direct SMTP relay credentials use generic write-only
+   Extension secret references. DNS Cloudflare provisioning uses the same
+   identity-scoped store instead of an environment token. The production-like
+   direct-relay Docker smoke remains the strongest image-level proof; managed,
+   mailbox, and hosted providers still need equivalent real-upstream smoke
+   evidence. Provider health is observed through the mailbox health-state
+   machine rather than a real healthy upstream. Keep OAuth app registration
+   and listener/TLS bootstrap in deployment config.
 2. Cross-node dispatch for schedule notifications (exactly one alert through the
    DB claim/lease), cross-kind isolation at the smoke level, and rollback remain
    only partly covered. Rollback is not a first-class operation: resources are
