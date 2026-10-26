@@ -71,3 +71,23 @@ func TestGuestRequiresDeclaredRuntimeContract(t *testing.T) {
 		t.Fatal("guest accepted a descriptor without gateway.runtime/v1")
 	}
 }
+
+func TestRuntimeHostResolvesTypedSecretThroughDeclaredReverseContract(t *testing.T) {
+	caller := reverseCallerFunc(func(_ context.Context, ref plugin.ContractRef, operation string, payload json.RawMessage) (json.RawMessage, error) {
+		if ref != SecretContract || operation != OperationResolveSecret {
+			t.Fatalf("unexpected reverse call %s@%s/%s", ref.Name, ref.Version, operation)
+		}
+		var request SecretRequest
+		if err := json.Unmarshal(payload, &request); err != nil || request.Reference != "provider-token" {
+			t.Fatalf("unexpected secret request: %+v err=%v", request, err)
+		}
+		return json.Marshal(SecretValue{Reference: request.Reference, Version: 3, Value: json.RawMessage(`{"token":"private"}`)})
+	})
+	secret, err := NewRuntimeHost(caller, nil).Secrets().Resolve(context.Background(), "provider-token")
+	if err != nil || secret.Version != 3 || string(secret.Value) != `{"token":"private"}` {
+		t.Fatalf("unexpected secret: %+v err=%v", secret, err)
+	}
+	if _, err := NewRuntimeHost(caller, nil).Secrets().Resolve(context.Background(), "../other"); err == nil {
+		t.Fatal("invalid secret reference reached the host")
+	}
+}

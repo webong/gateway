@@ -105,6 +105,39 @@ func TestIntegrationHostClonesPlannerOwnedConfiguration(t *testing.T) {
 	}
 }
 
+func TestIntegrationHostResolvesOnlyItsIdentityScopedSecret(t *testing.T) {
+	host := NewHost()
+	host.Configure(Services{InternalToken: "host-secret", PassThrough: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/_internal/gateway/extensions/webong/email/secrets/primary-relay" ||
+			request.Header.Get("X-Gateway-Internal") != "host-secret" {
+			http.NotFound(writer, request)
+			return
+		}
+		_ = json.NewEncoder(writer).Encode(integration.SecretValue{
+			Reference: "primary-relay", Version: 2, Value: json.RawMessage(`{"username":"relay-user","password":"relay-secret"}`),
+		})
+	})})
+	identity := plugin.Identity{ID: "webong/email", Revision: "r1"}
+	payload, _ := json.Marshal(integration.SecretRequest{Reference: "primary-relay"})
+	request := plugin.Request{Contract: integration.SecretContract, Operation: integration.OperationResolveSecret, Payload: payload}
+	if err := host.authorize(identity, request); err != nil {
+		t.Fatal(err)
+	}
+	result, err := host.handle(context.Background(), identity, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var secret integration.SecretValue
+	if err := json.Unmarshal(result, &secret); err != nil || secret.Reference != "primary-relay" || secret.Version != 2 ||
+		!bytes.Contains(secret.Value, []byte("relay-secret")) {
+		t.Fatalf("unexpected secret response: %+v err=%v", secret, err)
+	}
+	other := plugin.Identity{ID: "webong/dns", Revision: "r1"}
+	if _, err := host.handle(context.Background(), other, request); err == nil {
+		t.Fatal("another Extension identity resolved Email's secret")
+	}
+}
+
 func TestIntegrationHostRecordsOnlyValidatedObservations(t *testing.T) {
 	var recorded integration.Observation
 	host := NewHost()

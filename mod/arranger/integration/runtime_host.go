@@ -46,6 +46,7 @@ func (h *RuntimeHost) Schedules() automation.ScheduleRegistrar {
 	return scheduleClient{caller: h.caller}
 }
 func (h *RuntimeHost) Observations() ObservationSink { return observationClient{caller: h.caller} }
+func (h *RuntimeHost) Secrets() SecretResolver       { return secretClient{caller: h.caller} }
 
 type plannerClient struct{ caller plugin.ReverseCaller }
 
@@ -137,6 +138,36 @@ func (s scheduleClient) RegisterSchedules(ctx context.Context, origin string, sc
 }
 
 type observationClient struct{ caller plugin.ReverseCaller }
+
+type secretClient struct{ caller plugin.ReverseCaller }
+
+func (s secretClient) Resolve(ctx context.Context, reference string) (SecretValue, error) {
+	if !ValidSecretReference(reference) {
+		return SecretValue{}, fmt.Errorf("invalid Gateway Extension secret reference")
+	}
+	var result SecretValue
+	err := call(ctx, s.caller, SecretContract, OperationResolveSecret, SecretRequest{Reference: reference}, &result)
+	if err != nil {
+		return SecretValue{}, err
+	}
+	if result.Reference != reference || result.Version < 1 || len(result.Value) == 0 {
+		return SecretValue{}, fmt.Errorf("runtime host returned invalid Gateway Extension secret")
+	}
+	return result, nil
+}
+
+func ValidSecretReference(reference string) bool {
+	if len(reference) < 1 || len(reference) > 64 || reference[0] < 'a' || reference[0] > 'z' {
+		return false
+	}
+	for _, character := range reference[1:] {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') &&
+			character != '.' && character != '_' && character != '-' {
+			return false
+		}
+	}
+	return true
+}
 
 func (o observationClient) RecordObservation(ctx context.Context, observation Observation) error {
 	if err := observation.Validate(); err != nil {

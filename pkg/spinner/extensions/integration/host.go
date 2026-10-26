@@ -113,7 +113,7 @@ func (h *Host) ReverseOptionsFor(identity plugin.Identity, fallback *plugin.Reve
 func (h *Host) owns(ref plugin.ContractRef) bool {
 	return ref == integration.PlannerContract || ref == integration.DeliveryContract ||
 		ref == integration.AutomationContract || ref == integration.ScheduleContract ||
-		ref == integration.ObservationContract
+		ref == integration.ObservationContract || ref == integration.SecretContract
 }
 
 func (h *Host) authorize(identity plugin.Identity, request plugin.Request) error {
@@ -149,6 +149,11 @@ func (h *Host) authorize(identity plugin.Identity, request plugin.Request) error
 		}
 	case integration.ObservationContract:
 		if services.Observations != nil && request.Operation == integration.OperationRecordObservation {
+			return nil
+		}
+	case integration.SecretContract:
+		if services.PassThrough != nil && strings.TrimSpace(services.InternalToken) != "" &&
+			identity.ID != "" && identity.Validate() == nil && request.Operation == integration.OperationResolveSecret {
 			return nil
 		}
 	}
@@ -190,9 +195,38 @@ func (h *Host) handle(ctx context.Context, identity plugin.Identity, request plu
 			return nil, err
 		}
 		return json.RawMessage("null"), nil
+	case integration.SecretContract:
+		return handleSecret(ctx, services, identity, request)
 	default:
 		return nil, plugin.ErrUnsupported
 	}
+}
+
+func handleSecret(ctx context.Context, services Services, identity plugin.Identity, request plugin.Request) (json.RawMessage, error) {
+	var input integration.SecretRequest
+	if err := decode(request.Payload, &input); err != nil || !integration.ValidSecretReference(input.Reference) ||
+		identity.ID == "" || identity.Validate() != nil {
+		return nil, plugin.ErrInvalid
+	}
+	path := "/_internal/gateway/extensions/" + identity.ID + "/secrets/" + input.Reference
+	plannerRequest := httptest.NewRequest(http.MethodGet, "http://gateway.internal"+path, nil).WithContext(ctx)
+	plannerRequest.Header.Set("X-Gateway-Internal", services.InternalToken)
+	recorder := httptest.NewRecorder()
+	services.PassThrough.ServeHTTP(recorder, plannerRequest)
+	response := recorder.Result()
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, plugin.ErrDenied
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, (64<<10)+1))
+	if err != nil || len(body) > 64<<10 {
+		return nil, plugin.ErrInvalid
+	}
+	var secret integration.SecretValue
+	if err := decode(body, &secret); err != nil || secret.Reference != input.Reference || secret.Version < 1 || len(secret.Value) == 0 {
+		return nil, plugin.ErrInvalid
+	}
+	return json.Marshal(secret)
 }
 
 func handlePlanner(ctx context.Context, services Services, identity plugin.Identity, request plugin.Request) (json.RawMessage, error) {

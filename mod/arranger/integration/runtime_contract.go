@@ -28,6 +28,7 @@ const (
 	OperationExecuteAutomation = "execute"
 	OperationRegisterSchedules = "register"
 	OperationRecordObservation = "record"
+	OperationResolveSecret     = "resolve"
 	OperationDeliverAdapter    = "deliver"
 	OperationRunJob            = "run"
 	OperationDeliveryFailure   = "follow-up"
@@ -40,6 +41,7 @@ var (
 	AutomationContract      = plugin.ContractRef{Name: "gateway.automation-host", Version: "v1"}
 	ScheduleContract        = plugin.ContractRef{Name: "gateway.schedule", Version: "v1"}
 	ObservationContract     = plugin.ContractRef{Name: "gateway.observation", Version: "v1"}
+	SecretContract          = plugin.ContractRef{Name: "gateway.secret", Version: "v1"}
 	DeliveryAdapterContract = plugin.ContractRef{Name: "gateway.delivery-adapter", Version: "v1"}
 	JobContract             = plugin.ContractRef{Name: "gateway.job", Version: "v1"}
 	DeliveryFailureContract = plugin.ContractRef{Name: "gateway.delivery-failure", Version: "v1"}
@@ -77,6 +79,20 @@ type RuntimeStartResponse struct {
 type RuntimeJob struct {
 	Name     string              `json:"name"`
 	Language automation.Language `json:"language"`
+}
+
+type SecretRequest struct {
+	Reference string `json:"reference"`
+}
+
+type SecretValue struct {
+	Reference string          `json:"reference"`
+	Version   int64           `json:"version"`
+	Value     json.RawMessage `json:"value"`
+}
+
+type SecretResolver interface {
+	Resolve(context.Context, string) (SecretValue, error)
 }
 
 type JobRequest struct {
