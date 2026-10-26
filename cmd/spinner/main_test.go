@@ -3,21 +3,33 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/emersion/go-sasl"
 	smtpclient "github.com/emersion/go-smtp"
+	smtpserver "github.com/emersion/go-smtp"
 	mdns "github.com/miekg/dns"
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
@@ -49,7 +61,7 @@ func TestEmailRuntimeGuestProcess(t *testing.T) {
 	os.Exit(0)
 }
 
-func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
+func TestFreshEmailProcessCompletesOAuthMailboxSMTPDelivery(t *testing.T) {
 	identity := plugin.Identity{ID: "webong/email", Revision: "test-r1", Version: "0.1.0"}
 	descriptor := plugin.Descriptor{
 		APIVersion: plugin.APIVersion,
@@ -82,11 +94,35 @@ func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	serverCertificate, rootCertificate := oauthSMTPTestCertificate(t)
+	rootPath := filepath.Join(t.TempDir(), "oauth-smtp-root.pem")
+	if err := os.WriteFile(rootPath, rootCertificate, 0600); err != nil {
+		t.Fatal(err)
+	}
+	privateIP := privateTestIPv4(t)
+	listener, err := net.Listen("tcp", net.JoinHostPort(privateIP.String(), "0"))
+	if err != nil {
+		t.Fatalf("listen on private test address %s: %v", privateIP, err)
+	}
+	backend := &oauthSMTPBackend{}
+	server := smtpserver.NewServer(backend)
+	var smtpTrace bytes.Buffer
+	server.Debug = &smtpTrace
+	server.TLSConfig = &tls.Config{Certificates: []tls.Certificate{serverCertificate}, MinVersion: tls.VersionTLS12}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+		<-serveErr
+	})
+
 	mailboxID := "11111111-1111-4111-8111-111111111111"
 	credential := smtpout.MailboxCredential{
-		UpstreamID: "gmail", Username: "sender@gmail.com", Secret: "short-lived-token",
-		Mechanism: "XOAUTH2", Address: "sender@gmail.com", UpstreamAddress: "smtp.invalid:587",
-		UpstreamServerName: "smtp.invalid", UpstreamTLSMode: "starttls", UpstreamNetworkScope: "public",
+		UpstreamID: "gmail", Username: "sender@gmail.com", Secret: "short-lived-test-token",
+		Mechanism: "XOAUTH2", Address: "sender@gmail.com", UpstreamAddress: listener.Addr().String(),
+		UpstreamServerName: "smtp.test", UpstreamTLSMode: "starttls", UpstreamNetworkScope: "private",
 	}
 	credentialJSON, err := json.Marshal(credential)
 	if err != nil {
@@ -108,6 +144,9 @@ func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
 			if input.Method != http.MethodGet || input.Path != "/_internal/gateway/extensions/webong/email/mailbox-connections/"+mailboxID+"/smtp" {
 				return nil, fmt.Errorf("unexpected private Planner request %s %s", input.Method, input.Path)
 			}
+			if len(input.Body) != 0 {
+				return nil, fmt.Errorf("bodyless mailbox credential lookup carried %d bytes", len(input.Body))
+			}
 			passThroughCalls++
 			body, err := json.Marshal(runtimecontract.PassThroughResponse{Status: http.StatusOK, Body: credentialJSON})
 			return body, err
@@ -119,7 +158,12 @@ func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
 	}
 	installed := store.Installed{Manifest: manifest, Directory: packageDir}
 	proc, err := host.Open(t.Context(), installed, host.Options{
-		Launch:  &process.Command{Path: binary, Args: []string{"-test.run=^TestEmailRuntimeGuestProcess$"}, Dir: packageDir, Env: []string{emailRuntimeGuestEnv + "=1"}},
+		Launch: &process.Command{
+			Path: binary,
+			Args: []string{"-test.run=^TestEmailRuntimeGuestProcess$"},
+			Dir:  packageDir,
+			Env:  []string{emailRuntimeGuestEnv + "=1", "SSL_CERT_FILE=" + rootPath, "GODEBUG=x509sslcertoverrideplatform=1"},
+		},
 		Reverse: reverse,
 	})
 	if err != nil {
@@ -127,12 +171,10 @@ func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
 	}
 	defer proc.Close()
 
-	configuration := json.RawMessage(`{}`)
 	var started runtimecontract.RuntimeStartResponse
 	if err := proc.Call(t.Context(), plugin.Method(runtimecontract.RuntimeContract, runtimecontract.OperationStart), runtimecontract.RuntimeStartRequest{
-		Configuration: configuration, MaxBodySize: 1 << 20, InstanceKey: []byte("fresh-email-test-key"),
+		Configuration: json.RawMessage("{}"), MaxBodySize: 1 << 20, InstanceKey: []byte("fresh-email-test-key"),
 	}, &started); err != nil {
-		_ = proc.Close()
 		t.Fatalf("start fresh Email runtime: %v (guest stderr: %s)", err, proc.Stderr())
 	}
 	if !slices.Contains(started.DeliveryAdapters, "mailbox.smtp") {
@@ -144,21 +186,147 @@ func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
 		Attributes: map[string]string{"mailbox_connection_id": mailboxID, "mail_from": "sender@gmail.com"},
 		Payload:    []byte("From: sender@gmail.com\r\nTo: recipient@example.test\r\nSubject: OAuth child regression\r\n\r\nbody\r\n"),
 	}
-	request := runtimecontract.DeliveryAdapterRequest{Adapter: "mailbox.smtp", Delivery: delivery}
-	var first runtimecontract.DeliveryAdapterResponse
-	if err := proc.Call(t.Context(), plugin.Method(runtimecontract.DeliveryAdapterContract, runtimecontract.OperationDeliverAdapter), request, &first); err != nil {
-		t.Fatalf("first mailbox.smtp call killed a fresh Email child: %v (guest stderr: %s)", err, proc.Stderr())
+	for attempt := 1; attempt <= 2; attempt++ {
+		var response runtimecontract.DeliveryAdapterResponse
+		request := runtimecontract.DeliveryAdapterRequest{Adapter: "mailbox.smtp", Delivery: delivery}
+		if err := proc.Call(t.Context(), plugin.Method(runtimecontract.DeliveryAdapterContract, runtimecontract.OperationDeliverAdapter), request, &response); err != nil {
+			t.Fatalf("OAuth SMTP attempt %d killed the fresh Email child: %v (guest stderr: %s)", attempt, err, proc.Stderr())
+		}
+		if response.Failure != "" {
+			trace := strings.Split(smtpTrace.String(), "\n")
+			for index, line := range trace {
+				if strings.Contains(strings.ToUpper(line), "AUTH") {
+					trace[index] = "[SMTP authentication line redacted]"
+				}
+			}
+			t.Fatalf("OAuth SMTP attempt %d failed: %+v; auths=%d; SMTP trace:\n%s", attempt, response, backend.auths, strings.Join(trace, "\n"))
+		}
 	}
-	if first.Failure != runtimecontract.AdapterFailureTransient || passThroughCalls != 1 {
-		t.Fatalf("first OAuth delivery response = %+v; credential lookups=%d", first, passThroughCalls)
+	if passThroughCalls != 2 {
+		t.Fatalf("Planner credential lookups = %d, want 2", passThroughCalls)
 	}
-	var second runtimecontract.DeliveryAdapterResponse
-	if err := proc.Call(t.Context(), plugin.Method(runtimecontract.DeliveryAdapterContract, runtimecontract.OperationDeliverAdapter), request, &second); err != nil {
-		t.Fatalf("second mailbox.smtp call found a closed Email child: %v (guest stderr: %s)", err, proc.Stderr())
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if backend.auths != 2 || len(backend.messages) != 2 {
+		t.Fatalf("SMTP OAuth authentications=%d accepted messages=%d, want 2 each", backend.auths, len(backend.messages))
 	}
-	if second.Failure != runtimecontract.AdapterFailureTransient || passThroughCalls != 2 {
-		t.Fatalf("second OAuth delivery response = %+v; credential lookups=%d", second, passThroughCalls)
+	for index, message := range backend.messages {
+		if !bytes.Contains(message, []byte("Subject: OAuth child regression")) {
+			t.Fatalf("SMTP delivery %d did not contain the original message: %q", index+1, message)
+		}
 	}
+}
+
+type oauthSMTPBackend struct {
+	mu       sync.Mutex
+	auths    int
+	messages [][]byte
+}
+
+func (backend *oauthSMTPBackend) NewSession(*smtpserver.Conn) (smtpserver.Session, error) {
+	return &oauthSMTPSession{backend: backend}, nil
+}
+
+type oauthSMTPSession struct{ backend *oauthSMTPBackend }
+
+func (*oauthSMTPSession) AuthMechanisms() []string { return []string{"XOAUTH2"} }
+func (session *oauthSMTPSession) Auth(mechanism string) (sasl.Server, error) {
+	if mechanism != "XOAUTH2" {
+		return nil, smtpserver.ErrAuthUnsupported
+	}
+	return oauthSMTPAuth{backend: session.backend}, nil
+}
+func (*oauthSMTPSession) Mail(string, *smtpserver.MailOptions) error { return nil }
+func (*oauthSMTPSession) Rcpt(string, *smtpserver.RcptOptions) error { return nil }
+func (session *oauthSMTPSession) Data(reader io.Reader) error {
+	message, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	session.backend.mu.Lock()
+	session.backend.messages = append(session.backend.messages, message)
+	session.backend.mu.Unlock()
+	return nil
+}
+func (*oauthSMTPSession) Reset()        {}
+func (*oauthSMTPSession) Logout() error { return nil }
+
+type oauthSMTPAuth struct{ backend *oauthSMTPBackend }
+
+func (auth oauthSMTPAuth) Next(response []byte) ([]byte, bool, error) {
+	want := []byte("user=sender@gmail.com\x01auth=Bearer short-lived-test-token\x01\x01")
+	if !bytes.Equal(response, want) {
+		return nil, false, errors.New("OAuth SMTP client sent unexpected XOAUTH2 credentials")
+	}
+	auth.backend.mu.Lock()
+	auth.backend.auths++
+	auth.backend.mu.Unlock()
+	return nil, true, nil
+}
+
+func oauthSMTPTestCertificate(t *testing.T) (tls.Certificate, []byte) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serial, err := rand.Int(rand.Reader, big.NewInt(1<<62))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial, Subject: pkix.Name{CommonName: "smtp.test"}, DNSNames: []string{"smtp.test"},
+		NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, IsCA: true, BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	privateKey, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privatePEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKey})
+	certificate, err := tls.X509KeyPair(certificatePEM, privatePEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return certificate, certificatePEM
+}
+
+func privateTestIPv4(t *testing.T) net.IP {
+	t.Helper()
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addresses, err := networkInterface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			var ip net.IP
+			switch parsed := address.(type) {
+			case *net.IPNet:
+				ip = parsed.IP
+			case *net.IPAddr:
+				ip = parsed.IP
+			}
+			if ip != nil && ip.To4() != nil && ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+				return ip.To4()
+			}
+		}
+	}
+	t.Skip("OAuth SMTP child test requires a private non-loopback IPv4 interface")
+	return nil
 }
 
 type reverseCallerFunc func(context.Context, plugin.ContractRef, string, json.RawMessage) (json.RawMessage, error)
