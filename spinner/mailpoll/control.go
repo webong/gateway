@@ -39,14 +39,23 @@ func NewExtensionControlPlane(handler http.Handler) (*HandlerControlPlane, error
 	return &HandlerControlPlane{handler: handler, prefix: "/_internal/gateway/extensions/webong/email/mailbox-polls/"}, nil
 }
 
-func (c *HandlerControlPlane) Claim(ctx context.Context, routeID string) (Claim, error) {
+func (c *HandlerControlPlane) Claim(ctx context.Context, routeID string, action ClaimAction) (Claim, error) {
+	if action != ClaimPoll && action != ClaimBaseline {
+		return Claim{}, fmt.Errorf("invalid mailbox poll claim action")
+	}
 	var result Claim
-	err := c.call(ctx, routeID, "claim", map[string]any{}, &result)
+	err := c.call(ctx, routeID, "claim", map[string]any{"action": action}, &result)
 	return result, err
 }
 
 func (c *HandlerControlPlane) Ack(ctx context.Context, routeID, token string, validity, uid uint32) error {
 	return c.call(ctx, routeID, "ack", map[string]any{
+		"lease_token": token, "uid_validity": validity, "uid": uid,
+	}, nil)
+}
+
+func (c *HandlerControlPlane) Baseline(ctx context.Context, routeID, token string, validity, uid uint32) error {
+	return c.call(ctx, routeID, "baseline", map[string]any{
 		"lease_token": token, "uid_validity": validity, "uid": uid,
 	}, nil)
 }

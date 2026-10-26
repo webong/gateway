@@ -27,30 +27,47 @@ import (
 const maxMessageBytes int64 = 10 << 20
 const maxMessagesPerRun = 3
 
+type InitialSync string
+
+const (
+	InitialSyncNew InitialSync = "new"
+	InitialSyncAll InitialSync = "all"
+)
+
+type ClaimAction string
+
+const (
+	ClaimPoll     ClaimAction = "poll"
+	ClaimBaseline ClaimAction = "baseline"
+)
+
 type Cursor struct {
 	UIDValidity uint32 `json:"uid_validity"`
 	LastUID     uint32 `json:"last_uid"`
 }
 
 type Claim struct {
-	RouteID              string `json:"route_id"`
-	ConnectionID         string `json:"connection_id"`
-	Address              string `json:"address"`
-	CallbackURL          string `json:"callback_url"`
-	WebhookSecret        string `json:"webhook_secret"`
-	UpstreamAddress      string `json:"upstream_address"`
-	UpstreamServerName   string `json:"upstream_server_name"`
-	UpstreamNetworkScope string `json:"upstream_network_scope"`
-	Username             string `json:"username"`
-	Secret               string `json:"secret"`
-	Mechanism            string `json:"mechanism"`
-	Cursor               Cursor `json:"cursor"`
-	LeaseToken           string `json:"lease_token"`
+	RouteID              string      `json:"route_id"`
+	ConnectionID         string      `json:"connection_id"`
+	Address              string      `json:"address"`
+	CallbackURL          string      `json:"callback_url"`
+	WebhookSecret        string      `json:"webhook_secret"`
+	UpstreamAddress      string      `json:"upstream_address"`
+	UpstreamServerName   string      `json:"upstream_server_name"`
+	UpstreamNetworkScope string      `json:"upstream_network_scope"`
+	Username             string      `json:"username"`
+	Secret               string      `json:"secret"`
+	Mechanism            string      `json:"mechanism"`
+	Cursor               Cursor      `json:"cursor"`
+	InitialSync          InitialSync `json:"initial_sync"`
+	BaselinePending      bool        `json:"baseline_pending"`
+	LeaseToken           string      `json:"lease_token"`
 }
 
 type ControlPlane interface {
-	Claim(context.Context, string) (Claim, error)
+	Claim(context.Context, string, ClaimAction) (Claim, error)
 	Ack(context.Context, string, string, uint32, uint32) error
+	Baseline(context.Context, string, string, uint32, uint32) error
 	Release(context.Context, string, string) error
 }
 
@@ -66,12 +83,23 @@ type Runner struct {
 // Run finishes within the scheduler's two-minute claim lease. A failed callback
 // leaves the UID untouched; the next scheduled run retries the same event ID.
 func (r Runner) Run(ctx context.Context, routeID string) error {
-	if r.Control == nil || r.Dial == nil || r.Deliver == nil {
+	return r.run(ctx, routeID, ClaimPoll)
+}
+
+// Baseline establishes the current mailbox UID position without delivering
+// existing messages. Planner only grants this action for a paused, explicitly
+// reset poll whose baseline is pending.
+func (r Runner) Baseline(ctx context.Context, routeID string) error {
+	return r.run(ctx, routeID, ClaimBaseline)
+}
+
+func (r Runner) run(ctx context.Context, routeID string, action ClaimAction) error {
+	if r.Control == nil || r.Dial == nil || (action == ClaimPoll && r.Deliver == nil) {
 		return errors.New("IMAP poll runner is incomplete")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
-	claim, err := r.Control.Claim(ctx, routeID)
+	claim, err := r.Control.Claim(ctx, routeID, action)
 	if errors.Is(err, ErrUnavailable) {
 		return nil
 	}
@@ -112,10 +140,31 @@ func (r Runner) Run(ctx context.Context, routeID string) error {
 	if selected.UIDValidity == 0 {
 		return errors.New("IMAP server did not provide UIDVALIDITY")
 	}
-	lastUID := claim.Cursor.LastUID
-	if claim.Cursor.UIDValidity != selected.UIDValidity {
-		lastUID = 0
+	if action == ClaimBaseline && !claim.BaselinePending {
+		return errors.New("IMAP baseline was not explicitly requested")
 	}
+	initialSync := claim.InitialSync
+	if initialSync == "" {
+		initialSync = InitialSyncNew
+	}
+	if initialSync != InitialSyncNew && initialSync != InitialSyncAll {
+		return errors.New("unsupported IMAP initial sync mode")
+	}
+	needsBaseline := action == ClaimBaseline || claim.Cursor.UIDValidity != selected.UIDValidity
+	if action == ClaimPoll && claim.Cursor.UIDValidity == 0 && initialSync == InitialSyncAll {
+		needsBaseline = false
+	}
+	if needsBaseline {
+		if selected.UIDNext == 0 {
+			return errors.New("IMAP server did not provide UIDNEXT")
+		}
+		lastUID := uint32(selected.UIDNext - 1)
+		if err := r.Control.Baseline(ctx, routeID, claim.LeaseToken, selected.UIDValidity, lastUID); err != nil {
+			return fmt.Errorf("baseline IMAP cursor: %w", err)
+		}
+		return nil
+	}
+	lastUID := claim.Cursor.LastUID
 	if lastUID == ^uint32(0) {
 		return nil
 	}

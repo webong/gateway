@@ -253,7 +253,16 @@ func (runtime *runtime) start(_ context.Context, request runtimecontract.Runtime
 			},
 			Deliver: callback.Deliver,
 		}
-		jobs["native.imap"] = func(ctx context.Context, source string, _ map[string]any) error { return runner.Run(ctx, source) }
+		jobs["native.imap"] = func(ctx context.Context, source string, payload map[string]any) error {
+			switch payload["action"] {
+			case nil, "poll":
+				return runner.Run(ctx, source)
+			case "baseline":
+				return runner.Baseline(ctx, source)
+			default:
+				return fmt.Errorf("unsupported IMAP schedule action")
+			}
+		}
 		response.Jobs = []runtimecontract.RuntimeJob{{Name: "imap", Language: "native.imap"}}
 	}
 	runtime.mu.Lock()

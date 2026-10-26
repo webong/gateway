@@ -149,6 +149,40 @@ func TestEmailRuntimeAdvertisesSeparatePublicAndPrivateSubmissionMounts(t *testi
 	}
 }
 
+func TestEmailRuntimeAdvertisesNativeIMAPOnlyWhenMailboxPollingIsConfigured(t *testing.T) {
+	response, err := new(runtime).start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"mailbox_poll":{}}`),
+		MaxBodySize:   1024 * 1024,
+		InstanceKey:   []byte("extension-scoped-test-key"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Jobs) != 1 || response.Jobs[0] != (runtimecontract.RuntimeJob{Name: "imap", Language: "native.imap"}) {
+		t.Fatalf("advertised native jobs = %+v", response.Jobs)
+	}
+}
+
+func TestEmailRuntimeRejectsUnknownMailboxPollScheduleActions(t *testing.T) {
+	runtime := new(runtime)
+	_, err := runtime.start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"mailbox_poll":{}}`), MaxBodySize: 1024 * 1024,
+		InstanceKey: []byte("extension-scoped-test-key"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(runtimecontract.JobRequest{Name: "imap", Source: "poll-1", Payload: map[string]any{"action": "unexpected"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.handle(context.Background(), plugin.Request{
+		Contract: runtimecontract.JobContract, Operation: runtimecontract.OperationRunJob, Payload: payload,
+	}); err == nil {
+		t.Fatal("Email runtime accepted an unsupported mailbox polling action")
+	}
+}
+
 func TestEmailRuntimeAdvertisesPlannerManagedProvidersWithoutEmbeddingTheirSecrets(t *testing.T) {
 	response, err := new(runtime).start(context.Background(), runtimecontract.RuntimeStartRequest{
 		Configuration: json.RawMessage(`{"hosted_mail":{"allowed_hosts":["provider.example.test"]}}`),
