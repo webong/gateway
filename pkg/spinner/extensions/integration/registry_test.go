@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -66,6 +67,61 @@ func TestRegistryRoutesAdvertisedDeliveryAdaptersThroughTheExtensionProcess(t *t
 	if _, ok := registry.ResolveDeliveryAdapter("smtp"); ok || len(registry.DeliveryAdapterNames()) != 0 {
 		t.Fatal("ambiguous delivery adapters did not fail closed")
 	}
+}
+
+func TestRegistryRestartsFailedDeliveryProcessBeforeNextAttempt(t *testing.T) {
+	descriptor := plugin.Descriptor{APIVersion: plugin.APIVersion, Identity: plugin.Identity{ID: "example/mail", Revision: "r1"}, Contracts: []plugin.Contract{{
+		ContractRef: integrationcontract.DeliveryAdapterContract,
+		Operations:  []plugin.Operation{{Name: integrationcontract.OperationDeliverAdapter}},
+	}}}
+	failed := &closedAfterEOFProcess{descriptor: descriptor}
+	replacementResponse, err := json.Marshal(integrationcontract.DeliveryAdapterResponse{Result: integrationcontract.GatewayDeliveryResult{ResponseStatus: 250}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := &dependencyProcess{descriptor: descriptor, response: replacementResponse}
+	restarts := 0
+	registry := NewRegistry()
+	registry.register("example/mail", mounted{
+		identity: descriptor.Identity, process: failed, adapters: map[string]struct{}{"mailbox.smtp": {}},
+		restart: func(context.Context) (mounted, error) {
+			restarts++
+			return mounted{identity: descriptor.Identity, process: replacement, adapters: map[string]struct{}{"mailbox.smtp": {}}}, nil
+		},
+	})
+	adapter, ok := registry.ResolveDeliveryAdapter("mailbox.smtp")
+	if !ok {
+		t.Fatal("mailbox SMTP adapter was not discoverable")
+	}
+	delivery := integrationcontract.GatewayDelivery{Protocol: integrationcontract.ProtocolSMTP, Adapter: "mailbox.smtp", Target: "buyer@example.test", Payload: []byte("message")}
+	if err := adapter.DeliverGateway(context.Background(), delivery); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("first process failure = %v, want unexpected EOF", err)
+	}
+	result, err := adapter.(integrationcontract.GatewayDeliveryResultAdapter).DeliverGatewayResult(context.Background(), delivery)
+	if err != nil || result.ResponseStatus != 250 {
+		t.Fatalf("retry result = %+v, %v", result, err)
+	}
+	if restarts != 1 {
+		t.Fatalf("process restart count = %d, want 1", restarts)
+	}
+	if failed.calls != 1 {
+		t.Fatalf("failed delivery was replayed against the dead child %d times", failed.calls)
+	}
+}
+
+type closedAfterEOFProcess struct {
+	descriptor plugin.Descriptor
+	calls      int
+}
+
+func (p *closedAfterEOFProcess) Descriptor() plugin.Descriptor { return p.descriptor }
+func (p *closedAfterEOFProcess) Close() error                  { return nil }
+func (p *closedAfterEOFProcess) Call(context.Context, string, any, any) error {
+	p.calls++
+	if p.calls == 1 {
+		return io.ErrUnexpectedEOF
+	}
+	return plugin.ErrClosed
 }
 
 func TestRegistryRoutesAdvertisedNativeJobsThroughTheExtensionProcess(t *testing.T) {
