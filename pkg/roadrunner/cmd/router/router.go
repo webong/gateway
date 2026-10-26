@@ -19,6 +19,7 @@ import (
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	"github.com/webong/gateway/pkg/spinner/router"
+	"github.com/webong/gateway/pkg/spinner/schedules"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
 
@@ -36,6 +37,11 @@ type plannerReady struct {
 
 // runRoadRunner composes Spinner's middleware with a managed PHP worker server.
 func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler) http.Handler) (workerServer, error)) error {
+	return runRoadRunnerWithNativeJobs(ctx, newServer, integrationextensions.DefaultRegistry)
+}
+
+func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, func(http.Handler) http.Handler) (workerServer, error),
+	nativeJobs schedules.NativeJobExecutor) error {
 	if newServer == nil {
 		return fmt.Errorf("a worker server factory is required")
 	}
@@ -179,7 +185,7 @@ func runRoadRunner(ctx context.Context, newServer func(string, func(http.Handler
 		if spinner.SchedulesEnabled {
 			scheduleCtx, cancelSchedules := context.WithCancel(ctx)
 			defer cancelSchedules()
-			if err := transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, integrationextensions.DefaultRegistry); err != nil {
+			if err := transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, nativeJobs); err != nil {
 				server.Stop()
 				<-done
 				return err

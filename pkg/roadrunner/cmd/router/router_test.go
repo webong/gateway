@@ -71,6 +71,87 @@ func TestRoadRunnerPollsSchedulesThroughEmbeddedPlanner(t *testing.T) {
 	}
 }
 
+func TestRoadRunnerAdvertisesAndExecutesNativeIMAPJobs(t *testing.T) {
+	t.Setenv("GATEWAY_RUNTIME", "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
+	t.Setenv("GATEWAY_SCHEDULES_ENABLED", "true")
+	t.Setenv("ROADRUNNER_CONFIG", "test.yaml")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	claims := make(chan []string, 1)
+	completed := make(chan string, 1)
+	server := &passiveWorkerServer{done: make(chan struct{})}
+	jobs := &testNativeJobs{called: make(chan nativeJobCall, 1)}
+	finished := make(chan error, 1)
+	go func() {
+		finished <- runRoadRunnerWithNativeJobs(ctx, func(_ string, middleware func(http.Handler) http.Handler) (workerServer, error) {
+			planner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/_internal/gateway/schedules/claim":
+					var input struct {
+						NativeJobs []string `json:"native_jobs"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+						t.Errorf("decode schedule claim: %v", err)
+					}
+					claims <- input.NativeJobs
+					_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]any{
+						"id": "run-imap", "schedule_id": "schedule-imap", "scheduled_for": "2026-10-26T12:00:00Z",
+						"claim_token": "claim-imap", "language": "native.imap", "source": "poll-route", "payload": map[string]any{},
+					}}})
+				case "/_internal/gateway/schedule-runs/run-imap/complete":
+					var input struct {
+						Status string `json:"status"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+						t.Errorf("decode schedule completion: %v", err)
+					}
+					completed <- input.Status
+					w.WriteHeader(http.StatusOK)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			})
+			middleware(planner)
+			return server, nil
+		}, jobs)
+	}()
+
+	select {
+	case advertised := <-claims:
+		if len(advertised) != 1 || advertised[0] != "imap" {
+			t.Fatalf("RoadRunner advertised native jobs %v", advertised)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RoadRunner did not claim schedules")
+	}
+	select {
+	case call := <-jobs.called:
+		if call.language != "native.imap" || call.source != "poll-route" {
+			t.Fatalf("native job call = %+v", call)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RoadRunner did not execute the native IMAP job")
+	}
+	select {
+	case status := <-completed:
+		if status != "succeeded" {
+			t.Fatalf("native IMAP schedule completed as %q", status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RoadRunner did not complete the native IMAP schedule")
+	}
+	cancel()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("RoadRunner did not stop after the native IMAP schedule")
+	}
+}
+
 func TestRoadRunnerRoutesManagedWorkloadThroughEmbeddedPlanner(t *testing.T) {
 	t.Setenv("GATEWAY_RUNTIME", "")
 	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
@@ -203,6 +284,20 @@ type passiveWorkerServer struct {
 
 func (s *passiveWorkerServer) Serve() error { <-s.done; return nil }
 func (s *passiveWorkerServer) Stop()        { s.once.Do(func() { close(s.done) }) }
+
+type nativeJobCall struct {
+	language string
+	source   string
+	payload  map[string]any
+}
+
+type testNativeJobs struct{ called chan nativeJobCall }
+
+func (j *testNativeJobs) NativeJobNames() []string { return []string{"imap"} }
+func (j *testNativeJobs) RunNativeJob(_ context.Context, language, source string, payload map[string]any) error {
+	j.called <- nativeJobCall{language: language, source: source, payload: payload}
+	return nil
+}
 
 func unusedLoopbackAddress(t *testing.T) string {
 	t.Helper()

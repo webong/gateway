@@ -19,10 +19,16 @@ func TestExtensionControlPlaneUsesIdentityScopedPrivatePlannerRoute(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := control.Claim(context.Background(), "poll-1"); err != nil {
+	if _, err := control.Claim(context.Background(), "poll-1", ClaimPoll); err != nil {
 		t.Fatal(err)
 	}
 	if path != "/_internal/gateway/extensions/webong/email/mailbox-polls/poll-1/claim" {
 		t.Fatalf("private Planner path = %q", path)
+	}
+	if err := control.Baseline(context.Background(), "poll-1", "lease", 13, 0); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/_internal/gateway/extensions/webong/email/mailbox-polls/poll-1/baseline" {
+		t.Fatalf("private Planner baseline path = %q", path)
 	}
 }
