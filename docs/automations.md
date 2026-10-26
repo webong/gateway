@@ -50,6 +50,14 @@ guest's `GOOS` and `GOARCH`; build on the target platform (or set `GOOS` and
 platform mismatch before starting the guest instead of surfacing a process
 protocol error.
 
+The `Gateway guest packages` GitHub Actions workflow tests and packages all six
+automation guests for Linux amd64 and arm64 alongside the Web, DNS, and Email
+runtime guests. Publishing a `vMAJOR.MINOR.PATCH` Gateway release attaches the
+versioned `.tar.gz` packages and `.sha256` files to the release. Use the
+architecture-specific archive URL and checksum in the Planner `/extensions`
+resource; see [Planner extension distribution](planner-extensions.md#github-release-artifacts)
+for its publication and architecture rules.
+
 Each package declares a named `spinner` process entrypoint and
 `gateway.automation/v1` metadata. HookScript additionally declares a named
 `planner` companion entrypoint. Turn any built package directory into the

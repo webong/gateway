@@ -1,0 +1,410 @@
+name: Gateway guest packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/guest-packages-release.yml'
+      - 'pkg/web/**'
+      - 'pkg/dns/**'
+      - 'pkg/email/**'
+      - 'pkg/javascript/**'
+      - 'pkg/lua/**'
+      - 'pkg/shell/**'
+      - 'pkg/golang/**'
+      - 'pkg/php/**'
+      - 'pkg/hookscript/**'
+      - 'pkg/planner/src/Companion/ExtensionArtifactInstaller.php'
+      - 'tests/Feature/ExtensionArtifactReconciliationTest.php'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'pkg/*/composer.json'
+      - 'pkg/planner/**'
+      - 'mod/arranger/**'
+      - 'scripts/build-gateway-automation-extension'
+      - 'scripts/build-gateway-automation-extensions'
+      - 'scripts/build-gateway-runtime-extension'
+      - 'scripts/archive-gateway-extension'
+      - 'mod/**'
+      - 'go.work'
+      - 'go.work.sum'
+  pull_request:
+    paths:
+      - '.github/workflows/guest-packages-release.yml'
+      - 'pkg/web/**'
+      - 'pkg/dns/**'
+      - 'pkg/email/**'
+      - 'pkg/javascript/**'
+      - 'pkg/lua/**'
+      - 'pkg/shell/**'
+      - 'pkg/golang/**'
+      - 'pkg/php/**'
+      - 'pkg/hookscript/**'
+      - 'pkg/planner/src/Companion/ExtensionArtifactInstaller.php'
+      - 'tests/Feature/ExtensionArtifactReconciliationTest.php'
+      - 'tests/**'
+      - 'composer.json'
+      - 'composer.lock'
+      - 'pkg/*/composer.json'
+      - 'pkg/planner/**'
+      - 'mod/arranger/**'
+      - 'scripts/build-gateway-automation-extension'
+      - 'scripts/build-gateway-automation-extensions'
+      - 'scripts/build-gateway-runtime-extension'
+      - 'scripts/archive-gateway-extension'
+      - 'mod/**'
+      - 'go.work'
+      - 'go.work.sum'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing published Gateway release tag, such as v1.2.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  guest-tests:
+    name: Test first-party Spinner guests on linux/${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/email/go.mod
+          cache: true
+          cache-dependency-path: |
+            pkg/web/go.sum
+            pkg/dns/go.sum
+            pkg/email/go.sum
+            pkg/javascript/go.sum
+            pkg/lua/go.sum
+            pkg/shell/go.sum
+            pkg/golang/go.sum
+            pkg/php/go.sum
+            pkg/hookscript/go.sum
+            mod/arranger/go.sum
+            go.work.sum
+
+      - name: Test all guest modules
+        env:
+          CGO_ENABLED: '1'
+          GOWORK: 'off'
+          GOTELEMETRY: off
+        run: |
+          set -euo pipefail
+          for module in web dns email javascript lua shell golang php hookscript; do
+            printf 'Testing pkg/%s\n' "$module"
+            go -C "pkg/$module" test -mod=readonly ./...
+          done
+
+  planner-artifact-tests:
+    name: Test Planner artifact downloads
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: bcmath, curl, intl, mbstring, pdo_pgsql, pdo_sqlite, sockets, zip
+
+      - name: Install Planner dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Test extension artifact reconciliation
+        run: vendor/bin/pest tests/Feature/ExtensionArtifactReconciliationTest.php --compact
+
+  package:
+    name: Build ${{ matrix.family }} guests for linux/${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    needs: [guest-tests, planner-artifact-tests]
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [runtime, automation]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/email/go.mod
+          cache: true
+          cache-dependency-path: |
+            pkg/web/go.sum
+            pkg/dns/go.sum
+            pkg/email/go.sum
+            pkg/javascript/go.sum
+            pkg/lua/go.sum
+            pkg/shell/go.sum
+            pkg/golang/go.sum
+            pkg/php/go.sum
+            pkg/hookscript/go.sum
+            mod/arranger/go.sum
+            go.work.sum
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+
+      - name: Install HookScript companion dependencies
+        if: matrix.family == 'automation'
+        run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative
+
+      - name: Build and archive guest packages
+        env:
+          CGO_ENABLED: '1'
+          GOARCH: ${{ matrix.arch }}
+          GOWORK: 'off'
+          GOOS: linux
+          GOFLAGS: -mod=readonly
+          GOTELEMETRY: off
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$RELEASE_TAG" ]]; then
+            if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+              echo "Release tag must be vMAJOR.MINOR.PATCH: $RELEASE_TAG" >&2
+              exit 1
+            fi
+            version="${RELEASE_TAG#v}"
+          else
+            version="0.0.0-ci.${RUN_NUMBER}.${RUN_ATTEMPT}"
+          fi
+
+          build_root="$RUNNER_TEMP/gateway-guest-build"
+          assets_dir="$RUNNER_TEMP/gateway-guest-assets"
+          source_revision="$(git rev-parse HEAD)"
+          mkdir -p "$build_root" "$assets_dir"
+
+          case "$GOARCH:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo "Runner architecture does not match target GOARCH=$GOARCH: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          verify_package() {
+            local package_root="$1"
+            local expected_identity="$2"
+            php -r '
+              $root = $argv[1];
+              $expectedIdentity = $argv[2];
+              $version = $argv[3];
+              $arch = $argv[4];
+              $manifest = json_decode(file_get_contents($root."/plugin.json"), true, flags: JSON_THROW_ON_ERROR);
+              $identity = $manifest["descriptor"]["identity"] ?? [];
+              $platform = $manifest["metadata"]["gateway.spinner/v1"]["platform"] ?? [];
+              $artifacts = [];
+              foreach ($manifest["artifacts"] ?? [] as $artifact) {
+                $name = $artifact["name"] ?? null;
+                $path = $artifact["path"] ?? null;
+                $expectedDigest = $artifact["sha256"] ?? null;
+                if (! is_string($name) || ! is_string($path) || ! is_string($expectedDigest)) {
+                  throw new RuntimeException("Malformed artifact descriptor.");
+                }
+                $target = $root."/".$path;
+                if (($artifact["kind"] ?? null) === "tree") {
+                  if (! is_dir($target)) {
+                    throw new RuntimeException("Missing artifact tree: ".$path);
+                  }
+                  $files = [];
+                  $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
+                    $target,
+                    FilesystemIterator::SKIP_DOTS,
+                  ));
+                  foreach ($iterator as $file) {
+                    if ($file->isLink() || ! $file->isFile()) {
+                      throw new RuntimeException("Invalid artifact tree entry: ".$file->getPathname());
+                    }
+                    $files[] = str_replace("\\", "/", substr($file->getPathname(), strlen($target) + 1));
+                  }
+                  sort($files, SORT_STRING);
+                  $context = hash_init("sha256");
+                  foreach ($files as $relative) {
+                    $digest = hash_file("sha256", $target."/".$relative);
+                    hash_update($context, "./".$relative." ".$digest."\n");
+                  }
+                  $actualDigest = hash_final($context);
+                } else {
+                  if (! is_file($target) || is_link($target)) {
+                    throw new RuntimeException("Missing artifact file: ".$path);
+                  }
+                  $actualDigest = hash_file("sha256", $target);
+                }
+                if (! is_string($actualDigest) || ! hash_equals($expectedDigest, $actualDigest)) {
+                  throw new RuntimeException("Artifact digest mismatch: ".$name);
+                }
+                $artifacts[$name] = true;
+              }
+              $entrypoints = [];
+              foreach ($manifest["entrypoints"] ?? [] as $candidate) {
+                $name = $candidate["name"] ?? null;
+                $artifact = $candidate["artifact"] ?? null;
+                if (! is_string($name) || ! is_string($artifact) || ! isset($artifacts[$artifact])) {
+                  throw new RuntimeException("Entry point references an unknown artifact.");
+                }
+                $entrypoints[$name] = true;
+              }
+              $requiredEntrypoints = $expectedIdentity === "webong/hookscript"
+                ? ["spinner", "planner"]
+                : ["spinner"];
+              if (($identity["id"] ?? null) !== $expectedIdentity
+                  || ($identity["version"] ?? null) !== $version
+                  || $platform !== ["os" => "linux", "arch" => $arch]
+                  || array_diff($requiredEntrypoints, array_keys($entrypoints)) !== []) {
+                fwrite(STDERR, "Guest package manifest does not match its release target: ".$expectedIdentity."\n");
+                exit(1);
+              }
+            ' "$package_root" "$expected_identity" "$version" "$GOARCH"
+          }
+
+          archive_package() {
+            local package_root="$1"
+            local package_identity="$2"
+            local slug="${package_identity//\//-}"
+            local archive_name="${slug}-${version}-linux-${GOARCH}.tar.gz"
+            verify_package "$package_root" "$package_identity"
+            scripts/archive-gateway-extension "$package_root" "$assets_dir/$archive_name"
+            (cd "$assets_dir" && sha256sum "$archive_name" > "$archive_name.sha256")
+            (cd "$assets_dir" && sha256sum --check "$archive_name.sha256")
+          }
+
+          if [[ "${{ matrix.family }}" == runtime ]]; then
+            for extension in web dns email; do
+              identity="webong/$extension"
+              encoded_identity="${identity//\//%2f}"
+              package_root="$build_root/runtime/$encoded_identity"
+              php scripts/build-gateway-runtime-extension \
+                "pkg/$extension" "$package_root" "$version" "$source_revision"
+              archive_package "$package_root" "$identity"
+            done
+          else
+            automation_root="$build_root/automations"
+            scripts/build-gateway-automation-extensions "$automation_root" "$version"
+            package_count=0
+            expected_identities=(webong/javascript webong/lua webong/shell webong/go webong/php webong/hookscript)
+            actual_identities=()
+            for package_root in "$automation_root"/webong%2f*; do
+              [[ -d "$package_root" ]] || continue
+              identity="$(php -r '$m=json_decode(file_get_contents($argv[1]."/plugin.json"), true, flags: JSON_THROW_ON_ERROR); echo $m["descriptor"]["identity"]["id"];' "$package_root")"
+              case " ${expected_identities[*]} " in
+                *" $identity "*) ;;
+                *) echo "Unexpected automation guest identity: $identity" >&2; exit 1 ;;
+              esac
+              actual_identities+=("$identity")
+              archive_package "$package_root" "$identity"
+              package_count=$((package_count + 1))
+            done
+            if [[ "$package_count" -ne 6 ]]; then
+              echo "Expected six automation guest packages, found $package_count." >&2
+              exit 1
+            fi
+            expected_sorted="$(printf '%s\n' "${expected_identities[@]}" | sort)"
+            actual_sorted="$(printf '%s\n' "${actual_identities[@]}" | sort)"
+            if [[ "$actual_sorted" != "$expected_sorted" ]]; then
+              echo 'Automation guest package set is incomplete or contains duplicates.' >&2
+              exit 1
+            fi
+          fi
+
+          archive_count="$(find "$assets_dir" -maxdepth 1 -name '*.tar.gz' | wc -l | tr -d ' ')"
+          sidecar_count="$(find "$assets_dir" -maxdepth 1 -name '*.tar.gz.sha256' | wc -l | tr -d ' ')"
+          if [[ "$archive_count" -ne 3 && "${{ matrix.family }}" == runtime ]]; then
+            echo "Expected three runtime guest archives, found $archive_count." >&2
+            exit 1
+          fi
+          if [[ "$archive_count" -ne 6 && "${{ matrix.family }}" == automation ]]; then
+            echo "Expected six automation guest archives, found $archive_count." >&2
+            exit 1
+          fi
+          if [[ "$sidecar_count" -ne "$archive_count" ]]; then
+            echo 'Each guest archive must have one SHA-256 sidecar.' >&2
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.family }}-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/gateway-guest-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify release assets
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(release-assets/*.tar.gz)
+          sidecars=(release-assets/*.tar.gz.sha256)
+          if [[ ${#archives[@]} -ne 18 || ${#sidecars[@]} -ne 18 ]]; then
+            echo 'Expected nine guest packages for each of linux/amd64 and linux/arm64.' >&2
+            exit 1
+          fi
+          for sidecar in "${sidecars[@]}"; do
+            (cd "$(dirname "$sidecar")" && sha256sum --check "$(basename "$sidecar")")
+          done
+
+      - name: Attach immutable assets to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          existing_assets="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          for asset in release-assets/*; do
+            name="$(basename "$asset")"
+            if grep -Fxq "$name" <<< "$existing_assets"; then
+              download_dir="$(mktemp -d)"
+              trap 'rm -rf "$download_dir"' EXIT
+              gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "$name" --dir "$download_dir"
+              if ! cmp -s "$asset" "$download_dir/$name"; then
+                echo "Refusing to replace immutable release asset with different bytes: $name" >&2
+                exit 1
+              fi
+              rm -rf "$download_dir"
+              trap - EXIT
+              continue
+            fi
+            gh release upload "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+          done

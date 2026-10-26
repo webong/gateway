@@ -165,3 +165,30 @@ The same package can be built locally with:
 scripts/build-gateway-runtime-extension pkg/dns /tmp/extensions/webong%2fdns 1.0.0
 scripts/build-gateway-runtime-extension pkg/email /tmp/extensions/webong%2femail 1.0.0
 ```
+
+### GitHub release artifacts
+
+The `Gateway guest packages` workflow tests all nine first-party Spinner guest
+modules and builds the three protocol runtime packages plus the six automation
+packages for Linux amd64 and arm64 on pull requests and relevant pushes. It
+tests and builds each architecture on a native runner, including the cgo-based
+JavaScript guest. The Database package remains reserved and does not yet ship a
+Spinner guest. When a `vMAJOR.MINOR.PATCH` GitHub Release is published, it
+attaches all 18 archives and their `.sha256` sidecars to that Release. For
+example, the arm64 Email artifact URL for `v1.2.3` is:
+
+```text
+https://github.com/webong/gateway/releases/download/v1.2.3/webong-email-1.2.3-linux-arm64.tar.gz
+```
+
+The published package identities are `webong/web`, `webong/dns`,
+`webong/email`, `webong/javascript`, `webong/lua`, `webong/shell`, `webong/go`,
+`webong/php`, and `webong/hookscript`.
+
+Use the checksum from the matching sidecar in the Planner `/extensions`
+activation. The same naming pattern applies to Web, DNS, Email, JavaScript, Lua,
+Shell, Go, PHP, and HookScript packages. Choose the archive for the Spinner host
+architecture. One activation currently names one artifact, so a group of
+Spinner hosts using that activation must use the same architecture. GitHub
+Release assets must be publicly downloadable; private asset credentials are not
+part of the artifact contract.
