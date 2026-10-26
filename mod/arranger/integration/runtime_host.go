@@ -182,7 +182,11 @@ type passThroughClient struct {
 }
 
 func (p passThroughClient) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	body, err := io.ReadAll(request.Body)
+	requestBody := request.Body
+	if requestBody == nil {
+		requestBody = http.NoBody
+	}
+	body, err := io.ReadAll(requestBody)
 	if err != nil {
 		http.Error(writer, "Planner request body is unavailable", http.StatusBadRequest)
 		return

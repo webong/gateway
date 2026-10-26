@@ -3,19 +3,163 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	smtpclient "github.com/emersion/go-smtp"
 	mdns "github.com/miekg/dns"
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	"github.com/webong/ext/pkg/plugin-go/contract/host"
+	"github.com/webong/ext/pkg/plugin-go/contract/host/process"
+	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailruntime "github.com/webong/gateway/pkg/email/spinner"
 	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
+	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 )
+
+const emailRuntimeGuestEnv = "GATEWAY_EMAIL_RUNTIME_GUEST"
+
+// TestEmailRuntimeGuestProcess is the process entrypoint used by the fresh-child
+// mailbox regression below. The child serves the same runtime as the packaged
+// Email Spinner executable.
+func TestEmailRuntimeGuestProcess(t *testing.T) {
+	if os.Getenv(emailRuntimeGuestEnv) != "1" {
+		return
+	}
+	guest := new(runtime)
+	err := runtimecontract.ServeRuntimeWithHandler(context.Background(),
+		runtimecontract.RuntimeStarterFunc(guest.start), runtimecontract.RuntimeOperationHandlerFunc(guest.handle))
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		fmt.Fprintf(os.Stderr, "Email runtime guest exited: %v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func TestFreshEmailProcessHandlesOAuthMailboxCredentialLookup(t *testing.T) {
+	identity := plugin.Identity{ID: "webong/email", Revision: "test-r1", Version: "0.1.0"}
+	descriptor := plugin.Descriptor{
+		APIVersion: plugin.APIVersion,
+		Identity:   identity,
+		Contracts: []plugin.Contract{
+			{ContractRef: runtimecontract.RuntimeContract, Operations: []plugin.Operation{{Name: runtimecontract.OperationStart, Surface: "spinner"}}},
+			{ContractRef: runtimecontract.DeliveryAdapterContract, Operations: []plugin.Operation{{Name: runtimecontract.OperationDeliverAdapter, Surface: "spinner"}}},
+		},
+		Reverse: []plugin.Contract{{
+			ContractRef: runtimecontract.PlannerContract,
+			Operations:  []plugin.Operation{{Name: runtimecontract.OperationPrivatePassThrough}},
+		}},
+	}
+	packageDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(packageDir, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	stub := []byte("verified test artifact")
+	if err := os.WriteFile(filepath.Join(packageDir, "bin", "spinner"), stub, 0700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(stub)
+	manifest := packagekit.Manifest{
+		APIVersion:  packagekit.Version,
+		Descriptor:  descriptor,
+		Artifacts:   []packagekit.Artifact{{Name: "spinner", Path: "bin/spinner", SHA256: hex.EncodeToString(digest[:])}},
+		Entrypoints: []packagekit.Entrypoint{{Name: "spinner", Runtime: "process", Artifact: "spinner", Protocols: []string{plugin.APIVersion}}},
+	}
+	if err := store.WriteManifest(packageDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	mailboxID := "11111111-1111-4111-8111-111111111111"
+	credential := smtpout.MailboxCredential{
+		UpstreamID: "gmail", Username: "sender@gmail.com", Secret: "short-lived-token",
+		Mechanism: "XOAUTH2", Address: "sender@gmail.com", UpstreamAddress: "smtp.invalid:587",
+		UpstreamServerName: "smtp.invalid", UpstreamTLSMode: "starttls", UpstreamNetworkScope: "public",
+	}
+	credentialJSON, err := json.Marshal(credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passThroughCalls := 0
+	reverse := &plugin.ReverseOptions{
+		Authorize: func(_ context.Context, request plugin.Request) error {
+			if request.Contract != runtimecontract.PlannerContract || request.Operation != runtimecontract.OperationPrivatePassThrough {
+				return plugin.ErrDenied
+			}
+			return nil
+		},
+		Handle: func(_ context.Context, request plugin.Request) (json.RawMessage, error) {
+			var input runtimecontract.PassThroughRequest
+			if err := plugin.Decode(request.Payload, &input); err != nil {
+				return nil, err
+			}
+			if input.Method != http.MethodGet || input.Path != "/_internal/gateway/extensions/webong/email/mailbox-connections/"+mailboxID+"/smtp" {
+				return nil, fmt.Errorf("unexpected private Planner request %s %s", input.Method, input.Path)
+			}
+			passThroughCalls++
+			body, err := json.Marshal(runtimecontract.PassThroughResponse{Status: http.StatusOK, Body: credentialJSON})
+			return body, err
+		},
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed := store.Installed{Manifest: manifest, Directory: packageDir}
+	proc, err := host.Open(t.Context(), installed, host.Options{
+		Launch:  &process.Command{Path: binary, Args: []string{"-test.run=^TestEmailRuntimeGuestProcess$"}, Dir: packageDir, Env: []string{emailRuntimeGuestEnv + "=1"}},
+		Reverse: reverse,
+	})
+	if err != nil {
+		t.Fatalf("start fresh Email child: %v", err)
+	}
+	defer proc.Close()
+
+	configuration := json.RawMessage(`{}`)
+	var started runtimecontract.RuntimeStartResponse
+	if err := proc.Call(t.Context(), plugin.Method(runtimecontract.RuntimeContract, runtimecontract.OperationStart), runtimecontract.RuntimeStartRequest{
+		Configuration: configuration, MaxBodySize: 1 << 20, InstanceKey: []byte("fresh-email-test-key"),
+	}, &started); err != nil {
+		_ = proc.Close()
+		t.Fatalf("start fresh Email runtime: %v (guest stderr: %s)", err, proc.Stderr())
+	}
+	if !slices.Contains(started.DeliveryAdapters, "mailbox.smtp") {
+		t.Fatalf("fresh Email process did not advertise mailbox.smtp: %+v", started)
+	}
+
+	delivery := runtimecontract.GatewayDelivery{
+		Protocol: runtimecontract.ProtocolSMTP, Adapter: "mailbox.smtp", Target: "recipient@example.test",
+		Attributes: map[string]string{"mailbox_connection_id": mailboxID, "mail_from": "sender@gmail.com"},
+		Payload:    []byte("From: sender@gmail.com\r\nTo: recipient@example.test\r\nSubject: OAuth child regression\r\n\r\nbody\r\n"),
+	}
+	request := runtimecontract.DeliveryAdapterRequest{Adapter: "mailbox.smtp", Delivery: delivery}
+	var first runtimecontract.DeliveryAdapterResponse
+	if err := proc.Call(t.Context(), plugin.Method(runtimecontract.DeliveryAdapterContract, runtimecontract.OperationDeliverAdapter), request, &first); err != nil {
+		t.Fatalf("first mailbox.smtp call killed a fresh Email child: %v (guest stderr: %s)", err, proc.Stderr())
+	}
+	if first.Failure != runtimecontract.AdapterFailureTransient || passThroughCalls != 1 {
+		t.Fatalf("first OAuth delivery response = %+v; credential lookups=%d", first, passThroughCalls)
+	}
+	var second runtimecontract.DeliveryAdapterResponse
+	if err := proc.Call(t.Context(), plugin.Method(runtimecontract.DeliveryAdapterContract, runtimecontract.OperationDeliverAdapter), request, &second); err != nil {
+		t.Fatalf("second mailbox.smtp call found a closed Email child: %v (guest stderr: %s)", err, proc.Stderr())
+	}
+	if second.Failure != runtimecontract.AdapterFailureTransient || passThroughCalls != 2 {
+		t.Fatalf("second OAuth delivery response = %+v; credential lookups=%d", second, passThroughCalls)
+	}
+}
 
 type reverseCallerFunc func(context.Context, plugin.ContractRef, string, json.RawMessage) (json.RawMessage, error)
 

@@ -3,6 +3,9 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -89,5 +92,38 @@ func TestRuntimeHostResolvesTypedSecretThroughDeclaredReverseContract(t *testing
 	}
 	if _, err := NewRuntimeHost(caller, nil).Secrets().Resolve(context.Background(), "../other"); err == nil {
 		t.Fatal("invalid secret reference reached the host")
+	}
+}
+
+func TestPrivatePlannerPassThroughAcceptsBodylessGET(t *testing.T) {
+	var forwarded PassThroughRequest
+	caller := reverseCallerFunc(func(_ context.Context, ref plugin.ContractRef, operation string, payload json.RawMessage) (json.RawMessage, error) {
+		if ref != PlannerContract || operation != OperationPrivatePassThrough {
+			return nil, fmt.Errorf("unexpected reverse call %s@%s/%s", ref.Name, ref.Version, operation)
+		}
+		if err := json.Unmarshal(payload, &forwarded); err != nil {
+			return nil, err
+		}
+		return json.Marshal(PassThroughResponse{
+			Status:  http.StatusOK,
+			Headers: http.Header{"Content-Type": {"application/json"}},
+			Body:    []byte(`{"mailbox":"ready"}`),
+		})
+	})
+	handler := NewRuntimeHost(caller, nil).PrivatePlanner()
+	request := httptest.NewRequest(http.MethodGet, "http://planner.internal/_internal/gateway/extensions/webong/email/mailbox-connections/11111111-1111-4111-8111-111111111111/smtp?fresh=1", nil)
+	request.Body = nil
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Body.String() != `{"mailbox":"ready"}` {
+		t.Fatalf("private Planner response = %d %q", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("private Planner content type = %q", response.Header().Get("Content-Type"))
+	}
+	if forwarded.Method != http.MethodGet || forwarded.Scheme != "http" || forwarded.Host != "planner.internal" ||
+		forwarded.Path != request.URL.Path || forwarded.RawQuery != "fresh=1" || len(forwarded.Body) != 0 {
+		t.Fatalf("forwarded private Planner request = %+v", forwarded)
 	}
 }
