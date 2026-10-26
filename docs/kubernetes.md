@@ -107,12 +107,24 @@ GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
 GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
   bash scripts/test-kubernetes-planner --with-dns
 docker build -f infra/docker/email-relay-fixture.Dockerfile -t gateway-email-relay-smoke:local .
-bash scripts/test-kubernetes-planner --with-email
 GATEWAY_DNS_EXTENSION_URL=https://extensions.example.test/webong-dns.tar.gz \
 GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
 GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
+GATEWAY_EMAIL_EXTENSION_URL=https://extensions.example.test/webong-email.tar.gz \
+GATEWAY_EMAIL_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_EMAIL_EXTENSION_VERSION=1.0.0 \
+  bash scripts/test-kubernetes-planner --with-email
+GATEWAY_DNS_EXTENSION_URL=https://extensions.example.test/webong-dns.tar.gz \
+GATEWAY_DNS_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_DNS_EXTENSION_VERSION=1.0.0 \
+GATEWAY_EMAIL_EXTENSION_URL=https://extensions.example.test/webong-email.tar.gz \
+GATEWAY_EMAIL_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_EMAIL_EXTENSION_VERSION=1.0.0 \
   bash scripts/test-kubernetes-planner --with-email --with-dns
-bash scripts/test-kubernetes-planner --with-webstream
+GATEWAY_WEB_EXTENSION_URL=https://extensions.example.test/webong-web.tar.gz \
+GATEWAY_WEB_EXTENSION_SHA256=<archive-sha256> \
+GATEWAY_WEB_EXTENSION_VERSION=1.0.0 \
+  bash scripts/test-kubernetes-planner --with-webstream
 ```
 
 The smoke registers an endpoint with the bundled Planner's configured
@@ -141,8 +153,9 @@ delivery-admin connection, not public MX reachability or deliverability.
 The optional `--with-webstream` mode registers a private in-cluster SSE
 source through the production Planner and verifies that the production
 Spinner rejects it before contacting the source. It then grants that exact
-source origin and Service IP to Spinner, restarts the Pod, and verifies the
-SSE event arrives through the local TLS edge. This checks the default
+source origin and updates the active `webong/web` Extension configuration with
+the Service IP ceiling, then verifies the SSE event arrives without restarting
+the generic Spinner Pod. This checks the default
 private-address protection and an explicitly authorized in-cluster source;
 it does not establish successful streaming from a publicly reachable source
 or general permission to connect to other private application services.
@@ -234,9 +247,8 @@ certificate. It does not test outbound delivery or public Email operations.
 
 ### Outbound relay and shared asynchronous queue
 
-`infra/kubernetes/spinner-email-relay` extends the Email overlay with an
-outbound SMTP relay, a shared PostgreSQL queue for asynchronous deliveries,
-and a private
+`infra/kubernetes/spinner-email-relay` extends the Email smoke topology with a
+shared PostgreSQL queue for asynchronous deliveries and a private
 `spinner-delivery-admin` ClusterIP Service on port 5052. Apply Planner's
 `deliveries` migration to the same PostgreSQL database before starting
 Spinner. Configure Planner's `GATEWAY_DELIVERY_ADMIN_URL` as
@@ -249,14 +261,8 @@ counterparts are `infra/kubernetes/planner-email-relay` and
 for the combined overlay, read the shared DNS zone ConfigMap.
 
 ```sh
-kubectl -n gateway create configmap gateway-email-relay \
-  --from-literal=address=relay.internal:587 \
-  --from-literal=tls-mode=starttls \
-  --from-literal=server-name=relay.internal
-kubectl -n gateway create secret generic gateway-email-relay \
-  --from-literal=database-url='postgres://USER:PASSWORD@db.internal/gateway?sslmode=verify-full' \
-  --from-literal=username=SMTP_USER \
-  --from-literal=password=SMTP_PASSWORD
+kubectl -n gateway create secret generic gateway-shared-delivery \
+  --from-literal=database-url='postgres://USER:PASSWORD@db.internal/gateway?sslmode=verify-full'
 # After the Planner database migrations and base Email configuration:
 kubectl -n gateway apply -k infra/kubernetes/planner-email-relay
 kubectl -n gateway apply -k infra/kubernetes/spinner-email-relay
@@ -267,11 +273,18 @@ kubectl -n gateway rollout status deployment/spinner
 For Email and DNS together, apply `infra/kubernetes/planner-email-dns-relay`
 and `infra/kubernetes/spinner-email-dns-relay` in place of the two Email-only
 overlays. The Planner overlay enables API-managed DNS zones, and the Spinner
-relay still uses the shared PostgreSQL queue.
+relay still uses the shared PostgreSQL queue. Configure the relay itself on the
+`webong/email` `/extensions` resource:
 
-The SMTP username/password keys and relay server-name key are optional for
-relays that do not use them; the address, TLS mode, and database URL are
-required. Use `starttls` or `implicit` for a credentialed production relay.
+```json
+{"smtp_relay":{"address":"relay.internal:587","server_name":"relay.internal","tls_mode":"starttls"}}
+```
+
+Relay credentials do not belong in a generic Spinner Deployment. Until
+Gateway's Extension secret references are available, the installable runtime
+supports only relays that do not require credentials; do not put a username or
+password in the non-secret Extension configuration. The database URL remains a
+deployment secret. Use `starttls` or `implicit` in production.
 Do not substitute `sslmode=disable` for a remote production database. The
 overlay does not deploy PostgreSQL or the relay; operate them with persistent
 storage, backups, TLS, and appropriate network policy. See [Delivery queue

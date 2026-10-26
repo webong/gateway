@@ -43,8 +43,8 @@ GATEWAY_EMAIL_DOMAIN_RESOLVER_ADDR=127.0.0.1:53
 GATEWAY_EMAIL_DOMAIN_LOOKUP_TIMEOUT=3s
 ```
 
-The Caddy SMTP app uses `domain_resolver_address` and
-`domain_lookup_timeout`. Spinner queries the RFC 5322 From domain and sends
+These variables configure only the compatibility standalone Spinner; the
+generic Caddy host has no Email-specific resolver setting. Spinner queries the RFC 5322 From domain and sends
 Planner `exists` for DNS NOERROR (including NODATA), `nxdomain` only for
 NXDOMAIN, or `temperror` for a failed lookup. The resolver must be an
 operator-controlled IP endpoint; do not point this at an untrusted DNS

@@ -10,18 +10,15 @@ connections remain available for other addresses and accounts.
 
 1. Create and TXT-verify the domain through `/email/domains`, then enable it.
    Point its MX records at the Gateway SMTP listener.
-2. Configure exact provider hosts in Planner's
-   `gateway.email.hosted_allowed_hosts` and Spinner's
-   `GATEWAY_HOSTED_MAIL_ALLOWED_HOSTS` (or Caddy's `hosted_mail_allowed_hosts`).
-   Create a protected `POST /email/hosted-adapters` resource with a logical
+2. Configure exact provider hosts through Email's Planner-owned policy and
+   create a protected `POST /email/hosted-adapters` resource with a logical
    `name`, fixed HTTPS `url`, and write-only `bearer_token`. Planner stores the
    token encrypted; only the private per-attempt resolver returns it to Spinner.
 3. Create `POST /email/hosted-routes` for each exact `recipient` with
    `account_id`, `adapter` (the resource name), and `mailbox_key`. Planner
    selects the fixed `hosted.mail` queue adapter and carries only the logical
-   adapter ID in the delivery. Configure durable storage, an internal token,
-   and `GATEWAY_HOSTED_MAIL_RESOLVER_URL` (or Caddy's
-   `hosted_mail_resolver_url`) pointing to Planner's private origin.
+   adapter ID in the delivery. Configure durable storage and activate the
+   matching `webong/email` revision.
 
 The route is evaluated during recipient preflight and again for DATA. Gateway
 requires a verified, enabled domain and one recipient per transaction. A
@@ -40,14 +37,14 @@ before returning `2xx`. Repeated keys must return success without storing a
 second message. `408`, `429`, `5xx`, and network failures are retried; ordinary
 `4xx` is a permanent rejection. Gateway does not read provider response bodies.
 
-For an in-process provider adapter, link a Go module that calls
-`transport.RegisterDeliveryAdapterFactory("zorvia.mailbox", factory)` before
-starting Spinner or Caddy. The factory returns a
-`bridge.GatewayDeliveryAdapter`. The route's adapter name must be registered
-on every worker that may claim its queue entries. Adapters are selected only
-from operator registrations, not dynamically loaded from recipient data. A
-deployment-owned `EmailProviderRouteResolver` remains available for those
-custom modules; Planner-managed exact routes take precedence.
+The hosted-mail implementation now lives entirely in `webong/email`; generic
+Spinner, Caddy, and RoadRunner hosts neither import it nor expose an in-process
+registration hook. Its installable runtime wiring is still incomplete: it does
+not yet advertise `hosted.mail` or resolve the protected adapter through the
+identity-scoped private Planner route. Until that capability is added, a route
+selecting `hosted.mail` fails closed. A third-party implementation should ship
+as its own Gateway Extension and advertise its adapter through Arranger rather
+than linking code into a host binary.
 
 ## Send and retrieve
 
@@ -67,7 +64,7 @@ can fan out to multiple hook subscribers, with a deterministic child receipt
 per subscriber. HTTP delivery is at least once, so the provider must enforce
 its idempotency key. An SMTP upstream can have uncertain acceptance after a
 connection failure; Gateway stops automatic retries and marks that receipt
-`smtp_acceptance_unknown` for reconciliation.
+`acceptance_unknown` for reconciliation.
 
 ## Verification before production
 

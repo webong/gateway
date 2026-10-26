@@ -358,9 +358,11 @@ required. Set
 HTTPS submission listeners, create `/email/runtime-policy` with
 `connected_smtp_enabled: true`,
 and give Spinner durable delivery storage, `GATEWAY_INTERNAL_TOKEN`,
-`GATEWAY_MAILBOX_SMTP_RESOLVER_URL` pointing to Planner's private origin, and
-a private delivery admin listener. The Caddy SMTP app supports the equivalent
-`mailbox_resolver_url` setting.
+a private delivery admin listener, and an active `webong/email` revision. The
+`mailbox.smtp` adapter remains inside Email but is not advertised by the
+installable runtime yet; it must resolve current credentials through Email's
+identity-scoped private Planner route before this delivery path is portable to
+every host.
 
 An operator creates an account with `POST /accounts` using the
 registry token and `{"id":"customer-id"}`. Mail currently uses the returned
@@ -572,7 +574,7 @@ TLS, authentication, and transaction lifecycle from callers.
 If an SMTP DATA write or final acknowledgement fails without a definitive
 server rejection, the sender reports uncertain acceptance. Both durable queue
 backends stop automatic retries, retain a failed receipt marked
-`body_assertion: smtp_acceptance_unknown`, and suppress an automatic failure
+`body_assertion: acceptance_unknown`, and suppress an automatic failure
 notice. An operator must reconcile this result with the upstream before any
 manual resend. A process crash or lease loss after upstream acceptance and
 before the receipt is durably settled can still cause a duplicate; Gateway
@@ -582,11 +584,9 @@ does not promise exactly-once SMTP delivery.
 
 Every accepted message is an immutable envelope plus its raw RFC 5322 payload.
 The durable delivery queue dispatches that value to registered delivery
-adapters. SMTP and HTTP forwarding are built-in durable adapters when a
-delivery spool is configured. Standalone HTTP forwarding retains the
-in-process worker path without `GATEWAY_DELIVERY_SPOOL_PATH`.
-The Caddy SMTP app also spools HTTP subscriber deliveries when `spool_path`
-is set, even without an outbound SMTP relay.
+adapters. The generic host provides HTTP delivery; Email provides SMTP
+delivery through its own runtime boundary. Standalone HTTP forwarding retains
+the in-process worker path without `GATEWAY_DELIVERY_SPOOL_PATH`.
 `GatewayDelivery.protocol` describes the message protocol, while the optional
 `GatewayDelivery.adapter` selects a trusted implementation. When omitted, the
 adapter defaults to the protocol name. Namespaced adapters such as
@@ -597,11 +597,10 @@ A storage vendor or application can add another adapter without changing SMTP
 ingress, alias resolution, retry scheduling, or the message contract. The
 adapter owns storage-specific encryption, indexing, retention, and quotas.
 Gateway records whether the adapter accepted the delivery and exposes the
-resulting receipt. A linked provider module registers its named adapter with
-`transport.RegisterDeliveryAdapterFactory` before the Spinner or Caddy runtime
-starts. The stock runtime instead resolves Planner-managed HTTPS provider
-adapters and exact-recipient routes on each attempt. Provider secrets remain
-encrypted in Planner and are constrained by deployed allowed hosts. See
+resulting receipt. An adapter is supplied by an installed Gateway Extension
+and advertised through Arranger; generic host binaries do not accept linked
+product factories. Provider secrets remain encrypted in Planner and must be
+resolved through the provider Extension's identity-scoped private route. See
 [Hosted provider contract](hosted-mail-provider.md).
 
 Retrieval uses a separate upstream seam. The POP3 and IMAP listeners own public
@@ -664,8 +663,10 @@ transaction; an unknown, disabled, or mixed managed/unmanaged recipient set
 rejects the whole inbound transaction. Spinner returns success only after the
 configured relay accepts the full message. This avoids a Gateway-side deferred
 bounce obligation for this path, but does not guarantee final mailbox delivery.
-Configure the outbound delivery adapter and durable queue on the Spinner host;
-configure the SMTP listener through the `webong/email` Extension resource.
+Configure the durable queue on the Spinner host. Configure both the outbound
+adapter and SMTP listener through the `webong/email` Extension resource; the
+generic host discovers the adapter at runtime and owns only persistence and
+retry scheduling.
 When recipient preflight is enabled for that listener, Email asks Planner for
 an `smtp`/`recipient` decision at each `RCPT TO`, including the recipients
 already accepted for that transaction as a JSON array in
@@ -786,7 +787,7 @@ then run:
 ```sh
 docker run --rm -d --name gateway-clamd-test -p 127.0.0.1:13310:3310 clamav/clamav-debian:stable
 docker inspect --format '{{.State.Health.Status}}' gateway-clamd-test
-GATEWAY_TEST_CLAMD_ADDR=127.0.0.1:13310 GOWORK=off go -C pkg/spinner test -mod=mod ./bridge/smtp -run 'TestClamdScannerAgainstRealService|TestSMTPRealClamdQuarantine' -count=1 -v
+GATEWAY_TEST_CLAMD_ADDR=127.0.0.1:13310 GOWORK=off go -C pkg/email test -mod=mod ./spinner/smtp -run 'TestClamdScannerAgainstRealService|TestSMTPRealClamdQuarantine' -count=1 -v
 docker stop gateway-clamd-test
 ```
 
@@ -796,11 +797,12 @@ including one complete SMTP transaction that must be quarantined without
 reaching delivery. These checks do not prove a production Planner, relay,
 retention policy, or public MX deployment.
 
-SMTP connections are capped per Spinner
-process with `GATEWAY_SMTP_MAX_CONNECTIONS` (or `max_connections` in Caddy).
-`MAIL` commands are limited per connecting IP by
-`GATEWAY_SMTP_MESSAGES_PER_MINUTE` and `GATEWAY_SMTP_MESSAGE_BURST` (or
-`messages_per_minute` and `message_burst` in Caddy). This in-memory limit is
+SMTP connections are capped in the compatibility Spinner with
+`GATEWAY_SMTP_MAX_CONNECTIONS`. Installable Email runtimes use
+`smtp.max_connections` in their Planner-owned configuration. `MAIL` commands
+are limited per connecting IP by `GATEWAY_SMTP_MESSAGES_PER_MINUTE` and
+`GATEWAY_SMTP_MESSAGE_BURST` in the compatibility Spinner, or
+`smtp.messages_per_minute` and `smtp.message_burst` in the Email runtime. This in-memory limit is
 per process, not per domain or authenticated identity; a shared TCP proxy
 makes its address the apparent source. It is not a replacement for mail abuse
 policy or network-level controls. Spinner now signs each outbound forwarding
@@ -836,9 +838,8 @@ registry route.
 
 Per-domain outbound DKIM signing is opt-in. Create a protected
 `POST /email/dkim-keys` resource with `domain`, `selector`, and
-`private_key_pem`; public reads return only selector and key presence. Configure
-`GATEWAY_EMAIL_DKIM_RESOLVER_URL` to Planner's private origin (or
-`dkim_resolver_url` in Caddy). The private key must be PKCS#8 Ed25519 or
+`private_key_pem`; public reads return only selector and key presence. The
+private key must be PKCS#8 Ed25519 or
 PKCS#8/PKCS#1 RSA PEM; RSA keys must be at least 2048 bits. Publish the
 corresponding TXT public key at `mail1._domainkey.example.com` before sending.
 Spinner, not Planner or the SMTP client, marks the authorized RFC 5322 author
@@ -852,6 +853,12 @@ Rotate selectors by publishing the new DNS key before replacing the Planner
 resource. No Spinner restart is needed; retain the old public key until
 previously sent mail has cleared. The private key is resolved over authenticated
 private HTTP for signing and never enters the delivery queue or a generated file.
+
+The `managed.smtp` adapter and its private DKIM lookup remain inside
+`webong/email`, but the installable runtime does not advertise them yet. They
+must move behind Email's identity-scoped private Planner route before managed
+sending is available from every host; affected deliveries fail closed rather
+than reading a legacy resolver environment variable.
 
 For shared submission quotas, create `POST /email/submission-policy` with
 `daily_limit`, `daily_byte_limit`, `domain_daily_limit`, and
@@ -936,13 +943,15 @@ relay exactly-once after an ambiguous relay response. A rejected or unavailable
 first queue handoff still consumes one attempt/byte quota allocation for the
 key, matching SMTP submission accounting.
 
-When Spinner has `GATEWAY_EMAIL_DSN_DOMAIN` configured, an authenticated HTTP
-submission also opts into Gateway's existing durable failure-notice path. If
-its queued relay delivery finally fails, Spinner sends one RFC 3464 notice
+When the active `webong/email` revision has
+`configuration.failure_notice_domain` configured, an authenticated HTTP
+submission opts into Email's durable failure-follow-up path. If its queued
+relay delivery finally fails, the Email Extension returns one RFC 3464 notice
 with a null reverse-path to the exact envelope sender that Planner granted
-and Spinner rechecked. This is a local relay-failure notice, not a webhook and
+and the Email runtime rechecked. Generic Spinner persists that returned
+delivery without understanding DSNs. This is a local relay-failure notice, not a webhook and
 not a report of a later bounce after the relay accepted the message. Without
-the DSN domain, HTTP submission does not generate a notice; operators can
+the configured domain, HTTP submission does not generate a notice; operators can
 still inspect its delivery receipt.
 
 Bounce webhooks and reputation monitoring are still required for a full
@@ -987,40 +996,21 @@ For IMAP set the corresponding `imap` configuration object, then create IMAP
 upstream resources pointing to native implicit-TLS IMAP servers. It accepts the
 same bounded connection, authentication, idle, Planner, and upstream limits.
 
-The custom FrankenPHP/Caddy build also registers `gateway.pop3` and
-`gateway.imap` sibling TCP apps. They use the same TLS-only POP3/IMAP servers
-and private HTTP Planner bridge as standalone Spinner. Configure either app
-in the Caddy global block with `listen`, `planner_url`, `internal_token`,
-`tls_cert_file` and `tls_key_file`. For example:
+FrankenPHP/Caddy uses this same installable Email Extension. Configure its
+`imap` and `pop3` objects through Planner's `/extensions` API; the Email child
+owns the sibling TCP listeners and calls Planner through the generic Caddy
+host contract. The Caddy binary does not register Email-specific modules or
+need a private PHP-only listener. Without an `upstream_ca_file` the host trust
+store is used. The upstream host ceiling is deployment-owned; Planner returns
+an approved endpoint with the authenticated decision, and the Email runtime
+verifies its TLS certificate against the resource's server name. Disabling a
+resource stops new logins.
 
-```caddyfile
-{
-    gateway_pop3 {
-        listen :995
-        planner_url http://127.0.0.1:8081
-        internal_token {$GATEWAY_INTERNAL_TOKEN}
-        tls_cert_file /etc/gateway/mail.crt
-        tls_key_file /etc/gateway/mail.key
-    }
-    gateway_imap {
-        listen :993
-        planner_url http://127.0.0.1:8081
-        internal_token {$GATEWAY_INTERNAL_TOKEN}
-        tls_cert_file /etc/gateway/mail.crt
-        tls_key_file /etc/gateway/mail.key
-    }
-}
-```
-
-The `planner_url` must be a private PHP-only listener as in the
-[FrankenPHP example](../infra/caddy/Caddyfile.frankenphp.example); never expose
-it publicly. Optional Caddyfile controls are `hostname`, `max_connections`,
-`auth_per_minute`, `auth_burst`, `idle_timeout`, `planner_timeout`,
-`upstream_timeout`, `max_body_size`, and `upstream_ca_file` for a private CA
-certificate. Without that option the host trust store is used. The upstream
-host ceiling is deployment-owned; Planner returns an approved endpoint with
-the authenticated decision, and Spinner verifies its TLS certificate against
-the resource's server name. Disabling a resource stops new logins.
+The generic Caddy host supplies the durable queue and host-owned HTTP adapter.
+When `configuration.smtp_relay` is present, the Email child advertises and
+executes the `smtp` adapter through the same generic runtime contract. Public
+HTTP submission and SMTP ingress therefore use the same installable Email
+process in Caddy, RoadRunner, and standalone Spinner deployments.
 
 For an OAuth mailbox, `MailboxAccessGrant` may set
 `upstreamAuthMechanism: 'XOAUTH2'` and provide a current access token in
@@ -1041,14 +1031,14 @@ OAuth/other POP3 authentication methods, protocol-aware mailbox command
 policy, persistent mailbox-session audit, and certificate reload are not
 implemented. Retrieval content passes through the byte
 tunnel and is not persisted by Gateway. The opt-in external-mailbox smoke
-exercises standalone and Caddy app paths against separate official Dovecot
-containers, including the Caddy private Planner hop and verified upstream TLS.
-It does not establish interoperability with every mailbox server or mail client.
+exercises the Email Extension's IMAP and POP3 protocol implementations against
+separate official Dovecot containers with verified upstream TLS. It does not
+establish interoperability with every mailbox server or mail client.
 
 Run `./scripts/mailbox-smoke.sh` from the repository root with Docker and Go
 available. It starts disposable IMAP and POP3 Dovecot containers on random
 loopback ports, verifies both upstream certificates, runs the external-service
-and Caddy app integration tests, and stops the containers on success or failure. The test
+integration tests, and stops the containers on success or failure. The test
 uses a fixed throwaway password and stores no user mail. Override
 `GATEWAY_MAILBOX_SMOKE_IMAGE` to test a pinned Dovecot image version.
 
@@ -1065,17 +1055,18 @@ remain their modules rather than Gateway storage responsibilities.
 STARTTLS, or implicit TLS transport modes. Plaintext is intended only for
 local/private test relays; production configuration should use STARTTLS or
 implicit TLS. Typed SMTP `GatewayDelivery` values now run through a durable
-filesystem spool and the deployment-registered SMTP adapter. The proxy runtime
-enables that adapter when `GATEWAY_SMTP_RELAY_ADDR` and
-`GATEWAY_DELIVERY_SPOOL_PATH` are configured.
+queue and the adapter advertised by `webong/email`. Configure `smtp_relay` on
+the revisioned `/extensions` resource; generic hosts do not parse relay
+environment variables. The queue remains host-owned deployment storage.
 
 Enqueue returns only after the spool file and containing directory are synced.
 SMTP DATA accepts a `deliver` decision only when its executor reports a
 durable queue; a volatile in-process worker handoff returns a temporary SMTP
 error. This prevents a crash after `250` from losing a newly accepted message,
 and a custom Planner may opt an authenticated SMTP transaction into failure
-notices for deliveries that fail later. Set `GATEWAY_EMAIL_DSN_DOMAIN` to a
-Gateway-owned reporting hostname with an outbound SMTP relay and durable spool.
+notices for deliveries that fail later. Set `failure_notice_domain` on
+`webong/email` to a Gateway-owned reporting hostname and configure an outbound
+SMTP relay plus durable queue.
 The custom Planner must first verify that the authenticated identity in
 `event.attributes.auth_username` may use the transaction's `MAIL FROM`, then
 return `metadata.failure_notice_to` equal
@@ -1085,16 +1076,17 @@ acknowledging DATA. It strips any notice marker from delivery attributes and
 adds its own only after those checks. Managed Email uses synchronous `submit`
 instead and does not generate this Gateway-side notice.
 
-After final queue failure, Spinner durably enqueues one
+After final queue failure, Spinner asks the Extension advertising the adapter's
+failure handler for an optional follow-up. Email returns one
 [RFC 3464](https://www.rfc-editor.org/rfc/rfc3464.html) `multipart/report`
 failure notice per SMTP delivery, addressed to the approved
 reverse-path with `MAIL FROM:<>`. It does not copy the original message body
 or raw relay error into the notice. A deterministic notice spool ID recovers
-the handoff after a crash; `failure_notice_id` appears on the original failed
+the handoff after a crash; `follow_up_id` appears on the original failed
 delivery status. Once a notice is queued, manual retry of the original failed
 item is refused because a `failed` notice may already have been delivered.
 The notice itself never generates another notice. If notice delivery fails,
-its own failed spool item remains for operator inspection. As with other
+its own failed queue item remains for operator inspection. As with other
 queued SMTP deliveries, a lost upstream acceptance response can still lead
 to a duplicate notice. Provide a monitored `postmaster@<dsn_domain>` address.
 Do not enable this on unauthenticated public MX mail:

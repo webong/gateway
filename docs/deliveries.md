@@ -52,9 +52,10 @@ spool is drained makes its deliveries inaccessible through Planner. URLs must
 be trusted private HTTP(S) origins without embedded credentials or paths.
 
 The bundled Router launchers default both admin addresses to loopback
-port 5052. The FrankenPHP private listener combines the Caddy HTTP spool with the
-optional `gateway_smtp` app spool, so one Planner URL can inspect both. The
-listener is not mounted under the public Caddy route. Custom Caddyfiles must
+port 5052. The FrankenPHP private listener exposes the generic Caddy HTTP
+queue. Protocol Extensions own their delivery lifecycles behind the host
+runtime contract instead of registering additional Caddy queues. The listener
+is not mounted under the public Caddy route. Custom Caddyfiles must
 configure `spool_path`, `admin_addr`, and Planner's
 `GATEWAY_DELIVERY_ADMIN_URL` together. Caddy reloads that overlap an active
 spool are rejected; restart the Router for spool configuration changes.
@@ -86,7 +87,8 @@ also available. Lists return at most 100 records. Results contain metadata,
 not payloads, headers, destination URLs, or transport credentials. A retry
 only accepts a failed item and only if its adapter is still registered.
 For an authenticated, Planner-approved asynchronous SMTP delivery,
-`failure_notice_id` identifies a queued failure notice after terminal failure.
+`follow_up_id` identifies an Extension-produced delivery queued after terminal
+failure. Email uses this generic hook for delivery-status notices.
 That original item cannot be retried once the notice is queued; inspect the
 notice as its own delivery instead.
 Delivered receipts cannot be retried. Retry can duplicate a callback if its
@@ -106,8 +108,8 @@ and distributed storage/replication are not implemented. Delivered receipts
 are retained for 90 days by default and pruned on
 startup and hourly. Set `GATEWAY_DELIVERY_RECEIPT_RETENTION` to another Go
 duration or `0` to disable pruning in standalone and library/RoadRunner
-runtimes. Pending and failed files are never pruned by this policy. The legacy
-Caddy handlers use `receipt_retention` in their Caddyfile blocks.
+runtimes. Pending and failed files are never pruned by this policy. The Caddy
+host uses `receipt_retention` in its generic `gateway` block.
 
 ## Shared PostgreSQL queue (Spinner and all Router runtimes)
 
@@ -124,10 +126,12 @@ Runtimes, and the RoadRunner Router select the shared queue. For a bundled
 Router, set `GATEWAY_DELIVERY_DATABASE_URL` and use the same PostgreSQL URL
 for Planner (`DB_URL`); the launcher chooses `DB_CONNECTION=pgsql` and applies
 the Planner migrations there. The Caddy module's JSON or Caddyfile option is
-`delivery_database_url` in both `gateway` and `gateway_smtp` blocks.
-The shared queue supports HTTP and SMTP deliveries, idempotent Email HTTP
-submission receipts, metadata status/list/retry, delivered-receipt pruning,
-and SMTP failure notices when `GATEWAY_EMAIL_DSN_DOMAIN` is configured.
+`delivery_database_url` in the generic `gateway` block.
+The shared queue supports every currently advertised delivery adapter,
+idempotent submission receipts, metadata status/list/retry, delivered-receipt
+pruning, and generic Extension-produced failure follow-ups. Email opts into
+delivery-status notices with `webong/email`
+`configuration.failure_notice_domain`; Spinner never constructs a DSN.
 Because each Spinner reads the same delivery rows, one healthy private admin
 listener can inspect the whole shared queue. Configure Planner with one
 `GATEWAY_DELIVERY_ADMIN_URL`, or provide an ordered JSON list of two or more
@@ -164,8 +168,9 @@ ignores expired rows; it fails closed if none are live. Do not set discovery alo
 `GATEWAY_DELIVERY_ADMIN_SHARED_URLS` or `GATEWAY_DELIVERY_ADMIN_NODES`. For a
 separately hosted Planner, set only the discovery flag there; each Spinner
 still needs the advertise URL. This does not make PostgreSQL highly available.
-The Caddy HTTP and SMTP queues use their respective adapters for retry even
-when they share this database.
+The generic Caddy queue retains its HTTP adapter for retry when it shares this
+database. Protocol Extensions own any additional retry adapters through their
+runtime contracts.
 An original failed delivery and its deterministic notice are committed in one
 PostgreSQL transaction, so process death cannot leave an unlinked notice.
 

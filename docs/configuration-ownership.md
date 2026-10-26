@@ -50,22 +50,21 @@ domain can receive mail. These are policy changes, not listener provisioning.
 
 | Surface | Planner-owned state now | Deployment-owned settings | Gap |
 | --- | --- | --- | --- |
-| Webhook/WebSocket | Endpoints, subscriptions, routes, targets, event retention through `/web/event-policy`, body capture opt-in per endpoint | HTTP listener, worker/body/connection limits, authentication keys | Event history is off until the operator creates an enabled policy. |
-| Webstream | Subscription-selected source; private exact-origin source/CIDR grants via `/webstream/private-sources`; upload/retry policies via `/webstream/routes` | `GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS` hard ceiling, connection/duration limits, transport | Static route and private-source fallbacks have been removed; migrate their values through Planner before rollout. Per-request propagation and host/path isolation across two Spinners are verified by `scripts/config-ownership-smoke.sh`. |
+| Webhook/WebSocket | Endpoints, subscriptions, routes, targets, event retention through `/web/event-policy`, body capture opt-in per endpoint, and WebSocket limits in the `webong/web` runtime snapshot | Public HTTP listener, global body ceiling, authentication keys | Event history is off until the operator creates an enabled policy. |
+| Webstream | Subscription-selected source; private exact-origin source/CIDR grants via `/webstream/private-sources`; upload/retry policies via `/webstream/routes`; network ceiling, heartbeat, retry, and connection/duration limits in `webong/web` runtime configuration | Public HTTP listener and global body ceiling | Generic hosts no longer read Webstream settings. Per-request propagation and host/path isolation across two Spinners are verified by `scripts/config-ownership-smoke.sh`. |
 | DNS | Zones, nameservers, SOA, TTL, provided Endpoints, Forwarders, and the installable runtime snapshot through `/extensions` | Provisioner credentials and host/network permission to bind the selected address | Spinner no longer parses DNS environment variables or imports DNS. The selected `webong/dns` process validates its bounded listener configuration and revisioned desired-state snapshot before serving. |
-| Email | Domains, aliases, suppressions, hooks, account-owned mailbox connections, submission quotas, runtime behavior through `/email/runtime-policy`, SRS policy, upstream catalogs with explicit network scope, hosted adapters/routes, and DKIM keys through typed `/email/*` resources | SMTP/IMAP/POP3 listeners, TLS, OAuth application credentials, scanner/relay bootstrap, and private Planner connectivity | Planner selects mailbox endpoints; Spinner validates and pins DNS answers before dialing. Mailbox hosts no longer require an environment list. Hosted-adapter egress and static relays retain their separate deployment policies. |
+| Email | Domains, aliases, suppressions, hooks, account-owned mailbox connections, submission quotas, runtime behavior through `/email/runtime-policy`, SRS policy, upstream catalogs, hosted adapters/routes, DKIM keys, and the revisioned `webong/email` listener/relay/failure-follow-up snapshot | Port publication, referenced TLS/scanner secret files, OAuth application credentials, and private Planner connectivity | Planner selects mailbox endpoints; the Email process validates and pins DNS answers before dialing. Generic hosts neither import Email nor parse Email settings. |
 | Schedules | Schedule definitions/runs and a secret-backed failure-notification destination through `/schedules/notification-destination` | Worker activation, poll interval, process limits, exact allowed alert hosts | Former notification URL/token env settings are no longer read. Revision rotation, stale-write rejection, host ceiling, and token secrecy are verified by `scripts/config-ownership-smoke.sh`. |
 | Managed workloads | Targets, servers, applications, instances, desired state | Worker credentials, integration paths, Docker/Kubernetes host access, images, private route network ceiling | Route target selection already comes from Planner. `GATEWAY_PROVISIONING_ROUTE_CIDRS` and Caddy `managed_route_cidrs` are SSRF ceilings, not desired route state; retain them in deployment config. A future per-target route policy may narrow these ceilings but must never replace them. |
 | Shell/automation | Subscription selection, schedules, exact local/SSH hook grants through `/shell/hook-grants`, and write-only SSH client credentials | Hook files, installed language engines, separate mutation token, SSH outbound CIDR ceiling | Static hook-grant config is no longer read. Planner grants cannot install or widen deployed hook capability; SSH keys are kept out of revision history. Local grants are verified across two Spinners by `scripts/config-ownership-smoke.sh`; the SSH path by `scripts/shell-ssh-smoke.sh`. |
 
 Other env settings such as cache stores/TTLs, table names, internal URLs and
-tokens, delivery spool/retry limits, and protocol socket timeouts are process
+tokens, delivery spool/retry limits, and generic host timeouts are process
 or storage controls. They should not become a generic API
 for writing env keys. A changed process-level setting may still require a
 rollout. Conversely, changing a Planner resource should be observable without
-redeploying or restarting the Spinner host; the Webstream grant travels in each
-authenticated stream decision, while DNS desired-state changes replace only the
-verified DNS Extension process.
+restarting the Spinner host; a changed Extension snapshot restarts only that
+verified Extension process.
 
 ## Verification
 
@@ -90,11 +89,15 @@ local multi-Spinner deployment:
 
 ## Remaining work, in order
 
-1. Mail is verified at the private resolution contract each Spinner calls per
-   attempt, not by a live end-to-end delivery, and provider health is observed
-   through the mailbox health-state machine rather than a real healthy upstream.
-   Add a live transport end-to-end check once a fixture mailbox exists. Keep OAuth
-   app registration and listener/TLS bootstrap in deployment config.
+1. The installable Email package's direct `smtp` adapter is covered end to end
+   by the production-like Docker smoke, including Planner submission, its
+   authenticated private Extension mount, durable receipt/replay, Spinner
+   restart, relay acceptance, and failure follow-up. `managed.smtp`,
+   `mailbox.smtp`, and `hosted.mail` still need the same installable-runtime
+   wiring plus identity-scoped private Planner lookups before their legacy host
+   implementations can be removed. Provider health is still observed through
+   the mailbox health-state machine rather than a real healthy upstream. Keep
+   OAuth app registration and listener/TLS bootstrap in deployment config.
 2. Cross-node dispatch for schedule notifications (exactly one alert through the
    DB claim/lease), cross-kind isolation at the smoke level, and rollback remain
    only partly covered. Rollback is not a first-class operation: resources are

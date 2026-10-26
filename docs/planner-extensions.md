@@ -35,6 +35,18 @@ protocol listeners inside their verified child processes. Closing, replacing,
 or failing integrity validation for a package closes that process and its
 listeners.
 
+The runtime advertisement is deliberately protocol-neutral. An Extension may
+claim public HTTP prefixes, authenticated private-admin prefixes, delivery
+adapters, failure handlers, or native jobs. Public and private mounts are kept
+in separate registries even when they use the same path. Spinner authenticates
+the private listener before dispatch and then selects exactly one live provider;
+missing and ambiguous providers fail closed. Extensions that accept work on a
+private route use Arranger's durable idempotent-enqueue and adapter-availability
+capabilities rather than importing Spinner's queue implementation. The host
+also derives a distinct opaque instance key for each verified package identity,
+so an Extension can protect local integrity tags without receiving Spinner's
+internal Planner credential.
+
 Dependencies are capabilities rather than source dependencies. `webong/email`
 declares `gateway.dns/v1 exchange`; `webong/dns` provides it. Both packages must
 be active in Planner desired state. Spinner starts DNS before Email and pins
@@ -118,6 +130,15 @@ and port when the host's `/etc/resolv.conf` should not be used. Legacy
 `GATEWAY_SMTP_ADDR`, `GATEWAY_IMAP_ADDR`, and `GATEWAY_POP3_ADDR` listener
 configuration is rejected by Spinner hosts; those listeners now belong to the
 revisioned `webong/email` configuration.
+
+Every generic host supplies the host-owned HTTP adapter and durable queue.
+Installed Extensions advertise additional adapters and failure handlers at
+runtime. For example, `webong/email` advertises `smtp` when its revisioned
+`smtp_relay` configuration is present and owns construction of optional Email
+delivery-status follow-ups. The same package owns the public submission prefix
+and the private durable-submission handler; Spinner sees only two advertised
+HTTP mounts. Missing, inactive, duplicate, or incompatible providers fail
+closed.
 
 The same package can be built locally with:
 

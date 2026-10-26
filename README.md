@@ -342,9 +342,11 @@ recipient as the route key, and returns `accept`, `reject`, or `deliver`. A
 acknowledged. Set `GATEWAY_DELIVERY_SPOOL_PATH` when SMTP decisions may return
 deliveries; without a durable queue Spinner returns a temporary SMTP error
 instead of accepting a volatile handoff. In `roadrunner` mode the event call
-stays in-process; in `http` mode it
-uses the Planner URL. Embedded Caddy/FrankenPHP deployments use the
-`gateway_smtp` app below.
+stays in-process; in `http` mode it uses the Planner URL. Embedded
+Caddy/FrankenPHP deployments reconcile the same `webong/email` package; the
+Email child owns its protocol listeners and reaches Planner through the
+generic in-process host contract. There are no protocol-specific Email
+directives in the Caddy module.
 
 The Email runtime does not advertise SMTP AUTH unless
 `configuration.smtp.auth_enabled` is explicitly set. AUTH uses the
@@ -535,11 +537,11 @@ WebSocket port or Laravel listener is required.
 Each Spinner/Router process admits at most 1000 WebSocket sessions by default,
 including sessions awaiting a Planner connection decision. Excess upgrades
 receive HTTP 503 with `Retry-After: 1`. A session closes after 24 hours by
-default, and individual messages remain limited by `MAX_BODY_SIZE`. Configure
-`GATEWAY_WEBSOCKET_MAX_CONNECTIONS` and `GATEWAY_WEBSOCKET_MAX_DURATION` for
-standalone Spinner and bundled Router deployments, or
-`websocket_max_connections` and `websocket_max_duration` in the Caddy `gateway`
-block. Limits apply per process, not across a cluster.
+default, and individual messages remain limited by the host's `MAX_BODY_SIZE`.
+Set `configuration.websocket.max_connections` and
+`configuration.websocket.max_duration_ms` on the revisioned `webong/web`
+resource. The selected Web process receives that snapshot regardless of the
+generic host. Limits apply per Extension process, not across a cluster.
 
 ### Webstream transport
 
@@ -652,13 +654,13 @@ empty payload, or `stream.attributes.retry_idempotent = true` with an approved
 the Planner-owned policy above. The continuous-upload opening phase has a
 five-minute cap; ordinary buffered opens retain the normal request timeout.
 
-Production Spinner blocks private SSE source addresses by default, even when
-the source was selected by Planner. First deploy a narrow network ceiling on
-Spinner, then create an exact-origin source grant through the authenticated
-Planner API:
+The Web Extension blocks private SSE source addresses by default, even when the
+source was selected by Planner. First set a narrow
+`configuration.webstream.private_network_cidrs` ceiling on the revisioned
+`webong/web` resource, then create an exact-origin source grant through the
+authenticated Planner API:
 
 ```sh
-GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS='10.42.7.0/24'
 curl -X POST https://planner.example.test/webstream/private-sources \
   -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
   -d '{"origin":"http://events.internal:8080","cidrs":["10.42.7.19/32"]}'
@@ -675,19 +677,17 @@ profile proxy, and does not follow redirects. Keep both ranges narrow.
 `POST` and `GET /{id}` return an ETag; send it as `If-Match` for `PUT` or
 `DELETE` to prevent overwriting a newer grant.
 
-Private-source grants are created only through Planner; there is no env origin
-map. `GATEWAY_WEBSTREAM_PRIVATE_NETWORK_CIDRS` remains a deployment safety
-ceiling and cannot itself grant a private source.
-Unset it after migrating its grants to the API; while set, it can still grant
-an origin independently of the Planner resource.
+Both the network ceiling and the exact-origin grant are Planner-owned desired
+state. The ceiling alone cannot grant a private source, and generic Gateway
+hosts do not read a Webstream environment variable.
 
 For GET, Spinner emits `retry: 3000` by default so conforming SSE clients reconnect. On
 reconnect, `Last-Event-ID` is supplied to Planner as `last_event_id` and the
 built-in registry planner forwards it only to the selected source. It emits a
 comment heartbeat every 15 seconds by default when the source is between SSE
-events, never inside an incomplete event; configure
-`GATEWAY_WEBSTREAM_RETRY` and `GATEWAY_WEBSTREAM_HEARTBEAT_INTERVAL` (set the
-heartbeat interval to `0` to disable it). `/metrics` exposes
+events, never inside an incomplete event. Configure
+`configuration.webstream.retry_ms` and `heartbeat_ms` on `webong/web` (set the
+heartbeat to `0` to disable it). `/metrics` exposes
 `webstreams_active`, `webstreams_opened_total`, and `webstreams_failed_total`
 in the standalone Spinner runtime.
 
@@ -696,10 +696,8 @@ default, counting streams being planned or opened. Further attempts receive
 HTTP 503 with `Retry-After: 1` before Planner or the upstream is called.
 Streams close after 24 hours by default so clients reconnect with their
 `Last-Event-ID` if the source supports replay. Set
-`GATEWAY_WEBSTREAM_MAX_CONNECTIONS` and `GATEWAY_WEBSTREAM_MAX_DURATION` to
-positive values to adjust the bounds. The Caddy module uses
-`webstream_max_connections` and `webstream_max_duration` in its `gateway`
-block and shares the admission limit across requests.
+`configuration.webstream.max_connections` and `max_duration_ms` to positive
+values to adjust the bounds.
 
 Webstream is deliberately not webhook forwarding: it does not queue, retry, or
 fan out messages. It is also not a WebSocket session: clients cannot send
@@ -742,31 +740,19 @@ bidirectional sessions.
   `/email/upstreams`; no exact-host environment list is required
 - `GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR` - Planner-owned mailbox credential
   verifier; unset means POP3 login is denied
-- `GATEWAY_EMAIL_DKIM_RESOLVER_URL` - private Planner origin for per-domain
-  DKIM keys managed through `/email/dkim-keys`; see
-  [mail forwarding](docs/mail-forwarding.md)
 - Authenticated SMTP and HTTP submission quotas are managed through
   `POST /email/submission-policy`; an authenticator may return per-account
   overrides.
 - SMTP recipient preflight, clamd scanning, quarantine storage and retention
   are typed `configuration.smtp` fields on `webong/email`. Custom Planners must
   support the recipient event when preflight is enabled.
-- `GATEWAY_EMAIL_DSN_DOMAIN` - optional reporting hostname for durable SMTP
-  failure notices from authenticated, Planner-approved asynchronous deliveries;
-  requires an outbound relay and spool (see [mail forwarding](docs/mail-forwarding.md))
-- `GATEWAY_SMTP_RELAY_ADDR` - enables SMTP delivery through a configured relay
-  (for example `smtp.example.com:587`)
-- `GATEWAY_SMTP_RELAY_LOCAL_NAME` - EHLO name sent by Gateway (default
-  `gateway.local`)
-- `GATEWAY_SMTP_RELAY_SERVER_NAME` - optional TLS server-name override; by
-  default it is inferred from the relay address
-- `GATEWAY_SMTP_RELAY_USERNAME`, `GATEWAY_SMTP_RELAY_PASSWORD` - optional
-  relay credentials; both are required together and authentication requires
-  TLS
-- `GATEWAY_SMTP_RELAY_TLS_MODE` - `starttls` (default), `implicit`, or `none`;
-  use `none` only for a trusted local/private test relay
-- `GATEWAY_SMTP_RELAY_TIMEOUT` - outbound SMTP connection and submission
-  deadline (default `30s`)
+- `webong/email` `configuration.failure_notice_domain` enables Email-owned
+  delivery-status follow-ups for authenticated, Planner-approved failures.
+- `webong/email` `configuration.smtp_relay` owns the relay address, EHLO and
+  server names, TLS mode, and timeout. Credentialed relays wait for Extension
+  secret references; credentials are rejected from this non-secret object. Email advertises the
+  resulting `smtp` adapter dynamically; generic hosts do not parse relay
+  environment variables.
 - `GATEWAY_DELIVERY_SPOOL_PATH` - durable local spool for asynchronous HTTP
   and SMTP deliveries. Bundled Router launchers
   default it to `GATEWAY_ROUTER_DATA_DIR/deliveries`; standalone Spinner must
@@ -1202,7 +1188,8 @@ non-empty `GATEWAY_INTERNAL_TOKEN` matching the Go process.
 The same provider registers `POST /_internal/gateway/event` for protocol events
 such as SMTP transactions and DNS queries. It uses the same internal token and
 is intended to be reachable only from the Go listener or the loopback PHP
-bridge in the Caddy deployment.
+bridge in separate-process deployments. Embedded Caddy uses the generic
+in-process reverse contract instead.
 
 When embedding RoadRunner in Go, configure the PHP worker command as
 `vendor/bin/roadrunner-worker` with `APP_BASE_PATH` pointing at the Laravel
@@ -1256,19 +1243,17 @@ The Caddy handler is compiled into the binary; it is not loaded dynamically at
 runtime. The handler owns its Go delivery worker pool and drains it during a
 Caddy configuration reload.
 
-The same custom binary also contains the `gateway.smtp`, `gateway.pop3`, and
-`gateway.imap` Caddy app modules. They start sibling TCP listeners from the
-FrankenPHP/Caddy process; these protocols do not pass through `php_server`.
-Each app calls the configured private `planner_url` for decisions. The SMTP
-app owns its Go delivery pool, while POP3 and IMAP tunnel authenticated
-sessions to operator-registered TLS mailbox upstreams. The example file binds
-that PHP bridge
-to `127.0.0.1:8081` and configures it with `gateway_smtp` in the global block.
-This provides the second deployment shape without duplicating protocol
-implementations. The SMTP app accepts `tls_cert_file`, `tls_key_file`,
-`implicit_tls`, and `auth_enabled` options with the same semantics as the
-`GATEWAY_SMTP_*` settings. See [Email forwarding](docs/mail-forwarding.md)
-for the POP3/IMAP Caddy options and private-upstream CA trust.
+The custom binary contains only the generic `gateway` host adapter. Activate
+`webong/email` through Planner's `/extensions` API to add SMTP, POP3, IMAP, and
+the public Email HTTP submission route after deployment. Its child process owns
+sibling TCP listeners and calls Planner through Caddy's in-process,
+authenticated reverse contract; no PHP-only loopback listener or Caddy rebuild
+is required. The generic Caddy host currently provides only the HTTP delivery
+adapter: SMTP ingress can forward to HTTP subscribers, but outbound SMTP and
+durable HTTP submission fail closed until Email advertises its own durable
+adapter capability. Do not enable public HTTP submission in that deployment
+shape yet. See [Email forwarding](docs/mail-forwarding.md) for listener
+configuration and private-upstream CA trust.
 
 ## Tests
 
