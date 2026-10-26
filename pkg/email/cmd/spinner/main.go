@@ -21,6 +21,7 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailruntime "github.com/webong/gateway/pkg/email/spinner"
+	"github.com/webong/gateway/pkg/email/spinner/delivery"
 	"github.com/webong/gateway/pkg/email/spinner/deliveryfailure"
 	"github.com/webong/gateway/pkg/email/spinner/imap"
 	"github.com/webong/gateway/pkg/email/spinner/mailnet"
@@ -35,6 +36,7 @@ type configuration struct {
 	IMAP                *imapConfiguration        `json:"imap,omitempty"`
 	POP3                *pop3Configuration        `json:"pop3,omitempty"`
 	SMTPRelay           *smtpRelayConfiguration   `json:"smtp_relay,omitempty"`
+	HostedMail          *hostedMailConfiguration  `json:"hosted_mail,omitempty"`
 	MailboxPoll         *mailboxPollConfiguration `json:"mailbox_poll,omitempty"`
 	FailureNoticeDomain string                    `json:"failure_notice_domain,omitempty"`
 }
@@ -46,11 +48,16 @@ type mailboxPollConfiguration struct {
 }
 
 type smtpRelayConfiguration struct {
-	Address    string `json:"address"`
-	LocalName  string `json:"local_name,omitempty"`
-	ServerName string `json:"server_name,omitempty"`
-	TLSMode    string `json:"tls_mode"`
-	TimeoutMS  int    `json:"timeout_ms,omitempty"`
+	Address       string `json:"address"`
+	LocalName     string `json:"local_name,omitempty"`
+	ServerName    string `json:"server_name,omitempty"`
+	TLSMode       string `json:"tls_mode"`
+	TimeoutMS     int    `json:"timeout_ms,omitempty"`
+	CredentialRef string `json:"credential_ref,omitempty"`
+}
+
+type hostedMailConfiguration struct {
+	AllowedHosts []string `json:"allowed_hosts"`
 }
 
 type runtime struct {
@@ -143,26 +150,62 @@ func (runtime *runtime) start(_ context.Context, request runtimecontract.Runtime
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return runtimecontract.RuntimeStartResponse{}, errors.New("Email runtime configuration contains trailing data")
 	}
-	if configured.SMTP == nil && configured.IMAP == nil && configured.POP3 == nil && configured.SMTPRelay == nil && configured.MailboxPoll == nil && configured.FailureNoticeDomain == "" {
-		return runtimecontract.RuntimeStartResponse{}, errors.New("Email requires at least one configured listener or delivery adapter")
-	}
 	adapters := make(map[string]runtimecontract.GatewayDeliveryAdapter)
+	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
+	privatePlanner := host.PrivatePlanner()
+	signer, err := smtpout.NewPlannerDKIMSigner(privatePlanner)
+	if err != nil {
+		return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure Email DKIM resolver: %w", err)
+	}
+	managed, err := delivery.NewPlannerManagedSMTPAdapter(privatePlanner, 30*time.Second, signer)
+	if err != nil {
+		return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure managed SMTP adapter: %w", err)
+	}
+	adapters["managed.smtp"] = managed
+	mailboxResolver, err := smtpout.NewPlannerMailboxResolver(privatePlanner)
+	if err != nil {
+		return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure mailbox SMTP resolver: %w", err)
+	}
+	mailbox, err := smtpout.NewManagedMailboxAdapter(mailboxResolver, 30*time.Second)
+	if err != nil {
+		return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure mailbox SMTP adapter: %w", err)
+	}
+	adapters["mailbox.smtp"] = mailbox
+	if configured.HostedMail != nil {
+		hostedResolver, resolverErr := delivery.NewPlannerHostedMailResolver(privatePlanner)
+		if resolverErr != nil {
+			return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure hosted mail resolver: %w", resolverErr)
+		}
+		hosted, hostedErr := delivery.NewManagedHostedMailAdapter(hostedResolver, configured.HostedMail.AllowedHosts, nil)
+		if hostedErr != nil {
+			return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure hosted mail adapter: %w", hostedErr)
+		}
+		adapters["hosted.mail"] = hosted
+	}
 	if configured.SMTPRelay != nil {
-		sender, err := smtpout.NewSender(smtpout.Config{
+		relay := smtpout.Config{
 			Address: configured.SMTPRelay.Address, LocalName: configured.SMTPRelay.LocalName,
 			ServerName: configured.SMTPRelay.ServerName, TLSMode: smtpout.TLSMode(configured.SMTPRelay.TLSMode),
 			Timeout: durationMS(configured.SMTPRelay.TimeoutMS),
-		})
-		if err != nil {
-			return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure Email SMTP relay: %w", err)
 		}
-		adapter, err := smtpout.NewGatewayAdapter(sender, nil)
-		if err != nil {
-			return runtimecontract.RuntimeStartResponse{}, err
+		if configured.SMTPRelay.CredentialRef != "" {
+			adapter, credentialErr := smtpout.NewSecretGatewayAdapter(relay, configured.SMTPRelay.CredentialRef, host.Secrets(), signer)
+			if credentialErr != nil {
+				return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure credentialed Email SMTP relay: %w", credentialErr)
+			}
+			adapters[string(runtimecontract.ProtocolSMTP)] = adapter
+		} else {
+			sender, senderErr := smtpout.NewSender(relay)
+			if senderErr != nil {
+				return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure Email SMTP relay: %w", senderErr)
+			}
+			adapter, adapterErr := smtpout.NewGatewayAdapter(sender, signer)
+			if adapterErr != nil {
+				return runtimecontract.RuntimeStartResponse{}, adapterErr
+			}
+			adapters[string(runtimecontract.ProtocolSMTP)] = adapter
 		}
-		adapters[string(runtimecontract.ProtocolSMTP)] = adapter
 	}
-	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
 	jobs := make(map[string]func(context.Context, string, map[string]any) error)
 	failures := make(map[string]runtimecontract.DeliveryFailureHandler)
 	response := runtimecontract.RuntimeStartResponse{DeliveryAdapters: adapterNames(adapters)}

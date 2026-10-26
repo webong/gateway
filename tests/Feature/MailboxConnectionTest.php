@@ -66,6 +66,9 @@ it('keeps mailbox credentials and control scoped to the owning account', functio
         ->assertJsonPath('upstream_address', 'smtp.test:465')
         ->assertJsonPath('upstream_server_name', 'smtp.test')
         ->assertJsonPath('upstream_tls_mode', 'implicit');
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->getJson('/_internal/gateway/extensions/webong/email/mailbox-connections/'.$id.'/smtp')->assertOk()
+        ->assertJsonPath('username', 'a@example.test');
     expect($store->authenticate($id, $created['imap_password'], 'imap'))->not->toBeNull()
         ->and($store->authenticate($id, $created['smtp_password'], 'smtp'))->not->toBeNull()
         ->and($store->authenticate($id, $created['imap_password'], 'smtp'))->toBeNull();

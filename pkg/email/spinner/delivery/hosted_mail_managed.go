@@ -12,6 +12,7 @@ import (
 	"time"
 
 	protocol "github.com/webong/gateway/arranger/integration"
+	"github.com/webong/gateway/pkg/email/spinner/plannerclient"
 )
 
 type HostedMailSpecResolver interface {
@@ -24,6 +25,7 @@ type httpHostedMailResolver struct {
 	origin string
 	token  string
 	client *http.Client
+	prefix string
 }
 
 func NewHTTPHostedMailResolver(origin, token string) (*httpHostedMailResolver, error) {
@@ -33,7 +35,17 @@ func NewHTTPHostedMailResolver(origin, token string) (*httpHostedMailResolver, e
 		return nil, errors.New("private hosted mail resolver is invalid")
 	}
 	return &httpHostedMailResolver{origin: strings.TrimRight(origin, "/"), token: token,
-		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		prefix: "/_internal/gateway/email/hosted-adapters/"}, nil
+}
+
+func NewPlannerHostedMailResolver(handler http.Handler) (*httpHostedMailResolver, error) {
+	client, err := plannerclient.New(handler)
+	if err != nil {
+		return nil, err
+	}
+	return &httpHostedMailResolver{origin: plannerclient.Origin, token: "extension-scoped", client: client,
+		prefix: "/_internal/gateway/extensions/webong/email/hosted-adapters/"}, nil
 }
 
 func (r *httpHostedMailResolver) Resolve(ctx context.Context, name string) (HostedMailAdapterSpec, error) {
@@ -41,7 +53,7 @@ func (r *httpHostedMailResolver) Resolve(ctx context.Context, name string) (Host
 		return HostedMailAdapterSpec{}, errors.New("hosted mail adapter name is invalid")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		r.origin+"/_internal/gateway/email/hosted-adapters/"+name, nil)
+		r.origin+r.prefix+name, nil)
 	if err != nil {
 		return HostedMailAdapterSpec{}, err
 	}

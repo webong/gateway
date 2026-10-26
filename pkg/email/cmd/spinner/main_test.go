@@ -99,6 +99,8 @@ func TestEmailRuntimeAdvertisesItsFailureHandler(t *testing.T) {
 	runtime := new(runtime)
 	response, err := runtime.start(context.Background(), runtimecontract.RuntimeStartRequest{
 		Configuration: json.RawMessage(`{"failure_notice_domain":"gateway.example.test"}`),
+		MaxBodySize:   1024 * 1024,
+		InstanceKey:   []byte("extension-scoped-test-key"),
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +144,35 @@ func TestEmailRuntimeAdvertisesSeparatePublicAndPrivateSubmissionMounts(t *testi
 		response.HTTP[0].Address == response.PrivateHTTP[0].Address {
 		t.Fatalf("submission mounts = public:%+v private:%+v", response.HTTP, response.PrivateHTTP)
 	}
-	if len(response.DeliveryAdapters) != 1 || response.DeliveryAdapters[0] != "smtp" {
+	if fmt.Sprint(response.DeliveryAdapters) != "[mailbox.smtp managed.smtp smtp]" {
+		t.Fatalf("delivery adapters = %v", response.DeliveryAdapters)
+	}
+}
+
+func TestEmailRuntimeAdvertisesPlannerManagedProvidersWithoutEmbeddingTheirSecrets(t *testing.T) {
+	response, err := new(runtime).start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"hosted_mail":{"allowed_hosts":["provider.example.test"]}}`),
+		MaxBodySize:   1024 * 1024,
+		InstanceKey:   []byte("extension-scoped-test-key"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(response.DeliveryAdapters) != "[hosted.mail mailbox.smtp managed.smtp]" {
+		t.Fatalf("delivery adapters = %v", response.DeliveryAdapters)
+	}
+}
+
+func TestEmailRuntimeAcceptsOnlyAReferenceForCredentialedRelay(t *testing.T) {
+	response, err := new(runtime).start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"smtp_relay":{"address":"relay.example.test:587","tls_mode":"starttls","credential_ref":"primary-relay"}}`),
+		MaxBodySize:   1024 * 1024,
+		InstanceKey:   []byte("extension-scoped-test-key"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(response.DeliveryAdapters) != "[mailbox.smtp managed.smtp smtp]" {
 		t.Fatalf("delivery adapters = %v", response.DeliveryAdapters)
 	}
 }

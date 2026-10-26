@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/webong/gateway/pkg/email/spinner/plannerclient"
 )
 
 // HTTPDKIMSigner resolves the current per-domain key over the private Planner
@@ -18,6 +20,7 @@ type HTTPDKIMSigner struct {
 	origin string
 	token  string
 	client *http.Client
+	prefix string
 }
 
 func NewHTTPDKIMSigner(origin, token string) (*HTTPDKIMSigner, error) {
@@ -27,7 +30,17 @@ func NewHTTPDKIMSigner(origin, token string) (*HTTPDKIMSigner, error) {
 		return nil, errors.New("private DKIM signer resolver is invalid")
 	}
 	return &HTTPDKIMSigner{origin: strings.TrimRight(origin, "/"), token: token,
-		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+		client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		prefix: "/_internal/gateway/email/dkim/"}, nil
+}
+
+func NewPlannerDKIMSigner(handler http.Handler) (*HTTPDKIMSigner, error) {
+	client, err := plannerclient.New(handler)
+	if err != nil {
+		return nil, err
+	}
+	return &HTTPDKIMSigner{origin: plannerclient.Origin, token: "extension-scoped", client: client,
+		prefix: "/_internal/gateway/extensions/webong/email/dkim/"}, nil
 }
 
 func (r *HTTPDKIMSigner) CheckSigningDomain(domain string) error {
@@ -37,7 +50,7 @@ func (r *HTTPDKIMSigner) CheckSigningDomain(domain string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodHead,
-		r.origin+"/_internal/gateway/email/dkim/"+domain, nil)
+		r.origin+r.prefix+domain, nil)
 	if err != nil {
 		return err
 	}
@@ -68,7 +81,7 @@ func (r *HTTPDKIMSigner) resolve(domain string) (*DKIMSigner, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		r.origin+"/_internal/gateway/email/dkim/"+domain, nil)
+		r.origin+r.prefix+domain, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -96,6 +96,8 @@ func TestEmailCanBeInstalledWithDNSAfterSpinnerStarts(t *testing.T) {
 	executor := &runtimeEmailExecutor{deliveries: make(chan protocol.GatewayDelivery, 1)}
 	submissions := make(chan string, 1)
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
+		InternalToken: "internal-secret",
+		Start:         protocol.RuntimeStartRequest{MaxBodySize: 1024 * 1024},
 		ProtocolPlanner: runtimeProtocolPlanner(func(_ context.Context, event protocol.GatewayEvent) (protocol.GatewayDecision, error) {
 			if event.Protocol != protocol.ProtocolSMTP || event.Kind != protocol.EventTransaction {
 				return protocol.GatewayDecision{}, fmt.Errorf("unexpected Email event: %+v", event)
@@ -134,6 +136,9 @@ func TestEmailCanBeInstalledWithDNSAfterSpinnerStarts(t *testing.T) {
 		registry.Unregister("webong/email")
 		registry.Unregister("webong/dns")
 	})
+	if names := fmt.Sprint(registry.DeliveryAdapterNames()); names != "[mailbox.smtp managed.smtp]" {
+		t.Fatalf("packaged Email delivery adapters = %s", names)
+	}
 
 	submission := httptest.NewRequest(http.MethodPost, "http://gateway.test/email/submissions", strings.NewReader(`{"message":"hello"}`))
 	submissionResponse := httptest.NewRecorder()

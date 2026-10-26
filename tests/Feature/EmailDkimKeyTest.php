@@ -21,6 +21,9 @@ it('stores a private DKIM key in the shared encrypted collection and exposes it 
     $this->withHeader('X-Gateway-Internal', 'internal-secret')
         ->getJson('/_internal/gateway/email/dkim/example.test')->assertOk()
         ->assertJsonPath('selector', 'mail1')->assertJsonPath('private_key_pem', trim($pem));
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->getJson('/_internal/gateway/extensions/webong/email/dkim/example.test')->assertOk()
+        ->assertJsonPath('selector', 'mail1');
     $disabled = $this->withToken('registry-secret')->withHeaders(['If-Match' => $created->headers->get('ETag')])
         ->putJson('/email/dkim-keys/'.$created->json('id'), [
             'domain' => 'example.test', 'selector' => 'mail2', 'enabled' => false,

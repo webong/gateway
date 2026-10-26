@@ -16,6 +16,7 @@ import (
 
 	smtpclient "github.com/emersion/go-smtp"
 	protocol "github.com/webong/gateway/arranger/integration"
+	"github.com/webong/gateway/pkg/email/spinner/plannerclient"
 	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 )
 
@@ -39,6 +40,7 @@ type ManagedSMTPAdapter struct {
 	signer  smtpout.DKIMSigning
 	client  *http.Client
 	send    func(context.Context, OutboundSMTPTransport, protocol.GatewayDelivery) error
+	prefix  string
 }
 
 func NewManagedSMTPAdapter(origin, token string, timeout time.Duration, signer smtpout.DKIMSigning) (*ManagedSMTPAdapter, error) {
@@ -51,7 +53,20 @@ func NewManagedSMTPAdapter(origin, token string, timeout time.Duration, signer s
 		timeout = 30 * time.Second
 	}
 	return &ManagedSMTPAdapter{origin: strings.TrimRight(origin, "/"), token: token, timeout: timeout,
-		signer: signer, client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+		signer: signer, client: &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		prefix: "/_internal/gateway/email"}, nil
+}
+
+func NewPlannerManagedSMTPAdapter(handler http.Handler, timeout time.Duration, signer smtpout.DKIMSigning) (*ManagedSMTPAdapter, error) {
+	client, err := plannerclient.New(handler)
+	if err != nil {
+		return nil, err
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	return &ManagedSMTPAdapter{origin: plannerclient.Origin, token: "extension-scoped", timeout: timeout,
+		signer: signer, client: client, prefix: "/_internal/gateway/extensions/webong/email"}, nil
 }
 
 func (a *ManagedSMTPAdapter) call(ctx context.Context, path string, body any, result any) error {
@@ -102,7 +117,7 @@ func (a *ManagedSMTPAdapter) DeliverGateway(ctx context.Context, delivery protoc
 	var plan struct {
 		Transports []OutboundSMTPTransport `json:"transports"`
 	}
-	if err := a.call(ctx, "/_internal/gateway/email/outbound-plan", map[string]string{
+	if err := a.call(ctx, a.prefix+"/outbound-plan", map[string]string{
 		"pool_id": pool, "account_id": account, "route_id": route, "domain_id": domain,
 		"sender_domain": senderDomain, "delivery_id": id,
 	}, &plan); err != nil {
@@ -117,7 +132,7 @@ func (a *ManagedSMTPAdapter) DeliverGateway(ctx context.Context, delivery protoc
 		if spec.Type != "smtp" || spec.ID == "" || spec.TLSMode == "none" {
 			return fmt.Errorf("%w: invalid outbound transport", protocol.ErrPermanentDelivery)
 		}
-		reserveErr := a.call(ctx, "/_internal/gateway/email/outbound-attempts/"+id+"/reserve",
+		reserveErr := a.call(ctx, a.prefix+"/outbound-attempts/"+id+"/reserve",
 			map[string]any{"transport_id": spec.ID, "attempt_index": attemptIndex*32 + index}, nil)
 		if errors.Is(reserveErr, ErrOutboundCapacity) {
 			last = reserveErr
@@ -175,7 +190,7 @@ func (a *ManagedSMTPAdapter) sendSMTP(ctx context.Context, spec OutboundSMTPTran
 }
 
 func (a *ManagedSMTPAdapter) record(ctx context.Context, deliveryID, transportID, state string) error {
-	return a.call(ctx, "/_internal/gateway/email/outbound-attempts/"+deliveryID,
+	return a.call(ctx, a.prefix+"/outbound-attempts/"+deliveryID,
 		map[string]string{"transport_id": transportID, "state": state}, nil)
 }
 

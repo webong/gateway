@@ -20,6 +20,9 @@ it('routes hosted mail from Planner resources while keeping provider tokens priv
     $this->withHeader('X-Gateway-Internal', 'internal-secret')
         ->getJson('/_internal/gateway/email/hosted-adapters/provider.primary')->assertOk()
         ->assertJsonPath('bearer_token', 'provider-secret');
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->getJson('/_internal/gateway/extensions/webong/email/hosted-adapters/provider.primary')->assertOk()
+        ->assertJsonPath('bearer_token', 'provider-secret');
 
     $txt = new class implements TxtResolver {
         public string $token = '';

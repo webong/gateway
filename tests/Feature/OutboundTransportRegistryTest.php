@@ -63,6 +63,9 @@ it('keeps SMTP credentials private and pins weighted outbound plans per account'
     $this->withHeader('X-Gateway-Internal', 'wrong')->postJson('/_internal/gateway/email/outbound-plan', $plan)->assertNotFound();
     $planned = $this->withHeader('X-Gateway-Internal', 'internal-secret')
         ->postJson('/_internal/gateway/email/outbound-plan', $plan)->assertOk()->json();
+    $this->withHeader('X-Gateway-Internal', 'internal-secret')
+        ->postJson('/_internal/gateway/extensions/webong/email/outbound-plan', $plan)->assertOk()
+        ->assertJsonPath('transports.0.id', $first['id']);
     expect($planned['transports'][0]['id'])->toBe($first['id'])
         ->and($planned['transports'][0]['password'])->toBe($secret)
         ->and($planned['transports'][1]['id'])->toBe($second['id']);
