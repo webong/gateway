@@ -129,6 +129,8 @@ jobs:
           extensions: bcmath, curl, intl, mbstring, pdo_pgsql, pdo_sqlite, sockets, zip
 
       - name: Install Planner dependencies
+        env:
+          COMPOSER_ROOT_VERSION: dev-main
         run: composer install --no-interaction --prefer-dist
 
       - name: Test extension artifact reconciliation
