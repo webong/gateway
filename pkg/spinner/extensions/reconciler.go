@@ -21,7 +21,9 @@ import (
 	"sync"
 	"time"
 
+	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
@@ -44,6 +46,11 @@ type DesiredExtension struct {
 	Configuration       json.RawMessage `json:"configuration,omitempty"`
 	ConfigurationSHA256 string          `json:"configuration_sha256"`
 	Revision            int             `json:"revision"`
+}
+
+type reconciledExtension struct {
+	desired   DesiredExtension
+	installed store.Installed
 }
 
 // Registries are the role-specific hosts updated by one desired-state pass.
@@ -167,15 +174,38 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("open extension store: %w", err)
 	}
 	desiredIDs := make(map[string]bool, len(desired))
+	selected := make(map[plugin.Identity]reconciledExtension, len(desired))
+	manifests := make([]packagekit.Manifest, 0, len(desired))
 	for _, extension := range desired {
 		desiredIDs[extension.Extension] = true
 		installed, err := r.materialize(ctx, packages, extension)
 		if err != nil {
-			r.registries.Automation.UnregisterExtension(extension.Extension)
-			delete(r.loaded, extension.Extension)
+			r.closeExternalExtensions()
 			return fmt.Errorf("reconcile extension %s: %w", extension.Extension, err)
 		}
+		selected[installed.Manifest.Descriptor.Identity] = reconciledExtension{desired: extension, installed: installed}
+		manifests = append(manifests, installed.Manifest)
+	}
+	plan, err := packagekit.Resolve(manifests)
+	if err != nil {
+		r.closeExternalExtensions()
+		return fmt.Errorf("resolve extension dependencies: %w", err)
+	}
+	if err := validateDependencyPlan(plan, selected); err != nil {
+		r.closeExternalExtensions()
+		return err
+	}
+	for _, identity := range plan.Order {
+		selection, ok := selected[identity]
+		if !ok {
+			r.closeExternalExtensions()
+			return errors.New("extension dependency plan selected an unknown package")
+		}
+		extension := selection.desired
+		installed := selection.installed
+		bindings := dependencyBindings(plan.Bindings, identity)
 		loadedRevision := fmt.Sprintf("%d:%s:%s:%s", extension.Revision, extension.Artifact.SHA256, extension.ConfigurationSHA256, installed.Manifest.Descriptor.Identity.Revision)
+		loadedRevision += ":" + dependencyRevision(bindings)
 		if r.loaded[extension.Extension] == loadedRevision {
 			continue
 		}
@@ -185,11 +215,11 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 			delete(r.loaded, extension.Extension)
 			return fmt.Errorf("launch Spinner entrypoint: %w", err)
 		}
-		if err := integrationextensions.LoadExternalInstalledWithConfiguration(ctx, r.registries.Integration, installed, extension.Configuration); err != nil {
+		if err := integrationextensions.LoadExternalInstalledWithDependencies(ctx, r.registries.Integration, installed, extension.Configuration, bindings); err != nil {
 			r.registries.Automation.UnregisterExtension(extension.Extension)
 			r.registries.Integration.Unregister(extension.Extension)
 			delete(r.loaded, extension.Extension)
-			return fmt.Errorf("launch Spinner integration entrypoint: %w", err)
+			return fmt.Errorf("launch Spinner integration entrypoint for %s: %w", extension.Extension, err)
 		}
 		r.loaded[extension.Extension] = loadedRevision
 	}
@@ -207,6 +237,39 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 		}
 		r.registries.Integration.Unregister(extension)
 		delete(r.loaded, extension)
+	}
+	return nil
+}
+
+func dependencyBindings(bindings []packagekit.Resolution, consumer plugin.Identity) []packagekit.Resolution {
+	result := make([]packagekit.Resolution, 0)
+	for _, binding := range bindings {
+		if binding.Consumer == consumer {
+			result = append(result, binding)
+		}
+	}
+	return result
+}
+
+func dependencyRevision(bindings []packagekit.Resolution) string {
+	encoded, _ := json.Marshal(bindings)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
+func validateDependencyPlan(plan packagekit.Plan, selected map[plugin.Identity]reconciledExtension) error {
+	for _, binding := range plan.Bindings {
+		consumer, ok := selected[binding.Consumer]
+		if !ok {
+			return errors.New("extension dependency plan names an unknown consumer")
+		}
+		if _, err := consumer.installed.Manifest.Descriptor.LookupReverse(binding.Requirement.Contract, binding.Requirement.Operation); err != nil {
+			return fmt.Errorf("extension %s requires %s@%s/%s without declaring the reverse capability", binding.Consumer.ID, binding.Requirement.Contract.Name, binding.Requirement.Contract.Version, binding.Requirement.Operation)
+		}
+		provider, ok := selected[binding.Provider]
+		if !ok || !integrationextensions.Supports(provider.installed.Manifest.Descriptor) {
+			return fmt.Errorf("extension %s dependency %s@%s/%s is not supplied by a Spinner integration", binding.Consumer.ID, binding.Requirement.Contract.Name, binding.Requirement.Contract.Version, binding.Requirement.Operation)
+		}
 	}
 	return nil
 }

@@ -17,14 +17,22 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
 	integrationcontract "github.com/webong/gateway/arranger/integration"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	extensionhost "github.com/webong/gateway/pkg/spinner/extensions/internal/host"
 )
 
 type mounted struct {
-	process *host.Process
-	http    []httpMount
+	identity plugin.Identity
+	process  extensionProcess
+	http     []httpMount
+}
+
+type extensionProcess interface {
+	Descriptor() plugin.Descriptor
+	Call(context.Context, string, any, any) error
+	Close() error
 }
 
 type httpMount struct {
@@ -74,6 +82,14 @@ func LoadExternalInstalled(ctx context.Context, registry *Registry, inst store.I
 }
 
 func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Registry, inst store.Installed, configuration json.RawMessage) error {
+	return LoadExternalInstalledWithDependencies(ctx, registry, inst, configuration, nil)
+}
+
+// LoadExternalInstalledWithDependencies starts one verified Integration and
+// grants it only the exact provider bindings selected by packagekit.Resolve.
+// Dependencies are routed through the host; consumers never receive another
+// extension's process handle or credentials.
+func LoadExternalInstalledWithDependencies(ctx context.Context, registry *Registry, inst store.Installed, configuration json.RawMessage, bindings []packagekit.Resolution) error {
 	if !Supports(inst.Manifest.Descriptor) {
 		return nil
 	}
@@ -85,8 +101,12 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 		return fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
 	proc, err := host.Open(ctx, inst, host.Options{
-		Reverse: DefaultHost.ReverseOptions(companionextensions.DefaultHost.ReverseOptions()),
-		Launch:  launch,
+		Reverse: registry.DependencyReverseOptions(
+			inst.Manifest.Descriptor.Identity,
+			bindings,
+			DefaultHost.ReverseOptions(companionextensions.DefaultHost.ReverseOptions()),
+		),
+		Launch: launch,
 	})
 	if err != nil {
 		return err
@@ -97,6 +117,9 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 	cancel()
 	if err != nil {
 		_ = proc.Close()
+		if diagnostic := strings.TrimSpace(proc.Stderr()); diagnostic != "" {
+			return fmt.Errorf("start Spinner integration: %w (guest: %s)", err, diagnostic)
+		}
 		return fmt.Errorf("start Spinner integration: %w", err)
 	}
 	mounts := make([]httpMount, 0, len(advertisement.HTTP))
@@ -119,8 +142,94 @@ func LoadExternalInstalledWithConfiguration(ctx context.Context, registry *Regis
 		}
 		mounts = append(mounts, httpMount{prefix: prefix, proxy: reverseProxy})
 	}
-	registry.register(inst.Manifest.Descriptor.Identity.ID, mounted{process: proc, http: mounts})
+	registry.register(inst.Manifest.Descriptor.Identity.ID, mounted{
+		identity: inst.Manifest.Descriptor.Identity,
+		process:  proc,
+		http:     mounts,
+	})
 	return nil
+}
+
+// DependencyReverseOptions exposes only dependency operations resolved for one
+// immutable consumer identity. A missing, replaced, or incompatible provider
+// fails closed; the fallback retains host-owned Arranger capabilities.
+func (r *Registry) DependencyReverseOptions(consumer plugin.Identity, bindings []packagekit.Resolution, fallback *plugin.ReverseOptions) *plugin.ReverseOptions {
+	resolved := make(map[dependencyOperation]plugin.Identity)
+	for _, binding := range bindings {
+		if binding.Consumer != consumer {
+			continue
+		}
+		resolved[dependencyOperation{binding.Requirement.Contract, binding.Requirement.Operation}] = binding.Provider
+	}
+	return &plugin.ReverseOptions{
+		Authorize: func(ctx context.Context, request plugin.Request) error {
+			provider, ok := resolved[dependencyOperation{request.Contract, request.Operation}]
+			if ok {
+				return r.authorizeDependency(provider, request)
+			}
+			if fallback == nil || fallback.Authorize == nil {
+				return plugin.ErrDenied
+			}
+			return fallback.Authorize(ctx, request)
+		},
+		Handle: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+			provider, ok := resolved[dependencyOperation{request.Contract, request.Operation}]
+			if ok {
+				return r.callDependency(ctx, provider, request)
+			}
+			if fallback == nil || fallback.Handle == nil {
+				return nil, plugin.ErrDenied
+			}
+			return fallback.Handle(ctx, request)
+		},
+		Timeout:         5 * time.Minute,
+		MaxPayloadBytes: plugin.MaxFrameBytes - (64 << 10),
+		MaxInFlight:     16,
+	}
+}
+
+type dependencyOperation struct {
+	contract  plugin.ContractRef
+	operation string
+}
+
+func (r *Registry) authorizeDependency(provider plugin.Identity, request plugin.Request) error {
+	process, err := r.dependencyProcess(provider)
+	if err != nil {
+		return err
+	}
+	if _, err := process.Descriptor().Lookup(request.Contract, request.Operation); err != nil {
+		return plugin.ErrMismatch
+	}
+	return nil
+}
+
+func (r *Registry) callDependency(ctx context.Context, provider plugin.Identity, request plugin.Request) (json.RawMessage, error) {
+	process, err := r.dependencyProcess(provider)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := process.Descriptor().Lookup(request.Contract, request.Operation); err != nil {
+		return nil, plugin.ErrMismatch
+	}
+	var response json.RawMessage
+	if err := process.Call(ctx, plugin.Method(request.Contract, request.Operation), request.Payload, &response); err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+func (r *Registry) dependencyProcess(identity plugin.Identity) (extensionProcess, error) {
+	r.mu.RLock()
+	mounted, ok := r.mounted[identity.ID]
+	r.mu.RUnlock()
+	if !ok || mounted.process == nil {
+		return nil, plugin.ErrNotFound
+	}
+	if mounted.identity != identity {
+		return nil, plugin.ErrMismatch
+	}
+	return mounted.process, nil
 }
 
 func validHTTPPrefix(prefix string) (string, error) {

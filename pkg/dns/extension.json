@@ -8,6 +8,13 @@
             "operations": [
                 {"name": "start", "surface": "spinner"}
             ]
+        },
+        {
+            "name": "gateway.dns",
+            "version": "v1",
+            "operations": [
+                {"name": "exchange"}
+            ]
         }
     ],
     "reverse": [

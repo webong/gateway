@@ -24,6 +24,7 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
@@ -70,6 +71,12 @@ func TestArtifactGuestProcess(t *testing.T) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
+	if manifest.Descriptor.Identity.ID == "webong/dns" {
+		serveDependencyGuest(manifest, "provider")
+	}
+	if manifest.Descriptor.Identity.ID == "webong/email" {
+		serveDependencyGuest(manifest, "consumer")
+	}
 	guest, err := plugin.NewGuest(manifest.Descriptor, plugin.GuestOptions{Handler: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
 		var input automationextensions.ExecuteRequest
 		if err := json.Unmarshal(request.Payload, &input); err != nil {
@@ -102,6 +109,108 @@ func TestArtifactGuestProcess(t *testing.T) {
 		os.Exit(2)
 	}
 	os.Exit(0)
+}
+
+func serveDependencyGuest(manifest packagekit.Manifest, role string) {
+	starter := runtimecontract.RuntimeStarterFunc(func(ctx context.Context, _ runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
+		if role == "consumer" {
+			response, err := runtimecontract.NewRuntimeHost(caller, nil).DNS().Exchange(ctx, []byte("query"))
+			if err != nil || string(response) != "response" {
+				return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("call DNS dependency: response=%q err=%w", response, err)
+			}
+		}
+		return runtimecontract.RuntimeStartResponse{}, nil
+	})
+	handler := runtimecontract.RuntimeOperationHandlerFunc(func(_ context.Context, request plugin.Request) (json.RawMessage, error) {
+		if role != "provider" || request.Contract != runtimecontract.DNSContract || request.Operation != runtimecontract.OperationDNSExchange {
+			return nil, plugin.ErrUnsupported
+		}
+		var input runtimecontract.DNSExchangeRequest
+		if err := plugin.Decode(request.Payload, &input); err != nil || string(input.Message) != "query" {
+			return nil, plugin.ErrInvalid
+		}
+		return json.Marshal(runtimecontract.DNSExchangeResponse{Message: []byte("response")})
+	})
+	guest, err := runtimecontract.RuntimeGuestWithHandler(manifest.Descriptor, starter, handler)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if err := jsonline.ServeStdio(context.Background(), guest); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func TestArtifactReconcilerStartsResolvedDependenciesBeforeConsumers(t *testing.T) {
+	provider := dependencyTestArchive(t, "provider")
+	consumer := dependencyTestArchive(t, "consumer")
+	providerDigest := sha256.Sum256(provider)
+	consumerDigest := sha256.Sum256(consumer)
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/_internal/gateway/extensions":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]any{
+				dependencyDesiredState("webong/email", server.URL+"/email.tar.gz", hex.EncodeToString(consumerDigest[:])),
+				dependencyDesiredState("webong/dns", server.URL+"/dns.tar.gz", hex.EncodeToString(providerDigest[:])),
+			}})
+		case "/dns.tar.gz":
+			_, _ = writer.Write(provider)
+		case "/email.tar.gz":
+			_, _ = writer.Write(consumer)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	registry := integrationextensions.NewRegistry()
+	reconciler, err := NewArtifactReconciler(server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), Registries{
+		Automation: automationextensions.NewRegistry(), Integration: registry,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	loaded := registry.ExternalExtensions()
+	if len(loaded) != 2 {
+		t.Fatalf("resolved provider and consumer were not both loaded: %v", loaded)
+	}
+}
+
+func TestArtifactReconcilerRejectsConsumerWithoutRequiredProvider(t *testing.T) {
+	consumer := dependencyTestArchive(t, "consumer")
+	consumerDigest := sha256.Sum256(consumer)
+	var server *httptest.Server
+	server = httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/_internal/gateway/extensions":
+			_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]any{
+				dependencyDesiredState("webong/email", server.URL+"/email.tar.gz", hex.EncodeToString(consumerDigest[:])),
+			}})
+		case "/email.tar.gz":
+			_, _ = writer.Write(consumer)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	registry := integrationextensions.NewRegistry()
+	reconciler, err := NewArtifactReconciler(server.URL, "private-token", t.TempDir(), server.Client(), server.Client(), Registries{
+		Automation: automationextensions.NewRegistry(), Integration: registry,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reconciler.Reconcile(t.Context()); err == nil {
+		t.Fatal("dependent Email package started without a DNS provider")
+	}
+	if loaded := registry.ExternalExtensions(); len(loaded) != 0 {
+		t.Fatalf("dependency failure left integrations running: %v", loaded)
+	}
 }
 
 func TestArtifactReconcilerInstallsHookScriptAfterSpinnerStarted(t *testing.T) {
@@ -425,6 +534,84 @@ func hookScriptTestArchive(t *testing.T) []byte {
 	tarWriter := tar.NewWriter(gzipWriter)
 	for name, content := range files {
 		if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return compressed.Bytes()
+}
+
+func dependencyDesiredState(identity, artifactURL, artifactDigest string) map[string]any {
+	return map[string]any{
+		"extension": identity, "version": "1.0.0", "digest": nil, "revision": 1,
+		"artifact":      map[string]any{"url": artifactURL, "sha256": artifactDigest},
+		"configuration": map[string]any{}, "configuration_sha256": digestBytes([]byte("{}")),
+	}
+}
+
+func dependencyTestArchive(t *testing.T, role string) []byte {
+	t.Helper()
+	testBinary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary, err := os.ReadFile(testBinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := plugin.Identity{ID: "webong/dns", Revision: "dns-r1", Version: "1.0.0"}
+	contracts := []plugin.Contract{
+		{ContractRef: runtimecontract.RuntimeContract, Operations: []plugin.Operation{{Name: runtimecontract.OperationStart, Surface: "spinner"}}},
+		{ContractRef: runtimecontract.DNSContract, Operations: []plugin.Operation{{Name: runtimecontract.OperationDNSExchange}}},
+	}
+	reverse := []plugin.Contract(nil)
+	requires := []packagekit.Dependency(nil)
+	if role == "consumer" {
+		identity = plugin.Identity{ID: "webong/email", Revision: "email-r1", Version: "1.0.0"}
+		contracts = contracts[:1]
+		reverse = []plugin.Contract{{ContractRef: runtimecontract.DNSContract, Operations: []plugin.Operation{{Name: runtimecontract.OperationDNSExchange}}}}
+		requires = []packagekit.Dependency{{Contract: runtimecontract.DNSContract, Operation: runtimecontract.OperationDNSExchange}}
+	}
+	descriptor := plugin.Descriptor{APIVersion: plugin.APIVersion, Identity: identity, Contracts: contracts, Reverse: reverse}
+	wrapper := []byte("#!/bin/sh\nGATEWAY_TEST_EXTENSION_GUEST=1 exec \"$PWD/bin/guest\" -test.run=TestArtifactGuestProcess\n")
+	manifest := packagekit.Manifest{
+		APIVersion: packagekit.Version, Descriptor: descriptor, Requires: requires,
+		Artifacts: []packagekit.Artifact{
+			{Name: "spinner-guest", Path: "bin/spinner", SHA256: digestBytes(wrapper)},
+			{Name: "test-guest", Path: "bin/guest", SHA256: digestBytes(binary)},
+		},
+		Entrypoints: []packagekit.Entrypoint{
+			{Name: "spinner", Runtime: "process", Artifact: "spinner-guest", Protocols: []string{plugin.APIVersion}},
+			{Name: "test-helper", Runtime: "process", Artifact: "test-guest", Protocols: []string{plugin.APIVersion}},
+		},
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := strings.ReplaceAll(identity.ID, "/", "%2f")
+	files := map[string][]byte{
+		root + "/plugin.json": manifestJSON,
+		root + "/bin/spinner": wrapper,
+		root + "/bin/guest":   binary,
+	}
+	var compressed bytes.Buffer
+	gzipWriter := gzip.NewWriter(&compressed)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for name, content := range files {
+		mode := int64(0o600)
+		if strings.HasPrefix(name, root+"/bin/") {
+			mode = 0o700
+		}
+		if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tarWriter.Write(content); err != nil {

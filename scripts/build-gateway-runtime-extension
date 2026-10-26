@@ -60,9 +60,10 @@ $identity = is_array($definition) ? ($definition['identity'] ?? null) : null;
 $spinner = is_array($definition) ? ($definition['spinner'] ?? null) : null;
 $contracts = is_array($definition) ? ($definition['contracts'] ?? null) : null;
 $reverse = is_array($definition) ? ($definition['reverse'] ?? null) : null;
+$requires = is_array($definition) ? ($definition['requires'] ?? []) : null;
 if (! is_string($identity) || preg_match('/\A[a-z0-9][a-z0-9._\/-]{0,255}\z/D', $identity) !== 1
     || ! is_string($spinner) || ! str_starts_with($spinner, './')
-    || ! is_array($contracts) || $contracts === [] || ! is_array($reverse)) {
+    || ! is_array($contracts) || $contracts === [] || ! is_array($reverse) || ! is_array($requires)) {
     failRuntimeBuild('Invalid runtime extension definition.');
 }
 if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
@@ -117,6 +118,7 @@ try {
             'artifact' => 'spinner-runtime',
             'protocols' => ['ext.plugin/v1'],
         ]],
+        'requires' => array_values($requires),
     ];
     file_put_contents(
         $destination.'/plugin.json',

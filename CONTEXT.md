@@ -41,6 +41,10 @@ _Avoid_: Spinner node
 An installable package that contributes Gateway behavior to one or both planes. An Extension may provide Spinner and Planner entrypoints and may also contribute Integration, Automation, or Companion capabilities.
 _Avoid_: Plugin, Integration when referring to the whole package
 
+**Extension Dependency**:
+An exact capability that another active Gateway Extension must provide before the dependent Extension can operate.
+_Avoid_: Source dependency, module import
+
 **Planner Extension**:
 The Planner-side entrypoint of a Gateway Extension. It may contribute resource kinds, management routes, migrations, commands, and protocol policy while remaining part of the Extension's shared identity and version.
 _Avoid_: Product Module, Planner Plugin
