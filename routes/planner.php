@@ -41,6 +41,9 @@ Route::get('/_internal/gateway/email/dkim/{domain}', InternalDkimKeyController::
 Route::post('/_internal/gateway/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
 Route::post('/_internal/gateway/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);
+Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/claim', [InternalMailboxPollController::class, 'claim']);
+Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/ack', [InternalMailboxPollController::class, 'ack']);
+Route::post('/_internal/gateway/extensions/webong/email/mailbox-polls/{poll}/release', [InternalMailboxPollController::class, 'release']);
 Route::post('/_internal/gateway/worker-ingress/{route}/authorize', [InternalWorkerIngressController::class, 'authorize']);
 
 Route::get('/email/runtime-policy', [EmailRuntimePolicyController::class, 'show']);

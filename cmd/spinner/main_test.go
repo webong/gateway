@@ -14,6 +14,7 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailruntime "github.com/webong/gateway/pkg/email/spinner"
+	emailattrs "github.com/webong/gateway/pkg/email/spinner/attributes"
 )
 
 type reverseCallerFunc func(context.Context, plugin.ContractRef, string, json.RawMessage) (json.RawMessage, error)
@@ -91,5 +92,66 @@ func TestSMTPRuntimeUsesResolvedDNSCapability(t *testing.T) {
 	}
 	if dnsCalls == 0 || plannerCalls != 1 {
 		t.Fatalf("SMTP runtime calls: dns=%d planner=%d", dnsCalls, plannerCalls)
+	}
+}
+
+func TestEmailRuntimeAdvertisesItsFailureHandler(t *testing.T) {
+	runtime := new(runtime)
+	response, err := runtime.start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"failure_notice_domain":"gateway.example.test"}`),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.DeliveryFailureHandlers) != 4 {
+		t.Fatalf("failure handlers = %v", response.DeliveryFailureHandlers)
+	}
+	payload, err := json.Marshal(runtimecontract.DeliveryFailureRequest{
+		ID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CreatedAt: time.Now(), FailedAt: time.Now(),
+		Delivery: runtimecontract.GatewayDelivery{
+			Protocol: runtimecontract.ProtocolSMTP, Adapter: "smtp", Target: "buyer@example.test",
+			Attributes: map[string]string{"mail_from": "sender@example.test", emailattrs.FailureNoticeTo: "sender@example.test"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runtime.handle(context.Background(), plugin.Request{
+		Contract: runtimecontract.DeliveryFailureContract, Operation: runtimecontract.OperationDeliveryFailure, Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followUp runtimecontract.DeliveryFailureResponse
+	if err := json.Unmarshal(result, &followUp); err != nil || followUp.FollowUp == nil || followUp.FollowUp.Adapter != "smtp" {
+		t.Fatalf("failure response = %+v, %v", followUp, err)
+	}
+}
+
+func TestEmailRuntimeAdvertisesSeparatePublicAndPrivateSubmissionMounts(t *testing.T) {
+	response, err := new(runtime).start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"smtp_relay":{"address":"relay.example.test:2525","tls_mode":"none"}}`),
+		MaxBodySize:   1024 * 1024,
+		InstanceKey:   []byte("extension-scoped-test-key"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.HTTP) != 1 || len(response.PrivateHTTP) != 1 ||
+		response.HTTP[0].Prefix != emailruntime.SubmissionPath || response.PrivateHTTP[0].Prefix != emailruntime.SubmissionPath ||
+		response.HTTP[0].Address == response.PrivateHTTP[0].Address {
+		t.Fatalf("submission mounts = public:%+v private:%+v", response.HTTP, response.PrivateHTTP)
+	}
+	if len(response.DeliveryAdapters) != 1 || response.DeliveryAdapters[0] != "smtp" {
+		t.Fatalf("delivery adapters = %v", response.DeliveryAdapters)
+	}
+}
+
+func TestEmailRuntimeRejectsRelayCredentialsInNonSecretConfiguration(t *testing.T) {
+	_, err := new(runtime).start(context.Background(), runtimecontract.RuntimeStartRequest{
+		Configuration: json.RawMessage(`{"smtp_relay":{"address":"relay.example.test:587","tls_mode":"starttls","password":"do-not-store-here"}}`),
+	}, nil)
+	if err == nil {
+		t.Fatal("Email runtime accepted a relay credential in non-secret Extension configuration")
 	}
 }

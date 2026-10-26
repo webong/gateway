@@ -51,7 +51,7 @@ final readonly class EmailDeliveryStatusDispatcher
                 }
                 $publicState = $state === 'delivered' ? 'delivered' : 'dead';
                 $reason = $state === 'delivered' ? 'accepted'
-                    : ($response->json('body_assertion') === 'smtp_acceptance_unknown'
+                    : ($response->json('body_assertion') === 'acceptance_unknown'
                         ? 'acceptance_unknown' : 'delivery_exhausted');
                 $this->outbox->record($watch, $publicState, $attempts, $occurredAt, $reason);
                 $summary['observed']++;

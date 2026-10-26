@@ -12,22 +12,52 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
+	"sort"
+	"sync"
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailruntime "github.com/webong/gateway/pkg/email/spinner"
+	"github.com/webong/gateway/pkg/email/spinner/deliveryfailure"
 	"github.com/webong/gateway/pkg/email/spinner/imap"
 	"github.com/webong/gateway/pkg/email/spinner/mailnet"
+	"github.com/webong/gateway/pkg/email/spinner/mailpoll"
 	"github.com/webong/gateway/pkg/email/spinner/pop3"
 	"github.com/webong/gateway/pkg/email/spinner/smtp"
+	"github.com/webong/gateway/pkg/email/spinner/smtpout"
 )
 
 type configuration struct {
-	SMTP *smtpConfiguration `json:"smtp,omitempty"`
-	IMAP *imapConfiguration `json:"imap,omitempty"`
-	POP3 *pop3Configuration `json:"pop3,omitempty"`
+	SMTP                *smtpConfiguration        `json:"smtp,omitempty"`
+	IMAP                *imapConfiguration        `json:"imap,omitempty"`
+	POP3                *pop3Configuration        `json:"pop3,omitempty"`
+	SMTPRelay           *smtpRelayConfiguration   `json:"smtp_relay,omitempty"`
+	MailboxPoll         *mailboxPollConfiguration `json:"mailbox_poll,omitempty"`
+	FailureNoticeDomain string                    `json:"failure_notice_domain,omitempty"`
+}
+
+type mailboxPollConfiguration struct {
+	PrivateCallbackCIDRs []string `json:"private_callback_cidrs,omitempty"`
+	CallbackTimeoutMS    int      `json:"callback_timeout_ms,omitempty"`
+	UpstreamTimeoutMS    int      `json:"upstream_timeout_ms,omitempty"`
+}
+
+type smtpRelayConfiguration struct {
+	Address    string `json:"address"`
+	LocalName  string `json:"local_name,omitempty"`
+	ServerName string `json:"server_name,omitempty"`
+	TLSMode    string `json:"tls_mode"`
+	TimeoutMS  int    `json:"timeout_ms,omitempty"`
+}
+
+type runtime struct {
+	mu       sync.RWMutex
+	adapters map[string]runtimecontract.GatewayDeliveryAdapter
+	jobs     map[string]func(context.Context, string, map[string]any) error
+	failures map[string]runtimecontract.DeliveryFailureHandler
 }
 
 type smtpConfiguration struct {
@@ -89,13 +119,18 @@ type boundListener struct {
 }
 
 func main() {
-	if err := runtimecontract.ServeRuntime(context.Background(), runtimecontract.RuntimeStarterFunc(start)); err != nil {
+	runtime := &runtime{}
+	if err := runtimecontract.ServeRuntimeWithHandler(context.Background(), runtimecontract.RuntimeStarterFunc(runtime.start), runtimecontract.RuntimeOperationHandlerFunc(runtime.handle)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func start(_ context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
+	return new(runtime).start(context.Background(), request, caller)
+}
+
+func (runtime *runtime) start(_ context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
 	var configured configuration
 	if len(request.Configuration) == 0 {
 		return runtimecontract.RuntimeStartResponse{}, errors.New("Email runtime configuration is required")
@@ -108,13 +143,84 @@ func start(_ context.Context, request runtimecontract.RuntimeStartRequest, calle
 	if err := decoder.Decode(new(any)); err != io.EOF {
 		return runtimecontract.RuntimeStartResponse{}, errors.New("Email runtime configuration contains trailing data")
 	}
-	if configured.SMTP == nil && configured.IMAP == nil && configured.POP3 == nil {
-		return runtimecontract.RuntimeStartResponse{}, errors.New("Email requires at least one configured listener")
+	if configured.SMTP == nil && configured.IMAP == nil && configured.POP3 == nil && configured.SMTPRelay == nil && configured.MailboxPoll == nil && configured.FailureNoticeDomain == "" {
+		return runtimecontract.RuntimeStartResponse{}, errors.New("Email requires at least one configured listener or delivery adapter")
+	}
+	adapters := make(map[string]runtimecontract.GatewayDeliveryAdapter)
+	if configured.SMTPRelay != nil {
+		sender, err := smtpout.NewSender(smtpout.Config{
+			Address: configured.SMTPRelay.Address, LocalName: configured.SMTPRelay.LocalName,
+			ServerName: configured.SMTPRelay.ServerName, TLSMode: smtpout.TLSMode(configured.SMTPRelay.TLSMode),
+			Timeout: durationMS(configured.SMTPRelay.TimeoutMS),
+		})
+		if err != nil {
+			return runtimecontract.RuntimeStartResponse{}, fmt.Errorf("configure Email SMTP relay: %w", err)
+		}
+		adapter, err := smtpout.NewGatewayAdapter(sender, nil)
+		if err != nil {
+			return runtimecontract.RuntimeStartResponse{}, err
+		}
+		adapters[string(runtimecontract.ProtocolSMTP)] = adapter
 	}
 	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
+	jobs := make(map[string]func(context.Context, string, map[string]any) error)
+	failures := make(map[string]runtimecontract.DeliveryFailureHandler)
+	response := runtimecontract.RuntimeStartResponse{DeliveryAdapters: adapterNames(adapters)}
+	if configured.FailureNoticeDomain != "" {
+		handler, err := deliveryfailure.New(configured.FailureNoticeDomain)
+		if err != nil {
+			return runtimecontract.RuntimeStartResponse{}, err
+		}
+		for _, adapter := range []string{"smtp", "managed.smtp", "mailbox.smtp", "hosted.mail"} {
+			failures[adapter] = handler
+		}
+		response.DeliveryFailureHandlers = failureHandlerNames(failures)
+	}
+	if configured.SMTP == nil && configured.IMAP == nil && configured.POP3 == nil && configured.MailboxPoll == nil {
+		runtime.mu.Lock()
+		runtime.adapters, runtime.jobs, runtime.failures = adapters, jobs, failures
+		runtime.mu.Unlock()
+		if err := startEmailHTTP(&response, host, request, len(adapters) > 0, configured.FailureNoticeDomain != ""); err != nil {
+			return runtimecontract.RuntimeStartResponse{}, err
+		}
+		return response, nil
+	}
 	dnsResolver, err := emailruntime.NewDNSResolver(host.DNS())
 	if err != nil {
 		return runtimecontract.RuntimeStartResponse{}, err
+	}
+	if configured.MailboxPoll != nil {
+		control, err := mailpoll.NewExtensionControlPlane(host.PrivatePlanner())
+		if err != nil {
+			return runtimecontract.RuntimeStartResponse{}, err
+		}
+		callback, err := newMailboxCallback(dnsResolver, configured.MailboxPoll.PrivateCallbackCIDRs, durationMS(configured.MailboxPoll.CallbackTimeoutMS))
+		if err != nil {
+			return runtimecontract.RuntimeStartResponse{}, err
+		}
+		upstreamTimeout := durationMS(configured.MailboxPoll.UpstreamTimeoutMS)
+		if upstreamTimeout == 0 {
+			upstreamTimeout = 10 * time.Second
+		}
+		runner := mailpoll.Runner{
+			Control: control,
+			Dial: func(ctx context.Context, claim mailpoll.Claim) (net.Conn, error) {
+				return mailnet.DialTLSMailUpstreamWithResolver(ctx, claim.UpstreamAddress, claim.UpstreamServerName,
+					claim.UpstreamNetworkScope, upstreamTimeout, nil, dnsResolver.LookupIPAddr)
+			},
+			Deliver: callback.Deliver,
+		}
+		jobs["native.imap"] = func(ctx context.Context, source string, _ map[string]any) error { return runner.Run(ctx, source) }
+		response.Jobs = []runtimecontract.RuntimeJob{{Name: "imap", Language: "native.imap"}}
+	}
+	runtime.mu.Lock()
+	runtime.adapters, runtime.jobs, runtime.failures = adapters, jobs, failures
+	runtime.mu.Unlock()
+	if configured.SMTP == nil && configured.IMAP == nil && configured.POP3 == nil {
+		if err := startEmailHTTP(&response, host, request, len(adapters) > 0, configured.FailureNoticeDomain != ""); err != nil {
+			return runtimecontract.RuntimeStartResponse{}, err
+		}
+		return response, nil
 	}
 	listeners := make([]boundListener, 0, 3)
 	closeListeners := func() {
@@ -166,7 +272,142 @@ func start(_ context.Context, request runtimecontract.RuntimeStartRequest, calle
 			}
 		}(bound)
 	}
-	return runtimecontract.RuntimeStartResponse{}, nil
+	if err := startEmailHTTP(&response, host, request, len(adapters) > 0, configured.FailureNoticeDomain != ""); err != nil {
+		closeListeners()
+		return runtimecontract.RuntimeStartResponse{}, err
+	}
+	return response, nil
+}
+
+func startEmailHTTP(response *runtimecontract.RuntimeStartResponse, host *runtimecontract.RuntimeHost,
+	request runtimecontract.RuntimeStartRequest, privateSubmission, failureNotices bool,
+) error {
+	publicListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("listen for public Email routes: %w", err)
+	}
+	publicServer := &http.Server{
+		Handler:           emailruntime.SubmissionHandler(http.NotFoundHandler(), host.PassThrough(), request.MaxBodySize),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
+	go serveHTTP("public Email routes", publicServer, publicListener)
+	response.HTTP = []runtimecontract.HTTPMount{{
+		Prefix: emailruntime.SubmissionPath, Address: "http://" + publicListener.Addr().String(),
+	}}
+	if !privateSubmission {
+		return nil
+	}
+	privateHandler, err := emailruntime.NewAdminSubmissionHandler(
+		host.Executor(), nil, nil, request.MaxBodySize, request.InstanceKey, failureNotices,
+	)
+	if err != nil {
+		_ = publicListener.Close()
+		return err
+	}
+	privateListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		_ = publicListener.Close()
+		return fmt.Errorf("listen for private Email routes: %w", err)
+	}
+	privateServer := &http.Server{Handler: privateHandler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	go serveHTTP("private Email routes", privateServer, privateListener)
+	response.PrivateHTTP = []runtimecontract.HTTPMount{{
+		Prefix: emailruntime.SubmissionPath, Address: "http://" + privateListener.Addr().String(),
+	}}
+	return nil
+}
+
+func serveHTTP(name string, server *http.Server, listener net.Listener) {
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintf(os.Stderr, "%s stopped: %v\n", name, err)
+	}
+}
+
+func (runtime *runtime) handle(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+	if request.Contract == runtimecontract.DeliveryFailureContract && request.Operation == runtimecontract.OperationDeliveryFailure {
+		var input runtimecontract.DeliveryFailureRequest
+		if err := plugin.Decode(request.Payload, &input); err != nil || input.ID == "" || input.Delivery.Validate() != nil {
+			return nil, plugin.ErrInvalid
+		}
+		runtime.mu.RLock()
+		handler := runtime.failures[input.Delivery.AdapterName()]
+		runtime.mu.RUnlock()
+		if handler == nil {
+			return nil, plugin.ErrUnsupported
+		}
+		followUp, err := handler.FollowUp(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(runtimecontract.DeliveryFailureResponse{FollowUp: followUp})
+	}
+	if request.Contract == runtimecontract.JobContract && request.Operation == runtimecontract.OperationRunJob {
+		var input runtimecontract.JobRequest
+		if err := plugin.Decode(request.Payload, &input); err != nil || input.Name == "" || input.Source == "" {
+			return nil, plugin.ErrInvalid
+		}
+		language := "native." + input.Name
+		runtime.mu.RLock()
+		job := runtime.jobs[language]
+		runtime.mu.RUnlock()
+		if job == nil {
+			return nil, plugin.ErrUnsupported
+		}
+		if err := job(ctx, input.Source, input.Payload); err != nil {
+			return nil, err
+		}
+		return json.RawMessage(`{}`), nil
+	}
+	if request.Contract != runtimecontract.DeliveryAdapterContract || request.Operation != runtimecontract.OperationDeliverAdapter {
+		return nil, plugin.ErrUnsupported
+	}
+	var input runtimecontract.DeliveryAdapterRequest
+	if err := plugin.Decode(request.Payload, &input); err != nil || input.Delivery.Validate() != nil || input.Adapter != input.Delivery.AdapterName() {
+		return nil, plugin.ErrInvalid
+	}
+	runtime.mu.RLock()
+	adapter := runtime.adapters[input.Adapter]
+	runtime.mu.RUnlock()
+	if adapter == nil {
+		return nil, plugin.ErrUnsupported
+	}
+	response := runtimecontract.DeliveryAdapterResponse{}
+	var err error
+	if reporting, ok := adapter.(runtimecontract.GatewayDeliveryResultAdapter); ok {
+		response.Result, err = reporting.DeliverGatewayResult(ctx, input.Delivery)
+	} else {
+		err = adapter.DeliverGateway(ctx, input.Delivery)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, runtimecontract.ErrPermanentDelivery):
+			response.Failure = runtimecontract.AdapterFailurePermanent
+		case errors.Is(err, runtimecontract.ErrUncertainDelivery):
+			response.Failure = runtimecontract.AdapterFailureUncertain
+		default:
+			response.Failure = runtimecontract.AdapterFailureTransient
+		}
+	}
+	return json.Marshal(response)
+}
+
+func adapterNames(adapters map[string]runtimecontract.GatewayDeliveryAdapter) []string {
+	names := make([]string, 0, len(adapters))
+	for name := range adapters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func failureHandlerNames(handlers map[string]runtimecontract.DeliveryFailureHandler) []string {
+	names := make([]string, 0, len(handlers))
+	for name := range handlers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func newSMTPServer(config smtpConfiguration, host *runtimecontract.RuntimeHost, resolver *emailruntime.DNSResolver) (*smtp.Server, error) {
