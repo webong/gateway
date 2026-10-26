@@ -8,6 +8,7 @@ NAME="gateway-companion-smoke-$$"
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-companion-image.XXXXXX")
 PACKAGE_ROOT="$TEMP_DIR/extensions"
 PACKAGE="$PACKAGE_ROOT/webong%2fhookscript"
+COMPANION_BUILD="$TEMP_DIR/companion"
 FAILED=1
 
 cleanup() {
@@ -31,10 +32,41 @@ if [ "${GATEWAY_ROUTER_SKIP_BUILD:-false}" != true ]; then
     docker build -f "$ROOT/infra/docker/Gateway.router.Dockerfile" -t "$IMAGE" "$ROOT"
 fi
 
-composer install --working-dir="$ROOT/pkg/hookscript/companion" \
-    --no-dev --no-interaction --prefer-dist --classmap-authoritative
+mkdir -p "$COMPANION_BUILD"
+cp "$ROOT/pkg/hookscript/companion/composer.json" \
+    "$ROOT/pkg/hookscript/companion/composer.lock" \
+    "$COMPANION_BUILD/"
+php -r '
+    $root = $argv[1];
+    $build = $argv[2];
+    $manifestPath = $build."/composer.json";
+    $manifest = json_decode(file_get_contents($manifestPath), true, flags: JSON_THROW_ON_ERROR);
+    foreach ($manifest["repositories"] as &$repository) {
+        if (($repository["type"] ?? null) === "path" && ($repository["url"] ?? null) === "../../..") {
+            $repository["url"] = $root;
+        }
+    }
+    unset($repository);
+    file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n");
+
+    $lockPath = $build."/composer.lock";
+    $lock = json_decode(file_get_contents($lockPath), true, flags: JSON_THROW_ON_ERROR);
+    foreach ($lock["packages"] as &$package) {
+        if (($package["name"] ?? null) === "webong/gateway" && ($package["dist"]["type"] ?? null) === "path") {
+            $package["dist"]["url"] = $root;
+        }
+    }
+    unset($package);
+    file_put_contents($lockPath, json_encode($lock, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n");
+' "$ROOT" "$COMPANION_BUILD"
+composer update --working-dir="$COMPANION_BUILD" \
+    --lock --no-install --no-dev --no-interaction --no-plugins --no-scripts
+composer install --working-dir="$COMPANION_BUILD" \
+    --no-dev --no-interaction --no-plugins --no-scripts \
+    --prefer-dist --classmap-authoritative
 mkdir -p "$PACKAGE_ROOT"
-php "$ROOT/pkg/hookscript/scripts/build-ext-package" "$PACKAGE" 1.0.0 smoke-r1
+GATEWAY_HOOKSCRIPT_VENDOR_DIR="$COMPANION_BUILD/vendor" \
+    php "$ROOT/pkg/hookscript/scripts/build-ext-package" "$PACKAGE" 1.0.0 smoke-r1
 
 # The release container runs as www-data and reads this bind-mounted fixture.
 find "$PACKAGE" -type d -exec chmod 0755 {} +
