@@ -70,11 +70,6 @@ assert_config_contains '    GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR: "App\\Email\\Ma
 assert_config_contains '    num_workers: 4'
 assert_config_contains '    max_jobs: 250'
 
-if ! grep -Fx 'GATEWAY_EMAIL_DKIM_RESOLVER_URL=http://127.0.0.1:5053' "$TEST_DIR/runtime.env" >/dev/null; then
-    echo 'Bundled Spinner is missing its private Planner DKIM resolver URL.' >&2
-    exit 1
-fi
-
 LEGACY_DIR="$TEST_DIR/legacy"
 mkdir -p "$LEGACY_DIR"
 GATEWAY_ROUTER_DATA_DIR="$LEGACY_DIR" \
@@ -88,4 +83,4 @@ if ! grep -F '    num_workers: 2' "$LEGACY_DIR/router.rr.yaml" >/dev/null \
     exit 1
 fi
 
-echo 'RoadRunner Planner Email environment forwarding passed.'
+echo 'RoadRunner Planner environment forwarding passed.'

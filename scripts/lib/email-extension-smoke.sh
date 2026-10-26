@@ -29,7 +29,10 @@ gateway_activate_email_extension() {
                 "tls_cert_file" => "/etc/gateway-smtp/tls.crt",
                 "tls_key_file" => "/etc/gateway-smtp/tls.key",
                 "recipient_preflight" => true,
-            ]],
+            ],
+                "smtp_relay" => ["address" => "smtp-relay:2527", "tls_mode" => "none"],
+                "failure_notice_domain" => "gateway.example.test",
+            ],
         ], JSON_THROW_ON_ERROR);
         $context = stream_context_create(["http" => [
             "method" => "POST",

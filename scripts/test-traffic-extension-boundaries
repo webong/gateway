@@ -4,38 +4,74 @@ set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 GO_BUILD_FLAGS=${GOFLAGS:--mod=mod}
 
-for host in \
-    "$ROOT/pkg/spinner/cmd/gateway" \
-    "$ROOT/pkg/frankenphp/cmd/router" \
+products=(web dns email database hookscript javascript lua shell golang php mercure reverb centrifugo)
+go_hosts=(
+    "$ROOT/mod/arranger"
+    "$ROOT/pkg/spinner"
+    "$ROOT/pkg/spinner/cmd/gateway"
+    "$ROOT/pkg/caddy"
+    "$ROOT/pkg/frankenphp"
+    "$ROOT/pkg/frankenphp/cmd/router"
+    "$ROOT/pkg/roadrunner"
     "$ROOT/pkg/roadrunner/cmd/router"
-do
-    dependencies=$(cd "$host" && GOWORK=off GOFLAGS="$GO_BUILD_FLAGS" go list -deps .)
-	for extension in web dns
-	do
-		if grep -Eq "^github\\.com/webong/gateway/pkg/${extension}(\$|/)" <<<"$dependencies"; then
-			echo "$host compiles the $extension extension instead of hosting its Spinner entrypoint." >&2
-			exit 1
-		fi
-		if grep -Eq "github\\.com/webong/gateway/pkg/${extension}([[:space:]]|\$)" "$host/go.mod"; then
-			echo "$host still names the $extension extension module." >&2
-			exit 1
-		fi
-	done
+)
+
+for host in "${go_hosts[@]}"; do
+    [[ -f "$host/go.mod" ]] || continue
+    dependencies=$(cd "$host" && GOWORK=off GOFLAGS="$GO_BUILD_FLAGS" go list -deps ./...)
+    for product in "${products[@]}"; do
+        if grep -Eq "^github\\.com/webong/gateway/pkg/${product}(\$|/)" <<<"$dependencies"; then
+            echo "$host compiles the $product extension instead of hosting its installed entrypoint." >&2
+            exit 1
+        fi
+        if grep -Eq "github\\.com/webong/gateway/pkg/${product}([[:space:]]|\$)" "$host/go.mod"; then
+            echo "$host still names the $product extension module." >&2
+            exit 1
+        fi
+    done
 done
 
-for extension in web dns
-do
-	if [[ ! -f "$ROOT/pkg/$extension/extension.json" || ! -f "$ROOT/pkg/$extension/cmd/spinner/main.go" ]]; then
-		echo "$extension does not provide an installable Spinner runtime entrypoint." >&2
-		exit 1
-	fi
-done
-
-if rg -n 'github\.com/webong/gateway/pkg/(web|dns)' \
-    "$ROOT/pkg/spinner" "$ROOT/pkg/caddy" "$ROOT/pkg/roadrunner" "$ROOT/pkg/frankenphp" \
+if rg -n 'github\.com/webong/gateway/pkg/(web|dns|email|database|hookscript|javascript|lua|shell|golang|php|mercure|reverb|centrifugo)' \
+    "$ROOT/mod/arranger" "$ROOT/pkg/spinner" "$ROOT/pkg/caddy" "$ROOT/pkg/frankenphp" "$ROOT/pkg/roadrunner" \
     -g'*.go' -g'!**/*_test.go' >/dev/null; then
-	echo 'A Gateway host still imports a concrete Web or DNS extension.' >&2
+    echo 'A generic Gateway module imports a concrete product Extension.' >&2
     exit 1
 fi
 
-echo 'Gateway hosts load Web and DNS as installable Spinner runtimes.'
+for extension in web dns email golang javascript lua php shell; do
+    if [[ ! -f "$ROOT/pkg/$extension/extension.json" || ! -f "$ROOT/pkg/$extension/cmd/spinner/main.go" ]]; then
+        echo "$extension does not provide an installable Spinner runtime entrypoint." >&2
+        exit 1
+    fi
+done
+
+for extension in web dns email database; do
+    if [[ ! -f "$ROOT/pkg/$extension/composer.json" || ! -f "$ROOT/pkg/$extension/go.mod" || ! -d "$ROOT/pkg/$extension/spinner" ]]; then
+        echo "$extension is not self-contained across its Planner and Spinner source." >&2
+        exit 1
+    fi
+done
+
+if [[ ! -f "$ROOT/pkg/hookscript/cmd/spinner/main.go" || ! -f "$ROOT/pkg/hookscript/scripts/build-ext-package" ]]; then
+    echo 'HookScript does not provide its combined installable package build.' >&2
+    exit 1
+fi
+
+if rg -n 'Webong\\Gateway\\(Web|Webstream|Dns|Email|Database)\\' "$ROOT/pkg/planner/src" -g'*.php' >/dev/null; then
+    echo 'Planner core imports a concrete product Extension namespace.' >&2
+    exit 1
+fi
+
+if rg -n 'FailureNotice|failure_notice|managed\.smtp|smtp_acceptance|ProtocolSMTP' \
+    "$ROOT/pkg/spinner/bridge/deliveryqueue" -g'*.go' -g'!**/*_test.go' >/dev/null; then
+    echo 'The generic delivery queue still owns Email-specific behavior.' >&2
+    exit 1
+fi
+
+if rg -n 'gateway_(smtp|imap|pop3)|webstream_(max_connections|max_duration)|GATEWAY_(SMTP_RELAY|EMAIL_DSN_DOMAIN|EMAIL_DKIM_RESOLVER_URL|OUTBOUND_RESOLVER_URL|MAILBOX_SMTP_RESOLVER_URL|SMTP_DELIVERY_SPOOL_PATH|WEBSTREAM_PRIVATE_NETWORK_CIDRS)' \
+    "$ROOT/app" "$ROOT/infra" "$ROOT/scripts/router-start" >/dev/null; then
+    echo 'A bundled host or deployment manifest still configures product behavior outside /extensions.' >&2
+    exit 1
+fi
+
+echo 'Gateway core and hosts are product-neutral; installable Extensions own their Planner and Spinner behavior.'

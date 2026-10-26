@@ -12,6 +12,46 @@ BASE_URL=""
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-container-integration.XXXXXX")"
 HEADERS="$TEMP_DIR/headers"
 BODY="$TEMP_DIR/body"
+EXTENSIONS="$TEMP_DIR/extensions"
+
+extension_platform="${DOCKER_DEFAULT_PLATFORM:-$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}')}"
+IFS=/ read -r extension_goos extension_goarch _ <<< "$extension_platform"
+case "$extension_goarch" in
+    aarch64) extension_goarch=arm64 ;;
+    x86_64) extension_goarch=amd64 ;;
+esac
+if [[ ! "$extension_goos" =~ ^[a-z0-9]+$ || ! "$extension_goarch" =~ ^[a-z0-9]+$ ]]; then
+    echo "Cannot determine the Docker deployment platform from: $extension_platform" >&2
+    exit 1
+fi
+
+mkdir -p "$EXTENSIONS"
+prepare_extension() {
+    local extension=$1
+    local identity="webong/$extension"
+    local revision="container-$extension-r1"
+    local package="$EXTENSIONS/webong%2f$extension"
+    local artifact_sha
+
+    GOOS="$extension_goos" GOARCH="$extension_goarch" CGO_ENABLED=0 \
+        "$ROOT/scripts/build-gateway-runtime-extension" \
+        "$ROOT/pkg/$extension" "$package" 0.1.0 "$revision" >/dev/null
+    artifact_sha="$(php -r 'echo hash_file("sha256", $argv[1]);' "$package/plugin.json")"
+    mkdir -p "$EXTENSIONS/.desired"
+    php -r '
+        $receipt = [
+            "extension" => $argv[2], "version" => "0.1.0", "revision" => 1,
+            "artifact_sha256" => $argv[3], "package_revision" => $argv[4],
+        ];
+        file_put_contents($argv[1]."/.desired/".hash("sha256", $argv[2]).".json", json_encode($receipt, JSON_THROW_ON_ERROR));
+    ' "$EXTENSIONS" "$identity" "$artifact_sha" "$revision"
+    printf '%s' "$artifact_sha"
+}
+
+WEB_ARTIFACT_SHA="$(prepare_extension web)"
+DNS_ARTIFACT_SHA="$(prepare_extension dns)"
+EMAIL_ARTIFACT_SHA="$(prepare_extension email)"
+export GATEWAY_EXTENSION_ROOT="$EXTENSIONS"
 
 compose() {
     docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"
@@ -49,6 +89,45 @@ if [[ ! "$TLS_PORT" =~ ^[1-9][0-9]*$ ]]; then
 fi
 BASE_URL="https://localhost:$TLS_PORT"
 wait_for
+
+activate_extension() {
+    local payload=$1
+    if ! compose exec -T planner php -r '
+        $context = stream_context_create(["http" => [
+            "method" => "POST",
+            "header" => "Authorization: Bearer ".getenv("REGISTRY_TOKEN")."\r\nContent-Type: application/json\r\n",
+            "content" => $argv[1],
+            "ignore_errors" => true,
+            "timeout" => 15,
+        ]]);
+        $response = file_get_contents("http://127.0.0.1:8080/extensions", false, $context);
+        preg_match("/^HTTP\/\S+ (\d{3})/", $http_response_header[0] ?? "", $matches);
+        fwrite(STDOUT, $response ?: "");
+        exit((int) ($matches[1] ?? 0) === 201 ? 0 : 1);
+    ' "$payload" >"$BODY"; then
+        echo "Gateway Extension activation failed: body=$(<"$BODY")" >&2
+        exit 1
+    fi
+}
+
+activate_extension "{\"extension\":\"webong/web\",\"enabled\":true,\"version\":\"0.1.0\",\"artifact\":{\"url\":\"https://extensions.invalid/webong-web.tar.gz\",\"sha256\":\"$WEB_ARTIFACT_SHA\"},\"configuration\":{\"websocket\":{\"max_connections\":1000,\"max_duration_ms\":86400000},\"webstream\":{\"heartbeat_ms\":15000,\"retry_ms\":3000,\"max_connections\":1000,\"max_duration_ms\":86400000,\"private_network_cidrs\":[]}}}"
+activate_extension "{\"extension\":\"webong/dns\",\"enabled\":true,\"version\":\"0.1.0\",\"artifact\":{\"url\":\"https://extensions.invalid/webong-dns.tar.gz\",\"sha256\":\"$DNS_ARTIFACT_SHA\"},\"configuration\":{}}"
+activate_extension "{\"extension\":\"webong/email\",\"enabled\":true,\"version\":\"0.1.0\",\"artifact\":{\"url\":\"https://extensions.invalid/webong-email.tar.gz\",\"sha256\":\"$EMAIL_ARTIFACT_SHA\"},\"configuration\":{\"smtp_relay\":{\"address\":\"relay:2527\",\"tls_mode\":\"none\"},\"failure_notice_domain\":\"gateway.example.test\"}}"
+
+# Spinner reconciles independently from Planner. Wait until the installable Web
+# process owns the public HTTP mount before exercising ingress.
+web_status=""
+for _ in $(seq 1 180); do
+    web_status="$(curl -ksS --max-time 2 -o /dev/null -w '%{http_code}' "$BASE_URL/__extension-ready")"
+    if [[ "$web_status" == "404" ]]; then
+        break
+    fi
+    sleep 0.5
+done
+if [[ "$web_status" != "404" ]]; then
+    echo "Installable Web Extension did not become ready: HTTP $web_status" >&2
+    exit 1
+fi
 
 if compose port planner 8080 >/dev/null 2>&1; then
     echo "Planner must not publish its private port to the host." >&2
@@ -253,18 +332,18 @@ if [[ "$notice_status" != "202" || ! "$failed_id" =~ ^[a-f0-9]{32}$ ]]; then
     exit 1
 fi
 failed_state=""
-failure_notice_id=""
+follow_up_id=""
 for _ in $(seq 1 60); do
     curl -ksS --max-time 10 -o "$BODY" \
         -H "Authorization: Bearer $REGISTRY_TOKEN" "$BASE_URL/deliveries/$failed_id"
     failed_state="$(php -r '$value=json_decode(file_get_contents($argv[1]), true); echo $value["state"] ?? "";' "$BODY")"
-    failure_notice_id="$(php -r '$value=json_decode(file_get_contents($argv[1]), true); echo $value["failure_notice_id"] ?? "";' "$BODY")"
-    if [[ "$failed_state" == "failed" && "$failure_notice_id" =~ ^[a-f0-9]{32}$ ]]; then
+    follow_up_id="$(php -r '$value=json_decode(file_get_contents($argv[1]), true); echo $value["follow_up_id"] ?? "";' "$BODY")"
+    if [[ "$failed_state" == "failed" && "$follow_up_id" =~ ^[a-f0-9]{32}$ ]]; then
         break
     fi
     sleep 0.25
 done
-if [[ "$failed_state" != "failed" || ! "$failure_notice_id" =~ ^[a-f0-9]{32}$ ]]; then
+if [[ "$failed_state" != "failed" || ! "$follow_up_id" =~ ^[a-f0-9]{32}$ ]]; then
     echo "Container failed relay did not record a durable failure notice: body=$(<"$BODY")" >&2
     exit 1
 fi

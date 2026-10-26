@@ -12,38 +12,10 @@ spec:
               containerPort: 5052
               protocol: TCP
           env:
-            - name: GATEWAY_SMTP_RELAY_ADDR
-              valueFrom:
-                configMapKeyRef:
-                  name: gateway-email-relay
-                  key: address
-            - name: GATEWAY_SMTP_RELAY_TLS_MODE
-              valueFrom:
-                configMapKeyRef:
-                  name: gateway-email-relay
-                  key: tls-mode
-            - name: GATEWAY_SMTP_RELAY_SERVER_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: gateway-email-relay
-                  key: server-name
-                  optional: true
-            - name: GATEWAY_SMTP_RELAY_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: gateway-email-relay
-                  key: username
-                  optional: true
-            - name: GATEWAY_SMTP_RELAY_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: gateway-email-relay
-                  key: password
-                  optional: true
             - name: GATEWAY_DELIVERY_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: gateway-email-relay
+                  name: gateway-shared-delivery
                   key: database-url
             - name: GATEWAY_DELIVERY_ADMIN_ADDR
               value: ":5052"

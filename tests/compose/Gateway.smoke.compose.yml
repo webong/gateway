@@ -35,11 +35,10 @@ services:
       GATEWAY_DELIVERY_ADMIN_ADDR: ":5052"
       GATEWAY_DELIVERY_SPOOL_PATH: /tmp/gateway-spool
       GATEWAY_DELIVERY_MAX_ATTEMPTS: "1"
-      GATEWAY_EMAIL_DSN_DOMAIN: gateway.example.test
-      GATEWAY_SMTP_RELAY_ADDR: relay:2527
-      GATEWAY_SMTP_RELAY_TLS_MODE: none
       PORT: "5001"
       LOG_LEVEL: error
+    volumes:
+      - "${GATEWAY_EXTENSION_ROOT:?set GATEWAY_EXTENSION_ROOT}:/data/extensions"
 
   relay:
     build:

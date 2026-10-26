@@ -1,15 +1,5 @@
 {
     frankenphp
-    gateway_smtp {
-        listen {$GATEWAY_ROUTER_SMTP_LISTEN:0.0.0.0:2525}
-        planner_url http://127.0.0.1:8080
-        internal_token {$GATEWAY_INTERNAL_TOKEN}
-        hostname {$GATEWAY_SMTP_HOSTNAME:gateway.local}
-        recipient_preflight true
-        delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
-        mailbox_resolver_url http://127.0.0.1:8080
-        outbound_resolver_url http://127.0.0.1:8080
-    }
 }
 
 {$GATEWAY_ROUTER_LISTEN} {
@@ -24,8 +14,6 @@
             max_body_size 10485760
             max_workers 100
             max_queue_size 1000
-            webstream_max_connections 1000
-            webstream_max_duration 24h
             delivery_database_url {$GATEWAY_DELIVERY_DATABASE_URL}
             admin_addr {$GATEWAY_DELIVERY_ADMIN_ADDR}
         }

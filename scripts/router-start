@@ -119,17 +119,6 @@ case "$GATEWAY_PLANNER_MAX_REQUESTS" in
     ''|*[!0-9]*|0) echo 'GATEWAY_PLANNER_MAX_REQUESTS must be a positive integer.' >&2; exit 1 ;;
 esac
 
-# Planner owns mailbox upstream hosts and network scope. Spinner resolves
-# credentials privately and enforces the scope against DNS results when dialing.
-if [ "$RUNTIME" = library ] || [ "$RUNTIME" = roadrunner ]; then
-    export GATEWAY_MAILBOX_SMTP_RESOLVER_URL=${GATEWAY_MAILBOX_SMTP_RESOLVER_URL:-http://127.0.0.1:5053}
-    export GATEWAY_OUTBOUND_RESOLVER_URL=${GATEWAY_OUTBOUND_RESOLVER_URL:-http://127.0.0.1:5053}
-    export GATEWAY_EMAIL_DKIM_RESOLVER_URL=${GATEWAY_EMAIL_DKIM_RESOLVER_URL:-http://127.0.0.1:5053}
-fi
-if [ "$RUNTIME" = frankenphp ] && [ -z "${GATEWAY_DELIVERY_DATABASE_URL:-}" ]; then
-    export GATEWAY_SMTP_DELIVERY_SPOOL_PATH=${GATEWAY_SMTP_DELIVERY_SPOOL_PATH:-$DATA_DIR/smtp-deliveries}
-fi
-
 if [ -n "${GATEWAY_ROUTER_TLS_LISTEN:-}" ]; then
     TLS_NAME=${GATEWAY_ROUTER_TLS_NAME:-gateway}
     if ! php -r 'exit(preg_match("/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/D", $argv[1]) === 1 ? 0 : 1);' "$TLS_NAME"; then
@@ -158,8 +147,6 @@ if [ -n "${GATEWAY_ROUTER_TLS_LISTEN:-}" ]; then
             exit 1
         fi
     fi
-    export GATEWAY_IMAP_TLS_CERT_FILE=${GATEWAY_IMAP_TLS_CERT_FILE:-$GATEWAY_ROUTER_TLS_CERT_FILE}
-    export GATEWAY_IMAP_TLS_KEY_FILE=${GATEWAY_IMAP_TLS_KEY_FILE:-$GATEWAY_ROUTER_TLS_KEY_FILE}
 fi
 if [ "$RUNTIME" = frankenphp ]; then
     case "$GATEWAY_ROUTER_CONTROL_LISTEN" in

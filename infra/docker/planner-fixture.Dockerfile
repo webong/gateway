@@ -2,9 +2,14 @@ FROM composer:2 AS dependencies
 
 WORKDIR /app
 
-COPY composer.json composer.lock ./
+# The build context is a source checkout without Git metadata. Keep Composer's
+# root-package version aligned with the path packages that require dev-main.
+ENV COMPOSER_ROOT_VERSION=dev-main
 
-RUN composer install --no-dev --no-interaction --no-progress --prefer-dist \
+COPY composer.json composer.lock ./
+COPY pkg ./pkg
+
+RUN composer install --no-interaction --no-progress --prefer-dist \
         --ignore-platform-req=ext-sockets --ignore-platform-req=ext-pcntl \
     && composer dump-autoload --dev --no-interaction
 
