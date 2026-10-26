@@ -14,7 +14,7 @@ embedded RoadRunner or FrankenPHP. Both use the same planning contract.
 ## Guides
 
 - [Gateway Router](router.md): run Spinner and the bundled Planner together,
-  natively or in the optional FrankenPHP image.
+  natively or in the combined Router image with RoadRunner or FrankenPHP.
 - [Gateway Extension packages](planner-extensions.md): assemble self-contained
   Web, DNS, Email, and Database Planner and Spinner entrypoints.
 - [Distributed getting started](getting-started.md): install the Planner in a

@@ -39,6 +39,7 @@ The canonical production image built successfully:
 
 ```bash
 docker build --progress=plain \
+  --build-arg GATEWAY_ROUTER_RUNTIME=frankenphp \
   -f infra/docker/Gateway.router.Dockerfile \
   -t gateway-router:frankenphp-verify-061497a2 .
 ```

@@ -12,22 +12,22 @@ fi
 
 # Official Go image tags omit a trailing patch zero (1.26.0 -> 1.26).
 IMAGE_VERSION=${WORKSPACE_VERSION%.0}
-EXPECTED="FROM golang:${IMAGE_VERSION}-alpine AS router-builder"
-DOCKERFILE="$ROOT/infra/docker/RoadRunner.router.Dockerfile"
-LIBRARY_DOCKERFILE="$ROOT/infra/docker/Gateway.router.Dockerfile"
+EXPECTED="FROM golang:${IMAGE_VERSION}-alpine AS roadrunner-builder"
+DOCKERFILE="$ROOT/infra/docker/Gateway.router.Dockerfile"
 
-for router_dockerfile in "$DOCKERFILE" "$LIBRARY_DOCKERFILE"; do
-    if grep -Eq '^USER[[:space:]]+www-data$' "$router_dockerfile"; then
-        echo "Router must start through its data-migration entrypoint before dropping privileges: $router_dockerfile" >&2
-        exit 1
-    fi
-    if ! grep -Fq 'ENTRYPOINT ["/gateway/scripts/router-container-entrypoint"' "$router_dockerfile"; then
-        echo "Router image is missing its upgrade-safe container entrypoint: $router_dockerfile" >&2
+if grep -Eq '^USER[[:space:]]+www-data$' "$DOCKERFILE"; then
+    echo 'Router must start through its data-migration entrypoint before dropping privileges.' >&2
+    exit 1
+fi
+
+for runtime_entrypoint in roadrunner library; do
+    if ! grep -Fq "ENTRYPOINT [\"/gateway/scripts/router-container-entrypoint\", \"$runtime_entrypoint\"]" "$DOCKERFILE"; then
+        echo "Combined Router Dockerfile is missing its $runtime_entrypoint entrypoint." >&2
         exit 1
     fi
 done
 
-if ! grep -Fq 'gosu ' "$LIBRARY_DOCKERFILE" || ! grep -Fq 'su-exec ' "$DOCKERFILE"; then
+if ! grep -Fq 'gosu ' "$DOCKERFILE" || ! grep -Fq 'su-exec ' "$DOCKERFILE"; then
     echo 'Router images must install the privilege-drop helper used by their base distribution.' >&2
     exit 1
 fi
@@ -42,7 +42,7 @@ if ! grep -Fx "$EXPECTED" "$DOCKERFILE" >/dev/null; then
     exit 1
 fi
 
-if ! grep -Fx 'FROM php:8.4-cli-alpine AS php-base' "$DOCKERFILE" >/dev/null; then
+if ! grep -Fx 'FROM php:8.4-cli-alpine AS roadrunner-php-base' "$DOCKERFILE" >/dev/null; then
     echo 'RoadRunner Router must use the Alpine PHP runtime.' >&2
     exit 1
 fi
@@ -52,23 +52,21 @@ if ! grep -Fq -- '-ldflags="-s -w"' "$DOCKERFILE"; then
     exit 1
 fi
 
-if grep -Fq 'COPY --from=planner-builder /src/gateway /gateway' "$DOCKERFILE"; then
+if grep -Fq 'COPY --from=roadrunner-planner-builder /src/gateway /gateway' "$DOCKERFILE"; then
     echo 'RoadRunner Router must not copy the complete build workspace into the runtime image.' >&2
     exit 1
 fi
 
-if ! grep -Fq 'GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php' "$LIBRARY_DOCKERFILE"; then
+if ! grep -Fq 'GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php' "$DOCKERFILE"; then
     echo 'The FrankenPHP library Router must name its bundled PHP CLI for dynamic companions.' >&2
     exit 1
 fi
 
-for router_dockerfile in "$DOCKERFILE" "$LIBRARY_DOCKERFILE"; do
-    if ! grep -Fq 'GATEWAY_PLUGIN_DIR=/data/spinner-extensions' "$router_dockerfile" \
-        || ! grep -Fq 'GATEWAY_COMPANION_PLUGIN_DIR=/data/planner-extensions' "$router_dockerfile"; then
-        echo "The bundled Router must keep Spinner and Planner extension stores separate: $router_dockerfile" >&2
-        exit 1
-    fi
-done
+if ! grep -Fq 'GATEWAY_PLUGIN_DIR=/data/spinner-extensions' "$DOCKERFILE" \
+    || ! grep -Fq 'GATEWAY_COMPANION_PLUGIN_DIR=/data/planner-extensions' "$DOCKERFILE"; then
+    echo 'The bundled Router must keep Spinner and Planner extension stores separate.' >&2
+    exit 1
+fi
 
 if grep -Fq "env('GATEWAY_COMPANION_PLUGIN_DIR', env('GATEWAY_PLUGIN_DIR'" \
     "$ROOT/pkg/planner/config/gateway.php"; then
@@ -82,7 +80,7 @@ if ! grep -Fxq 'opcache.enable_cli=0' "$ROOT/infra/docker/router.php.ini"; then
 fi
 
 for runtime_path in app pkg vendor; do
-    if ! grep -Fq "COPY --from=planner-builder /src/gateway/$runtime_path /gateway/$runtime_path" "$DOCKERFILE"; then
+    if ! grep -Fq "COPY --from=roadrunner-planner-builder /src/gateway/$runtime_path /gateway/$runtime_path" "$DOCKERFILE"; then
         echo "RoadRunner Router runtime is missing $runtime_path." >&2
         exit 1
     fi
@@ -138,7 +136,7 @@ php -r '
     }
 ' "$ROOT"
 
-if grep -Fq 'composer install --working-dir=/src/gateway/pkg/hookscript/companion' "$LIBRARY_DOCKERFILE"; then
+if grep -Fq 'composer install --working-dir=/src/gateway/pkg/hookscript/companion' "$DOCKERFILE"; then
     echo 'The FrankenPHP library Router must not preinstall the HookScript companion.' >&2
     exit 1
 fi
@@ -153,4 +151,12 @@ if grep -R -n -E 'Webong\\Gateway\\(Contract|Protocol)\\' \
     exit 1
 fi
 
-echo "RoadRunner Router packaging uses Go ${IMAGE_VERSION} and the current Planner module."
+if ! grep -Fxq 'ARG GATEWAY_ROUTER_RUNTIME=roadrunner' "$DOCKERFILE" \
+    || ! grep -Fxq 'FROM ${GATEWAY_ROUTER_RUNTIME} AS selected-router' "$DOCKERFILE" \
+    || ! grep -Fq 'FROM roadrunner-php-base AS roadrunner' "$DOCKERFILE" \
+    || ! grep -Fq 'FROM frankenphp-php-base AS frankenphp' "$DOCKERFILE"; then
+    echo 'The combined Router Dockerfile must select either supported runtime from one build argument.' >&2
+    exit 1
+fi
+
+echo "Combined Router packaging offers RoadRunner and FrankenPHP with Go ${IMAGE_VERSION} and the current Planner module."

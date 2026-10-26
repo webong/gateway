@@ -5,13 +5,22 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPOSITORY="${GATEWAY_IMAGE_REPOSITORY:-webong/gateway}"
 PLATFORMS="${GATEWAY_IMAGE_PLATFORMS:-linux/amd64,linux/arm64}"
-DOCKERFILE="${GATEWAY_IMAGE_DOCKERFILE:-infra/docker/RoadRunner.router.Dockerfile}"
+DOCKERFILE="infra/docker/Gateway.router.Dockerfile"
+ROUTER_RUNTIME="${GATEWAY_ROUTER_RUNTIME:-roadrunner}"
 TAG="${1:-sha-$(git -C "$ROOT" rev-parse --short=7 HEAD)}"
 
 if [[ ! "$TAG" =~ ^(latest|sha-[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?)$ ]]; then
     echo "Gateway image tags must be latest, sha-<commit>, or v<semver>." >&2
     exit 2
 fi
+
+case "$ROUTER_RUNTIME" in
+    roadrunner|frankenphp) ;;
+    *)
+        echo "GATEWAY_ROUTER_RUNTIME must be roadrunner or frankenphp." >&2
+        exit 2
+        ;;
+esac
 
 if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
     echo "Refusing to publish Gateway from a dirty worktree." >&2
@@ -26,6 +35,7 @@ fi
 exec docker buildx build \
     --platform "$PLATFORMS" \
     --file "$ROOT/$DOCKERFILE" \
+    --build-arg "GATEWAY_ROUTER_RUNTIME=$ROUTER_RUNTIME" \
     "${tags[@]}" \
     --provenance=true \
     --push \

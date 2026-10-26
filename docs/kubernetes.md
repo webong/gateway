@@ -5,7 +5,7 @@ Email, DNS, and TLS edge overlays:
 
 | Configuration | Container | Planner | Persistent state |
 | --- | --- | --- | --- |
-| [`infra/kubernetes/router`](../infra/kubernetes/router) | Combined Router image from `infra/docker/Gateway.router.Dockerfile` | Bundled in-process through the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
+| [`infra/kubernetes/router`](../infra/kubernetes/router) | Combined Router image from `infra/docker/Gateway.router.Dockerfile`; select RoadRunner (default) or FrankenPHP with `GATEWAY_ROUTER_RUNTIME` | Bundled Planner, hosted by RoadRunner workers or the FrankenPHP Go library | `router-data` PVC for SQLite, keys, cache, and storage |
 | [`infra/kubernetes/spinner`](../infra/kubernetes/spinner) | Standalone image from `infra/docker/Gateway.spinner.Dockerfile` | Separate Laravel service at `GATEWAY_PLANNER_URL` | None for the default HTTP transport |
 | [`infra/kubernetes/planner`](../infra/kubernetes/planner) | Standalone PHP-FPM/Laravel Octane image from `infra/docker/Gateway.planner.Dockerfile`; select PHP-FPM, FrankenPHP, Swoole, or RoadRunner with `GATEWAY_PLANNER_SERVER` | Runs the Planner and registration API | External PostgreSQL; ephemeral local cache/storage |
 | [`infra/kubernetes/provision`](../infra/kubernetes/provision) | Dedicated target worker from the `kubernetes` target of `infra/docker/Gateway.provision.Dockerfile` | Separate private Planner connection | Planner target state; no local worker database |
@@ -16,16 +16,20 @@ it. The Router and Spinner manifests do not publish a public listener. Attach
 your cluster's ingress/controller to the `router` or `spinner` Service, or
 deploy the optional [TLS edge](../infra/kubernetes/tls-edge) below.
 
-For a RoadRunner-based combined Router, build
-`infra/docker/RoadRunner.router.Dockerfile` instead of the FrankenPHP Dockerfile
-and set that image on the same Router Deployment. Both images use port 8080,
-the `/health` probe, UID/GID 33, and the `/data` PVC. Keep the single-replica
-SQLite deployment strategy with either image.
+The combined Router Dockerfile supports both runtimes. Select RoadRunner
+(default) or FrankenPHP at build time, then use the resulting image on the same
+Router Deployment. Both variants use port 8080, the `/health` probe, and the
+`/data` PVC. Keep the single-replica SQLite deployment strategy with either
+runtime.
 
 ## Combined Router
 
 ```sh
+# RoadRunner (default)
 docker build -f infra/docker/Gateway.router.Dockerfile -t REGISTRY/router:TAG .
+# Or select the FrankenPHP Go-library runtime:
+docker build --build-arg GATEWAY_ROUTER_RUNTIME=frankenphp \
+  -f infra/docker/Gateway.router.Dockerfile -t REGISTRY/router:TAG .
 docker push REGISTRY/router:TAG
 kubectl create namespace gateway
 # Set image: REGISTRY/router:TAG in infra/kubernetes/router/deployment.yaml.

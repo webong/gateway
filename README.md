@@ -807,8 +807,8 @@ PHP-side cache settings:
 - `GATEWAY_MUTATION_LOCK_SECONDS` - route lock lease (default `10`)
 - `GATEWAY_MUTATION_LOCK_WAIT_SECONDS` - lock wait before `503` (default `5`)
 
-`diagnostic` mode has no Planner wired by itself. Deploy the combined
-FrankenPHP image for Gateway Router, or use `http` to run Spinner against
+`diagnostic` mode has no Planner wired by itself. Build the combined Router
+with `GATEWAY_ROUTER_RUNTIME=frankenphp`, or use `http` to run Spinner against
 a separately deployed Planner.
 
 ## Performance benchmarks

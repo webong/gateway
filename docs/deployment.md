@@ -1,9 +1,10 @@
 # Deploying Gateway
 
-For a single-service deployment such as Zorvia's Mail integration, use the
-[bundled RoadRunner Router](router.md#roadrunner-docker-image): one image with
+For a single-service deployment, use the
+[combined Router image](router.md#combined-router-docker-image): one image with
 Spinner and Planner, one private `/data` volume, HTTPS on 8443, and TLS IMAP on
-993. Planner APIs own the mailbox
+993. RoadRunner is the default runtime; select FrankenPHP at build time when
+you want the Router to host PHP in-process. Planner APIs own the mailbox
 connections and policies. No separate PHP Planner or PostgreSQL service is
 needed for a single local replica. Do not point this deployment at a
 standalone Spinner image.
@@ -27,11 +28,13 @@ The repository provides JavaScript, Lua, WebhookScript, Web, Email, DNS, and
 the other Gateway Extensions. The host image remains extension-neutral: an
 installable Spinner runtime is selected through Planner's `/extensions` CMS
 instead of being compiled into every Router. The publisher defaults to the
-bundled RoadRunner composition used by Zorvia; selecting another composition
-does not change the repository or tag. Publish from a clean commit with:
+bundled RoadRunner runtime used by Zorvia. Selecting FrankenPHP changes only
+the runtime built into the image, not the repository or public tag. Publish from a clean commit with:
 
 ```bash
 scripts/publish-gateway-image
+# Select FrankenPHP instead of the default RoadRunner runtime:
+GATEWAY_ROUTER_RUNTIME=frankenphp scripts/publish-gateway-image
 # Or publish a named release as well as latest:
 scripts/publish-gateway-image v1.0.0
 ```

@@ -162,27 +162,33 @@ endpoints. Callback destinations must pass Spinner's outbound address policy.
 subscriber can still be accepted; to verify actual delivery, configure a
 controlled public HTTPS receiver.
 
-## Optional Docker image
+## Combined Router Docker image
 
-The image builds `pkg/frankenphp/cmd/router`, which connects the
-`pkg/spinner/router` host assembly to the `pkg/frankenphp` PHP adapter, with Go
-1.26 and bundles
-the Planner on Debian. It compiles PHP 8.4 from the upstream release archive
-with ZTS, the embed SAPI, and Linux execution timers, following FrankenPHP's
-[library compilation requirements](https://frankenphp.dev/docs/library/).
-The final image contains our Router binary, the matching PHP shared library
-and CLI, and Planner dependencies. It uses no FrankenPHP base image or Caddy
-binary. Optional FrankenPHP Brotli, file-watcher, and Mercure integration are
-disabled with Go build tags.
-
-Build and run the image:
+One production Dockerfile builds the complete Router with either runtime. Both
+variants include Spinner and Planner, persist state under `/data`, and use the
+same container entrypoint. RoadRunner is the default; FrankenPHP embeds PHP in
+the Go Router process with ZTS and the embed SAPI. The FrankenPHP build follows
+FrankenPHP's [library compilation requirements](https://frankenphp.dev/docs/library/)
+and disables optional Brotli, file-watcher, and Mercure integration.
 
 ```bash
-docker build -f infra/docker/Gateway.router.Dockerfile -t gateway-router:local .
-docker run -d --name gateway-router -p 8080:8080 \
-  -v gateway-router-data:/data gateway-router:local
+# Default: RoadRunner with ordinary PHP CLI workers.
+docker build -f infra/docker/Gateway.router.Dockerfile \
+  -t gateway-router:roadrunner-local .
+
+# Alternative: FrankenPHP Go-library runtime with embedded PHP.
+docker build --build-arg GATEWAY_ROUTER_RUNTIME=frankenphp \
+  -f infra/docker/Gateway.router.Dockerfile \
+  -t gateway-router:frankenphp-local .
+
+docker run -d --name gateway-router -p 8443:8443 \
+  -v gateway-router-data:/data gateway-router:roadrunner-local
 docker exec gateway-router /gateway/scripts/gateway-router artisan gateway:endpoint orders
 ```
+
+To choose the runtime during publication, set `GATEWAY_ROUTER_RUNTIME` for
+`scripts/publish-gateway-image`. It accepts `roadrunner` or `frankenphp` and
+defaults to `roadrunner`.
 
 The image ships the Router code, PHP dependencies, and empty writable cache
 and storage directories under `/data`. It does not bake generated credentials,
@@ -202,7 +208,7 @@ PostgreSQL URL instead of `GATEWAY_DELIVERY_SPOOL_PATH`. The bundled launcher
 uses that same URL as Planner's `DB_URL`, migrates PostgreSQL, and selects the
 shared-queue Caddyfile for FrankenPHP. Set `DB_CONNECTION=pgsql` explicitly if
 your deployment supplies it; any non-PostgreSQL value is rejected. PHP must
-have `pdo_pgsql` installed (both Router Docker images include it). The Go
+have `pdo_pgsql` installed (both combined Router runtime builds include it). The Go
 workers claim only deliveries for adapters they support, allowing the HTTP
 handler and SMTP app to share one database without misrouting work. See
 [delivery operations](deliveries.md) for the at-least-once and remaining
@@ -249,21 +255,14 @@ FrankenPHP-library Routers have a multi-container managed HTTP/WebSocket smoke.
 The optional FrankenPHP/Caddy integration can be tested against a separately
 hosted Planner, but Gateway does not publish a dedicated image for it.
 
-### RoadRunner Docker image
+### RoadRunner runtime behavior
 
-The alternative image packages `pkg/roadrunner/cmd/router`, ordinary PHP CLI
-workers, and the same Planner host. It does not use FrankenPHP, ZTS, or a
-separate Planner service. It runs as `www-data`; RoadRunner serves HTTPS on
-8443 and keeps its HTTP health listener on container loopback. It persists
-credentials, SQLite, delivery spool, storage, generated worker configuration,
-and its local TLS certificate in `/data`.
-
-```sh
-docker build -f infra/docker/RoadRunner.router.Dockerfile -t gateway-router:roadrunner-local .
-docker run -d --name gateway-router -p 8443:8443 \
-  -v gateway-router-data:/data gateway-router:roadrunner-local
-docker exec gateway-router /gateway/scripts/gateway-router artisan gateway:endpoint orders
-```
+When `GATEWAY_ROUTER_RUNTIME=roadrunner` is selected, the image packages
+`pkg/roadrunner/cmd/router` and ordinary PHP CLI workers. It does not use ZTS
+or FrankenPHP. RoadRunner serves HTTPS on 8443 and keeps its HTTP health
+listener on container loopback. It persists credentials, SQLite, delivery
+spool, storage, generated worker configuration, and its local TLS certificate
+in `/data`.
 
 On first start the container creates a self-signed certificate for
 `GATEWAY_ROUTER_TLS_NAME` (default `gateway`) and `localhost`, stored with the
@@ -296,16 +295,16 @@ backend lacked support.
 It verifies two isolated combined Planner connections, one IMAP-only
 connection with no SMTP grant, a pending Gateway-managed sending domain,
 TLS IMAP login, private SMTP credential lookup, HTTPS submission, idempotency,
-and delivered receipts. Pass the local FrankenPHP-library image tag instead
-to test that bundle. DNS ownership verification and managed sending require
+and delivered receipts. Pass an image built with
+`GATEWAY_ROUTER_RUNTIME=frankenphp` instead to test that runtime. DNS ownership verification and managed sending require
 a controlled TXT record and configured outbound relay; this smoke does not
 prove those, compatibility with a real mailbox provider, or public-domain
 mail delivery.
 
-Choose either Router image for a deployment; do not run both against the same
-SQLite volume concurrently. The existing single-replica Kubernetes Router
-configuration can use this image by changing its image reference. The default
-Docker image definition remains the neutral combined Router image.
+Choose one runtime for each image build, and do not run two Router containers
+against the same SQLite volume concurrently. The existing single-replica
+Kubernetes Router configuration can use either build by changing its image
+reference.
 
 Run `bash scripts/test-roadrunner-container gateway-router:roadrunner-local`
 to check health, non-root execution, private-route isolation, management CLI,
@@ -314,8 +313,9 @@ Run `bash scripts/test-router-managed-route gateway-router:roadrunner-local`
 to check bundled Planner lookup, managed HTTP forwarding, a WebSocket upgrade
 and echoed message, private-route isolation, destination allowlisting, and
 stale-instance fail-closed behavior. This requires Docker and a local Go
-toolchain. The same script accepts the FrankenPHP-library Router image. It
-deletes its temporary containers, network, and volume.
+toolchain. The same script accepts an image built with
+`GATEWAY_ROUTER_RUNTIME=frankenphp`. It deletes its temporary containers,
+network, and volume.
 The `scripts/test-caddy-managed-route` fixture remains available to consumers
 that compile the optional Caddy module into their own host image. It verifies
 that host against a separate Laravel Planner container, not the combined

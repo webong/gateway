@@ -27,7 +27,7 @@ _Avoid_: Planner Resource
 
 **Router**:
 The bundled service containing both Spinner and Planner behind one public listener.
-_Avoid_: Standalone Gateway, FrankenPHP image
+_Avoid_: calling the Router a standalone Gateway or the FrankenPHP build a separate product
 
 **Spinner Node**:
 A running Spinner instance that serves Gateway transports and executes deliveries.

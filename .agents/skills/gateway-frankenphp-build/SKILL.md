@@ -5,7 +5,7 @@ description: Build or diagnose Gateway's FrankenPHP Router, especially CGO failu
 
 # Gateway FrankenPHP build
 
-Treat [`infra/docker/Gateway.router.Dockerfile`](../../../infra/docker/Gateway.router.Dockerfile) as the canonical production build definition. Read its current build stage and tags before reproducing a failure; do not assume a plain `go test ./...` represents the shipped Router.
+Treat [`infra/docker/Gateway.router.Dockerfile`](../../../infra/docker/Gateway.router.Dockerfile) as the canonical production build definition for both Router runtimes. Pass `--build-arg GATEWAY_ROUTER_RUNTIME=frankenphp` to select FrankenPHP; the default is RoadRunner. Read the selected build stage and tags before reproducing a failure; do not assume a plain `go test ./...` represents the shipped Router.
 
 ## Diagnose the intended target
 

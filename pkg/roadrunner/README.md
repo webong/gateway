@@ -23,9 +23,11 @@ Do not set `GATEWAY_RUNTIME` for the bundled Router: its command selects the ada
 
 Standalone Spinner deliberately has no RoadRunner dependency or
 `GATEWAY_RUNTIME=roadrunner` mode. This extension's Router command owns the
-RoadRunner composition. Build the RoadRunner image with
-`docker build -f infra/docker/RoadRunner.router.Dockerfile -t gateway-router:roadrunner-local .`.
-It uses the same port 8080 and persistent `/data` convention as the FrankenPHP image.
+RoadRunner composition. Build the combined Router image with
+`docker build -f infra/docker/Gateway.router.Dockerfile -t gateway-router:roadrunner-local .`.
+RoadRunner is the default; the same Dockerfile accepts
+`--build-arg GATEWAY_ROUTER_RUNTIME=frankenphp` to select the FrankenPHP runtime.
+It uses the same port 8080 and persistent `/data` convention as the FrankenPHP runtime build.
 
 Test each module separately with `go test ./...` from `pkg/roadrunner` and
 `pkg/roadrunner/cmd/router`. Use `bash scripts/test-router-boundaries` from the

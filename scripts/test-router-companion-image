@@ -29,7 +29,8 @@ for command in composer curl docker go php; do
 done
 
 if [ "${GATEWAY_ROUTER_SKIP_BUILD:-false}" != true ]; then
-    docker build -f "$ROOT/infra/docker/Gateway.router.Dockerfile" -t "$IMAGE" "$ROOT"
+    docker build --build-arg GATEWAY_ROUTER_RUNTIME=frankenphp \
+        -f "$ROOT/infra/docker/Gateway.router.Dockerfile" -t "$IMAGE" "$ROOT"
 fi
 
 mkdir -p "$COMPANION_BUILD"
