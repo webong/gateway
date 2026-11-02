@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/arranger/automation"
 	"golang.org/x/crypto/ssh"
 )
@@ -69,6 +70,9 @@ func (e *Engine) executeSSH(ctx context.Context, source string, input automation
 	e.sshMu.RUnlock()
 	if scoped, ok := ctx.Value(sshResolverContextKey{}).(SSHResolver); ok {
 		resolver = scoped
+	}
+	if resolver == nil {
+		resolver = reverseSSHResolver{caller: plugin.ReverseFrom(ctx)}
 	}
 	if resolver == nil || len(e.sshAllowed) == 0 {
 		return automation.Outcome{}, errors.New("SSH Shell execution is not configured")

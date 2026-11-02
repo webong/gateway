@@ -84,7 +84,7 @@ route's reply slot. The hook directory itself should remain operator-owned
 and read-only to Spinner.
 Shell subscription `PATCH`, status, match-patch, and `DELETE` requests require
 both tokens; read-only `GET` uses the registry token alone.
-PHP callers can use `SubscriptionDefinition::shellReply(...)` with
+PHP callers can use `ShellReplySubscription::make(...)` with
 `SubscribeEndpoint::handle(...)` instead of the JSON endpoint.
 See [the subscription contract](../../docs/subscription-dsl-v1.md) for updates
 and match rules.
