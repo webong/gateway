@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Webong\Gateway;
 
-use InvalidArgumentException;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 use Webong\Gateway\Protocols\SubscriptionState;
 
 final readonly class ManageSubscriptions
@@ -13,8 +13,7 @@ final readonly class ManageSubscriptions
     public function __construct(
         private SubscriptionRegistry $subscriptions,
         private EndpointHttpTransportResolver $transportResolver,
-        private ShellSubscriptionPolicy $shellPolicy,
-        private ShellSshExecutionStore $sshExecutions,
+        private SubscriptionTargetExtensionRegistry $targetExtensions,
     ) {}
 
     /** @return list<SubscriptionResource> */
@@ -25,13 +24,7 @@ final readonly class ManageSubscriptions
         ?string $channel = null,
         bool $includeRemoved = false,
     ): array {
-        return $this->subscriptions->route(
-            $endpointKey,
-            $routingScope,
-            $routingKey,
-            $channel,
-            $includeRemoved,
-        );
+        return $this->subscriptions->route($endpointKey, $routingScope, $routingKey, $channel, $includeRemoved);
     }
 
     public function get(string $endpointKey, string $destinationId, ?string $channel = null): SubscriptionResource
@@ -39,7 +32,7 @@ final readonly class ManageSubscriptions
         return $this->subscriptions->get($endpointKey, $destinationId, $channel);
     }
 
-    /** @param array<string, mixed>|null $metadata */
+    /** @param array<string, mixed>|null $metadata @param array<string, mixed> $targetChanges */
     public function update(
         string $endpointKey,
         string $destinationId,
@@ -50,14 +43,10 @@ final readonly class ManageSubscriptions
         ?string $profile = null,
         bool $profileProvided = false,
         ?string $channel = null,
-        ?string $shellHook = null,
+        array $targetChanges = [],
     ): SubscriptionResource {
-        if ($url === null && $metadata === null && $type === null && ! $profileProvided && $shellHook === null) {
-            throw new InvalidArgumentException('Update at least one of url, hook, metadata, type, or profile.');
-        }
-
-        if ($shellHook !== null) {
-            ShellSubscriptionTarget::assertHook($shellHook);
+        if ($url === null && $metadata === null && $type === null && ! $profileProvided && $targetChanges === []) {
+            throw new InvalidArgumentException('Update at least one subscription property.');
         }
 
         if ($url !== null) {
@@ -68,49 +57,41 @@ final readonly class ManageSubscriptions
                 throw new InvalidArgumentException('Subscription URL must be an HTTP(S) URL.');
             }
         }
-
         if ($type !== null && ! in_array($type, ['relay', 'reply'], true)) {
             throw new InvalidArgumentException("Unsupported subscription type [{$type}].");
         }
         if ($profileProvided && $profile !== null && (trim($profile) === '' || strlen($profile) > 64)) {
             throw new InvalidArgumentException('Subscription profile must be a non-empty string of at most 64 characters.');
         }
-
-        if ($metadata !== null) {
-            foreach (array_keys($metadata) as $key) {
-                if (! is_string($key)
-                    || str_starts_with($key, '_')
-                    || in_array($key, ['subscriber_id', 'delivery_mode', 'profile'], true)) {
-                    throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
-                }
-            }
-        }
+        $this->validateMetadata($metadata);
 
         return $this->subscriptions->mutate(
             $endpointKey,
             $destinationId,
             $expectedRevision,
-            function (ResolvedSubscription $resolved) use ($url, $metadata, $type, $profile, $profileProvided, $shellHook): array {
+            function (ResolvedSubscription $resolved) use ($url, $metadata, $type, $profile, $profileProvided, $targetChanges): array {
+                $extension = $this->targetExtensions->forDestination($resolved->destination);
+                $extensionChanges = [
+                    ...$targetChanges,
+                    ...($url === null ? [] : ['url' => $url]),
+                    ...($profileProvided ? ['profile' => $profile] : []),
+                    ...($type === null ? [] : ['type' => $type]),
+                ];
+                $newTarget = null;
+                if ($extension !== null) {
+                    $extension->assertMutationAllowed($resolved, $extensionChanges);
+                    $extension->validateMetadata($metadata ?? []);
+                    $newTarget = $extension->updateTarget($resolved, $targetChanges);
+                } elseif ($targetChanges !== []) {
+                    throw new InvalidArgumentException('The subscription target does not support these properties.');
+                }
+
                 $attributes = [];
                 $updatedMetadata = $resolved->destination->metadata;
-                $shell = ShellSubscriptionTarget::isShell($resolved->destination->target);
-
-                if (($shell && ($url !== null || $profileProvided || $type === 'relay'))
-                    || (! $shell && $shellHook !== null)) {
-                    throw new InvalidArgumentException('A subscription target kind cannot be changed; Shell replies accept only hook and metadata updates.');
-                }
-                if ($shellHook !== null) {
-                    if (ShellSubscriptionTarget::sshId($resolved->destination->target) !== null) {
-                        throw new InvalidArgumentException('SSH Shell identity is immutable; create a new subscription to change its hook.');
-                    }
-                    $subscriberId = $updatedMetadata['subscriber_id'] ?? $resolved->destination->owner_id;
-                    if (! is_string($subscriberId)) {
-                        throw new InvalidArgumentException('The subscription contains an invalid subscriber identity.');
-                    }
-                    $this->shellPolicy->assertAllowed($resolved->endpoint->record->endpoint_key, $subscriberId, $shellHook);
-                }
-
                 if ($profileProvided) {
+                    if ($extension !== null) {
+                        throw new InvalidArgumentException('The subscription target does not support an HTTP profile.');
+                    }
                     if ($profile === null) {
                         unset($updatedMetadata[SubscriptionDefinition::PROFILE_METADATA_KEY]);
                     } else {
@@ -118,11 +99,12 @@ final readonly class ManageSubscriptions
                         $updatedMetadata[SubscriptionDefinition::PROFILE_METADATA_KEY] = $profile;
                     }
                 }
-
                 if ($metadata !== null) {
                     foreach ($metadata as $key => $value) {
-                        if ($shell) {
-                            ShellSubscriptionTarget::assertMetadataKey($key);
+                        if (! is_string($key)
+                            || str_starts_with($key, '_')
+                            || in_array($key, ['subscriber_id', 'delivery_mode', 'profile', 'target_kind'], true)) {
+                            throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
                         }
                         if ($value === null) {
                             unset($updatedMetadata[$key]);
@@ -131,20 +113,19 @@ final readonly class ManageSubscriptions
                         }
                     }
                 }
-
                 if ($type !== null) {
-                    if ($type === 'reply'
-                        && SubscriptionState::status($updatedMetadata) === SubscriptionState::ACTIVE) {
+                    if ($type === 'reply' && SubscriptionState::status($updatedMetadata) === SubscriptionState::ACTIVE) {
                         $this->subscriptions->assertReplyAvailable($resolved);
                     }
                     $updatedMetadata['delivery_mode'] = $type;
                 }
-
                 if ($url !== null) {
+                    if ($extension !== null) {
+                        throw new InvalidArgumentException('The subscription target does not support an HTTP URL.');
+                    }
                     $attributes['target'] = $url;
-                }
-                if ($shellHook !== null) {
-                    $attributes['target'] = ShellSubscriptionTarget::encode($shellHook);
+                } elseif ($newTarget !== null) {
+                    $attributes['target'] = $newTarget;
                 }
                 $attributes['metadata'] = $updatedMetadata;
 
@@ -195,9 +176,7 @@ final readonly class ManageSubscriptions
             $destinationId,
             $expectedRevision,
             function (ResolvedSubscription $resolved): array {
-                if (($id = ShellSubscriptionTarget::sshId($resolved->destination->target)) !== null) {
-                    $this->sshExecutions->revoke($id);
-                }
+                $this->targetExtensions->forDestination($resolved->destination)?->remove($resolved);
 
                 return ['metadata' => [
                     ...$resolved->destination->metadata,
@@ -208,22 +187,18 @@ final readonly class ManageSubscriptions
         ));
     }
 
-    public function rotateSshKey(string $endpointKey, string $destinationId,
-        string $expectedRevision, string $privateKey): SubscriptionResource
+    /** @param array<string, mixed>|null $metadata */
+    private function validateMetadata(?array $metadata): void
     {
-        ShellSshExecutionStore::assertPrivateKey($privateKey);
-
-        return DB::transaction(fn (): SubscriptionResource => $this->subscriptions->mutate(
-            $endpointKey, $destinationId, $expectedRevision,
-            function (ResolvedSubscription $resolved) use ($privateKey): array {
-                $id = ShellSubscriptionTarget::sshId($resolved->destination->target);
-                if ($id === null || SubscriptionState::status($resolved->destination->metadata) === SubscriptionState::REMOVED) {
-                    throw new InvalidArgumentException('The subscription has no active SSH credential.');
-                }
-                $this->sshExecutions->rotate($id, $privateKey);
-
-                return ['metadata' => $resolved->destination->metadata];
-            },
-        ));
+        if ($metadata === null) {
+            return;
+        }
+        foreach (array_keys($metadata) as $key) {
+            if (! is_string($key)
+                || str_starts_with($key, '_')
+                || in_array($key, ['subscriber_id', 'delivery_mode', 'profile', 'target_kind'], true)) {
+                throw new InvalidArgumentException("Subscription metadata key [{$key}] is reserved.");
+            }
+        }
     }
 }

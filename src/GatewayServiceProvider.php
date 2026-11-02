@@ -9,6 +9,7 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 use Webong\Gateway\Accounts\Http\AccountController;
+use Webong\Gateway\Accounts\Http\EndpointAccountAccessController;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Automation\ExtAutomationPackageCatalog;
 use Webong\Gateway\Automation\InMemoryAutomationLanguageRegistry;
@@ -52,7 +53,6 @@ use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
 use Webong\Gateway\Resources\Http\ConfigurationController;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
 use Webong\Gateway\Resources\PlannerResourceStore;
-use Webong\Gateway\Resources\Http\ShellHookGrantController;
 use Webong\Gateway\Schedules\Http\InternalScheduleController;
 use Webong\Gateway\Schedules\Http\ScheduleController;
 use Webong\Gateway\Schedules\Http\ScheduleNotificationConfigController;
@@ -109,6 +109,8 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->singleton(ServerTypeRegistry::class);
         $this->app->singleton(ServerRegistry::class);
         $this->app->singleton(ConfigurationKindRegistry::class);
+        $this->app->singleton(SubscriptionTargetExtensionRegistry::class);
+        $this->app->singleton(ExtensionSecretProviderRegistry::class);
         $this->app->singleton(PathResolverRegistry::class);
         $this->app->singleton(ProtocolPlannerRegistry::class);
         $this->app->singleton(RoutePlanObserverRegistry::class);
@@ -242,7 +244,6 @@ final class GatewayServiceProvider extends ServiceProvider
             $companions->replaceDynamicProviders($this->app->make(ExtCompanionPackageCatalog::class)->providers());
 
             $this->app['router']->get('/_internal/gateway/ready', InternalReadinessController::class);
-            $this->app['router']->get('/_internal/gateway/shell/executions/{execution}', ShellSshExecutionController::class);
             $this->app['router']->post('/_internal/gateway/plan', PlanController::class);
             $this->app['router']->post('/_internal/gateway/event', ProtocolPlanController::class);
             $this->app['router']->post('/_internal/gateway/observations', InternalObservationController::class);
@@ -261,6 +262,7 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->delete('/_internal/provisioning/nodes/{node}/session', [InternalAssignmentController::class, 'release']);
             $this->app['router']->post('/_internal/provisioning/instances/reset', [InternalInstanceController::class, 'resetNode']);
             $this->app['router']->put('/_internal/provisioning/servers/{server}/instances/{instance}', [InternalInstanceController::class, 'update']);
+            $this->app['router']->get('/_internal/provisioning/targets/{target}', InternalTargetController::class);
 
             $this->app['router']->get('/servers', [ManagedServerController::class, 'index']);
             $this->app['router']->get('/targets', [TargetController::class, 'index']);
@@ -268,7 +270,6 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/targets/{target}', [TargetController::class, 'show']);
             $this->app['router']->delete('/targets/{target}', [TargetController::class, 'destroy']);
             $this->app['router']->post('/targets/{target}/rotate-token', [TargetController::class, 'rotateToken']);
-            $this->app['router']->get('/_internal/provisioning/targets/{target}', InternalTargetController::class);
             $this->app['router']->post('/servers', [ManagedServerController::class, 'store']);
             $this->app['router']->get('/servers/{server}', [ManagedServerController::class, 'show']);
             $this->app['router']->patch('/servers/{server}', [ManagedServerController::class, 'update']);
@@ -299,17 +300,13 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/extensions/{extension}/secrets', [ExtensionSecretController::class, 'index']);
             $this->app['router']->put('/extensions/{extension}/secrets/{reference}', [ExtensionSecretController::class, 'put']);
             $this->app['router']->delete('/extensions/{extension}/secrets/{reference}', [ExtensionSecretController::class, 'destroy']);
-            $this->app['router']->get('/shell/hook-grants', [ShellHookGrantController::class, 'index']);
-            $this->app['router']->post('/shell/hook-grants', [ShellHookGrantController::class, 'store']);
-            $this->app['router']->get('/shell/hook-grants/{grant}', [ShellHookGrantController::class, 'show']);
-            $this->app['router']->put('/shell/hook-grants/{grant}', [ShellHookGrantController::class, 'replace']);
-            $this->app['router']->delete('/shell/hook-grants/{grant}', [ShellHookGrantController::class, 'destroy']);
             $this->app['router']->get('/schedules/notification-destination', [ScheduleNotificationConfigController::class, 'show']);
             $this->app['router']->post('/schedules/notification-destination', [ScheduleNotificationConfigController::class, 'store']);
             $this->app['router']->put('/schedules/notification-destination', [ScheduleNotificationConfigController::class, 'replace']);
             $this->app['router']->delete('/schedules/notification-destination', [ScheduleNotificationConfigController::class, 'destroy']);
             $this->app['router']->post('/deliveries/{delivery}/retry', [DeliveryController::class, 'retry']);
             $this->app['router']->post('/accounts', [AccountController::class, 'create']);
+            $this->app['router']->post('/accounts/{account}/token/rotate', [AccountController::class, 'rotate']);
             $this->app['router']->get('/schedules', [ScheduleController::class, 'index']);
             $this->app['router']->post('/schedules', [ScheduleController::class, 'store']);
             $this->app['router']->get('/schedules/{schedule}', [ScheduleController::class, 'show']);
@@ -321,6 +318,12 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']
                 ->post('/registry/endpoints', EndpointController::class)
                 ->name('registry.endpoints.store');
+            $this->app['router']
+                ->put('/registry/endpoints/{endpointKey}/accounts/{accountId}', [EndpointAccountAccessController::class, 'grant'])
+                ->name('registry.endpoints.accounts.grant');
+            $this->app['router']
+                ->delete('/registry/endpoints/{endpointKey}/accounts/{accountId}', [EndpointAccountAccessController::class, 'revoke'])
+                ->name('registry.endpoints.accounts.revoke');
             $this->app['router']
                 ->post('/registry/endpoints/{endpointKey}/subscriptions', SubscriptionController::class)
                 ->name('registry.subscriptions.store');
@@ -336,9 +339,6 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']
                 ->patch('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/status', [SubscriptionManagementController::class, 'status'])
                 ->name('registry.subscriptions.status');
-            $this->app['router']
-                ->post('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/ssh/rotate-key', [SubscriptionManagementController::class, 'rotateSshKey'])
-                ->name('registry.subscriptions.ssh.rotate-key');
             $this->app['router']
                 ->delete('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}', [SubscriptionManagementController::class, 'destroy'])
                 ->name('registry.subscriptions.destroy');

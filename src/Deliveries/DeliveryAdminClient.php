@@ -49,7 +49,7 @@ final class DeliveryAdminClient
             $unavailable = true;
         }
         if ($unavailable) {
-            throw new RuntimeException('Shell run history is unavailable on one or more nodes.');
+            throw new RuntimeException('The local resource is unavailable on one or more nodes.');
         }
 
         return null;

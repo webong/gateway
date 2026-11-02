@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use Webong\Gateway\Accounts\EndpointAccountAccessStore;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -23,15 +24,17 @@ final readonly class SubscriptionMatchController
         private PatchSubscriptionMatch $subscriptions,
         private ManageSubscriptions $subscriptionReader,
         private RegistryRequestAuthenticator $authenticator,
+        private EndpointAccountAccessStore $endpointAccess,
+        private SubscriptionTargetExtensionRegistry $targetExtensions,
     ) {
     }
 
     public function __invoke(Request $request, string $endpointKey, string $destinationId): JsonResponse
     {
-        if (($authorization = $this->authenticator->authorize($request)) !== null) {
-            return $authorization;
+        $principal = $this->authenticator->authenticateRegistry($request);
+        if ($principal instanceof JsonResponse) {
+            return $principal;
         }
-
         $input = $request->json()->all();
         $validator = $this->validator->make($input, [
             'version' => ['required', 'string'],
@@ -48,8 +51,20 @@ final readonly class SubscriptionMatchController
 
         try {
             $resource = $this->subscriptionReader->get($endpointKey, $destinationId, $input['channel'] ?? null);
-            if (ShellSubscriptionTarget::isShell($resource->destination->target)
-                && ($authorization = $this->authenticator->authorizeShellMutation($request)) !== null) {
+            $extension = $this->targetExtensions->forDestination($resource->destination);
+            if (! $principal->isOperator()
+                && ($resource->destination->owner_id !== $principal->accountId
+                    || ($extension !== null && $extension->kind() !== 'http')
+                    || ! $this->endpointAccess->allows(
+                        $endpointKey,
+                        (string) $principal->accountId,
+                        $resource->destination->routing_scope,
+                        $resource->destination->routing_key,
+                    ))) {
+                return response()->json(['message' => 'The subscription was not found.'], Response::HTTP_NOT_FOUND);
+            }
+            if ($extension !== null
+                && ($authorization = $extension->authorizeMutation($request, $resource->destination)) !== null) {
                 return $authorization;
             }
             $expectedRevision = SubscriptionState::parseEtag($request->header('If-Match'));
