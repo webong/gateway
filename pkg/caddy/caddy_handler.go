@@ -89,6 +89,7 @@ type CaddyHandler struct {
 	closeOnce     sync.Once
 	runtimeOnce   sync.Once
 	runtimeCancel context.CancelFunc
+	runtimeDone   chan struct{}
 	runtimeErr    error
 	managedRouter *provision.RemoteRouter
 }
@@ -241,6 +242,13 @@ func (g *CaddyHandler) Cleanup() error {
 		if g.runtimeCancel != nil {
 			g.runtimeCancel()
 		}
+		if g.runtimeDone != nil {
+			select {
+			case <-g.runtimeDone:
+			case <-time.After(5 * time.Second):
+				log.Print("gateway extension reconciliation did not stop within five seconds")
+			}
+		}
 		if g.adminServer != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			if err := g.adminServer.Shutdown(ctx); err != nil {
@@ -326,12 +334,23 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 		g.runtimeCancel = cancel
 		plannerClient := &http.Client{Transport: caddyRoundTripper{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		g.runtimeErr = spinnerextensions.StartArtifactReconciliation(
-			ctx, "http://gateway.internal", g.InternalToken, pluginDir,
+		reconciler, err := spinnerextensions.NewArtifactReconciler(
+			"http://gateway.internal", g.InternalToken, pluginDir,
 			plannerClient, artifactClient, spinnerextensions.Registries{
 				Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
-			}, 15*time.Second, log.Printf,
+			},
 		)
+		g.runtimeErr = err
+		if err != nil {
+			return
+		}
+		reconciler.ReconcileAndLog(ctx, log.Printf)
+		done := make(chan struct{})
+		g.runtimeDone = done
+		go func() {
+			defer close(done)
+			reconciler.Run(ctx, 15*time.Second, log.Printf)
+		}()
 	})
 	if g.runtimeErr != nil {
 		return caddyhttp.Error(http.StatusServiceUnavailable, fmt.Errorf("gateway extension reconciliation: %w", g.runtimeErr))

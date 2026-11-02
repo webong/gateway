@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -18,6 +17,7 @@ import (
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
+	"github.com/webong/gateway/pkg/spinner/lifecycle"
 	"github.com/webong/gateway/pkg/spinner/router"
 	"github.com/webong/gateway/pkg/spinner/schedules"
 	"github.com/webong/gateway/pkg/spinner/transport"
@@ -62,6 +62,7 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 	ready := make(chan plannerReady, 1)
 	var extensionOnce sync.Once
 	var extensionErr error
+	artifactReady := make(chan *spinnerextensions.ArtifactReconciler, 1)
 	server, err := newServer(configPath, func(next http.Handler) http.Handler {
 		if resolverErr := automationextensions.ConfigureShellSSHHandler(next, spinner.InternalToken); resolverErr != nil {
 			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -101,12 +102,17 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 			}
 			plannerClient := &http.Client{Transport: routerHandlerTransport{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			extensionErr = spinnerextensions.StartArtifactReconciliation(
-				ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
+			artifactReconciler, err := spinnerextensions.NewArtifactReconciler(
+				"http://gateway.internal", spinner.InternalToken, pluginDir,
 				plannerClient, artifactClient, spinnerextensions.Registries{
 					Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
-				}, 15*time.Second, log.Printf,
+				},
 			)
+			extensionErr = err
+			if err == nil {
+				artifactReconciler.ReconcileAndLog(ctx, log.Printf)
+				artifactReady <- artifactReconciler
+			}
 		})
 		if extensionErr != nil {
 			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -130,15 +136,17 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 	log.Print("Planner connection: managed RoadRunner PHP workers")
 	done := make(chan error, 1)
 	go func() { done <- server.Serve() }()
-	listenerErrors := make(chan error, 4)
+	services := []lifecycle.Service{{
+		Name:     "RoadRunner worker server",
+		Run:      func(context.Context) error { return <-done },
+		Shutdown: func(context.Context) error { server.Stop(); return nil },
+	}}
 	controlListen := os.Getenv("GATEWAY_ROUTER_CONTROL_LISTEN")
-	var controlServer *http.Server
 	if spinner.DeliveryAdminServer != nil {
-		go func() {
-			if err := spinner.ServeDeliveryAdmin(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				listenerErrors <- err
-			}
-		}()
+		services = append(services, lifecycle.Service{
+			Name: "delivery admin listener", Run: func(context.Context) error { return spinner.ServeDeliveryAdmin() },
+			Shutdown: spinner.DeliveryAdminServer.Shutdown,
+		})
 	}
 	if spinner.SchedulesEnabled || controlListen != "" {
 		startup, cancel := context.WithTimeout(ctx, spinner.RequestTimeout)
@@ -170,39 +178,37 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 				<-done
 				return fmt.Errorf("listen for private Planner control: %w", listenErr)
 			}
-			controlServer = router.NewInternalControlServer(prepared.handler)
-			go func() {
-				if serveErr := controlServer.Serve(controlListener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-					listenerErrors <- fmt.Errorf("private Planner control listener: %w", serveErr)
-				}
-			}()
-			defer func() {
-				shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
-				defer cancel()
-				_ = controlServer.Shutdown(shutdown)
-			}()
+			controlServer := router.NewInternalControlServer(prepared.handler)
+			services = append(services, lifecycle.Service{
+				Name:     "private Planner control listener",
+				Run:      func(context.Context) error { return controlServer.Serve(controlListener) },
+				Shutdown: controlServer.Shutdown,
+			})
 		}
 		if spinner.SchedulesEnabled {
-			scheduleCtx, cancelSchedules := context.WithCancel(ctx)
-			defer cancelSchedules()
-			if err := transport.StartSchedulePolling(scheduleCtx, spinner, prepared.control, engine, nativeJobs); err != nil {
-				server.Stop()
-				<-done
-				return err
-			}
+			services = append(services, lifecycle.Service{
+				Name: "schedule polling",
+				Run: func(ctx context.Context) error {
+					return transport.RunSchedulePolling(ctx, spinner, prepared.control, engine, nativeJobs)
+				},
+				Shutdown: func(context.Context) error { return nil },
+			})
 			log.Print("Schedule polling enabled")
 		}
 	}
-	select {
-	case err := <-listenerErrors:
-		server.Stop()
-		<-done
-		return err
-	case err := <-done:
-		server.Stop()
-		return err
-	case <-ctx.Done():
-		server.Stop()
-		return <-done
+	if automationextensions.DefaultLoadConfig().ExternalDir != "" {
+		services = append(services, lifecycle.Service{
+			Name: "extension artifact reconciler",
+			Run: func(ctx context.Context) error {
+				select {
+				case reconciler := <-artifactReady:
+					reconciler.Run(ctx, 15*time.Second, log.Printf)
+				case <-ctx.Done():
+				}
+				return nil
+			},
+			Shutdown: func(context.Context) error { return nil },
+		})
 	}
+	return lifecycle.Run(ctx, spinner.ShutdownTimeout, services...)
 }

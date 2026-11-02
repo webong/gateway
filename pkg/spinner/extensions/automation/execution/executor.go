@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/webong/gateway/arranger/automation"
@@ -37,6 +38,25 @@ type Executor struct {
 	options     Options
 	mu          sync.Mutex
 	closed      bool
+	stats       map[Mode]*modeCounters
+}
+
+type modeCounters struct {
+	inFlight   atomic.Int64
+	completed  atomic.Uint64
+	busy       atomic.Uint64
+	timedOut   atomic.Uint64
+	durationNS atomic.Uint64
+}
+
+// Stats is a point-in-time local execution snapshot for one mode. InFlight
+// includes work waiting for admission as well as work running in a worker.
+type Stats struct {
+	InFlight   int64  `json:"in_flight"`
+	Completed  uint64 `json:"completed_total"`
+	Busy       uint64 `json:"busy_total"`
+	TimedOut   uint64 `json:"timed_out_total"`
+	DurationNS uint64 `json:"duration_ns_total"`
 }
 
 func New(delegate automation.Executor, options Options) (*Executor, error) {
@@ -56,8 +76,11 @@ func New(delegate automation.Executor, options Options) (*Executor, error) {
 	}
 
 	executor := &Executor{
-		delegate:    delegate,
-		executors:   map[Mode]automation.Executor{ModeDirect: delegate},
+		delegate:  delegate,
+		executors: map[Mode]automation.Executor{ModeDirect: delegate},
+		stats: map[Mode]*modeCounters{
+			ModeDirect: {}, ModeGoroutine: {}, ModeErgo: {},
+		},
 		defaultMode: mode,
 		options:     options,
 	}
@@ -126,11 +149,46 @@ func (e *Executor) Languages() []automation.Language {
 }
 
 func (e *Executor) Execute(ctx context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
+	if e == nil {
+		return automation.Outcome{}, fmt.Errorf("%w: executor is unavailable", automation.ErrBusy)
+	}
+	mode := Mode(strings.ToLower(strings.TrimSpace(string(script.Executor))))
+	if mode == automation.ExecutorDefault {
+		mode = e.defaultMode
+	}
 	executor, err := e.ExecutorFor(script.Executor)
 	if err != nil {
 		return automation.Outcome{}, err
 	}
-	return executor.Execute(ctx, script, input)
+	counters := e.stats[mode]
+	started := time.Now()
+	counters.inFlight.Add(1)
+	defer counters.inFlight.Add(-1)
+	outcome, err := executor.Execute(ctx, script, input)
+	counters.durationNS.Add(uint64(time.Since(started).Nanoseconds()))
+	counters.completed.Add(1)
+	if errors.Is(err, automation.ErrBusy) {
+		counters.busy.Add(1)
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		counters.timedOut.Add(1)
+	}
+	return outcome, err
+}
+
+func (e *Executor) Snapshot() map[Mode]Stats {
+	if e == nil {
+		return nil
+	}
+	result := make(map[Mode]Stats, len(e.stats))
+	for mode, counters := range e.stats {
+		result[mode] = Stats{
+			InFlight: counters.inFlight.Load(), Completed: counters.completed.Load(),
+			Busy: counters.busy.Load(), TimedOut: counters.timedOut.Load(),
+			DurationNS: counters.durationNS.Load(),
+		}
+	}
+	return result
 }
 
 func (e *Executor) OpenStream(ctx context.Context, script automation.Script, input automation.Input) (*automation.Stream, error) {

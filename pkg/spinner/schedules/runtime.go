@@ -58,25 +58,30 @@ func (r Runtime) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("start schedule actor pool: %w", err)
 	}
+	go r.run(ctx, pool)
+	return nil
+}
+
+// Run keeps schedule polling in its caller's service lifecycle.
+func (r Runtime) Run(ctx context.Context) error {
+	pool, err := newActorPool(r)
+	if err != nil {
+		return fmt.Errorf("start schedule actor pool: %w", err)
+	}
+	r.run(ctx, pool)
+	return nil
+}
+
+func (r Runtime) run(ctx context.Context, pool *actorPool) {
+	defer pool.Stop()
 	interval := r.Interval
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
-	go func() {
-		defer pool.Stop()
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			r.poll(ctx, pool.Dispatch)
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
+	notifierDone := make(chan struct{})
 	if notifier, ok := r.Control.(NotificationControlPlane); ok {
 		go func() {
+			defer close(notifierDone)
 			cadence := interval
 			if cadence < 5*time.Second {
 				cadence = 5 * time.Second
@@ -96,8 +101,19 @@ func (r Runtime) Start(ctx context.Context) error {
 				}
 			}
 		}()
+	} else {
+		close(notifierDone)
 	}
-	return nil
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		r.poll(ctx, pool.Dispatch)
+		select {
+		case <-ctx.Done():
+		case <-ticker.C:
+		}
+	}
+	<-notifierDone
 }
 
 func (r Runtime) Poll(ctx context.Context) {

@@ -107,33 +107,37 @@ func StartArtifactReconciliation(
 	if err != nil {
 		return err
 	}
+	// Resolve the starting catalog before the host advertises readiness. A
+	// failed desired-state read still fails closed and is retried below.
+	reconciler.ReconcileAndLog(ctx, logError)
+	go reconciler.Run(ctx, interval, logError)
+	return nil
+}
+
+// ReconcileAndLog performs one pass, preserving the fail-closed behavior on a
+// temporary Planner error while allowing a later pass to recover.
+func (r *ArtifactReconciler) ReconcileAndLog(ctx context.Context, logError func(string, ...any)) {
+	if err := r.Reconcile(ctx); err != nil && ctx.Err() == nil && logError != nil {
+		logError("Extension artifact reconciliation failed; unavailable extensions remain closed: %v", err)
+	}
+}
+
+// Run owns the retry loop until the host cancels it. Call ReconcileAndLog
+// before advertising readiness when the initial catalog is required.
+func (r *ArtifactReconciler) Run(ctx context.Context, interval time.Duration, logError func(string, ...any)) {
 	if interval <= 0 {
 		interval = 15 * time.Second
 	}
-	if logError == nil {
-		logError = func(string, ...any) {}
-	}
-	reconcile := func() {
-		if err := reconciler.Reconcile(ctx); err != nil && ctx.Err() == nil {
-			logError("Extension artifact reconciliation failed; unavailable extensions remain closed: %v", err)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.ReconcileAndLog(ctx, logError)
 		}
 	}
-	// Resolve the starting catalog before the host advertises readiness. A
-	// failed desired-state read still fails closed and is retried below.
-	reconcile()
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				reconcile()
-			}
-		}
-	}()
-	return nil
 }
 
 func NewArtifactReconciler(

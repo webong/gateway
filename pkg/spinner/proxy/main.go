@@ -28,6 +28,7 @@ import (
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
 	"github.com/webong/gateway/pkg/spinner/internal/workers"
+	"github.com/webong/gateway/pkg/spinner/lifecycle"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/schedules"
 	"github.com/webong/gateway/pkg/spinner/transport"
@@ -213,6 +214,9 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		"worker_pool_size":           s.config.MaxWorkers,
 		"worker_queue_capacity":      s.config.MaxQueueSize,
 	}
+	if s.automationPool != nil {
+		metrics["automation_execution"] = s.automationPool.Snapshot()
+	}
 	if s.deliveryQueue != nil {
 		pending, failed, err := s.deliveryQueue.Counts()
 		if err != nil {
@@ -304,41 +308,29 @@ func runDiagnostic(config *relayconfig.Config, server *Server, logger *logging.L
 	return runServices(config, server, logger)
 }
 
-func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
-	serverErrors := make(chan error, 2)
-	go func() { serverErrors <- server.Start() }()
+func runServices(config *relayconfig.Config, server *Server, logger *logging.Logger, background ...lifecycle.Service) error {
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	services := []lifecycle.Service{{Name: "Spinner HTTP listener", Run: func(context.Context) error { return server.Start() }, Shutdown: server.Shutdown}}
 	if server.deliveryAdminServer != nil {
-		go func() {
-			serverErrors <- deliverymembership.ListenAndServe(server.deliveryAdminServer, config.DeliveryDatabaseURL, config.DeliveryAdminAdvertiseURL, config.InternalToken)
-		}()
+		services = append(services, lifecycle.Service{
+			Name: "delivery admin listener",
+			Run: func(context.Context) error {
+				return deliverymembership.ListenAndServe(server.deliveryAdminServer, config.DeliveryDatabaseURL, config.DeliveryAdminAdvertiseURL, config.InternalToken)
+			},
+			Shutdown: server.deliveryAdminServer.Shutdown,
+		})
 	}
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	select {
-	case <-sigChan:
-		logger.Info("Received shutdown signal")
-	case err := <-serverErrors:
-		if !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), config.ShutdownTimeout)
-	defer cancel()
-	if server.deliveryAdminServer != nil {
-		if err := server.deliveryAdminServer.Shutdown(ctx); err != nil {
-			return fmt.Errorf("delivery admin shutdown error: %w", err)
-		}
-	}
-
-	if err := server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown error: %w", err)
+	services = append(services, background...)
+	if err := lifecycle.Run(ctx, config.ShutdownTimeout, services...); err != nil {
+		return err
 	}
 	logger.Info("Server stopped gracefully")
 	return nil
 }
 
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
+	var background []lifecycle.Service
 	client := newPlannerClient(config)
 	if err := automationextensions.ConfigureShellSSHHTTP(config.PlannerURL, config.InternalToken, client, config.PlannerSocket != ""); err != nil {
 		return fmt.Errorf("failed to initialize private Shell credential resolver: %w", err)
@@ -355,10 +347,8 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	server.SetScheduleRegistrar(control)
 	control.SetNativeJobProvider(integrationextensions.DefaultRegistry)
 	if config.SchedulesEnabled {
-		scheduleCtx, cancelSchedules := context.WithCancel(context.Background())
-		defer cancelSchedules()
 		executor := server.NewGatewayExecutor()
-		if err := (schedules.Runtime{
+		scheduleRuntime := schedules.Runtime{
 			Control:    control,
 			Executor:   server.automationRuntime,
 			NativeJobs: integrationextensions.DefaultRegistry,
@@ -368,9 +358,11 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			Enqueue: func(runID string, delivery automation.Delivery) bool {
 				return transport.EnqueueScheduledDelivery(executor, runID, delivery)
 			},
-		}).Start(scheduleCtx); err != nil {
-			return err
 		}
+		background = append(background, lifecycle.Service{
+			Name: "schedule polling", Run: scheduleRuntime.Run,
+			Shutdown: func(context.Context) error { return nil },
+		})
 		logger.Info("Schedule polling enabled")
 	}
 	runtime, err := bridge.NewHTTPRuntime(
@@ -423,16 +415,21 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 	})
 	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
 		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		reconcileCtx, cancelReconcile := context.WithCancel(context.Background())
-		defer cancelReconcile()
-		if err := spinnerextensions.StartArtifactReconciliation(
-			reconcileCtx, config.PlannerURL, config.InternalToken, pluginDir,
+		reconciler, err := spinnerextensions.NewArtifactReconciler(
+			config.PlannerURL, config.InternalToken, pluginDir,
 			client, artifactClient, spinnerextensions.Registries{
 				Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
-			}, 15*time.Second, logger.Error,
-		); err != nil {
+			},
+		)
+		if err != nil {
 			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
 		}
+		reconciler.ReconcileAndLog(context.Background(), logger.Error)
+		background = append(background, lifecycle.Service{
+			Name:     "extension artifact reconciler",
+			Run:      func(ctx context.Context) error { reconciler.Run(ctx, 15*time.Second, logger.Error); return nil },
+			Shutdown: func(context.Context) error { return nil },
+		})
 	}
 	server.SetRelayHandler(runtime.Handler(integrationextensions.DefaultRegistry.Handler()))
 	if config.ProvisioningRouteProxy {
@@ -475,5 +472,5 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		logger.Info("Provisioning reconciliation enabled for node %s", config.Provisioning.NodeID)
 	}
 
-	return runServices(config, server, logger)
+	return runServices(config, server, logger, background...)
 }

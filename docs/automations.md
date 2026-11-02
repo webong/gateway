@@ -246,6 +246,16 @@ Trusted Planner route policy may set `automation.executor` to one of those
 values for an individual event. When it is absent, Spinner uses the environment
 default. The inbound request cannot select an executor directly.
 
+The standalone Spinner `/metrics` response includes `automation_execution`
+snapshots for each mode: calls in flight (including admission waits), completed
+calls, busy outcomes, deadline outcomes, and total execution time in
+nanoseconds. `BenchmarkExecutionModes` compares local scheduling overhead with
+identical worker, queue, and timeout settings; it does not measure guest script
+or network performance. Installed process guests receive the execution deadline;
+the session closes its process connection on a timed-out call. In-process
+executors must honor context cancellation because Go cannot forcibly stop an
+arbitrary blocked function.
+
 The selected bounded pool waits for an
 available worker within the request's total automation deadline, including time
 already spent in its bounded queue. Client cancellation also cancels queued or

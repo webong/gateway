@@ -4,7 +4,6 @@ package router
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -20,6 +19,7 @@ import (
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
+	"github.com/webong/gateway/pkg/spinner/lifecycle"
 	"github.com/webong/gateway/pkg/spinner/provision"
 	"github.com/webong/gateway/pkg/spinner/transport"
 )
@@ -80,24 +80,20 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			AutomationLanguages: automation.Languages(spinner.Automation),
 		},
 	})
+	var artifactReconciler *spinnerextensions.ArtifactReconciler
 	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
 		plannerClient := &http.Client{Transport: handlerRoundTripper{handler: planner}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		if err := spinnerextensions.StartArtifactReconciliation(
-			ctx, "http://gateway.internal", spinner.InternalToken, pluginDir,
+		artifactReconciler, err = spinnerextensions.NewArtifactReconciler(
+			"http://gateway.internal", spinner.InternalToken, pluginDir,
 			plannerClient, artifactClient, spinnerextensions.Registries{
 				Automation: automationextensions.Runtime(), Integration: integrationextensions.DefaultRegistry,
-			}, 15*time.Second, log.Printf,
-		); err != nil {
+			},
+		)
+		if err != nil {
 			return fmt.Errorf("initialize extension artifact reconciler: %w", err)
 		}
-	}
-	if spinner.SchedulesEnabled {
-		scheduleCtx, cancelSchedules := context.WithCancel(ctx)
-		defer cancelSchedules()
-		if err := transport.StartSchedulePolling(scheduleCtx, spinner, control, engine, integrationextensions.DefaultRegistry); err != nil {
-			return err
-		}
+		artifactReconciler.ReconcileAndLog(ctx, log.Printf)
 	}
 	managed, err := ManagedRouteProxy(spinner)
 	if err != nil {
@@ -155,52 +151,33 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 			IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20,
 		}
 	}
-	serverErrors := make(chan error, 1)
-	go func() { serverErrors <- server.Serve(listener) }()
-	tlsErrors := make(chan error, 1)
+	services := []lifecycle.Service{{Name: "Router listener", Run: func(context.Context) error { return server.Serve(listener) }, Shutdown: server.Shutdown}}
 	if tlsServer != nil {
-		go func() { tlsErrors <- tlsServer.Serve(tlsListener) }()
+		services = append(services, lifecycle.Service{Name: "Router TLS listener", Run: func(context.Context) error { return tlsServer.Serve(tlsListener) }, Shutdown: tlsServer.Shutdown})
 	}
-	controlErrors := make(chan error, 1)
 	if controlServer != nil {
-		go func() { controlErrors <- controlServer.Serve(controlListener) }()
+		services = append(services, lifecycle.Service{Name: "private Planner control listener", Run: func(context.Context) error { return controlServer.Serve(controlListener) }, Shutdown: controlServer.Shutdown})
 	}
-	adminErrors := make(chan error, 1)
 	if spinner.DeliveryAdminServer != nil {
-		go func() { adminErrors <- spinner.ServeDeliveryAdmin() }()
+		services = append(services, lifecycle.Service{Name: "delivery admin listener", Run: func(context.Context) error { return spinner.ServeDeliveryAdmin() }, Shutdown: spinner.DeliveryAdminServer.Shutdown})
 	}
-	var runErr error
-	select {
-	case err := <-serverErrors:
-		if !errors.Is(err, http.ErrServerClosed) {
-			runErr = err
-		}
-	case err := <-tlsErrors:
-		if !errors.Is(err, http.ErrServerClosed) {
-			runErr = fmt.Errorf("Router TLS listener: %w", err)
-		}
-	case err := <-adminErrors:
-		if !errors.Is(err, http.ErrServerClosed) {
-			runErr = fmt.Errorf("delivery admin listener: %w", err)
-		}
-	case err := <-controlErrors:
-		if !errors.Is(err, http.ErrServerClosed) {
-			runErr = fmt.Errorf("private Planner control listener: %w", err)
-		}
-	case <-ctx.Done():
+	if artifactReconciler != nil {
+		services = append(services, lifecycle.Service{
+			Name:     "extension artifact reconciler",
+			Run:      func(ctx context.Context) error { artifactReconciler.Run(ctx, 15*time.Second, log.Printf); return nil },
+			Shutdown: func(context.Context) error { return nil },
+		})
 	}
-	shutdown, cancel := context.WithTimeout(context.Background(), spinner.ShutdownTimeout)
-	defer cancel()
-	publicShutdownErr := server.Shutdown(shutdown)
-	if tlsServer != nil {
-		publicShutdownErr = errors.Join(publicShutdownErr, tlsServer.Shutdown(shutdown))
+	if spinner.SchedulesEnabled {
+		services = append(services, lifecycle.Service{
+			Name: "schedule polling",
+			Run: func(ctx context.Context) error {
+				return transport.RunSchedulePolling(ctx, spinner, control, engine, integrationextensions.DefaultRegistry)
+			},
+			Shutdown: func(context.Context) error { return nil },
+		})
 	}
-	if controlServer != nil {
-		if err := controlServer.Shutdown(shutdown); err != nil {
-			return errors.Join(publicShutdownErr, err)
-		}
-	}
-	return errors.Join(runErr, publicShutdownErr)
+	return lifecycle.Run(ctx, spinner.ShutdownTimeout, services...)
 }
 
 type handlerRoundTripper struct{ handler http.Handler }

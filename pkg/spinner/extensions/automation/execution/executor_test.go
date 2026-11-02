@@ -60,6 +60,21 @@ func TestNewSelectsEachExecutionModeBehindOneContract(t *testing.T) {
 	}
 }
 
+func TestExecutorSnapshotRecordsModeOutcomes(t *testing.T) {
+	executor, err := New(&testExecutor{}, Options{Mode: ModeGoroutine, Workers: 1, QueueSize: 1, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executor.Close()
+	if _, err := executor.Execute(context.Background(), automation.Script{Language: "test"}, automation.Input{}); err != nil {
+		t.Fatal(err)
+	}
+	stats := executor.Snapshot()[ModeGoroutine]
+	if stats.InFlight != 0 || stats.Completed != 1 || stats.Busy != 0 || stats.TimedOut != 0 || stats.DurationNS == 0 {
+		t.Fatalf("unexpected executor metrics: %+v", stats)
+	}
+}
+
 func TestGoroutineExecutorBoundsQueue(t *testing.T) {
 	delegate := &testExecutor{started: make(chan string, 2), release: make(chan struct{})}
 	executor, err := New(delegate, Options{Mode: ModeGoroutine, Workers: 1, QueueSize: 0, Timeout: 60 * time.Millisecond})

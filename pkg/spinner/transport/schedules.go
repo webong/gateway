@@ -21,15 +21,25 @@ func EmbeddedScheduleControl(handler http.Handler, spinner *Router, executor aut
 
 func StartSchedulePolling(ctx context.Context, spinner *Router, control *ScheduleControl, executor automation.Executor,
 	nativeJobs schedules.NativeJobExecutor) error {
+	return scheduleRuntime(spinner, control, executor, nativeJobs).Start(ctx)
+}
+
+func RunSchedulePolling(ctx context.Context, spinner *Router, control *ScheduleControl, executor automation.Executor,
+	nativeJobs schedules.NativeJobExecutor) error {
+	return scheduleRuntime(spinner, control, executor, nativeJobs).Run(ctx)
+}
+
+func scheduleRuntime(spinner *Router, control *ScheduleControl, executor automation.Executor,
+	nativeJobs schedules.NativeJobExecutor) schedules.Runtime {
 	control.SetNativeJobProvider(nativeJobs)
-	return (schedules.Runtime{
+	return schedules.Runtime{
 		Control: control, Executor: executor, Registrar: control, NativeJobs: nativeJobs,
 		Interval: spinner.SchedulePollInterval,
 		LogError: func(format string, args ...any) { log.Printf(format, args...) },
 		Enqueue: func(runID string, delivery automation.Delivery) bool {
 			return EnqueueScheduledDelivery(spinner.Executor, runID, delivery)
 		},
-	}).Start(ctx)
+	}
 }
 
 // EnqueueScheduledDelivery preserves the legacy callback path unless a status
