@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
+use Webong\Gateway\Accounts\EndpointAccountAccessStore;
 use Webong\Gateway\Exceptions\EndpointNotFoundException;
 use Webong\Gateway\Protocols\MatchRules;
 
@@ -19,79 +20,85 @@ final readonly class SubscriptionController
         private ValidationFactory $validator,
         private SubscribeEndpoint $subscriptions,
         private RegistryRequestAuthenticator $authenticator,
-        private ShellSshExecutionStore $sshExecutions,
+        private EndpointAccountAccessStore $endpointAccess,
+        private SubscriptionTargetExtensionRegistry $targetExtensions,
     ) {
     }
 
     public function __invoke(Request $request, string $endpointKey): JsonResponse
     {
-        if (($authorization = $this->authenticator->authorize($request)) !== null) {
-            return $authorization;
+        $principal = $this->authenticator->authenticateRegistry($request);
+        if ($principal instanceof JsonResponse) {
+            return $principal;
+        }
+        $input = $request->json()->all();
+        $targetKind = $input['target_kind'] ?? 'http';
+        if (! is_string($targetKind)) {
+            return $this->invalid(['target_kind' => ['The target kind must be a string.']]);
         }
 
-        $input = $request->json()->all();
-        if (array_diff(array_keys($input), [
-            'subscriber_id',
-            'subscription_id',
-            'type',
-            'webhook_group',
-            'routing_scope',
-            'routing_key',
-            'url',
-            'target_kind',
-            'hook',
-            'ssh',
-            'profile',
-            'channel',
-            'metadata',
-            'match',
-        ]) !== []) {
+        try {
+            $extension = $this->targetExtensions->forKind($targetKind);
+        } catch (InvalidArgumentException $exception) {
+            return $this->invalid(['target_kind' => [$exception->getMessage()]]);
+        }
+
+        $targetRules = $extension?->creationRules() ?? [
+            'url' => ['required', 'url:http,https', 'max:2048'],
+            'profile' => ['sometimes', 'string', 'min:1', 'max:64'],
+        ];
+        $allowed = [
+            'subscriber_id', 'subscription_id', 'type', 'webhook_group', 'routing_scope',
+            'routing_key', 'target_kind', 'channel', 'metadata', 'match',
+            ...array_keys($targetRules),
+        ];
+        if (array_diff(array_keys($input), $allowed) !== []) {
             return response()->json([
                 'message' => 'The subscription is invalid.',
                 'errors' => ['subscription' => ['The request contains unsupported properties.']],
             ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
-        $validator = $this->validator->make($input, [
-            'subscriber_id' => ['required', 'string', 'max:255'],
+        $rules = [
+            'subscriber_id' => $principal->isOperator()
+                ? ['required', 'string', 'max:255']
+                : ['sometimes', 'string', 'max:255'],
             'subscription_id' => ['sometimes', 'string', 'max:255'],
             'type' => ['sometimes', 'in:relay,reply'],
             'webhook_group' => ['required', 'string', 'max:255'],
             'routing_scope' => ['required', 'string', 'max:255'],
             'routing_key' => ['required', 'string', 'max:255'],
-            'url' => ['sometimes', 'url:http,https'],
-            'target_kind' => ['sometimes', 'in:http,shell'],
-            'hook' => ['sometimes', 'string', 'min:1', 'max:1024'],
-            'ssh' => ['sometimes', 'array'],
-            'profile' => ['sometimes', 'string', 'min:1', 'max:64'],
+            'target_kind' => ['sometimes', 'string', 'max:64'],
             'channel' => ['nullable', 'string', 'max:255'],
             'metadata' => ['sometimes', 'array'],
             'match' => ['sometimes', 'array'],
             'match.version' => ['required_with:match', 'string'],
             'match.rules' => ['required_with:match', 'array'],
-        ]);
-
+            ...$targetRules,
+        ];
+        $validator = $this->validator->make($input, $rules);
         if ($validator->fails()) {
-            return response()->json([
-                'message' => 'The subscription is invalid.',
-                'errors' => $validator->errors()->toArray(),
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            return $this->invalid($validator->errors()->toArray());
         }
 
-        $shell = ($input['target_kind'] ?? 'http') === 'shell';
-        if (array_key_exists('ssh', $input) && ! $shell) {
-            return response()->json(['message' => 'The subscription is invalid.',
-                'errors' => ['subscription' => ['SSH configuration requires a Shell reply subscription.']]],
-                Response::HTTP_UNPROCESSABLE_ENTITY);
+        if (! $principal->isOperator()) {
+            if (! $this->endpointAccess->allows(
+                $endpointKey,
+                (string) $principal->accountId,
+                $input['routing_scope'],
+                $input['routing_key'],
+            )) {
+                return response()->json(['message' => 'The endpoint route was not found.'], Response::HTTP_NOT_FOUND);
+            }
+            if (isset($input['subscriber_id']) && $input['subscriber_id'] !== $principal->accountId) {
+                return response()->json(['message' => 'The subscriber identity is assigned by Gateway.'], Response::HTTP_FORBIDDEN);
+            }
+            if ($targetKind !== 'http' || ($input['type'] ?? 'relay') !== 'relay') {
+                return response()->json(['message' => 'Account credentials can create HTTP relay subscriptions only.'], Response::HTTP_FORBIDDEN);
+            }
+            $input['subscriber_id'] = $principal->accountId;
         }
-        if (($shell && (! isset($input['hook']) || array_key_exists('url', $input)))
-            || (! $shell && (array_key_exists('hook', $input) || ! isset($input['url'])))) {
-            return response()->json([
-                'message' => 'The subscription is invalid.',
-                'errors' => ['subscription' => ['HTTP subscriptions require a URL; Shell subscriptions require a hook and no URL.']],
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
-        }
-        if ($shell && ($authorization = $this->authenticator->authorizeShellMutation($request)) !== null) {
+        if ($extension !== null && ($authorization = $extension->authorizeCreate($request)) !== null) {
             return $authorization;
         }
 
@@ -100,49 +107,50 @@ final readonly class SubscriptionController
                 ? MatchRules::fromArray($input['match'])
                 : MatchRules::any();
         } catch (InvalidArgumentException $exception) {
-            return response()->json([
-                'message' => 'The subscription is invalid.',
-                'errors' => ['match' => [$exception->getMessage()]],
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            return $this->invalid(['match' => [$exception->getMessage()]]);
         }
 
         try {
-            $destination = DB::transaction(function () use ($input, $shell, $endpointKey, $match) {
-                $sshExecution = isset($input['ssh']) ? $this->sshExecutions->create(
-                    $endpointKey, $input['subscriber_id'], $input['hook'], $input['ssh'],
-                ) : null;
+            $destination = DB::transaction(function () use ($input, $targetKind, $extension, $endpointKey, $match) {
+                $target = $extension === null
+                    ? null
+                    : $extension->createTarget($input, $endpointKey, $input['subscriber_id']);
                 $definition = new SubscriptionDefinition(
                     subscriberId: $input['subscriber_id'],
                     subscriptionId: $input['subscription_id'] ?? $input['subscriber_id'],
                     webhookGroup: $input['webhook_group'],
                     routingScope: $input['routing_scope'],
                     routingKey: $input['routing_key'],
-                    url: $input['url'] ?? '',
+                    url: $extension === null ? $input['url'] : '',
                     match: $match,
                     metadata: $input['metadata'] ?? [],
                     channel: $input['channel'] ?? null,
                     type: $input['type'] ?? 'relay',
-                    profile: $input['profile'] ?? null,
-                    shellHook: $shell ? $input['hook'] : null,
-                    shellSshExecutionId: $sshExecution?->id,
+                    profile: $extension === null ? ($input['profile'] ?? null) : null,
+                    targetKind: $targetKind,
+                    target: $target,
                 );
 
                 return $this->subscriptions->handle($endpointKey, $definition);
             });
         } catch (EndpointNotFoundException $exception) {
-            return response()->json([
-                'message' => $exception->getMessage(),
-            ], Response::HTTP_NOT_FOUND);
+            return response()->json(['message' => $exception->getMessage()], Response::HTTP_NOT_FOUND);
         } catch (InvalidArgumentException $exception) {
-            return response()->json([
-                'message' => 'The subscription is invalid.',
-                'errors' => ['subscription' => [$exception->getMessage()]],
-            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+            return $this->invalid(['subscription' => [$exception->getMessage()]]);
         }
 
-        $resource = new SubscriptionResource($endpointKey, $destination);
+        $resource = new SubscriptionResource($endpointKey, $destination, $this->targetExtensions);
 
         return response()->json($resource->toArray(), Response::HTTP_CREATED)
             ->header('ETag', $resource->etag());
+    }
+
+    /** @param array<string, mixed> $errors */
+    private function invalid(array $errors): JsonResponse
+    {
+        return response()->json([
+            'message' => 'The subscription is invalid.',
+            'errors' => $errors,
+        ], Response::HTTP_UNPROCESSABLE_ENTITY);
     }
 }

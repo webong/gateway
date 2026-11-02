@@ -14,6 +14,7 @@ final readonly class SubscriptionResource
     public function __construct(
         public string $endpointKey,
         public DestinationRecord $destination,
+        private SubscriptionTargetExtensionRegistry $targetExtensions,
     ) {
     }
 
@@ -39,7 +40,13 @@ final readonly class SubscriptionResource
             throw new InvalidArgumentException('The subscription contains malformed persisted match rules.');
         }
 
-        $shell = ShellSubscriptionTarget::isShell($this->destination->target);
+        $extension = $this->targetExtensions->forDestination($this->destination);
+        $targetFields = $extension === null
+            ? [
+                'url' => $this->destination->target,
+                'profile' => $this->profile(),
+            ]
+            : $extension->resourceFields($this->endpointKey, $this->destination);
 
         return [
             'id' => $this->destination->id,
@@ -50,12 +57,8 @@ final readonly class SubscriptionResource
             'webhook_group' => $this->destination->webhook_group,
             'routing_scope' => $this->destination->routing_scope,
             'routing_key' => $this->destination->routing_key,
-            'target_kind' => $shell ? 'shell' : 'http',
-            'url' => $shell ? null : $this->destination->target,
-            'hook' => $shell ? ShellSubscriptionTarget::hook($this->destination->target) : null,
-            'ssh' => ($sshId = ShellSubscriptionTarget::sshId($this->destination->target)) === null
-                ? null : app(ShellSshExecutionStore::class)->publicIdentity($sshId),
-            'profile' => $shell ? null : $this->profile(),
+            'target_kind' => $extension?->kind() ?? 'http',
+            ...$targetFields,
             'metadata' => $this->publicMetadata(),
             'match' => $match->toArray(),
             'status' => SubscriptionState::status($this->destination->metadata),

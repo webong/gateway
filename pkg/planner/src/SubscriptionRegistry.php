@@ -27,6 +27,7 @@ final readonly class SubscriptionRegistry
         private WebProxyChannelManager $channelManager,
         private CacheFactory $cache,
         private RegistryRouteCache $routeCache,
+        private SubscriptionTargetExtensionRegistry $targetExtensions,
     ) {
     }
 
@@ -47,8 +48,8 @@ final readonly class SubscriptionRegistry
             ->filter(static fn (DestinationRecord $destination): bool =>
                 $destination->target_type === WebhookProxyTargetType::REQUEST
                 && ($includeRemoved || SubscriptionState::status($destination->metadata) !== SubscriptionState::REMOVED))
-            ->map(static fn (DestinationRecord $destination): SubscriptionResource =>
-                new SubscriptionResource($resolved->endpoint->record->endpoint_key, $destination))
+            ->map(fn (DestinationRecord $destination): SubscriptionResource =>
+                new SubscriptionResource($resolved->endpoint->record->endpoint_key, $destination, $this->targetExtensions))
             ->values()
             ->all();
     }
@@ -57,7 +58,7 @@ final readonly class SubscriptionRegistry
     {
         $resolved = $this->find($endpointKey, $destinationId, $channel);
 
-        return new SubscriptionResource($resolved->endpoint->record->endpoint_key, $resolved->destination);
+        return new SubscriptionResource($resolved->endpoint->record->endpoint_key, $resolved->destination, $this->targetExtensions);
     }
 
     /**

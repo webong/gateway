@@ -1,6 +1,11 @@
 # Subscription examples
 
-These examples show the two supported Planner management paths:
+For the full endpoint-to-callback setup, see the
+[third-party application walkthrough](../../third-party-subscription-guide.md).
+
+These examples show the two supported Planner management paths. The remote
+examples use the Gateway operator token; third-party apps should use their
+account token and an operator-granted route as described in the walkthrough.
 
 - [`direct-php.php`](direct-php.php) uses the Laravel container directly. It
   creates an endpoint profile and then registers one direct subscription and

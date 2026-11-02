@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway;
+namespace Webong\Gateway\Shell;
 
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;

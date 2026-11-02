@@ -1,15 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/webong/gateway/blob/main/docs/schemas/subscription-v1.schema.json",
-  "title": "Gateway subscription JSON DSL v1",
-  "description": "Canonical request for POST /registry/endpoints/{endpointKey}/subscriptions.",
+  "title": "Gateway HTTP subscription JSON DSL v1",
+  "description": "Built-in HTTP target contract for POST /registry/endpoints/{endpointKey}/subscriptions. Installed target extensions define additional request fields in their own package documentation.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "subscriber_id",
     "webhook_group",
     "routing_scope",
-    "routing_key"
+    "routing_key",
+    "url"
   ],
   "properties": {
     "subscriber_id": {
@@ -39,14 +40,8 @@
     },
     "target_kind": {
       "type": "string",
-      "enum": ["http", "shell"],
+      "const": "http",
       "default": "http"
-    },
-    "hook": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 1024,
-      "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"
     },
     "profile": {
       "type": "string",
@@ -64,7 +59,7 @@
         "not": {
           "anyOf": [
             {
-              "enum": ["subscriber_id", "delivery_mode", "profile"]
+              "enum": ["subscriber_id", "delivery_mode", "profile", "target_kind"]
             },
             {
               "pattern": "^_"
@@ -79,18 +74,6 @@
       "$ref": "#/$defs/match"
     }
   },
-  "oneOf": [
-    {
-      "required": ["url"],
-      "properties": {"target_kind": {"const": "http"}},
-      "not": {"required": ["hook"]}
-    },
-    {
-      "required": ["target_kind", "type", "hook"],
-      "properties": {"target_kind": {"const": "shell"}, "type": {"const": "reply"}},
-      "not": {"anyOf": [{"required": ["url"]}, {"required": ["profile"]}]}
-    }
-  ],
   "$defs": {
     "requiredIdentifier": {
       "type": "string",

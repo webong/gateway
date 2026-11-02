@@ -154,7 +154,8 @@ curl -fsS -H "Authorization: Bearer $REGISTRY_TOKEN" \
 
 A subscription created with the command above accepts all events for that
 endpoint. For production, use matching rules to limit which events reach each
-receiver. See [subscription matching](subscription-dsl-v1.md) and the
+receiver. See the [third-party app setup walkthrough](third-party-subscription-guide.md),
+[subscription matching](subscription-dsl-v1.md), and the
 [management API examples](examples/subscriptions/README.md).
 
 ## 4. Enable a Gateway feature

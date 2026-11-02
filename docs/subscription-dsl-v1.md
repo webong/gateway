@@ -1,8 +1,12 @@
 # Subscription JSON DSL v1
 
-This document is the normative reference for registering a Gateway
-subscription over HTTP. The machine-readable companion is
+This document describes the shared fields for registering a Gateway
+subscription over HTTP. The machine-readable companion describes the built-in
+HTTP target contract:
 [`schemas/subscription-v1.schema.json`](schemas/subscription-v1.schema.json).
+Installed target extensions own their additional request fields and publish
+their usage alongside the extension. For example, see the
+[Shell extension guide](../pkg/shell/README.md).
 Incremental match updates use
 [`schemas/subscription-match-patch-v1.schema.json`](schemas/subscription-match-patch-v1.schema.json).
 Lifecycle updates use
@@ -10,21 +14,24 @@ Lifecycle updates use
 and
 [`schemas/subscription-status-v1.schema.json`](schemas/subscription-status-v1.schema.json).
 
-Copy-pasteable direct PHP and remote HTTP examples live in
+For the end-to-end third-party app flow, see
+[Connect a third-party application to Gateway](third-party-subscription-guide.md).
+The direct PHP and remote HTTP request examples are in
 [`examples/subscriptions`](examples/subscriptions/README.md).
 
 ## Endpoint and authentication
 
 ```http
 POST /registry/endpoints/{endpointKey}/subscriptions
-Authorization: Bearer {REGISTRY_TOKEN}
+Authorization: Bearer {OPERATOR_TOKEN_OR_ACCOUNT_TOKEN}
 Content-Type: application/json
 ```
 
-Shell target creation and mutation additionally require Planner's
-`GATEWAY_SHELL_SUBSCRIPTION_TOKEN` in the
-`X-Gateway-Shell-Subscription` header. The registry token alone is not
-operator authority to execute a Shell hook.
+Endpoint creation, account creation, and route grants require the
+operator's `REGISTRY_TOKEN`. Subscription management also accepts an account
+token when the operator has granted that account the exact
+`routing_scope` and `routing_key`. Planner derives `subscriber_id` from the
+account token; clients may omit it, and a supplied value must match the account.
 
 Use the resolved `endpoint_key` returned by `POST /registry/endpoints`, not the
 requested key: `webong/proxy` may suffix unmanaged endpoint keys.
@@ -57,7 +64,8 @@ requested key: `webong/proxy` may suffix unmanaged endpoint keys.
 }
 ```
 
-Unknown properties are not part of the v1 contract and must not be sent.
+Only shared properties and fields defined by the selected, installed target
+extension are accepted. Unknown properties must not be sent.
 
 ## Subscription properties
 
@@ -69,56 +77,17 @@ Unknown properties are not part of the v1 contract and must not be sent.
 | `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/proxy` to manage the destination. |
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
-| `target_kind` | no | `http` or `shell` | Defaults to `http`. Shell targets require the optional Shell extension and `type: reply`. |
-| `url` | for HTTP | absolute HTTP(S) URL | Go sends matching ingress traffic to this destination. Not accepted for Shell targets. |
-| `hook` | for Shell | non-hidden relative hook key, max 1024 | Operator-deployed local or SSH-side Shell hook selected by Planner. Not accepted for HTTP targets. |
-| `ssh` | no | object with `host`, optional `port` (default 22), `user`, `host_public_key`, and write-only `private_key` | Selects an SSH-backed Shell reply. Requires an exact SSH-mode Shell grant and a deployed Spinner network ceiling. Not accepted for HTTP targets. |
+| `target_kind` | no | extension-defined identifier | Defaults to `http`. Installed target extensions may provide additional kinds. |
+| `url` | for HTTP | absolute HTTP(S) URL | The HTTP destination for matching ingress traffic. |
 | `profile` | HTTP only | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
 | `match` | no | match object | Versioned ingress-event selection rules. Omission means match every event. |
 
-For an HTTP request that should be answered by an operator-deployed Shell hook,
-use the same endpoint with a Shell reply target:
-
-```json
-{
-  "subscriber_id": "workspace-42",
-  "subscription_id": "workspace-42-deploy",
-  "type": "reply",
-  "target_kind": "shell",
-  "hook": "github/deploy",
-  "webhook_group": "meta",
-  "routing_scope": "application",
-  "routing_key": "app-123",
-  "match": {"version": "v1", "rules": {"method": ["in:POST"]}}
-}
-```
-
-Only one active reply—HTTP or Shell—may exist for the route. A Shell
-subscription's hook is not uploaded by this request: it must already exist
-under every eligible Spinner's configured Shell hook directory. Planner
-matches the subscription and emits an automation plan; Spinner executes the
-hook and returns its response to the original HTTP caller. The returned
-resource contains `target_kind: shell` and `hook`, never the internal storage
-locator. Updating `hook` uses the usual `PATCH` with `If-Match`; target kinds
-cannot be changed in place. For an SSH-backed reply, include the nested `ssh`
-object on creation. Planner stores the private key outside revision history;
-public reads expose only safe identity and credential version. Host, port,
-user, host-key pin, and hook are immutable; rotate the client key with
-`POST /registry/endpoints/{endpointKey}/subscriptions/{id}/ssh/rotate-key`
-using both mutation tokens and a current `If-Match` ETag. Removal revokes the
-live key. The operator must first allow the exact
-hook with `POST /shell/hook-grants` using the resolved `endpoint_key`,
-`subscriber_id`, and `hook`. SSH grants additionally set `mode: ssh` plus the
-exact host, port, user, and pinned host key; local grants cannot authorize
-remote execution. This Planner resource needs both the registry
-bearer token and `X-Gateway-Shell-Subscription`. Without an enabled exact grant,
-registration and execution are denied. Disabling or deleting a grant blocks an
-existing subscription immediately but does not automatically remove its reply
-slot. The extra operator token is required when creating a
-Shell subscription or changing its hook, match, status, metadata, or lifecycle;
-read-only lookups use the registry token alone.
+Target extensions may add reply targets and their own authorization, request
+fields, and lifecycle operations. The shared subscription API still enforces
+one active reply subscription per route, regardless of target kind. See the
+selected extension's guide for its request shape and setup requirements.
 
 The profile itself is registered and stored by `webong/proxy` on the endpoint.
 Subscriptions retain only its name. Planner resolves the active profile and

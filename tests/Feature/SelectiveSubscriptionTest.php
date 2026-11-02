@@ -17,7 +17,8 @@ use Webong\Gateway\Protocols\SubscriptionState;
 use Webong\Gateway\RegistryRoutePlanner;
 use Webong\Gateway\RegistryRouteCache;
 use Webong\Gateway\SubscribeEndpoint;
-use Webong\Gateway\ShellHookGrantStore;
+use Webong\Gateway\Shell\ShellHookGrantStore;
+use Webong\Gateway\Shell\ShellReplySubscription;
 use Webong\Gateway\SubscriptionDefinition;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 
@@ -953,12 +954,12 @@ it('rotates and revokes an SSH Shell credential through authenticated subscripti
         path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
         automationLanguages: ['shell'],
     ))->automation->source;
-    $private = '/_internal/gateway/shell/executions/'.substr($source, 4);
+    $private = '/_internal/gateway/extensions/webong/shell/secrets/ssh-'.substr($source, 4);
     $audit = '/configurations/shell.ssh-execution/'.substr($source, 4).'/revisions';
     $this->withToken('registry-secret')->getJson($audit)->assertOk()->assertJsonCount(1, 'data');
     $this->withHeader('X-Gateway-Internal', 'wrong')->getJson($private)->assertNotFound();
     $this->withHeader('X-Gateway-Internal', 'internal-secret')->getJson($private)
-        ->assertOk()->assertJsonPath('private_key', $firstKey);
+        ->assertOk()->assertJsonPath('value.private_key', $firstKey);
 
     $url = $route.'/'.$created->json('id');
     $rotated = $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
@@ -969,7 +970,7 @@ it('rotates and revokes an SSH Shell credential through authenticated subscripti
     $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
         ->postJson($url.'/ssh/rotate-key', ['private_key' => $firstKey])->assertStatus(412);
     $this->withHeader('X-Gateway-Internal', 'internal-secret')->getJson($private)
-        ->assertOk()->assertJsonPath('private_key', $nextKey)->assertDontSee($firstKey);
+        ->assertOk()->assertJsonPath('value.private_key', $nextKey)->assertDontSee($firstKey);
 
     $this->withToken('registry-secret')->withHeader('If-Match', $rotated->headers->get('ETag'))
         ->deleteJson($url)->assertNoContent();
@@ -1052,7 +1053,7 @@ it('offers the same Shell reply definition to trusted PHP callers', function ():
     grantShellHooks($endpoint->record->endpoint_key, ['php-owner' => ['github/deploy.ps1']]);
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::shellReply(
+        ShellReplySubscription::make(
             subscriberId: 'php-owner',
             subscriptionId: 'php-deploy',
             webhookGroup: 'meta',

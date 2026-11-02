@@ -27,7 +27,9 @@ Email provides mail transport and routing, not mailbox storage or webmail.
 
 ## Operate Gateway
 
-- [Subscriptions and matching](subscription-dsl-v1.md)
+- [Connect a third-party application](third-party-subscription-guide.md):
+  register an endpoint and subscription, test a callback, and manage retries.
+- [Subscription JSON DSL v1](subscription-dsl-v1.md): full request and match-rule reference.
 - [Example management API requests](examples/subscriptions/README.md)
 - [Endpoint event history](events.md)
 - [Delivery status and retry behavior](deliveries.md)

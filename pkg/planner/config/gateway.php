@@ -70,11 +70,6 @@ return [
         'retention_days' => 30,
     ],
 
-    'shell' => [
-        // Separate operator approval for managing privileged local hooks.
-        'subscription_token' => (string) env('GATEWAY_SHELL_SUBSCRIPTION_TOKEN', ''),
-    ],
-
     // Gateway core owns the managed-server control-plane records. Configure
     // table names before running the package migrations.
     'servers' => [

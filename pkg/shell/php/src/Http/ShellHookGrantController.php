@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway\Resources\Http;
+namespace Webong\Gateway\Shell\Http;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -11,14 +11,16 @@ use InvalidArgumentException;
 use stdClass;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Shell\ShellHookGrantStore;
+use Webong\Gateway\Shell\ShellOperatorAuthenticator;
 use Webong\Gateway\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
-use Webong\Gateway\ShellHookGrantStore;
 
 final readonly class ShellHookGrantController
 {
     public function __construct(
         private RegistryRequestAuthenticator $authenticator,
+        private ShellOperatorAuthenticator $operator,
         private ShellHookGrantStore $grants,
     ) {}
 
@@ -102,7 +104,7 @@ final readonly class ShellHookGrantController
     private function authorizeMutation(Request $request): ?JsonResponse
     {
         return $this->authenticator->authorize($request)
-            ?? $this->authenticator->authorizeShellMutation($request);
+            ?? $this->operator->authorize($request);
     }
 
     /** @return array{id: string, endpoint_key: string, subscriber_id: string, hook: string, enabled: bool, revision: int} */

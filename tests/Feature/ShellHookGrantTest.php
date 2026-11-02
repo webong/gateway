@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\ShellHookGrantStore;
+use Webong\Gateway\Shell\ShellHookGrantStore;
 
 it('manages exact Shell hook grants through Planner with separate mutation authority', function (): void {
     config()->set('gateway.shell.subscription_token', 'shell-admin-secret');

@@ -14,7 +14,6 @@ use Webong\Proxy\WebProxyRegistryManager;
 use Webong\Proxy\WebhookRoute;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\Protocols\Automation;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\HttpTransport;
 use Webong\Gateway\Protocols\IngressRequest;
@@ -38,8 +37,7 @@ final class RegistryRoutePlanner implements RoutePlanner
         private readonly SubscriptionMatcher $subscriptionMatcher,
         private readonly RegistryRouteCache $routeCache,
         private readonly EndpointHttpTransportResolver $transportResolver,
-        private readonly ShellSubscriptionPolicy $shellPolicy,
-        private readonly ShellSshExecutionStore $sshExecutions,
+        private readonly SubscriptionTargetExtensionRegistry $targetExtensions,
         private readonly ?DispatchWebhookProxyDestination $destinationDispatcher = null,
     ) {
     }
@@ -100,7 +98,7 @@ final class RegistryRoutePlanner implements RoutePlanner
         $destinations = $cachedRoute->destinations;
 
         $reply = null;
-        $shellHook = null;
+        $automationTarget = null;
         $relays = [];
         $profileEndpoint = null;
         /** @var array<string, HttpTransport> $profileTransports */
@@ -119,27 +117,24 @@ final class RegistryRoutePlanner implements RoutePlanner
                 continue;
             }
 
-            if (ShellSubscriptionTarget::isShell($destination->target)) {
+            $targetExtension = $destination->target_type === WebhookProxyTargetType::REQUEST
+                ? $this->targetExtensions->forDestination($destination)
+                : null;
+            if ($targetExtension !== null) {
                 if ($destination->target_type !== WebhookProxyTargetType::REQUEST
                     || ($destination->metadata['delivery_mode'] ?? null) !== 'reply'
                     || isset($destination->metadata[SubscriptionDefinition::PROFILE_METADATA_KEY])
-                    || $shellHook !== null) {
-                    throw new InvalidArgumentException('Shell subscriptions must be a single reply target without a network profile.');
+                    || $automationTarget !== null) {
+                    throw new InvalidArgumentException('Extension targets must be a single reply target without an HTTP profile.');
                 }
-                $hook = ShellSubscriptionTarget::hook($destination->target);
-                $subscriberId = $destination->metadata['subscriber_id'] ?? $destination->owner_id;
-                if (! is_string($subscriberId)) {
-                    throw new InvalidArgumentException('The Shell subscription contains an invalid subscriber identity.');
+                if (! $targetExtension->supportsProtocol($request->protocol)) {
+                    throw new InvalidArgumentException('The subscription target does not support this ingress protocol.');
                 }
-                $sshId = ShellSubscriptionTarget::sshId($destination->target);
-                if ($sshId !== null && $this->sshExecutions->findForPlan(
-                    $sshId, $cachedRoute->endpointKey, $subscriberId, $hook,
-                ) === null) {
-                    throw new InvalidArgumentException('The SSH Shell execution is unavailable.');
-                }
-                $this->shellPolicy->assertAllowed($cachedRoute->endpointKey, $subscriberId, $hook,
-                    $sshId === null ? null : $this->sshExecutions->publicIdentity($sshId));
-                $shellHook = $sshId === null ? $hook : 'ssh:'.$sshId;
+                $automationTarget = $targetExtension->plan(
+                    $destination,
+                    $cachedRoute->endpointKey,
+                    $request->protocol,
+                );
 
                 continue;
             }
@@ -199,21 +194,18 @@ final class RegistryRoutePlanner implements RoutePlanner
             $relays[] = $delivery;
         }
 
-        if ($shellHook !== null) {
+        if ($automationTarget !== null) {
             if ($reply !== null) {
                 throw new InvalidArgumentException('A route cannot have more than one synchronous reply destination.');
             }
-            if ($request->protocol !== 'http') {
-                throw new InvalidArgumentException('Shell reply subscriptions require HTTP ingress.');
-            }
 
             return RoutePlan::automate(
-                automation: new Automation(language: 'shell', source: $shellHook),
+                automation: $automationTarget->automation,
                 relays: $relays,
                 metadata: [
                     'endpoint_id' => $cachedRoute->endpointId,
                     'endpoint_key' => $cachedRoute->endpointKey,
-                    ...($sshId === null ? [] : ['shell_hook' => $hook]),
+                    ...$automationTarget->metadata,
                 ],
             );
         }

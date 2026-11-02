@@ -9,17 +9,23 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Webong\Gateway\Companion\ExtensionSecretStore;
 use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\ExtensionSecretProviderRegistry;
 
 /** Resolve one current secret only for its verified Extension process. */
 final readonly class InternalExtensionSecretController
 {
-    public function __construct(private InternalRequestAuthenticator $auth, private ExtensionSecretStore $secrets) {}
+    public function __construct(
+        private InternalRequestAuthenticator $auth,
+        private ExtensionSecretStore $secrets,
+        private ExtensionSecretProviderRegistry $providers,
+    ) {}
 
     public function __invoke(Request $request, string $identity, string $reference): JsonResponse
     {
         $this->auth->authorizeOrHide($request);
         try {
-            $secret = $this->secrets->resolve($identity, $reference);
+            $secret = $this->providers->resolve($identity, $reference)
+                ?? $this->secrets->resolve($identity, $reference);
         } catch (InvalidArgumentException) {
             $secret = null;
         }

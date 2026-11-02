@@ -10,9 +10,8 @@ final class ConfigurationKindRegistry
     /** @var array<string, true> */
     private array $kinds = [
         'extension' => true,
+        'registry.endpoint-access' => true,
         'schedule.notification' => true,
-        'shell.hook-grant' => true,
-        'shell.ssh-execution' => true,
     ];
 
     public function register(string ...$kinds): void

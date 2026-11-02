@@ -9,8 +9,6 @@ use Webong\Proxy\WebProxyChannelManager;
 use Webong\Proxy\WebProxyRegistryManager;
 use Webong\Proxy\WebhookRoute;
 use Webong\Gateway\Exceptions\EndpointNotFoundException;
-use Webong\Gateway\Contracts\AutomationCapability;
-use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Protocols\SubscriptionState;
 
 final readonly class SubscribeEndpoint
@@ -19,18 +17,15 @@ final readonly class SubscribeEndpoint
         private WebProxyRegistryManager $registryManager,
         private WebProxyChannelManager $channelManager,
         private EndpointHttpTransportResolver $transportResolver,
-        private AutomationLanguageRegistry $languages,
-        private ShellSubscriptionPolicy $shellPolicy,
-        private ShellSshExecutionStore $sshExecutions,
+        private SubscriptionTargetExtensionRegistry $targetExtensions,
         private ?RegistryRouteCache $routeCache = null,
     ) {
     }
 
     public function handle(string $endpointKey, SubscriptionDefinition $subscription): DestinationRecord
     {
-        if ($subscription->shellHook !== null && ! $this->languages->supports('shell', AutomationCapability::ROUTE)) {
-            throw new \InvalidArgumentException('The Shell route extension is not enabled.');
-        }
+        $extension = $this->targetExtensions->forKind($subscription->targetKind);
+        $extension?->assertDefinition($subscription);
 
         $resolved = $this->registryManager->resolveByKey(
             $endpointKey,
@@ -41,22 +36,17 @@ final readonly class SubscribeEndpoint
             throw new EndpointNotFoundException("Registered endpoint [{$endpointKey}] was not found.");
         }
 
-        if ($subscription->shellHook !== null) {
-            $sshIdentity = $subscription->shellSshExecutionId === null ? null
-                : $this->sshExecutions->publicIdentity($subscription->shellSshExecutionId);
-            if ($subscription->shellSshExecutionId !== null && $sshIdentity === null) {
-                throw new \InvalidArgumentException('The SSH Shell execution is unavailable.');
-            }
-            $this->shellPolicy->assertAllowed(
-                $resolved->endpoint->record->endpoint_key,
-                $subscription->subscriberId,
-                $subscription->shellHook,
-                $sshIdentity,
-            );
-        }
-
         if ($subscription->profile !== null) {
             $this->transportResolver->resolve($resolved->endpoint, $subscription->profile);
+        }
+
+        if ($extension !== null) {
+            $extension->assertAllowed(
+                $resolved->endpoint->record->endpoint_key,
+                $subscription->subscriberId,
+                (string) $subscription->target,
+                $subscription->metadata,
+            );
         }
 
         if ($subscription->type === 'reply') {
@@ -67,13 +57,18 @@ final readonly class SubscribeEndpoint
                     key: $subscription->routingKey,
                     payload: [],
                 ),
-            )->first(static fn (DestinationRecord $destination): bool =>
-                SubscriptionState::status($destination->metadata) === SubscriptionState::ACTIVE
-                && ($destination->metadata['delivery_mode'] ?? 'relay') === 'reply'
-                && ($subscription->shellSshExecutionId !== null
-                    || ShellSubscriptionTarget::sshId($destination->target) !== null
-                    || $destination->owner_id !== $subscription->subscriberId
-                    || $destination->registration_id !== $subscription->subscriptionId));
+            )->first(function (DestinationRecord $destination) use ($subscription, $extension): bool {
+                if (SubscriptionState::status($destination->metadata) !== SubscriptionState::ACTIVE
+                    || ($destination->metadata['delivery_mode'] ?? 'relay') !== 'reply') {
+                    return false;
+                }
+
+                $sameIdentity = $destination->owner_id === $subscription->subscriberId
+                    && $destination->registration_id === $subscription->subscriptionId;
+
+                return ! $sameIdentity || ($extension !== null
+                    && ! $extension->canReuseReply($subscription, $destination));
+            });
 
             if ($reply !== null) {
                 throw new \InvalidArgumentException('This route already has a synchronous reply subscription.');

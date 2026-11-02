@@ -32,6 +32,29 @@ final readonly class AccountStore
         return DB::table('accounts')->where('id', $id)->exists();
     }
 
+    public function idForToken(string $token): ?string
+    {
+        if (preg_match('/^[a-f0-9]{64}$/D', $token) !== 1) {
+            return null;
+        }
+
+        $hash = hash('sha256', $token);
+        $row = DB::table('accounts')->where('token_hash', $hash)->first(['id', 'token_hash']);
+
+        return $row !== null && hash_equals($row->token_hash, $hash) ? (string) $row->id : null;
+    }
+
+    public function rotate(string $id): ?string
+    {
+        $token = bin2hex(random_bytes(32));
+        $updated = DB::table('accounts')->where('id', $id)->update([
+            'token_hash' => hash('sha256', $token),
+            'updated_at' => now('UTC'),
+        ]);
+
+        return $updated === 1 ? $token : null;
+    }
+
     public function authorized(string $id, string $token): bool
     {
         $row = DB::table('accounts')->where('id', $id)->first();
