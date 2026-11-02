@@ -114,6 +114,10 @@ func (e *goroutineExecutor) Close() {
 	}
 }
 
+func (e *goroutineExecutor) queueDepth() int64 {
+	return int64(len(e.jobs))
+}
+
 func (e *goroutineExecutor) work() {
 	defer e.workers.Done()
 	for {

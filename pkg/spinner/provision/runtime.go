@@ -35,11 +35,15 @@ type Config struct {
 // Runtime owns the shared reconciler lifecycle and exposes its dynamic route
 // table to the Gateway HTTP host.
 type Runtime struct {
-	router  *Router
-	cancel  context.CancelFunc
-	done    <-chan struct{}
-	release func()
-	once    sync.Once
+	router      *Router
+	cancel      context.CancelFunc
+	done        <-chan struct{}
+	release     func(context.Context) error
+	logger      Logger
+	stopTimeout time.Duration
+	stopped     chan struct{}
+	stopErr     error
+	once        sync.Once
 }
 
 func Start(config Config, backendURL, internalToken string, client *http.Client, logger Logger, workloads ...Provisioner) (*Runtime, error) {
@@ -165,7 +169,12 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		reconciler.Run(reconcileContext)
 	}()
 
-	return &Runtime{router: router, cancel: cancel, done: done, release: func() { releaseWorkerSession(config, control, logger) }}, nil
+	return &Runtime{
+		router: router, cancel: cancel, done: done,
+		release:     func(ctx context.Context) error { return control.ReleaseNode(ctx, config.NodeID) },
+		logger:      logger,
+		stopTimeout: config.StopTimeout, stopped: make(chan struct{}),
+	}, nil
 }
 
 func claimWorkerSession(config Config, control *HTTPControlPlane, drivers []string) error {
@@ -220,15 +229,51 @@ func (r *Runtime) ServeIfMatched(writer http.ResponseWriter, request *http.Reque
 	return r != nil && r.router.ServeIfMatched(writer, request)
 }
 
+// Done closes after the reconciler has stopped managing workloads. The node
+// session may still be held until StopContext completes its release.
+func (r *Runtime) Done() <-chan struct{} {
+	if r == nil {
+		return nil
+	}
+	return r.done
+}
+
+// StopContext cancels reconciliation and waits only for the caller's deadline.
+// If it times out, the worker session remains fenced until reconciliation
+// really exits; its normal lease expiry handles a worker that never exits.
+func (r *Runtime) StopContext(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
+	r.once.Do(func() {
+		r.cancel()
+		go func() {
+			<-r.done
+			if r.release != nil {
+				releaseCtx, cancel := context.WithTimeout(context.Background(), r.stopTimeout)
+				r.stopErr = r.release(releaseCtx)
+				cancel()
+				if r.stopErr != nil && r.logger != nil {
+					r.logger.Warn("Failed to release provisioning worker session: %v", r.stopErr)
+				}
+			}
+			close(r.stopped)
+		}()
+	})
+	select {
+	case <-r.stopped:
+		return r.stopErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Stop retains the standalone lifecycle API with a bounded wait.
 func (r *Runtime) Stop() {
 	if r == nil {
 		return
 	}
-	r.once.Do(func() {
-		r.cancel()
-		<-r.done
-		if r.release != nil {
-			r.release()
-		}
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), r.stopTimeout)
+	defer cancel()
+	_ = r.StopContext(ctx)
 }

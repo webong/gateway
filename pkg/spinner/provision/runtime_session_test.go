@@ -14,11 +14,50 @@ func TestRuntimeStopReleasesSessionOnce(t *testing.T) {
 	done := make(chan struct{})
 	close(done)
 	releases := 0
-	runtime := &Runtime{cancel: cancel, done: done, release: func() { releases++ }}
+	runtime := &Runtime{
+		cancel: cancel, done: done,
+		release:     func(context.Context) error { releases++; return nil },
+		stopTimeout: time.Second, stopped: make(chan struct{}),
+	}
 	runtime.Stop()
 	runtime.Stop()
 	if ctx.Err() != context.Canceled || releases != 1 {
 		t.Fatalf("shutdown did not release once: context=%v releases=%d", ctx.Err(), releases)
+	}
+}
+
+func TestRuntimeStopContextKeepsSessionUntilReconcilerExits(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	released := make(chan struct{})
+	runtime := &Runtime{
+		cancel: cancel, done: done,
+		release:     func(context.Context) error { close(released); return nil },
+		stopTimeout: time.Second, stopped: make(chan struct{}),
+	}
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	stopCancel()
+	if err := runtime.StopContext(stopCtx); err != context.Canceled {
+		t.Fatalf("expected bounded stop to return cancellation, got %v", err)
+	}
+	if ctx.Err() != context.Canceled {
+		t.Fatal("reconciliation was not canceled")
+	}
+	select {
+	case <-released:
+		t.Fatal("session was released while reconciler was still running")
+	default:
+	}
+	close(done)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	if err := runtime.StopContext(waitCtx); err != nil {
+		t.Fatalf("waiting for session release: %v", err)
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("session was not released after reconciler exited")
 	}
 }
 

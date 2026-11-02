@@ -248,11 +248,16 @@ default. The inbound request cannot select an executor directly.
 
 The standalone Spinner `/metrics` response includes `automation_execution`
 snapshots for each mode: calls in flight (including admission waits), completed
-calls, busy outcomes, deadline outcomes, and total execution time in
-nanoseconds. `BenchmarkExecutionModes` compares local scheduling overhead with
-identical worker, queue, and timeout settings; it does not measure guest script
-or network performance. Installed process guests receive the execution deadline;
-the session closes its process connection on a timed-out call. In-process
+calls, busy outcomes, deadline outcomes, total execution time in nanoseconds,
+and current queue depth. Ergo also reports worker replacements since pool start
+as `worker_restarts_total`; the other modes report zero. Queue depth counts
+admitted work waiting for a worker and excludes callers still waiting for
+admission. `BenchmarkExecutionModes` compares local scheduling overhead only.
+Run `scripts/bench-automation-executors` to compare both modes in Docker with
+the same limits and a verified, installed Lua process guest. The benchmark
+includes plugin transport and script execution, so its results are specific to
+the host and guest workload. Installed process guests receive the execution
+deadline. The session closes its process connection on a timed-out call. In-process
 executors must honor context cancellation because Go cannot forcibly stop an
 arbitrary blocked function.
 

@@ -70,13 +70,54 @@ func TestExecutorSnapshotRecordsModeOutcomes(t *testing.T) {
 		t.Fatal(err)
 	}
 	stats := executor.Snapshot()[ModeGoroutine]
-	if stats.InFlight != 0 || stats.Completed != 1 || stats.Busy != 0 || stats.TimedOut != 0 || stats.DurationNS == 0 {
+	if stats.InFlight != 0 || stats.QueueDepth != 0 || stats.Completed != 1 || stats.Busy != 0 || stats.TimedOut != 0 || stats.DurationNS == 0 {
 		t.Fatalf("unexpected executor metrics: %+v", stats)
 	}
 }
 
+func TestExecutorSnapshotShowsQueuedWork(t *testing.T) {
+	for _, mode := range []Mode{ModeGoroutine, ModeErgo} {
+		t.Run(string(mode), func(t *testing.T) {
+			delegate := &testExecutor{started: make(chan string, 2), release: make(chan struct{})}
+			executor, err := New(delegate, Options{Mode: mode, Workers: 1, QueueSize: 1, Timeout: 5 * time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer executor.Close()
+			results := make(chan error, 2)
+			for range 2 {
+				go func() {
+					_, runErr := executor.Execute(context.Background(), automation.Script{Language: "test"}, automation.Input{})
+					results <- runErr
+				}()
+			}
+			select {
+			case <-delegate.started:
+			case <-time.After(time.Second):
+				t.Fatal("first execution did not start")
+			}
+			deadline := time.Now().Add(time.Second)
+			for executor.Snapshot()[mode].QueueDepth != 1 {
+				if time.Now().After(deadline) {
+					t.Fatalf("expected one queued execution, got %+v", executor.Snapshot()[mode])
+				}
+				time.Sleep(time.Millisecond)
+			}
+			close(delegate.release)
+			for range 2 {
+				if err := <-results; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := executor.Snapshot()[mode].QueueDepth; got != 0 {
+				t.Fatalf("queue depth after completion = %d", got)
+			}
+		})
+	}
+}
+
 func TestGoroutineExecutorBoundsQueue(t *testing.T) {
-	delegate := &testExecutor{started: make(chan string, 2), release: make(chan struct{})}
+	delegate := &blockingExecutor{started: make(chan string, 2), release: make(chan struct{}), ignoreCancellation: true}
 	executor, err := New(delegate, Options{Mode: ModeGoroutine, Workers: 1, QueueSize: 0, Timeout: 60 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)

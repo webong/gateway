@@ -52,11 +52,13 @@ type modeCounters struct {
 // Stats is a point-in-time local execution snapshot for one mode. InFlight
 // includes work waiting for admission as well as work running in a worker.
 type Stats struct {
-	InFlight   int64  `json:"in_flight"`
-	Completed  uint64 `json:"completed_total"`
-	Busy       uint64 `json:"busy_total"`
-	TimedOut   uint64 `json:"timed_out_total"`
-	DurationNS uint64 `json:"duration_ns_total"`
+	InFlight       int64  `json:"in_flight"`
+	QueueDepth     int64  `json:"queue_depth"`
+	WorkerRestarts uint64 `json:"worker_restarts_total"`
+	Completed      uint64 `json:"completed_total"`
+	Busy           uint64 `json:"busy_total"`
+	TimedOut       uint64 `json:"timed_out_total"`
+	DurationNS     uint64 `json:"duration_ns_total"`
 }
 
 func New(delegate automation.Executor, options Options) (*Executor, error) {
@@ -181,12 +183,21 @@ func (e *Executor) Snapshot() map[Mode]Stats {
 		return nil
 	}
 	result := make(map[Mode]Stats, len(e.stats))
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	for mode, counters := range e.stats {
-		result[mode] = Stats{
+		stats := Stats{
 			InFlight: counters.inFlight.Load(), Completed: counters.completed.Load(),
 			Busy: counters.busy.Load(), TimedOut: counters.timedOut.Load(),
 			DurationNS: counters.durationNS.Load(),
 		}
+		if pool, ok := e.executors[mode].(interface{ queueDepth() int64 }); ok {
+			stats.QueueDepth = pool.queueDepth()
+		}
+		if pool, ok := e.executors[mode].(interface{ workerRestarts() uint64 }); ok {
+			stats.WorkerRestarts = pool.workerRestarts()
+		}
+		result[mode] = stats
 	}
 	return result
 }

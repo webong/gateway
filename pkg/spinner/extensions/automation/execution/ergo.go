@@ -17,12 +17,15 @@ import (
 
 // ergoExecutor runs bounded automation work on a local Ergo actor pool.
 type ergoExecutor struct {
-	delegate automation.Executor
-	node     gen.Node
-	pool     gen.PID
-	capacity chan struct{}
-	timeout  time.Duration
-	closed   atomic.Bool
+	delegate            automation.Executor
+	node                gen.Node
+	pool                gen.PID
+	capacity            chan struct{}
+	timeout             time.Duration
+	closed              atomic.Bool
+	queued              atomic.Int64
+	workerSpawns        atomic.Uint64
+	initialWorkerSpawns uint64
 }
 
 var nodeSequence atomic.Uint64
@@ -47,13 +50,15 @@ func newErgoExecutor(delegate automation.Executor, options Options) (*ergoExecut
 	}
 	mailboxPerWorker := int64((options.QueueSize+options.Workers-1)/options.Workers + 1)
 	pid, err := node.Spawn(func() gen.ProcessBehavior {
-		return &pool{delegate: delegate, workers: int64(options.Workers), mailboxSize: mailboxPerWorker}
+		return &pool{delegate: delegate, workers: int64(options.Workers), mailboxSize: mailboxPerWorker, queued: &executor.queued, workerSpawns: &executor.workerSpawns}
 	}, gen.ProcessOptions{MailboxSize: int64(options.Workers + options.QueueSize)})
 	if err != nil {
 		node.StopForce()
 		return nil, err
 	}
 	executor.pool = pid
+	// The pool has a fixed size; later factory calls replace exited workers.
+	executor.initialWorkerSpawns = executor.workerSpawns.Load()
 	return executor, nil
 }
 
@@ -80,12 +85,14 @@ func (e *ergoExecutor) Execute(ctx context.Context, script automation.Script, in
 		}
 		return automation.Outcome{}, fmt.Errorf("%w: queue wait exceeded %s", automation.ErrBusy, e.timeout)
 	}
+	e.queued.Add(1)
 
 	result := make(chan executionResult, 1)
 	started := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { <-e.capacity }) }
 	if err := e.node.Send(e.pool, execution{ctx: runCtx, script: script, input: input, result: result, started: started, release: release}); err != nil {
+		e.queued.Add(-1)
 		release()
 		return automation.Outcome{}, fmt.Errorf("%w: actor dispatch failed: %v", automation.ErrBusy, err)
 	}
@@ -121,6 +128,14 @@ func (e *ergoExecutor) Close() {
 	}
 }
 
+func (e *ergoExecutor) queueDepth() int64 {
+	return e.queued.Load()
+}
+
+func (e *ergoExecutor) workerRestarts() uint64 {
+	return e.workerSpawns.Load() - e.initialWorkerSpawns
+}
+
 type execution struct {
 	ctx     context.Context
 	script  automation.Script
@@ -137,21 +152,27 @@ type executionResult struct {
 
 type pool struct {
 	act.Pool
-	delegate    automation.Executor
-	workers     int64
-	mailboxSize int64
+	delegate     automation.Executor
+	workers      int64
+	mailboxSize  int64
+	queued       *atomic.Int64
+	workerSpawns *atomic.Uint64
 }
 
 func (p *pool) Init(...any) (act.PoolOptions, error) {
 	return act.PoolOptions{
 		PoolSize: p.workers, WorkerMailboxSize: p.mailboxSize,
-		WorkerFactory: func() gen.ProcessBehavior { return &worker{delegate: p.delegate} },
+		WorkerFactory: func() gen.ProcessBehavior {
+			p.workerSpawns.Add(1)
+			return &worker{delegate: p.delegate, queued: p.queued}
+		},
 	}, nil
 }
 
 type worker struct {
 	act.Actor
 	delegate automation.Executor
+	queued   *atomic.Int64
 }
 
 func (w *worker) HandleMessage(_ gen.PID, message any) error {
@@ -160,6 +181,7 @@ func (w *worker) HandleMessage(_ gen.PID, message any) error {
 		return nil
 	}
 	defer job.release()
+	w.queued.Add(-1)
 	close(job.started)
 	if err := job.ctx.Err(); err != nil {
 		job.result <- executionResult{err: err}

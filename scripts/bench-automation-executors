@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+docker run --rm \
+  --mount "type=bind,src=$ROOT,dst=/work/gateway,readonly" \
+  --workdir /work/gateway \
+  --env GATEWAY_BENCH_LUA_GUEST=/tmp/lua-guest \
+  --env GOMAXPROCS=4 \
+  golang:1.26-bookworm \
+  sh -ec 'go -C pkg/lua build -mod=readonly -o /tmp/lua-guest ./cmd/spinner && go -C pkg/spinner test -mod=readonly -tags gateway_guest_bench ./extensions/automation/execution -run "^$" -bench "^BenchmarkInstalledLuaGuest$" -benchmem -count=3 -benchtime=1s'

@@ -3,12 +3,50 @@ package execution
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"ergo.services/ergo/gen"
 	"github.com/webong/gateway/arranger/automation"
 )
+
+func TestErgoExecutorCountsWorkerReplacement(t *testing.T) {
+	executor, err := newErgoExecutor(&testExecutor{}, Options{Workers: 1, QueueSize: 1, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executor.Close()
+	workers, err := executor.node.ProcessListShortInfo(1000, 1000, func(info gen.ProcessShortInfo) bool {
+		return strings.HasSuffix(info.Behavior, "execution.worker")
+	})
+	if err != nil || len(workers) != 1 {
+		t.Fatalf("expected one actor worker, got %v: %v", workers, err)
+	}
+	if got := executor.workerRestarts(); got != 0 {
+		t.Fatalf("initial worker count reported as restarts: %d", got)
+	}
+	if err := executor.node.SendExit(workers[0].PID, errors.New("test worker exit")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := executor.node.ProcessInfo(workers[0].PID); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("actor worker did not exit")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := executor.Execute(context.Background(), automation.Script{Language: "test"}, automation.Input{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := executor.workerRestarts(); got != 1 {
+		t.Fatalf("worker replacements = %d, want 1", got)
+	}
+}
 
 type blockingExecutor struct {
 	started            chan string

@@ -467,7 +467,18 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			server.workerPool.Shutdown()
 			return fmt.Errorf("failed to start provisioning integrations: %w", err)
 		}
-		defer provisioningRuntime.Stop()
+		background = append(background, lifecycle.Service{
+			Name: "provisioning reconciliation",
+			Run: func(ctx context.Context) error {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-provisioningRuntime.Done():
+					return fmt.Errorf("provisioning reconciler exited")
+				}
+			},
+			Shutdown: provisioningRuntime.StopContext,
+		})
 		server.SetExtensionHandler(provisioningRuntime)
 		logger.Info("Provisioning reconciliation enabled for node %s", config.Provisioning.NodeID)
 	}
