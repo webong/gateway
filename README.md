@@ -1,5 +1,9 @@
 # Gateway
 
+For operators deploying Gateway, start with
+[Set up and use Gateway](docs/using-gateway.md). It covers the published image,
+the first Webhook, and where to configure each supported feature.
+
 Gateway Router consists of **Spinner**, the Go transport module, and
 **Planner**, the PHP control-plane package. They can be deployed separately or
 together in the Gateway Router distribution.
