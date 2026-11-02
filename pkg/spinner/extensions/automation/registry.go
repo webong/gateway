@@ -1,8 +1,7 @@
 // Package automationextensions is Spinner's host-side automation registry.
 //
 // Spinner is a plugin host: it depends only on Arranger's automation contract
-// and the portable plugin contract. Automation engines (JavaScript, Lua, Shell,
-// Go, PHP, HookScript, or third-party engines) are guests and are registered
+// and the portable plugin contract. Automation engines are guests and are registered
 // here either in-process by an external composition root or loaded at runtime
 // from native/shared objects and external plugin processes.
 //
@@ -12,7 +11,6 @@ package automationextensions
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +23,7 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
 	"github.com/webong/gateway/arranger/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
+	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	extensionhost "github.com/webong/gateway/pkg/spinner/extensions/internal/host"
 )
 
@@ -49,7 +48,10 @@ func Register(engine automation.Engine) error {
 		Verify:    func(context.Context, contract.Descriptor) error { return nil },
 		Connect:   func(context.Context, contract.Descriptor) (contract.Backend, error) { return backend, nil },
 		Authorize: func(context.Context, contract.Request) error { return nil },
-		Reverse:   companionextensions.DefaultHost.ReverseOptions(),
+		Reverse: integrationextensions.DefaultHost.SecretReverseOptionsFor(
+			descriptor.Identity,
+			companionextensions.DefaultHost.ReverseOptions(),
+		),
 	})
 	if err != nil {
 		_ = backend.Close()
@@ -139,7 +141,10 @@ func loadNativeGoPlugins(ctx context.Context, dir string) error {
 			Verify:    func(context.Context, contract.Descriptor) error { return nil },
 			Connect:   func(context.Context, contract.Descriptor) (contract.Backend, error) { return backend, nil },
 			Authorize: func(context.Context, contract.Request) error { return nil },
-			Reverse:   companionextensions.DefaultHost.ReverseOptions(),
+			Reverse: integrationextensions.DefaultHost.SecretReverseOptionsFor(
+				descriptor.Identity,
+				companionextensions.DefaultHost.ReverseOptions(),
+			),
 		})
 		if err != nil {
 			_ = backend.Close()
@@ -196,8 +201,11 @@ func LoadExternalInstalled(ctx context.Context, target *Registry, inst store.Ins
 		return fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
 	proc, err := host.Open(ctx, inst, host.Options{
-		Reverse: companionextensions.DefaultHost.ReverseOptions(),
-		Launch:  launch,
+		Reverse: integrationextensions.DefaultHost.SecretReverseOptionsFor(
+			inst.Manifest.Descriptor.Identity,
+			companionextensions.DefaultHost.ReverseOptions(),
+		),
+		Launch: launch,
 	})
 	if err != nil {
 		return err
@@ -210,63 +218,4 @@ func LoadExternalInstalled(ctx context.Context, target *Registry, inst store.Ins
 	target.Register(NewEngineAdapter(engine, inst.Manifest.Descriptor))
 	fmt.Printf("loaded external plugin: %s (lang=%s)\n", inst.Name(), engine.Language())
 	return nil
-}
-
-// RunHistory returns the optional local run reader without exposing a concrete
-// engine implementation to Spinner's transport or private admin packages.
-type RunHistoryReader interface {
-	ReadRun(string) ([]byte, error)
-	RunHistoryConfigured() bool
-}
-
-func RunHistory() RunHistoryReader {
-	for _, e := range registry.All() {
-		if reader, ok := e.(RunHistoryReader); ok && reader.RunHistoryConfigured() {
-			return reader
-		}
-	}
-	return nil
-}
-
-// ConfigureShellSSHHTTP resolves write-only Planner credentials through the same
-// private connection used by the host. When Shell is not installed this is a no-op.
-func ConfigureShellSSHHTTP(origin, token string, client *http.Client, localTransport bool) error {
-	for _, e := range registry.All() {
-		if configurable, ok := e.(interface {
-			SetSSHResolverHTTP(string, string, *http.Client, bool) error
-		}); ok {
-			if err := configurable.SetSSHResolverHTTP(origin, token, client, localTransport); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func ConfigureShellSSHHandler(handler http.Handler, token string) error {
-	for _, e := range registry.All() {
-		if configurable, ok := e.(interface {
-			SetSSHResolverHandler(http.Handler, string) error
-		}); ok {
-			if err := configurable.SetSSHResolverHandler(handler, token); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func ContextWithShellSSHHandler(ctx context.Context, handler http.Handler, token string) (context.Context, error) {
-	for _, e := range registry.All() {
-		if configurable, ok := e.(interface {
-			ContextWithSSHResolverHandler(context.Context, http.Handler, string) (context.Context, error)
-		}); ok {
-			var err error
-			ctx, err = configurable.ContextWithSSHResolverHandler(ctx, handler, token)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-	return ctx, nil
 }

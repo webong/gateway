@@ -146,9 +146,6 @@ func (s *Server) ConfigureDeliveryQueue() error {
 		var options []deliveryadmin.HandlerOption
 		options = append(options, deliveryadmin.WithAutomationExecutor(s.automation))
 		options = append(options, deliveryadmin.WithPrivateFallback(integrationextensions.DefaultRegistry.PrivateHandler()))
-		if history := automationextensions.RunHistory(); history != nil {
-			options = append(options, deliveryadmin.WithShellRunHistory(history))
-		}
 		handler, err := deliveryadmin.NewHandler(queue, s.config.InternalToken, options...)
 		if err != nil {
 			if queue != nil {
@@ -332,9 +329,6 @@ func runServices(config *relayconfig.Config, server *Server, logger *logging.Log
 func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.Logger) error {
 	var background []lifecycle.Service
 	client := newPlannerClient(config)
-	if err := automationextensions.ConfigureShellSSHHTTP(config.PlannerURL, config.InternalToken, client, config.PlannerSocket != ""); err != nil {
-		return fmt.Errorf("failed to initialize private Shell credential resolver: %w", err)
-	}
 	control, controlErr := schedules.NewHTTPControlPlane(
 		config.PlannerURL,
 		config.InternalToken,

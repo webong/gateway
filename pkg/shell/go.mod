@@ -3,12 +3,12 @@ module github.com/webong/gateway/pkg/shell
 go 1.26.0
 
 require (
+	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
 	github.com/webong/gateway/arranger v0.0.0
 	golang.org/x/crypto v0.38.0
 )
 
 require (
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 )
 

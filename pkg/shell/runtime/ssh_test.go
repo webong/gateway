@@ -103,16 +103,19 @@ func TestSSHShellReplyUsesPinnedForcedCommandAndBoundedInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Resolve through the same authenticated private HTTP contract as Planner.
+	// Resolve through Planner's generic Extension secret contract.
 	if err := engine.SetSSHResolverHandler(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/_internal/gateway/shell/executions/2c034453-f6ef-4f98-a9a2-6dfb624758d0" ||
+		if request.URL.Path != "/_internal/gateway/extensions/webong/shell/secrets/ssh-2c034453-f6ef-4f98-a9a2-6dfb624758d0" ||
 			request.Header.Get("X-Gateway-Internal") != "private-token" {
 			http.NotFound(writer, request)
 			return
 		}
-		_ = json.NewEncoder(writer).Encode(SSHExecution{Hook: "github/deploy", Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port,
-			User: "gateway", HostPublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(hostSigner.PublicKey()))),
-			PrivateKey: clientKey})
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"reference": "ssh-2c034453-f6ef-4f98-a9a2-6dfb624758d0", "version": 1,
+			"value": SSHExecution{Hook: "github/deploy", Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port,
+				User: "gateway", HostPublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(hostSigner.PublicKey()))),
+				PrivateKey: clientKey},
+		})
 	}), "private-token"); err != nil {
 		t.Fatal(err)
 	}
@@ -140,9 +143,12 @@ func TestSSHShellReplyUsesPinnedForcedCommandAndBoundedInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	scoped, err := engine.ContextWithSSHResolverHandler(context.Background(), http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_ = json.NewEncoder(writer).Encode(SSHExecution{Hook: "github/deploy", Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port,
-			User: "gateway", HostPublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(wrongSigner.PublicKey()))),
-			PrivateKey: clientKey})
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"reference": "ssh-2c034453-f6ef-4f98-a9a2-6dfb624758d0", "version": 1,
+			"value": SSHExecution{Hook: "github/deploy", Host: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port,
+				User: "gateway", HostPublicKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(wrongSigner.PublicKey()))),
+				PrivateKey: clientKey},
+		})
 	}), "private-token")
 	if err != nil {
 		t.Fatal(err)

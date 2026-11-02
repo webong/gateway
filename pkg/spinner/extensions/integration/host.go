@@ -110,6 +110,40 @@ func (h *Host) ReverseOptionsFor(identity plugin.Identity, fallback *plugin.Reve
 	}
 }
 
+// SecretReverseOptionsFor exposes only the identity-scoped Extension secret
+// lookup to a plugin. Other reverse calls continue through fallback.
+func (h *Host) SecretReverseOptionsFor(identity plugin.Identity, fallback *plugin.ReverseOptions) *plugin.ReverseOptions {
+	return &plugin.ReverseOptions{
+		Authorize: func(ctx context.Context, request plugin.Request) error {
+			if request.Contract == integration.SecretContract {
+				if request.Operation != integration.OperationResolveSecret {
+					return plugin.ErrDenied
+				}
+				return h.authorize(identity, request)
+			}
+			if fallback == nil || fallback.Authorize == nil {
+				return plugin.ErrDenied
+			}
+			return fallback.Authorize(ctx, request)
+		},
+		Handle: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+			if request.Contract == integration.SecretContract {
+				if request.Operation != integration.OperationResolveSecret {
+					return nil, plugin.ErrDenied
+				}
+				return handleSecret(ctx, h.current(), identity, request)
+			}
+			if fallback == nil || fallback.Handle == nil {
+				return nil, plugin.ErrDenied
+			}
+			return fallback.Handle(ctx, request)
+		},
+		Timeout:         5 * time.Minute,
+		MaxPayloadBytes: plugin.MaxFrameBytes - (64 << 10),
+		MaxInFlight:     16,
+	}
+}
+
 func (h *Host) owns(ref plugin.ContractRef) bool {
 	return ref == integration.PlannerContract || ref == integration.DeliveryContract ||
 		ref == integration.AutomationContract || ref == integration.ScheduleContract ||

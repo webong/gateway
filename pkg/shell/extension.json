@@ -2,5 +2,33 @@
     "identity": "webong/shell",
     "language": "shell",
     "capabilities": ["route"],
-    "spinner": "./cmd/spinner"
+    "spinner": "./cmd/spinner",
+    "contracts": [
+        {
+            "name": "gateway.runtime",
+            "version": "v1",
+            "operations": [{"name": "start", "surface": "spinner"}]
+        }
+    ],
+    "environment": [
+        "GATEWAY_SHELL_HOOKS_DIR",
+        "GATEWAY_SHELL_TIMEOUT",
+        "GATEWAY_SHELL_MAX_OUTPUT_BYTES",
+        "GATEWAY_SHELL_MAX_CONCURRENT",
+        "GATEWAY_SHELL_MAX_QUEUED",
+        "GATEWAY_SHELL_OUTPUT_MODE",
+        "GATEWAY_SHELL_INTERPRETER",
+        "GATEWAY_SHELL_POWERSHELL_PATH",
+        "GATEWAY_SHELL_RUN_LOG_DIR",
+        "GATEWAY_SHELL_RUN_RETENTION",
+        "GATEWAY_SHELL_RUN_LOG_EXPOSE_OUTPUT",
+        "GATEWAY_SHELL_SSH_ALLOWED_CIDRS"
+    ],
+    "reverse": [
+        {
+            "name": "gateway.secret",
+            "version": "v1",
+            "operations": [{"name": "resolve"}]
+        }
+    ]
 }

@@ -112,7 +112,7 @@ func (e *ergoExecutor) Execute(ctx context.Context, script automation.Script, in
 	}
 }
 
-// OpenStream preserves Shell's live streaming path. A stream cannot wait in a
+// OpenStream preserves the direct process streaming path. A stream cannot wait in a
 // mailbox because its response begins before execution completes.
 func (e *ergoExecutor) OpenStream(ctx context.Context, script automation.Script, input automation.Input) (*automation.Stream, error) {
 	streamer, ok := e.delegate.(automation.StreamingExecutor)

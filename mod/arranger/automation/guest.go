@@ -18,6 +18,10 @@ var automationContract = plugin.ContractRef{Name: "gateway.automation", Version:
 // Factory constructs one extension-owned automation engine.
 type Factory func() (Engine, error)
 
+// OperationHandler handles additional package-declared contracts hosted by the
+// same automation process.
+type OperationHandler func(context.Context, plugin.Request) (json.RawMessage, error)
+
 type packageManifest struct {
 	Descriptor plugin.Descriptor `json:"descriptor"`
 }
@@ -36,6 +40,12 @@ type executeResponse struct {
 // Serve starts an automation extension from the plugin.json in its working
 // directory. The package descriptor, not the binary, owns extension identity.
 func Serve(ctx context.Context, factory Factory) error {
+	return ServeWithHandler(ctx, factory, nil)
+}
+
+// ServeWithHandler serves automation plus optional package-owned operations.
+// Additional operations remain restricted to the package descriptor.
+func ServeWithHandler(ctx context.Context, factory Factory, handler OperationHandler) error {
 	raw, err := os.ReadFile("plugin.json")
 	if err != nil {
 		return fmt.Errorf("read automation extension manifest: %w", err)
@@ -44,7 +54,7 @@ func Serve(ctx context.Context, factory Factory) error {
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return fmt.Errorf("decode automation extension manifest: %w", err)
 	}
-	guest, err := Guest(manifest.Descriptor, factory)
+	guest, err := GuestWithHandler(manifest.Descriptor, factory, handler)
 	if err != nil {
 		return err
 	}
@@ -53,6 +63,12 @@ func Serve(ctx context.Context, factory Factory) error {
 
 // Guest adapts one engine to the portable automation operation.
 func Guest(descriptor plugin.Descriptor, factory Factory) (*plugin.Guest, error) {
+	return GuestWithHandler(descriptor, factory, nil)
+}
+
+// GuestWithHandler adapts one engine and optional package-owned operations to
+// the portable plugin contract.
+func GuestWithHandler(descriptor plugin.Descriptor, factory Factory, handler OperationHandler) (*plugin.Guest, error) {
 	if factory == nil {
 		return nil, errors.New("automation engine factory is required")
 	}
@@ -65,6 +81,12 @@ func Guest(descriptor plugin.Descriptor, factory Factory) (*plugin.Guest, error)
 		return nil, fmt.Errorf("extension descriptor does not declare automation language %q", language)
 	}
 	return plugin.NewGuest(descriptor, plugin.GuestOptions{Handler: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+		if request.Contract != automationContract || request.Operation != "execute" {
+			if handler != nil {
+				return handler(ctx, request)
+			}
+			return nil, plugin.ErrUnsupported
+		}
 		var input executeRequest
 		if err := json.Unmarshal(request.Payload, &input); err != nil {
 			return nil, fmt.Errorf("decode automation request: %w", err)

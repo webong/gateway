@@ -53,9 +53,6 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	}
 	defer planner.Close()
 	log.Print("Planner connection: in-process PHP")
-	if err := automationextensions.ConfigureShellSSHHandler(planner, spinner.InternalToken); err != nil {
-		return fmt.Errorf("configure private Shell credential resolver: %w", err)
-	}
 	companionActions, err := bridge.NewPHPCompanionRunner(planner, spinner.MaxBodySize, spinner.InternalToken)
 	if err != nil {
 		return fmt.Errorf("configure trusted PHP companion actions: %w", err)

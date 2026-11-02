@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -55,15 +54,6 @@ func (queue *fakeQueue) Retry(id string) error {
 	return nil
 }
 
-type fakeRunHistory struct{ id string }
-
-func (history fakeRunHistory) ReadRun(id string) ([]byte, error) {
-	if id != history.id {
-		return nil, os.ErrNotExist
-	}
-	return []byte(`{"id":"` + id + `","hook":"deploy"}`), nil
-}
-
 type fakeAutomationExecutor struct{ outcome automation.Outcome }
 
 func (executor fakeAutomationExecutor) Execute(_ context.Context, script automation.Script, input automation.Input) (automation.Outcome, error) {
@@ -104,27 +94,29 @@ func TestHandlerExecutesOneCredentialRequestOnPrivateListener(t *testing.T) {
 	}
 }
 
-func TestHandlerServesShellHistoryOnlyWithPrivateToken(t *testing.T) {
-	handler, err := NewHandler(nil, "private-token", WithShellRunHistory(fakeRunHistory{id: deliveryID}))
+func TestHandlerDelegatesExtensionPrivateRoutesOnlyWithPrivateToken(t *testing.T) {
+	handler, err := NewHandler(nil, "private-token", WithPrivateFallback(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/extensions/example/runs/"+deliveryID {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{"id":"` + deliveryID + `"}`))
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := "/shell/runs/" + deliveryID
+	path := "/extensions/example/runs/" + deliveryID
 	if response := serve(handler, http.MethodGet, path, "wrong-token"); response.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthorized shell history returned %d", response.Code)
+		t.Fatalf("unauthorized private extension route returned %d", response.Code)
 	}
 	response := serve(handler, http.MethodGet, path, "private-token")
 	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Content-Type") != "application/json" || !bytes.Contains(response.Body.Bytes(), []byte(deliveryID)) {
-		t.Fatalf("private shell history response: %d %s", response.Code, response.Body.String())
-	}
-	if response := serve(handler, http.MethodGet, "/shell/runs/missing", "private-token"); response.Code != http.StatusNotFound {
-		t.Fatalf("missing shell history returned %d", response.Code)
-	}
-	if response := serve(handler, http.MethodPost, path, "private-token"); response.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("shell history accepted mutation: %d", response.Code)
+		t.Fatalf("private extension response: %d %s", response.Code, response.Body.String())
 	}
 	if response := serve(handler, http.MethodGet, "/deliveries", "private-token"); response.Code != http.StatusNotFound {
-		t.Fatalf("shell-only private admin exposed delivery queue: %d", response.Code)
+		t.Fatalf("extension-only private admin exposed delivery queue: %d", response.Code)
 	}
 }
 

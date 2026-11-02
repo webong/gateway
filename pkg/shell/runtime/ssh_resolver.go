@@ -11,6 +11,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	"github.com/webong/gateway/arranger/integration"
 )
 
 const maximumSSHCredentialDocument = 32768
@@ -21,6 +24,37 @@ type httpSSHResolver struct {
 	origin string
 	token  string
 	client *http.Client
+}
+
+type reverseSSHResolver struct{ caller plugin.ReverseCaller }
+
+func (resolver reverseSSHResolver) Resolve(ctx context.Context, id string) (SSHExecution, error) {
+	reference := "ssh-" + id
+	if resolver.caller == nil || !integration.ValidSecretReference(reference) {
+		return SSHExecution{}, errors.New("SSH Shell credential authority is unavailable")
+	}
+	payload, err := json.Marshal(integration.SecretRequest{Reference: reference})
+	if err != nil {
+		return SSHExecution{}, errors.New("SSH Shell credential request is invalid")
+	}
+	response, err := resolver.caller.Call(ctx, integration.SecretContract, integration.OperationResolveSecret, payload)
+	if err != nil {
+		return SSHExecution{}, errors.New("SSH Shell credential authority is unavailable")
+	}
+	var secret integration.SecretValue
+	if err := json.Unmarshal(response, &secret); err != nil || secret.Reference != reference || secret.Version < 1 || len(secret.Value) == 0 {
+		return SSHExecution{}, errors.New("SSH Shell credential response is invalid")
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(secret.Value)))
+	decoder.DisallowUnknownFields()
+	var execution SSHExecution
+	if err := decoder.Decode(&execution); err != nil || decoder.Decode(new(any)) != io.EOF {
+		return SSHExecution{}, errors.New("SSH Shell credential response is invalid")
+	}
+	if err := validateSSHExecution(execution); err != nil {
+		return SSHExecution{}, err
+	}
+	return execution, nil
 }
 
 func (e *Engine) SetSSHResolverHTTP(origin, token string, client *http.Client, localTransport bool) error {
@@ -80,7 +114,8 @@ func (r *httpSSHResolver) Resolve(ctx context.Context, id string) (SSHExecution,
 	if r == nil || !executionIDPattern.MatchString(id) {
 		return SSHExecution{}, errors.New("SSH Shell execution reference is invalid")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.origin+"/_internal/gateway/shell/executions/"+id, nil)
+	reference := "ssh-" + id
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, r.origin+"/_internal/gateway/extensions/webong/shell/secrets/"+reference, nil)
 	if err != nil {
 		return SSHExecution{}, err
 	}
@@ -97,18 +132,23 @@ func (r *httpSSHResolver) Resolve(ctx context.Context, id string) (SSHExecution,
 	if err != nil || len(body) > maximumSSHCredentialDocument {
 		return SSHExecution{}, errors.New("SSH Shell credential response exceeds limit")
 	}
-	var execution SSHExecution
 	decoder := json.NewDecoder(strings.NewReader(string(body)))
-	// Planner may include a credential version, but no arbitrary fields.
 	var document struct {
-		SSHExecution
-		CredentialVersion int `json:"credential_version"`
+		Reference string          `json:"reference"`
+		Version   int64           `json:"version"`
+		Value     json.RawMessage `json:"value"`
 	}
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil || decoder.Decode(new(any)) != io.EOF {
+	if err := decoder.Decode(&document); err != nil || decoder.Decode(new(any)) != io.EOF ||
+		document.Reference != reference || document.Version < 1 || len(document.Value) == 0 {
 		return SSHExecution{}, errors.New("SSH Shell credential response is invalid")
 	}
-	execution = document.SSHExecution
+	valueDecoder := json.NewDecoder(strings.NewReader(string(document.Value)))
+	valueDecoder.DisallowUnknownFields()
+	var execution SSHExecution
+	if err := valueDecoder.Decode(&execution); err != nil || valueDecoder.Decode(new(any)) != io.EOF {
+		return SSHExecution{}, errors.New("SSH Shell credential response is invalid")
+	}
 	if err := validateSSHExecution(execution); err != nil {
 		return SSHExecution{}, err
 	}

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -27,14 +26,9 @@ type queue interface {
 type Handler struct {
 	queue      queue
 	token      string
-	runs       runHistoryReader
 	automation automation.Executor
 	routes     map[string]http.Handler
 	fallback   http.Handler
-}
-
-type runHistoryReader interface {
-	ReadRun(string) ([]byte, error)
 }
 
 type HandlerOption func(*Handler) error
@@ -52,24 +46,12 @@ func WithAutomationExecutor(executor automation.Executor) HandlerOption {
 	}
 }
 
-// WithShellRunHistory exposes redacted shell-run records on the private admin
-// listener. The reader enforces run ID and file safety checks.
-func WithShellRunHistory(reader runHistoryReader) HandlerOption {
-	return func(handler *Handler) error {
-		if reader == nil {
-			return errors.New("shell run history reader is required")
-		}
-		handler.runs = reader
-		return nil
-	}
-}
-
 // WithPrivateRoute mounts one authenticated extension-owned operation on the
 // private admin listener without teaching the host its protocol semantics.
 func WithPrivateRoute(path string, route http.Handler) HandlerOption {
 	return func(handler *Handler) error {
 		if route == nil || !strings.HasPrefix(path, "/") || path == "/" || strings.ContainsAny(path, "?#") ||
-			privatePathUnder(path, "/deliveries") || privatePathUnder(path, "/shell") || privatePathUnder(path, "/automation") {
+			privatePathUnder(path, "/deliveries") || privatePathUnder(path, "/automation") {
 			return errors.New("private extension route is invalid or reserved")
 		}
 		if handler.routes == nil {
@@ -110,8 +92,8 @@ func NewHandler(queue queue, token string, options ...HandlerOption) (*Handler, 
 			return nil, err
 		}
 	}
-	if queue == nil && handler.runs == nil && handler.automation == nil && len(handler.routes) == 0 && handler.fallback == nil {
-		return nil, errors.New("private admin requires a delivery queue, shell run history, automation executor or extension route")
+	if queue == nil && handler.automation == nil && len(handler.routes) == 0 && handler.fallback == nil {
+		return nil, errors.New("private admin requires a delivery queue, automation executor or extension route")
 	}
 	return handler, nil
 }
@@ -132,30 +114,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.executeCredentialHook(writer, request)
 		return
 	}
-	if strings.HasPrefix(path, "/shell/runs/") {
-		if handler.runs == nil {
-			http.NotFound(writer, request)
-			return
-		}
-		if request.Method != http.MethodGet {
-			methodNotAllowed(writer, http.MethodGet)
-			return
-		}
-		record, err := handler.runs.ReadRun(strings.TrimPrefix(path, "/shell/runs/"))
-		if errors.Is(err, os.ErrNotExist) {
-			http.NotFound(writer, request)
-			return
-		}
-		if err != nil {
-			writeError(writer, http.StatusInternalServerError, "Shell run history is unavailable.")
-			return
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write(record)
-		return
-	}
-	if handler.fallback != nil && !privatePathUnder(path, "/deliveries") &&
-		!privatePathUnder(path, "/shell") && !privatePathUnder(path, "/automation") {
+	if handler.fallback != nil && !privatePathUnder(path, "/deliveries") && !privatePathUnder(path, "/automation") {
 		handler.fallback.ServeHTTP(writer, request)
 		return
 	}

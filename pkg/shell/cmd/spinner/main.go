@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	if err := extensionautomation.Serve(context.Background(), runtime.Plugin); err != nil {
+	if err := extensionautomation.ServeWithHandler(context.Background(), runtime.Plugin, runtime.HandleHostOperation); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

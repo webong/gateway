@@ -61,13 +61,28 @@ $identity = is_array($definition) ? ($definition['identity'] ?? null) : null;
 $language = is_array($definition) ? ($definition['language'] ?? null) : null;
 $capabilities = is_array($definition) ? ($definition['capabilities'] ?? null) : null;
 $spinner = is_array($definition) ? ($definition['spinner'] ?? null) : null;
+$reverse = is_array($definition) ? ($definition['reverse'] ?? []) : null;
+$contracts = is_array($definition) ? ($definition['contracts'] ?? []) : null;
+$environment = is_array($definition) ? ($definition['environment'] ?? []) : null;
 if (! is_string($identity) || preg_match('/\A[a-z0-9][a-z0-9._\/-]{0,255}\z/D', $identity) !== 1
     || ! is_string($language) || preg_match('/\A[a-z][a-z0-9_-]*\z/D', $language) !== 1
     || ! is_array($capabilities) || $capabilities === []
     || array_diff($capabilities, ['route', 'schedule', 'credential']) !== []
     || count($capabilities) !== count(array_unique($capabilities))
-    || ! is_string($spinner) || ! str_starts_with($spinner, './')) {
+    || ! is_string($spinner) || ! str_starts_with($spinner, './')
+    || ! is_array($reverse) || ! array_is_list($reverse)
+    || ! is_array($contracts) || ! array_is_list($contracts)
+    || ! is_array($environment) || ! array_is_list($environment)) {
     failAutomationBuild('Invalid automation extension definition.');
+}
+foreach ($environment as $name) {
+    if (! is_string($name) || preg_match('/\AGATEWAY_[A-Z0-9_]{1,120}\z/D', $name) !== 1
+        || preg_match('/TOKEN|SECRET|PASSWORD|PRIVATE|CREDENTIAL|KEY/i', $name) === 1) {
+        failAutomationBuild('Automation extension environment names must be non-secret GATEWAY_* settings.');
+    }
+}
+if (count($environment) !== count(array_unique($environment))) {
+    failAutomationBuild('Automation extension environment names must be unique.');
 }
 if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
     failAutomationBuild('Invalid extension version.');
@@ -104,7 +119,8 @@ try {
                 'name' => 'gateway.automation',
                 'version' => 'v1',
                 'operations' => [['name' => 'execute', 'surface' => $language]],
-            ]],
+            ], ...array_values($contracts)],
+            ...($reverse === [] ? [] : ['reverse' => array_values($reverse)]),
         ],
         'metadata' => [
             'gateway.spinner/v1' => [
@@ -117,6 +133,7 @@ try {
                     'capabilities' => array_values($capabilities),
                 ]],
             ],
+            ...($environment === [] ? [] : ['gateway.spinner/environment/v1' => ['inherit' => array_values($environment)]]),
         ],
         'artifacts' => [[
             'name' => 'spinner-guest',
