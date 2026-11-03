@@ -25,7 +25,8 @@ final readonly class WebEventRecorder
     {
         if (! $this->policy->current()['enabled']
             || ! in_array($request->protocol, ['http', 'websocket', 'webstream'], true)
-            || ! is_string($plan->metadata['endpoint_id'] ?? null)) {
+            || ! is_string($plan->metadata['endpoint_id'] ?? null)
+            || ($request->protocol === 'http' && ($plan->metadata['route_kind'] ?? null) !== 'webhook')) {
             return;
         }
 

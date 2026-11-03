@@ -12,6 +12,7 @@ use Webong\Gateway\Contracts\SubscriptionTargetExtension;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\SubscriptionAutomationPlan;
 use Webong\Gateway\ResolvedSubscription;
+use Webong\Gateway\EndpointHttpTransportResolver;
 use Webong\Gateway\SubscriptionDefinition;
 use Webong\Proxy\DestinationRecord;
 use Webong\Proxy\Endpoint;
