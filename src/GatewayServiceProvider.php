@@ -113,11 +113,17 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->singleton(ServerRegistry::class);
         $this->app->singleton(ConfigurationKindRegistry::class);
         $this->app->singleton(SubscriptionTargetExtensionRegistry::class);
+        $this->app->singleton(HttpSubscriptionTargetExtension::class);
+        $this->app->afterResolving(SubscriptionTargetExtensionRegistry::class, fn (SubscriptionTargetExtensionRegistry $targets) =>
+            $targets->register($this->app->make(HttpSubscriptionTargetExtension::class), default: true));
         $this->app->singleton(\Webong\Gateway\Deliveries\DeliveryAdminReplayPolicyRegistry::class);
         $this->app->singleton(EventRetentionPolicyFallbackRegistry::class);
         $this->app->singleton(ExtensionSecretProviderRegistry::class);
         $this->app->singleton(PathResolverRegistry::class);
         $this->app->singleton(ProtocolPlannerRegistry::class);
+        $this->app->afterResolving(ProtocolPlannerRegistry::class, fn (ProtocolPlannerRegistry $planners) =>
+            $planners->register(\Webong\Gateway\Protocols\Protocol::HTTP,
+                fn (): RouteProtocolPlanner => new RouteProtocolPlanner($this->app->make(CapabilityAwareRoutePlanner::class))));
         $this->app->singleton(RoutePlanObserverRegistry::class);
         $this->app->singleton(RoutePlannerRegistry::class);
         $this->app->singleton(GatewayObservationRegistry::class);
@@ -183,14 +189,14 @@ final class GatewayServiceProvider extends ServiceProvider
             }
 
             return $this->app->make(PathResolverRegistry::class)->decorate($fallback)
-                ?? throw new RuntimeException('Configure gateway.path_resolver or install a Planner Extension that provides one.');
+                ?? new UnboundPathResolver();
         });
 
         $this->app->bind(RoutePlanner::class, function (): RoutePlanner {
             $configuredPlanner = config('gateway.planner');
             $resolved = is_string($configuredPlanner) && $configuredPlanner !== ''
                 ? $this->app->make($configuredPlanner)
-                : $this->app->make(RoutePlannerRegistry::class)->resolveDefault();
+                : $this->app->make(IngressRoutePlanner::class);
             if ($resolved === null) {
                 throw new RuntimeException('Configure gateway.planner or install a Planner Extension that provides a route planner.');
             }
