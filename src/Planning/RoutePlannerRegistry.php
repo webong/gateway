@@ -26,6 +26,11 @@ final class RoutePlannerRegistry
         $this->factories[$kind] = $factory;
     }
 
+    public function contains(string $kind): bool
+    {
+        return isset($this->factories[$kind]);
+    }
+
     public function resolve(string $kind): ?RoutePlanner
     {
         return isset($this->factories[$kind]) ? ($this->factories[$kind])() : null;

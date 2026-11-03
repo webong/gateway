@@ -188,8 +188,12 @@ final class GatewayServiceProvider extends ServiceProvider
                 }
             }
 
-            return $this->app->make(PathResolverRegistry::class)->decorate($fallback)
-                ?? new UnboundPathResolver();
+            return new PlannerRouteKindPathResolver(
+                $this->app->make(PathResolverRegistry::class)->decorate($fallback)
+                    ?? new UnboundPathResolver(),
+                $this->app->make(\Webong\Proxy\WebProxyRegistryManager::class),
+                $this->app->make(\Webong\Proxy\WebProxyChannelManager::class),
+            );
         });
 
         $this->app->bind(RoutePlanner::class, function (): RoutePlanner {
@@ -333,6 +337,12 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']
                 ->post('/registry/endpoints', EndpointController::class)
                 ->name('registry.endpoints.store');
+            $this->app['router']
+                ->get('/registry/endpoints/{endpointKey}', [EndpointRouteKindController::class, 'show'])
+                ->name('registry.endpoints.show');
+            $this->app['router']
+                ->patch('/registry/endpoints/{endpointKey}', [EndpointRouteKindController::class, 'update'])
+                ->name('registry.endpoints.update');
             $this->app['router']
                 ->put('/registry/endpoints/{endpointKey}/accounts/{accountId}', [EndpointAccountAccessController::class, 'grant'])
                 ->name('registry.endpoints.accounts.grant');
