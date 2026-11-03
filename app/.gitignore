@@ -1,2 +1,4 @@
 /vendor/
 /bootstrap/cache/*.php
+/workerman.log
+/workerman.pid

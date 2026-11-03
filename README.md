@@ -116,6 +116,13 @@ Symfony hosts register `MigrateGatewayCommand` with an injected
 use the same history table. SQLite, PostgreSQL, MySQL, and MariaDB Laravel-style
 connection arrays are supported.
 
+The bundled Planner host also accepts `GATEWAY_PLANNER_SERVER=workerman`.
+Workerman owns the HTTP workers while Octane owns Laravel's application sandbox
+and per-request reset lifecycle; the adapter does not run one unreset Laravel
+container across requests. Existing deployments set
+`GATEWAY_MIGRATIONS_ADOPT_EXISTING=true` for their first startup on the neutral
+migration stream, then remove it.
+
 ## Repository layout
 
 - `mod/arranger/integration` owns Integration traffic contracts, the installable

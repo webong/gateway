@@ -20,6 +20,7 @@
         "webong/email": "dev-main",
         "webong/gateway-planner": "dev-main",
         "webong/web": "dev-main",
+        "workerman/workerman": "^5.2",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
