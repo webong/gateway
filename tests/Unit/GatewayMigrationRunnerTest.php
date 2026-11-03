@@ -59,3 +59,32 @@ it('creates the accounts schema expected by the Laravel planner', function (): v
         }
     }
 });
+
+it('adopts an existing Laravel-managed schema without replaying destructive migrations', function (): void {
+    $database = tempnam(sys_get_temp_dir(), 'gateway-adopt-migrations-');
+
+    try {
+        $runner = GatewayMigrationRunner::sqlite(
+            database: $database,
+            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+        );
+        $runner->migrate();
+
+        $pdo = new PDO('sqlite:'.$database);
+        $pdo->exec("INSERT INTO accounts (id, token_hash) VALUES ('existing-account', '".str_repeat('b', 64)."')");
+        $pdo->exec('DROP TABLE gateway_migrations');
+
+        $result = $runner->adoptExistingSchema();
+
+        expect($result->applied)->not->toBeEmpty()
+            ->and($pdo->query("SELECT token_hash FROM accounts WHERE id = 'existing-account'")->fetchColumn())
+            ->toBe(str_repeat('b', 64))
+            ->and((int) $pdo->query('SELECT COUNT(*) FROM gateway_migrations')->fetchColumn())
+            ->toBe(count($result->applied))
+            ->and($runner->migrate()->applied)->toBe([]);
+    } finally {
+        if (is_string($database) && file_exists($database)) {
+            unlink($database);
+        }
+    }
+});
