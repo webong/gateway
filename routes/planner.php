@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
 use Webong\Gateway\Events\Http\EndpointEventController;
-use Webong\Gateway\Events\Http\WebEventPolicyController;
+use Webong\Gateway\Web\Http\WebEventPolicyController;
 use Webong\Gateway\Webstream\Http\WebstreamPrivateSourceController;
 use Webong\Gateway\Webstream\Http\WebstreamRoutePolicyController;
 

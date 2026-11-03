@@ -7,8 +7,11 @@ namespace Webong\Gateway\Web;
 use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
-use Webong\Gateway\Events\WebEventRecorder;
+use Webong\Gateway\Web\Events\WebEventRecorder;
+use Webong\Gateway\Events\EventRetentionPolicyFallbackRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
+use Webong\Gateway\Planning\RoutePlannerRegistry;
+use Webong\Gateway\SubscriptionTargetExtensionRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
@@ -20,6 +23,7 @@ final class WebServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/web.php', 'gateway.events');
+        $this->app->singleton(WebSubscriptionTargetExtension::class);
 
         $this->app->bind(WebProtocolPlanner::class, fn (): WebProtocolPlanner => new WebProtocolPlanner(
             $this->app->make(CapabilityAwareRoutePlanner::class),
@@ -47,11 +51,18 @@ final class WebServiceProvider extends ServiceProvider
                     ],
                 ], $configuration));
             });
+        $this->app->afterResolving(SubscriptionTargetExtensionRegistry::class, fn (SubscriptionTargetExtensionRegistry $targets) =>
+            $targets->register($this->app->make(WebSubscriptionTargetExtension::class), default: true));
         $this->app->afterResolving(ProtocolPlannerRegistry::class, function (ProtocolPlannerRegistry $planners): void {
             $factory = fn (): WebProtocolPlanner => $this->app->make(WebProtocolPlanner::class);
+            $planners->register(Protocol::HTTP, $factory);
             $planners->register(Protocol::WEBSOCKET, $factory);
             $planners->register(Protocol::WEBSTREAM, $factory);
         });
+        $this->app->afterResolving(RoutePlannerRegistry::class, fn (RoutePlannerRegistry $planners) =>
+            $planners->registerDefault(fn (): RegistryRoutePlanner => $this->app->make(RegistryRoutePlanner::class)));
+        $this->app->afterResolving(EventRetentionPolicyFallbackRegistry::class, fn (EventRetentionPolicyFallbackRegistry $fallbacks) =>
+            $fallbacks->register(fn (): ?int => $this->app->make(WebEventPolicyStore::class)->legacyRetentionDays()));
         $this->app->afterResolving(RoutePlanObserverRegistry::class, function (RoutePlanObserverRegistry $observers): void {
             $observers->register('web', fn ($request, $plan) => $this->app->make(WebEventRecorder::class)->record($request, $plan));
         });
