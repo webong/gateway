@@ -12,7 +12,7 @@ self-contained package directories:
 
 | Gateway Extension | Package | Planner entrypoint | Spinner entrypoint |
 | --- | --- | --- | --- |
-| Web | `webong/web` | Webhook route kind and capture history, WebSocket/Webstream policy, management routes | HTTP edge, WebSocket, and Webstream transport |
+| Web | `webong/web` | Webhook route kind and capture history, WebSocket/Webstream policy, management routes | WebSocket and Webstream transport; Spinner core serves HTTP |
 | DNS | `webong/dns` | Zones, Endpoints, Forwarders, provisioner policy, planning, management routes | Authoritative and policy-scoped forwarded UDP/TCP DNS service |
 | Email | `webong/email` | Accounts, domains, routes, verification, delivery state, mail planning | SMTP, outbound mail, IMAP/POP3 retrieval, mail network policy |
 | Database | `webong/database` | Reserved managed database policy | Reserved; advertises no capability until its contract exists |

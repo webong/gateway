@@ -12,6 +12,7 @@ import (
 
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	"github.com/webong/gateway/arranger/integration"
+	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
 
@@ -52,16 +53,23 @@ func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 	}
 
 	registry := integrationextensions.NewRegistry()
+	planner := runtimePlanner(func(_ context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
+		return integration.RoutePlan{
+			Version: integration.ProtocolVersion, Action: integration.ActionRespond,
+			ImmediateResponse: &integration.Response{StatusCode: http.StatusCreated, Body: []byte("core:" + request.Path)},
+		}, nil
+	})
 	integrationextensions.DefaultHost.Configure(integrationextensions.Services{
-		Planner: runtimePlanner(func(_ context.Context, request integration.IngressRequest) (integration.RoutePlan, error) {
-			return integration.RoutePlan{
-				Version: integration.ProtocolVersion, Action: integration.ActionRespond,
-				ImmediateResponse: &integration.Response{StatusCode: http.StatusCreated, Body: []byte("runtime:" + request.Path)},
-			}, nil
-		}),
+		Planner:  planner,
 		Executor: runtimeExecutor{},
 		Start:    integration.RuntimeStartRequest{MaxBodySize: 1024},
 	})
+	handler := registry.HandlerWithFallback(bridge.NewEdge(planner, runtimeExecutor{}, 1024))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://gateway.test/hooks/before-install", nil))
+	if response.Code != http.StatusCreated || response.Body.String() != "core:/hooks/before-install" {
+		t.Fatalf("core HTTP before install returned %d %q", response.Code, response.Body.String())
+	}
 	configuration := json.RawMessage(`{
 		"websocket":{"max_connections":1000,"max_duration_ms":86400000},
 		"webstream":{"heartbeat_ms":15000,"retry_ms":3000,"max_connections":1000,"max_duration_ms":86400000,"private_network_cidrs":[]}
@@ -71,10 +79,25 @@ func TestWebCanBeInstalledAfterSpinnerStarts(t *testing.T) {
 	}
 	defer registry.Unregister("webong/web")
 
-	response := httptest.NewRecorder()
-	registry.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://gateway.test/hooks/after-start", nil))
-	if response.Code != http.StatusCreated || response.Body.String() != "runtime:/hooks/after-start" {
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "http://gateway.test/hooks/after-start", nil))
+	if response.Code != http.StatusCreated || response.Body.String() != "core:/hooks/after-start" {
 		t.Fatalf("installed runtime returned %d %q", response.Code, response.Body.String())
+	}
+	upgrade := httptest.NewRequest(http.MethodGet, "http://gateway.test/hooks/after-start", nil)
+	upgrade.Header.Set("Connection", "Upgrade")
+	upgrade.Header.Set("Upgrade", "websocket")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, upgrade)
+	if response.Code == http.StatusCreated {
+		t.Fatal("installed Web runtime did not claim a WebSocket upgrade")
+	}
+	stream := httptest.NewRequest(http.MethodGet, "http://gateway.test/hooks/after-start", nil)
+	stream.Header.Set("Accept", "text/event-stream")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, stream)
+	if response.Code == http.StatusCreated {
+		t.Fatal("installed Web runtime did not claim an SSE request")
 	}
 	if _, err := os.Stat(filepath.Join(destination, "plugin.json")); err != nil {
 		t.Fatalf("runtime package was not materialized: %v", err)

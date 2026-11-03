@@ -90,6 +90,13 @@ fi
 BASE_URL="https://localhost:$TLS_PORT"
 wait_for
 
+# The built-in HTTP edge must work before any Web runtime package is active.
+core_body="$(curl -ksS --max-time 15 "$BASE_URL/http-smoke/worker")"
+if [[ "$core_body" != "http-worker" ]]; then
+    echo "Core HTTP pass-through failed before Web activation: $core_body" >&2
+    exit 1
+fi
+
 activate_extension() {
     local payload=$1
     if ! compose exec -T planner php -r '
@@ -114,18 +121,25 @@ activate_extension "{\"extension\":\"webong/web\",\"enabled\":true,\"version\":\
 activate_extension "{\"extension\":\"webong/dns\",\"enabled\":true,\"version\":\"0.1.0\",\"artifact\":{\"url\":\"https://extensions.invalid/webong-dns.tar.gz\",\"sha256\":\"$DNS_ARTIFACT_SHA\"},\"configuration\":{}}"
 activate_extension "{\"extension\":\"webong/email\",\"enabled\":true,\"version\":\"0.1.0\",\"artifact\":{\"url\":\"https://extensions.invalid/webong-email.tar.gz\",\"sha256\":\"$EMAIL_ARTIFACT_SHA\"},\"configuration\":{\"smtp_relay\":{\"address\":\"relay:2527\",\"tls_mode\":\"none\"},\"failure_notice_domain\":\"gateway.example.test\"}}"
 
-# Spinner reconciles independently from Planner. Wait until the installable Web
-# process owns the public HTTP mount before exercising ingress.
+# Spinner reconciles independently from Planner. Probe a WebSocket upgrade on
+# an unbound route: only the Web guest returns the protocol planner's 550.
 web_status=""
 for _ in $(seq 1 180); do
-    web_status="$(curl -ksS --max-time 2 -o /dev/null -w '%{http_code}' "$BASE_URL/__extension-ready")"
-    if [[ "$web_status" == "404" ]]; then
+    web_status="$(curl --http1.1 -ksS --max-time 2 -o "$BODY" -w '%{http_code}' \
+        -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+        "$BASE_URL/__extension-ready")"
+    if [[ "$web_status" == "550" ]] && grep -Fx 'No registered gateway route.' "$BODY" >/dev/null; then
         break
     fi
     sleep 0.5
 done
-if [[ "$web_status" != "404" ]]; then
-    echo "Installable Web Extension did not become ready: HTTP $web_status" >&2
+if [[ "$web_status" != "550" ]]; then
+    echo "Installable Web Extension did not become ready: HTTP $web_status body=$(<"$BODY")" >&2
+    exit 1
+fi
+core_body="$(curl -ksS --max-time 15 "$BASE_URL/http-smoke/worker")"
+if [[ "$core_body" != "http-worker" ]]; then
+    echo "Core HTTP pass-through failed after Web activation: $core_body" >&2
     exit 1
 fi
 
@@ -195,6 +209,32 @@ if ! compose logs gateway | grep -F 'target planner resolves only to blocked add
     echo "Gateway did not report the expected private-address delivery denial." >&2
     compose logs >&2
     exit 1
+fi
+
+for route_kind in webhook http; do
+    route_status="$(curl -ksS --max-time 15 -o "$BODY" -w '%{http_code}' \
+        -X PATCH -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+        --data "{\"route_kind\":\"$route_kind\"}" \
+        "$BASE_URL/registry/endpoints/$endpoint_key")"
+    if [[ "$route_status" != "200" ]] || ! php -r '
+        $body = json_decode(file_get_contents($argv[1]), true);
+        exit(($body["route_kind"] ?? null) === $argv[2] ? 0 : 1);
+    ' "$BODY" "$route_kind"; then
+        echo "Container route-kind switch to $route_kind failed: status=$route_status body=$(<"$BODY")" >&2
+        exit 1
+    fi
+    ingress_status="$(curl -ksS --max-time 15 -o "$BODY" -w '%{http_code}' \
+        -X POST -H 'Content-Type: application/json' --data '{"event":"container"}' \
+        "$BASE_URL/http-smoke/registry-ingress?route_kind=$route_kind")"
+    if [[ "$ingress_status" != "202" ]]; then
+        echo "Container $route_kind ingress failed: status=$ingress_status body=$(<"$BODY")" >&2
+        exit 1
+    fi
+done
+
+if [[ "${GATEWAY_SMOKE_HTTP_ONLY:-0}" == "1" ]]; then
+    echo "Gateway core HTTP and post-install Web container smoke passed."
+    exit 0
 fi
 
 # Exercise public TLS -> Spinner -> Planner -> private durable Spinner queue

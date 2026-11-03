@@ -164,7 +164,8 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
     }
 
     expect($root.'/pkg/spinner/internal/mailpoll')->not->toBeDirectory()
-        ->and(file_get_contents($root.'/pkg/web/spinner/edge.go'))
+        ->and($root.'/pkg/web/spinner/edge.go')->not->toBeFile()
+        ->and(file_get_contents($root.'/pkg/spinner/bridge/edge.go'))
         ->not->toContain('/email/submissions');
 });
 

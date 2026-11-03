@@ -1,4 +1,4 @@
-package spinner
+package gateway
 
 import (
 	"context"
@@ -14,13 +14,6 @@ type automationPlannerFunc func(context.Context, IngressRequest) (RoutePlan, err
 func (f automationPlannerFunc) Plan(ctx context.Context, request IngressRequest) (RoutePlan, error) {
 	return f(ctx, request)
 }
-
-type recordingExecutor struct{}
-
-func (*recordingExecutor) Deliver(context.Context, Delivery) (Response, error) {
-	return Response{}, nil
-}
-func (*recordingExecutor) Enqueue(Delivery) bool { return true }
 
 type failingAutomationExecutor struct{ err error }
 

@@ -425,7 +425,11 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 			Shutdown: func(context.Context) error { return nil },
 		})
 	}
-	server.SetRelayHandler(runtime.Handler(integrationextensions.DefaultRegistry.Handler()))
+	edge := bridge.NewEdge(runtime.Planner(), server.NewGatewayExecutor(), config.MaxBodySize).
+		SetAutomationExecutor(server.automation).
+		SetScheduleRegistrar(control).
+		SetPassThrough(runtime.PassThrough())
+	server.SetRelayHandler(runtime.Handler(integrationextensions.DefaultRegistry.HandlerWithFallback(edge)))
 	if config.ProvisioningRouteProxy {
 		managedRouter, routeErr := provision.NewRemoteRouter(config.PlannerURL, config.InternalToken, client, config.ProvisioningRouteCIDRs)
 		if routeErr != nil {

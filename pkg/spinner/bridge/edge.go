@@ -1,6 +1,6 @@
-package spinner
+package gateway
 
-// Edge is the Go-side HTTP adapter mounted in RoadRunner's HTTP pipeline.
+// Edge is Spinner's built-in HTTP adapter for every Planner connection mode.
 
 import (
 	"bytes"
@@ -19,9 +19,8 @@ import (
 	"github.com/webong/gateway/arranger/automation"
 )
 
-// Edge is the Go-side HTTP adapter mounted in RoadRunner's HTTP pipeline. It
-// captures the request, asks PHP for a plan, and executes only the network
-// work described by that plan.
+// Edge captures an HTTP request, asks Planner for a plan, and executes only
+// the network work described by that plan.
 type Edge struct {
 	planner     Planner
 	executor    Executor
