@@ -34,7 +34,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createAccounts(): void
     {
         $table = $this->table('accounts', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'string', ['limit' => 200])
+            ->addColumn('id', 'string', ['limit' => 200, 'null' => false])
             ->addColumn('token_hash', 'string', ['limit' => 64]);
         $this->timestamps($table)
             ->addIndex(['token_hash'], ['unique' => true, 'name' => 'accounts_token_hash_unique'])
@@ -44,7 +44,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createTargets(string $targets): void
     {
         $table = $this->table($targets, ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('name', 'string')
             ->addColumn('driver', 'string')
             ->addColumn('connection', 'text')
@@ -56,7 +56,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createServers(string $servers, string $targets): void
     {
         $table = $this->table($servers, ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('type', 'string')
             ->addColumn('name', 'string')
             ->addColumn('hostname', 'string')
@@ -78,7 +78,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createApplications(string $applications, string $servers): void
     {
         $table = $this->table($applications, ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('server_id', 'uuid')
             ->addColumn('external_id', 'string')
             ->addColumn('key', 'string', ['null' => true])
@@ -94,7 +94,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createInstances(string $instances, string $servers): void
     {
         $table = $this->table($instances, ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('server_id', 'uuid')
             ->addColumn('node_id', 'string')
             ->addColumn('runtime', 'string', ['default' => 'local'])
@@ -116,7 +116,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createNodes(string $nodes, string $targets): void
     {
         $table = $this->table($nodes, ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'string')
+            ->addColumn('id', 'string', ['null' => false])
             ->addColumn('drivers', 'json')
             ->addColumn('session_id', 'string', ['limit' => 32, 'null' => true])
             ->addColumn('heartbeat_at', 'timestamp')
@@ -129,7 +129,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createEvents(string $endpoints): void
     {
         $table = $this->table('events', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('endpoint_id', 'uuid', ['null' => true])
             ->addColumn('subject_kind', 'string', ['limit' => 96, 'null' => true])
             ->addColumn('subject_id', 'string', ['limit' => 200, 'null' => true])
@@ -160,7 +160,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createSchedules(): void
     {
         $schedules = $this->table('schedules', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('origin', 'string', ['null' => true])
             ->addColumn('key', 'string', ['null' => true])
             ->addColumn('name', 'string')
@@ -176,7 +176,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
         $this->timestamps($schedules)->create();
 
         $runs = $this->table('schedule_runs', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('schedule_id', 'uuid')
             ->addColumn('scheduled_for', 'timestamp')
             ->addColumn('kind', 'string', ['default' => 'cron'])
@@ -196,7 +196,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
         $this->timestamps($runs)->create();
 
         $notifications = $this->table('schedule_notifications', ['id' => false, 'primary_key' => ['run_id']])
-            ->addColumn('run_id', 'uuid')
+            ->addColumn('run_id', 'uuid', ['null' => false])
             ->addColumn('state', 'string')
             ->addColumn('attempts', 'integer', ['signed' => false, 'default' => 0])
             ->addColumn('next_attempt_at', 'timestamp')
@@ -213,16 +213,16 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createOperationalTables(): void
     {
         $usage = $this->table('usage_counters', ['id' => false, 'primary_key' => ['metric', 'subject_hash', 'day']])
-            ->addColumn('metric', 'string', ['limit' => 96])
-            ->addColumn('subject_hash', 'char', ['limit' => 64])
-            ->addColumn('day', 'date')
+            ->addColumn('metric', 'string', ['limit' => 96, 'null' => false])
+            ->addColumn('subject_hash', 'char', ['limit' => 64, 'null' => false])
+            ->addColumn('day', 'date', ['null' => false])
             ->addColumn('attempts', 'integer', ['signed' => false, 'default' => 0])
             ->addColumn('bytes', 'biginteger', ['signed' => false, 'default' => 0])
             ->addIndex(['day']);
         $this->timestamps($usage)->create();
 
         $deliveries = $this->table('deliveries', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'char', ['limit' => 32])
+            ->addColumn('id', 'char', ['limit' => 32, 'null' => false])
             ->addColumn('payload', 'json')
             ->addColumn('state', 'string', ['limit' => 16])
             ->addColumn('event_id', 'string', ['null' => true])
@@ -237,11 +237,11 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
         $this->timestamps($deliveries, true)->create();
 
         $this->table('gateway_cache', ['id' => false, 'primary_key' => ['key']])
-            ->addColumn('key', 'string')->addColumn('value', 'text')->addColumn('expiration', 'integer')->create();
+            ->addColumn('key', 'string', ['null' => false])->addColumn('value', 'text')->addColumn('expiration', 'integer')->create();
         $this->table('gateway_cache_locks', ['id' => false, 'primary_key' => ['key']])
-            ->addColumn('key', 'string')->addColumn('owner', 'string')->addColumn('expiration', 'integer')->create();
+            ->addColumn('key', 'string', ['null' => false])->addColumn('owner', 'string')->addColumn('expiration', 'integer')->create();
         $this->table('delivery_admin_endpoints', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'char', ['limit' => 32])
+            ->addColumn('id', 'char', ['limit' => 32, 'null' => false])
             ->addColumn('origin', 'string', ['limit' => 2048])
             ->addColumn('expires_unix', 'biginteger', ['signed' => false])
             ->addColumn('signature', 'char', ['limit' => 64])
@@ -251,7 +251,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createConfigurationTables(): void
     {
         $configurations = $this->table('configurations', ['id' => false, 'primary_key' => ['id']])
-            ->addColumn('id', 'uuid')
+            ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('kind', 'string', ['limit' => 96])
             ->addColumn('parent_id', 'uuid', ['null' => true])
             ->addColumn('owner', 'string', ['limit' => 200, 'null' => true])
@@ -269,7 +269,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
         $this->timestamps($configurations)->create();
 
         $this->table('configuration_revisions')
-            ->addColumn('resource_id', 'uuid')
+            ->addColumn('resource_id', 'uuid', ['null' => false])
             ->addColumn('kind', 'string', ['limit' => 96])
             ->addColumn('key_hash', 'string', ['limit' => 64])
             ->addColumn('revision', 'biginteger', ['signed' => false])
@@ -281,7 +281,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addIndex(['kind', 'key_hash'])->create();
 
         $observations = $this->table('resource_observations', ['id' => false, 'primary_key' => ['resource_id']])
-            ->addColumn('resource_id', 'uuid')
+            ->addColumn('resource_id', 'uuid', ['null' => false])
             ->addColumn('state', 'string', ['limit' => 32, 'default' => 'untested'])
             ->addColumn('observed_revision', 'biginteger', ['signed' => false, 'null' => true])
             ->addColumn('observed_at', 'timestamp', ['null' => true])
@@ -289,14 +289,14 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
         $this->timestamps($observations)->create();
 
         $secrets = $this->table('configuration_secrets', ['id' => false, 'primary_key' => ['resource_id']])
-            ->addColumn('resource_id', 'uuid')
+            ->addColumn('resource_id', 'uuid', ['null' => false])
             ->addColumn('ciphertext', 'text')
             ->addColumn('version', 'biginteger', ['signed' => false, 'default' => 1])
             ->addForeignKey('resource_id', 'configurations', 'id', ['delete' => 'CASCADE']);
         $this->timestamps($secrets)->create();
 
         $checkpoints = $this->table('resource_checkpoints', ['id' => false, 'primary_key' => ['resource_id']])
-            ->addColumn('resource_id', 'uuid')
+            ->addColumn('resource_id', 'uuid', ['null' => false])
             ->addColumn('cursor', 'json')
             ->addColumn('lease_token', 'uuid', ['null' => true])
             ->addColumn('lease_until', 'timestamp', ['null' => true])
@@ -308,7 +308,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
     private function createCompanionExecutions(): void
     {
         $table = $this->table('companion_action_executions', ['id' => false, 'primary_key' => ['execution_id']])
-            ->addColumn('execution_id', 'string', ['limit' => 128])
+            ->addColumn('execution_id', 'string', ['limit' => 128, 'null' => false])
             ->addColumn('action', 'string', ['limit' => 160])
             ->addColumn('companion_version', 'string', ['limit' => 64, 'null' => true])
             ->addColumn('companion_digest', 'char', ['limit' => 64, 'null' => true])

@@ -71,7 +71,9 @@ The monorepo publishes separate Composer packages:
 
 - `webong/gateway` contains the framework-free contracts and protocol values in
   `mod/adapter/src/`.
-- `webong/gateway-planner` contains the Laravel Planner core in `pkg/planner/`.
+- `webong/gateway-planner` contains the PHP Planner core in `pkg/planner/`,
+  including Laravel integration and framework-neutral Symfony Console migration
+  tooling.
 - `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are
   self-contained Gateway Extensions. Each owns its Planner policy entrypoint
   and Spinner transport entrypoint under one package identity and version.
@@ -96,6 +98,23 @@ downloads the full repository. Use a Git clone for Router/Spinner builds:
 the repository's generated source ZIP/tar downloads are core-only.
 The Arranger release script constructs its own separate release tree and is
 unaffected by these root archive rules.
+
+### Planner database migrations
+
+Planner owns one framework-neutral migration stream in `pkg/planner/migrations`
+and records it in `gateway_migrations`. Eloquent and Doctrine may both use the
+resulting PDO-backed schema; neither ORM owns its migration history.
+
+Laravel hosts run `php artisan gateway:migrate`. An existing installation that
+previously ran Planner's Laravel migrations must run
+`php artisan gateway:migrate --adopt-existing` once; adoption validates the
+existing schema and records the neutral baseline without replaying table
+creation.
+
+Symfony hosts register `MigrateGatewayCommand` with an injected
+`GatewayMigrationRunner`. Both adapters execute the same migration files and
+use the same history table. SQLite, PostgreSQL, MySQL, and MariaDB Laravel-style
+connection arrays are supported.
 
 ## Repository layout
 

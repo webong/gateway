@@ -47,6 +47,7 @@ use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
 use Webong\Gateway\Planning\RoutePlannerRegistry;
+use Webong\Gateway\Migrations\Command\LaravelGatewayMigrateCommand;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalRouteController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalAssignmentController;
@@ -241,9 +242,9 @@ final class GatewayServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
         if ($this->app->runningInConsole()) {
             $this->commands([
+                LaravelGatewayMigrateCommand::class,
                 PruneEventsCommand::class,
                 PruneCompanionActionExecutionsCommand::class,
                 SendScheduleNotificationsCommand::class,
