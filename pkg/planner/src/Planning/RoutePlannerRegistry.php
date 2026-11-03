@@ -8,21 +8,26 @@ use Closure;
 use LogicException;
 use Webong\Gateway\Contracts\RoutePlanner;
 
-/** Selects the installed extension that owns the default application route planner. */
+/** Selects an installed route-kind planner after the core resolves an ingress path. */
 final class RoutePlannerRegistry
 {
-    /** @var Closure(): RoutePlanner|null */
-    private ?Closure $default = null;
+    /** @var array<string, Closure(): RoutePlanner> */
+    private array $factories = [];
 
     /** @param Closure(): RoutePlanner $factory */
-    public function registerDefault(Closure $factory): void
+    public function register(string $kind, Closure $factory): void
     {
-        if ($this->default !== null) { throw new LogicException('A default route planner is already registered.'); }
-        $this->default = $factory;
+        if (preg_match('/\A[a-z][a-z0-9.-]{0,63}\z/D', $kind) !== 1) {
+            throw new LogicException("Invalid route kind [{$kind}].");
+        }
+        if (isset($this->factories[$kind])) {
+            throw new LogicException("Route kind [{$kind}] is already registered.");
+        }
+        $this->factories[$kind] = $factory;
     }
 
-    public function resolveDefault(): ?RoutePlanner
+    public function resolve(string $kind): ?RoutePlanner
     {
-        return $this->default === null ? null : ($this->default)();
+        return isset($this->factories[$kind]) ? ($this->factories[$kind])() : null;
     }
 }

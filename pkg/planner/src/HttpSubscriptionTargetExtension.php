@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway\Web;
+namespace Webong\Gateway;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,7 +15,7 @@ use Webong\Proxy\DestinationRecord;
 use Webong\Proxy\Endpoint;
 
 /** Owns HTTP target input, named network profiles, and the public subscription representation. */
-final readonly class WebSubscriptionTargetExtension implements SubscriptionTargetExtension
+final readonly class HttpSubscriptionTargetExtension implements SubscriptionTargetExtension
 {
     public const KIND = 'http';
 
@@ -46,7 +46,7 @@ final readonly class WebSubscriptionTargetExtension implements SubscriptionTarge
 
     public function assertDefinition(SubscriptionDefinition $definition): void
     {
-        if ($definition->targetKind !== self::KIND) { throw new InvalidArgumentException('Invalid Web subscription target kind.'); }
+        if ($definition->targetKind !== self::KIND) { throw new InvalidArgumentException('Invalid HTTP subscription target kind.'); }
         self::assertUrl($definition->target);
         $this->assertOptions($definition->targetOptions);
         $this->validateMetadata($definition->metadata);
@@ -80,7 +80,7 @@ final readonly class WebSubscriptionTargetExtension implements SubscriptionTarge
     public function assertMutationAllowed(ResolvedSubscription $resolved, array $changes): void
     {
         if (array_diff(array_keys($changes), ['url', 'profile', 'type']) !== []) {
-            throw new InvalidArgumentException('The Web subscription contains unsupported changes.');
+            throw new InvalidArgumentException('The HTTP subscription contains unsupported changes.');
         }
         if (isset($changes['type']) && ! in_array($changes['type'], ['relay', 'reply'], true)) {
             throw new InvalidArgumentException('Unsupported subscription type.');

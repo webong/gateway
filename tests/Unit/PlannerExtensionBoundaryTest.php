@@ -10,6 +10,13 @@ use Webong\Gateway\Dns\DnsServiceProvider;
 use Webong\Gateway\Email\EmailProtocolPlanner;
 use Webong\Gateway\Email\EmailServiceProvider;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
+use Webong\Gateway\Planning\RoutePlannerRegistry;
+use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\IngressRoutePlanner;
+use Webong\Gateway\Web\RegistryRoutePlanner;
+use Webong\Gateway\RouteProtocolPlanner;
+use Webong\Gateway\HttpSubscriptionTargetExtension;
+use Webong\Gateway\SubscriptionTargetExtensionRegistry;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
 use Webong\Gateway\Web\WebProtocolPlanner;
@@ -28,7 +35,12 @@ it('lets installed Gateway extensions own their protocol policy and resource kin
     $planners = app(ProtocolPlannerRegistry::class);
     $kinds = app(ConfigurationKindRegistry::class);
 
-    expect($planners->resolve(Protocol::WEBSOCKET))->toBeInstanceOf(WebProtocolPlanner::class)
+    expect(app(RoutePlanner::class))->toBeInstanceOf(IngressRoutePlanner::class)
+        ->and(app(RoutePlannerRegistry::class)->resolve('webhook'))->toBeInstanceOf(RegistryRoutePlanner::class)
+        ->and($planners->resolve(Protocol::HTTP))->toBeInstanceOf(RouteProtocolPlanner::class)
+        ->and($planners->resolve(Protocol::HTTP))->not->toBeInstanceOf(WebProtocolPlanner::class)
+        ->and(app(SubscriptionTargetExtensionRegistry::class)->forKind('http'))->toBeInstanceOf(HttpSubscriptionTargetExtension::class)
+        ->and($planners->resolve(Protocol::WEBSOCKET))->toBeInstanceOf(WebProtocolPlanner::class)
         ->and($planners->resolve(Protocol::WEBSTREAM))->toBeInstanceOf(WebProtocolPlanner::class)
         ->and($planners->resolve(Protocol::DNS))->toBeInstanceOf(DnsProtocolPlanner::class)
         ->and($planners->resolve(Protocol::SMTP))->toBeInstanceOf(EmailProtocolPlanner::class)

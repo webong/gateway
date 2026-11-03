@@ -27,7 +27,20 @@ final readonly class IngressRequest
         public string $sessionId = '',
         public array $attributes = [],
         public array $automationLanguages = [],
+        public ?PathBinding $binding = null,
     ) {
+    }
+
+    public function withBinding(PathBinding $binding): self
+    {
+        return new self(
+            deliveryId: $this->deliveryId, method: $this->method, host: $this->host,
+            path: $this->path, rawQuery: $this->rawQuery, headers: $this->headers,
+            body: $this->body, scheme: $this->scheme, protocol: $this->protocol,
+            event: $this->event, sessionId: $this->sessionId,
+            attributes: $this->attributes, automationLanguages: $this->automationLanguages,
+            binding: $binding,
+        );
     }
 
     /** @param array<string, mixed> $payload */

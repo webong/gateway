@@ -189,6 +189,7 @@ final class RegistryRouteCache
             'version' => 1,
             'found' => true,
             'endpoint_key' => $binding->endpointKey,
+            'kind' => $binding->kind,
             'scope' => $binding->scope,
             'key' => $binding->key,
             'channel' => $binding->channel,
@@ -211,7 +212,8 @@ final class RegistryRouteCache
             || ! is_string($value['scope'] ?? null)
             || ! is_string($value['key'] ?? null)
             || (! is_null($value['channel'] ?? null) && ! is_string($value['channel']))
-            || ! is_array($value['destination_metadata'] ?? null)) {
+            || ! is_array($value['destination_metadata'] ?? null)
+            || (array_key_exists('kind', $value) && ! is_string($value['kind']))) {
             throw new \InvalidArgumentException('Cached path binding is malformed.');
         }
 
@@ -221,6 +223,7 @@ final class RegistryRouteCache
             key: $value['key'],
             channel: $value['channel'] ?? null,
             destinationMetadata: $value['destination_metadata'],
+            kind: is_string($value['kind'] ?? null) ? $value['kind'] : 'webhook',
         );
     }
 }

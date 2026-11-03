@@ -23,7 +23,6 @@ final class WebServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/web.php', 'gateway.events');
-        $this->app->singleton(WebSubscriptionTargetExtension::class);
         $this->app->singleton(WebSocketSubscriptionTargetExtension::class);
 
         $this->app->bind(WebProtocolPlanner::class, fn (): WebProtocolPlanner => new WebProtocolPlanner(
@@ -54,17 +53,14 @@ final class WebServiceProvider extends ServiceProvider
                 ], $configuration));
             });
         $this->app->afterResolving(SubscriptionTargetExtensionRegistry::class, fn (SubscriptionTargetExtensionRegistry $targets) =>
-            $targets->register($this->app->make(WebSubscriptionTargetExtension::class), default: true));
-        $this->app->afterResolving(SubscriptionTargetExtensionRegistry::class, fn (SubscriptionTargetExtensionRegistry $targets) =>
             $targets->register($this->app->make(WebSocketSubscriptionTargetExtension::class)));
         $this->app->afterResolving(ProtocolPlannerRegistry::class, function (ProtocolPlannerRegistry $planners): void {
             $factory = fn (): WebProtocolPlanner => $this->app->make(WebProtocolPlanner::class);
-            $planners->register(Protocol::HTTP, $factory);
             $planners->register(Protocol::WEBSOCKET, $factory);
             $planners->register(Protocol::WEBSTREAM, $factory);
         });
         $this->app->afterResolving(RoutePlannerRegistry::class, fn (RoutePlannerRegistry $planners) =>
-            $planners->registerDefault(fn (): RegistryRoutePlanner => $this->app->make(RegistryRoutePlanner::class)));
+            $planners->register('webhook', fn (): RegistryRoutePlanner => $this->app->make(RegistryRoutePlanner::class)));
         $this->app->afterResolving(EventRetentionPolicyFallbackRegistry::class, fn (EventRetentionPolicyFallbackRegistry $fallbacks) =>
             $fallbacks->register(fn (): ?int => $this->app->make(WebEventPolicyStore::class)->legacyRetentionDays()));
         $this->app->afterResolving(RoutePlanObserverRegistry::class, function (RoutePlanObserverRegistry $observers): void {

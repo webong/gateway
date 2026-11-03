@@ -77,9 +77,9 @@ extension are accepted. Unknown properties must not be sent.
 | `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/proxy` to manage the destination. |
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
-| `target_kind` | no | extension-defined identifier | Defaults to the target kind registered as the Planner default, currently `http` when `webong/web` is installed. `webong/web` also registers `websocket`. |
-| `url` | Web HTTP or WebSocket target | absolute HTTP(S) or WS(S) URL | Destination for matching ingress traffic. |
-| `profile` | Web HTTP or WebSocket target | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
+| `target_kind` | no | extension-defined identifier | Defaults to Planner’s core `http` target kind. `webong/web` also registers `websocket`. |
+| `url` | HTTP or WebSocket target | absolute HTTP(S) or WS(S) URL | Destination for matching ingress traffic. |
+| `profile` | HTTP or WebSocket target | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
 | `match` | no | match object | Versioned ingress-event selection rules. Omission means match every event. |

@@ -8,6 +8,10 @@ use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\PathBinding;
+use Webong\Gateway\Protocols\MatchRules;
+use Webong\Gateway\SubscribeEndpoint;
+use Webong\Gateway\SubscriptionDefinition;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 use Webong\Proxy\EndpointDefinition;
@@ -80,6 +84,27 @@ it('records repeated identical Web ingress as separate redacted events on the sh
     expect($cursor)->toBeString();
     $this->withToken('registry-secret')->getJson('/registry/endpoints/'.$endpointKey.'/events?limit=1&cursor='.rawurlencode($cursor))
         ->assertOk()->assertJsonCount(1, 'data');
+});
+
+it('does not record ordinary HTTP routes as Webhook events', function (): void {
+    app(\Webong\Gateway\Web\Events\WebEventPolicyStore::class)->create([]);
+    $key = webHistoryEndpoint();
+    app(SubscribeEndpoint::class)->handle($key, new SubscriptionDefinition(
+        subscriberId: 'application', subscriptionId: 'ordinary-http-target',
+        webhookGroup: 'application', routingScope: 'application', routingKey: 'app-123',
+        targetKind: 'http', target: 'https://application.example.test/receive',
+        match: MatchRules::any(),
+    ));
+
+    $plan = app(CapabilityAwareRoutePlanner::class)->plan(
+        webHistoryRequest('ordinary-http')->withBinding(new PathBinding(
+            $key, scope: 'application', key: 'app-123', kind: 'http',
+        )),
+    );
+
+    expect($plan->relays)->toHaveCount(1)
+        ->and($plan->relays[0]->url)->toBe('https://application.example.test/receive')
+        ->and(GatewayEndpointEvent::query()->count())->toBe(0);
 });
 
 it('captures only an opted-in bounded body and prunes old shared events', function (): void {

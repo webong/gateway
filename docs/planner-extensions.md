@@ -6,11 +6,13 @@ server state. Spinner is Gateway's runtime host. Product behavior is
 contributed by Gateway Extensions through plane-specific Planner and Spinner
 entrypoints that share one package identity and version.
 
-The first-party Extensions are self-contained package directories:
+Core Planner handles HTTP route selection and HTTP subscription targets. Webhook
+is a Web-owned route kind over HTTP. The first-party Extensions are
+self-contained package directories:
 
 | Gateway Extension | Package | Planner entrypoint | Spinner entrypoint |
 | --- | --- | --- | --- |
-| Web | `webong/web` | Web capture policy and history views, WebSocket/Webstream policy, management routes | HTTP, WebSocket, and Webstream transport |
+| Web | `webong/web` | Webhook route kind and capture history, WebSocket/Webstream policy, management routes | HTTP edge, WebSocket, and Webstream transport |
 | DNS | `webong/dns` | Zones, Endpoints, Forwarders, provisioner policy, planning, management routes | Authoritative and policy-scoped forwarded UDP/TCP DNS service |
 | Email | `webong/email` | Accounts, domains, routes, verification, delivery state, mail planning | SMTP, outbound mail, IMAP/POP3 retrieval, mail network policy |
 | Database | `webong/database` | Reserved managed database policy | Reserved; advertises no capability until its contract exists |

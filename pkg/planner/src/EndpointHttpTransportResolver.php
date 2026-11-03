@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway\Web;
+namespace Webong\Gateway;
 
 use InvalidArgumentException;
 use Webong\Gateway\Protocols\HttpTransport;

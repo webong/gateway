@@ -49,12 +49,11 @@ outbound HTTP connection pooling, DNS/SSRF checks, synchronous replies,
 asynchronous delivery queues, and the selected host runtime lifecycle.
 
 PHP/Laravel Planner owns the generic registry API, subscription identity,
-matching, extension registries, and shared lifecycle. Installed packages own
-the protocol-specific behavior. `webong/web` supplies the HTTP/Webhook route
-planner, HTTP subscription target, named proxy-profile handling, Web capture
-policy, and event recorder. It registers the default route planner and can be
-replaced by a host-provided `RoutePlanner`. Its migrations and routes stay with
-the owning package.
+matching, extension registries, shared lifecycle, HTTP route planning, and HTTP
+subscription targets. A path binding selects `http` for ordinary HTTP routing
+or `webhook` for Webhook behavior; existing bindings default to `webhook`.
+`webong/web` owns Webhook route registration and capture policy, plus WebSocket
+and Webstream planning. A host may still provide its own `RoutePlanner`.
 
 Selective subscriber matching is also PHP-owned. Local PHP callers and remote
 HTTP subscribers produce the same versioned Laravel-style JSON rules. PHP
