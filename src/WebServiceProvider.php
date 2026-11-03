@@ -24,6 +24,7 @@ final class WebServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/web.php', 'gateway.events');
         $this->app->singleton(WebSubscriptionTargetExtension::class);
+        $this->app->singleton(WebSocketSubscriptionTargetExtension::class);
 
         $this->app->bind(WebProtocolPlanner::class, fn (): WebProtocolPlanner => new WebProtocolPlanner(
             $this->app->make(CapabilityAwareRoutePlanner::class),
@@ -41,6 +42,7 @@ final class WebServiceProvider extends ServiceProvider
                     'websocket' => [
                         'max_connections' => 1000,
                         'max_duration_ms' => 86_400_000,
+                        'outbound_private_network_cidrs' => [],
                     ],
                     'webstream' => [
                         'heartbeat_ms' => 15_000,
@@ -53,6 +55,8 @@ final class WebServiceProvider extends ServiceProvider
             });
         $this->app->afterResolving(SubscriptionTargetExtensionRegistry::class, fn (SubscriptionTargetExtensionRegistry $targets) =>
             $targets->register($this->app->make(WebSubscriptionTargetExtension::class), default: true));
+        $this->app->afterResolving(SubscriptionTargetExtensionRegistry::class, fn (SubscriptionTargetExtensionRegistry $targets) =>
+            $targets->register($this->app->make(WebSocketSubscriptionTargetExtension::class)));
         $this->app->afterResolving(ProtocolPlannerRegistry::class, function (ProtocolPlannerRegistry $planners): void {
             $factory = fn (): WebProtocolPlanner => $this->app->make(WebProtocolPlanner::class);
             $planners->register(Protocol::HTTP, $factory);

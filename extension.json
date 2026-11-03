@@ -8,6 +8,13 @@
             "operations": [
                 {"name": "start", "surface": "spinner"}
             ]
+        },
+        {
+            "name": "gateway.delivery-adapter",
+            "version": "v1",
+            "operations": [
+                {"name": "deliver", "surface": "spinner"}
+            ]
         }
     ],
     "reverse": [

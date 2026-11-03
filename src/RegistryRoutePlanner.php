@@ -21,9 +21,11 @@ use Webong\Proxy\WebProxyRegistryManager;
 use Webong\Proxy\WebhookRoute;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\RoutePlanner;
+use Webong\Gateway\Contracts\SubscriptionDeliveryTargetExtension;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\HttpTransport;
 use Webong\Gateway\Protocols\IngressRequest;
+use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\Response;
 use Webong\Gateway\Protocols\RoutePlan;
 
@@ -139,6 +141,10 @@ final class RegistryRoutePlanner implements RoutePlanner
                     $automationTarget = $targetPlan;
                     continue;
                 }
+                if ($targetExtension->kind() !== WebSubscriptionTargetExtension::KIND
+                    && ! ($targetExtension instanceof SubscriptionDeliveryTargetExtension)) {
+                    throw new RuntimeException('The subscription target extension did not provide a route plan.');
+                }
             }
 
             if ($destination->target_type !== WebhookProxyTargetType::REQUEST) {
@@ -175,6 +181,14 @@ final class RegistryRoutePlanner implements RoutePlanner
             $transport = $profile === null
                 ? null
                 : ($profileTransports[$profile] ??= $this->transportResolver->resolve($profileEndpoint, $profile));
+            $deliveryProtocol = $targetExtension instanceof SubscriptionDeliveryTargetExtension
+                ? $targetExtension->deliveryProtocol()
+                : Protocol::HTTP;
+            if ($targetExtension instanceof SubscriptionDeliveryTargetExtension
+                && ! $targetExtension->supportsProtocol($request->protocol)) {
+                throw new InvalidArgumentException('The subscription target does not support this ingress protocol.');
+            }
+
             $delivery = new Delivery(
                 url: $destination->target,
                 subscriberId: $this->subscriberId($destination->owner_id, $destination->metadata),
@@ -182,6 +196,7 @@ final class RegistryRoutePlanner implements RoutePlanner
                 method: $request->method,
                 rawQuery: $request->rawQuery,
                 transport: $transport,
+                protocol: $deliveryProtocol,
             );
             $mode = (string) ($destination->metadata['delivery_mode'] ?? 'relay');
 
