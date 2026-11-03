@@ -39,11 +39,14 @@ use Webong\Gateway\Contracts\RoutePlanner;
 use Webong\Gateway\Contracts\ScriptScheduleRegistrar;
 use Webong\Gateway\Deliveries\Http\DeliveryController;
 use Webong\Gateway\Events\PruneEventsCommand;
+use Webong\Gateway\Events\EventRetentionPolicyFallbackRegistry;
+use Webong\Gateway\Events\Http\EventRetentionPolicyController;
 use Webong\Gateway\Observations\GatewayObservationRegistry;
 use Webong\Gateway\Observations\Http\InternalObservationController;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Planning\RoutePlanObserverRegistry;
+use Webong\Gateway\Planning\RoutePlannerRegistry;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalInstanceController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalRouteController;
 use Webong\Gateway\Reconciliation\Http\Controllers\InternalAssignmentController;
@@ -110,10 +113,13 @@ final class GatewayServiceProvider extends ServiceProvider
         $this->app->singleton(ServerRegistry::class);
         $this->app->singleton(ConfigurationKindRegistry::class);
         $this->app->singleton(SubscriptionTargetExtensionRegistry::class);
+        $this->app->singleton(\Webong\Gateway\Deliveries\DeliveryAdminReplayPolicyRegistry::class);
+        $this->app->singleton(EventRetentionPolicyFallbackRegistry::class);
         $this->app->singleton(ExtensionSecretProviderRegistry::class);
         $this->app->singleton(PathResolverRegistry::class);
         $this->app->singleton(ProtocolPlannerRegistry::class);
         $this->app->singleton(RoutePlanObserverRegistry::class);
+        $this->app->singleton(RoutePlannerRegistry::class);
         $this->app->singleton(GatewayObservationRegistry::class);
         $this->app->singleton(NativeScheduleJobRegistry::class);
         $this->app->bind(ScriptScheduleRegistrar::class, PersistScriptSchedules::class);
@@ -182,15 +188,14 @@ final class GatewayServiceProvider extends ServiceProvider
 
         $this->app->bind(RoutePlanner::class, function (): RoutePlanner {
             $configuredPlanner = config('gateway.planner');
-            $planner = $configuredPlanner ?: RegistryRoutePlanner::class;
-
-            if (! is_string($planner) || $planner === '') {
-                throw new RuntimeException('Configure gateway.planner with the Laravel route planner class.');
+            $resolved = is_string($configuredPlanner) && $configuredPlanner !== ''
+                ? $this->app->make($configuredPlanner)
+                : $this->app->make(RoutePlannerRegistry::class)->resolveDefault();
+            if ($resolved === null) {
+                throw new RuntimeException('Configure gateway.planner or install a Planner Extension that provides a route planner.');
             }
-
-            $resolved = $this->app->make($planner);
             if (! $resolved instanceof RoutePlanner) {
-                throw new RuntimeException("Gateway planner [{$planner}] must implement RoutePlanner.");
+                throw new RuntimeException('The selected Gateway route planner must implement RoutePlanner.');
             }
 
             return $resolved;
@@ -290,6 +295,10 @@ final class GatewayServiceProvider extends ServiceProvider
             $this->app['router']->get('/instances/{instance}', [ManagedInstanceController::class, 'show']);
             $this->app['router']->get('/deliveries', [DeliveryController::class, 'index']);
             $this->app['router']->get('/deliveries/{delivery}', [DeliveryController::class, 'show']);
+            $this->app['router']->get('/events/retention', [EventRetentionPolicyController::class, 'show']);
+            $this->app['router']->post('/events/retention', [EventRetentionPolicyController::class, 'store']);
+            $this->app['router']->put('/events/retention', [EventRetentionPolicyController::class, 'replace']);
+            $this->app['router']->delete('/events/retention', [EventRetentionPolicyController::class, 'destroy']);
             $this->app['router']->get('/configurations/kinds', [ConfigurationController::class, 'kinds']);
             $this->app['router']->get('/configurations/{kind}/{id}/revisions', [ConfigurationController::class, 'revisions']);
             $this->app['router']->get('/extensions', [CompanionExtensionController::class, 'index']);

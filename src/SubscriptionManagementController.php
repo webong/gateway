@@ -123,15 +123,13 @@ final readonly class SubscriptionManagementController
             return $this->invalid('The subscription update is invalid.', ['subscription' => [$exception->getMessage()]]);
         }
         $targetRules = $extension?->updateRules() ?? [];
-        $allowed = ['url', 'profile', 'metadata', 'type', 'channel', ...array_keys($targetRules)];
+        $allowed = ['metadata', 'type', 'channel', ...array_keys($targetRules)];
         if (array_diff(array_keys($input), $allowed) !== []) {
             return $this->invalid('The subscription update is invalid.', [
                 'subscription' => ['The request contains unsupported properties.'],
             ]);
         }
         $validator = $this->validator->make($input, [
-            'url' => ['sometimes', 'url:http,https', 'max:2048'],
-            'profile' => ['sometimes', 'nullable', 'string', 'min:1', 'max:64'],
             'metadata' => ['sometimes', 'array'],
             'type' => ['sometimes', 'in:relay,reply'],
             'channel' => ['nullable', 'string', 'max:255'],
@@ -140,8 +138,8 @@ final readonly class SubscriptionManagementController
         if ($validator->fails()) {
             return $this->invalid('The subscription update is invalid.', $validator->errors()->toArray());
         }
-        if (! $principal->isOperator() && isset($input['type']) && $input['type'] !== 'relay') {
-            return response()->json(['message' => 'Account credentials can manage HTTP relay subscriptions only.'], Response::HTTP_FORBIDDEN);
+        if (! $principal->isOperator() && ! $extension->allowsAccountCredentials('manage', $input['type'] ?? $current->type())) {
+            return response()->json(['message' => 'Account credentials cannot manage this subscription target.'], Response::HTTP_FORBIDDEN);
         }
 
         try {
@@ -153,13 +151,10 @@ final readonly class SubscriptionManagementController
                 endpointKey: $endpointKey,
                 destinationId: $destinationId,
                 expectedRevision: $expected,
-                url: array_key_exists('url', $input) ? $input['url'] : null,
                 metadata: array_key_exists('metadata', $input) ? $input['metadata'] : null,
                 type: array_key_exists('type', $input) ? $input['type'] : null,
-                profile: array_key_exists('profile', $input) ? $input['profile'] : null,
-                profileProvided: array_key_exists('profile', $input),
                 channel: $input['channel'] ?? null,
-                targetChanges: array_diff_key($input, array_flip(['url', 'profile', 'metadata', 'type', 'channel'])),
+                targetChanges: array_diff_key($input, array_flip(['metadata', 'type', 'channel'])),
             ));
         } catch (InvalidArgumentException $exception) {
             return $this->invalid('The subscription update is invalid.', ['subscription' => [$exception->getMessage()]]);
@@ -266,7 +261,7 @@ final readonly class SubscriptionManagementController
     {
         return $principal->isOperator()
             || ($resource->destination->owner_id === $principal->accountId
-                && $this->targetExtensions->kindForDestination($resource->destination) === 'http'
+                && $this->targetExtensions->forDestination($resource->destination)->allowsAccountCredentials('manage', $resource->type())
                 && $this->endpointAccess->allows(
                     $resource->endpointKey,
                     (string) $principal->accountId,

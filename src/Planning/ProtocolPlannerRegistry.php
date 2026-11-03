@@ -25,6 +25,15 @@ final class ProtocolPlannerRegistry
         $this->factories[$protocol->value] = $factory;
     }
 
+    /** @return list<string> Protocol identifiers registered by installed extensions. */
+    public function protocols(): array
+    {
+        $protocols = array_keys($this->factories);
+        sort($protocols);
+
+        return $protocols;
+    }
+
     public function resolve(Protocol $protocol): ?ProtocolPlanner
     {
         return isset($this->factories[$protocol->value])

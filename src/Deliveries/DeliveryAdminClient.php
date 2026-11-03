@@ -14,6 +14,8 @@ use Throwable;
 
 final class DeliveryAdminClient
 {
+    public function __construct(private readonly DeliveryAdminReplayPolicyRegistry $replayPolicies) {}
+
     /** @param array<string, string|int> $query */
     public function get(string $path, array $query = [], ?string $node = null): Response
     {
@@ -237,7 +239,7 @@ final class DeliveryAdminClient
             throw new RuntimeException('No shared delivery admin origin is available.');
         }
 
-        $replayable = $method === 'GET' || ($method === 'POST' && $path === '/email/submissions');
+        $replayable = $method === 'GET' || $this->replayPolicies->allows($method, $path);
         foreach ($origins as $index => $origin) {
             try {
                 $response = $this->send($method, $origin, $path, $query, $payload);

@@ -12,6 +12,7 @@ final class ConfigurationKindRegistry
         'extension' => true,
         'registry.endpoint-access' => true,
         'schedule.notification' => true,
+        'events.retention' => true,
     ];
 
     public function register(string ...$kinds): void

@@ -10,14 +10,16 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
-/** Web-facing view over Planner's shared endpoint event ledger. */
+/** Management view over Planner's shared endpoint event ledger. */
 final readonly class EndpointEventController
 {
     public function __construct(
         private RegistryRequestAuthenticator $authenticator,
         private ValidationFactory $validator,
+        private ProtocolPlannerRegistry $protocols,
     ) {}
 
     public function __invoke(Request $request, string $endpointKey): JsonResponse
@@ -28,7 +30,7 @@ final readonly class EndpointEventController
 
         $input = $request->query();
         $validation = $this->validator->make($input, [
-            'protocol' => ['sometimes', 'in:http,websocket,webstream,dns,smtp'],
+            'protocol' => ['sometimes', 'string', 'in:'.implode(',', $this->protocols->protocols())],
             'kind' => ['sometimes', 'string', 'max:32', 'regex:/^[a-z][a-z_]*$/'],
             'limit' => ['sometimes', 'integer', 'min:1', 'max:100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
