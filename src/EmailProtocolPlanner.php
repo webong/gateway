@@ -644,7 +644,7 @@ final class EmailProtocolPlanner implements ProtocolPlanner
         }
 
         return new GatewayDelivery(
-            protocol: Protocol::HTTP,
+            protocol: $delivery->protocol,
             target: $delivery->url,
             subscriberId: $delivery->subscriberId,
             headers: $headers,
