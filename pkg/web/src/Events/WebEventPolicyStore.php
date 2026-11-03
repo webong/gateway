@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway\Events;
+namespace Webong\Gateway\Web\Events;
 
 use InvalidArgumentException;
 use stdClass;
 use Webong\Gateway\Resources\PlannerResourceStore;
 
-/** Opt-in Web capture policy plus retention for the shared event ledger. */
+/** Opt-in Web event capture policy. Shared ledger retention is Planner-owned. */
 final readonly class WebEventPolicyStore
 {
     private const KIND = 'web.event-policy';
@@ -22,13 +22,20 @@ final readonly class WebEventPolicyStore
         return $this->resources->byKey(self::KIND, self::KEY);
     }
 
-    /** @return array{enabled: bool, retention_days: int} */
+    /** @return array{enabled: bool} */
     public function current(): array
     {
         $row = $this->find();
 
-        return $row === null ? ['enabled' => false, 'retention_days' => 30]
-            : ['enabled' => $row->enabled, 'retention_days' => $row->document['retention_days']];
+        return ['enabled' => $row?->enabled ?? false];
+    }
+
+    /** @deprecated Read-only compatibility for installations moving retention to Planner's generic setting. */
+    public function legacyRetentionDays(): ?int
+    {
+        $row = $this->find();
+        $days = $row?->document['retention_days'] ?? null;
+        return $row !== null && is_int($days) && $days >= 1 && $days <= 3650 ? $days : null;
     }
 
     /** @param array<string, mixed> $input */
@@ -46,7 +53,7 @@ final readonly class WebEventPolicyStore
         $row = $this->find();
 
         return $row === null ? null : $this->resources->replace(self::KIND, $row->id, self::KEY,
-            $this->document($input), $input['enabled'] ?? true, $revision);
+            $this->document($input, $row), $input['enabled'] ?? true, $revision);
     }
 
     public function delete(int $revision): bool
@@ -57,20 +64,20 @@ final readonly class WebEventPolicyStore
     }
 
     /** @param array<string, mixed> $input
-     * @return array{retention_days: int}
+     * @return array{}
      */
-    private function document(array $input): array
+    private function document(array $input, ?stdClass $existing = null): array
     {
-        return ['retention_days' => $input['retention_days'] ?? 30];
+        $legacyDays = $existing?->document['retention_days'] ?? null;
+        return is_int($legacyDays) && $legacyDays >= 1 && $legacyDays <= 3650
+            ? ['retention_days' => $legacyDays] : [];
     }
 
     /** @param array<string, mixed> $input */
     private function validate(array $input): void
     {
-        $days = $input['retention_days'] ?? 30;
-        if (array_diff(array_keys($input), ['enabled', 'retention_days']) !== []
-            || (array_key_exists('enabled', $input) && ! is_bool($input['enabled']))
-            || ! is_int($days) || $days < 1 || $days > 3650) {
+        if (array_diff(array_keys($input), ['enabled']) !== []
+            || (array_key_exists('enabled', $input) && ! is_bool($input['enabled']))) {
             throw new InvalidArgumentException('Invalid Web event policy.');
         }
     }

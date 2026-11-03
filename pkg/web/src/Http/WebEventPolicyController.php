@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway\Events\Http;
+namespace Webong\Gateway\Web\Http;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\Gateway\Events\WebEventPolicyStore;
+use Webong\Gateway\Web\Events\WebEventPolicyStore;
 use Webong\Gateway\RegistryRequestAuthenticator;
 use Webong\Gateway\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 
-/** Compatibility management surface for Web capture and shared retention. */
+/** Web-owned capture policy management. */
 final readonly class WebEventPolicyController
 {
     public function __construct(private RegistryRequestAuthenticator $auth,

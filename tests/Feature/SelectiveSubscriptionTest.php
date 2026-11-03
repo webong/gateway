@@ -14,12 +14,13 @@ use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Protocols\SubscriptionState;
-use Webong\Gateway\RegistryRoutePlanner;
+use Webong\Gateway\Web\RegistryRoutePlanner;
 use Webong\Gateway\RegistryRouteCache;
 use Webong\Gateway\SubscribeEndpoint;
 use Webong\Gateway\Shell\ShellHookGrantStore;
 use Webong\Gateway\Shell\ShellReplySubscription;
 use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Web\WebSubscriptionDefinition;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 
 beforeEach(function (): void {
@@ -142,7 +143,7 @@ it('returns only subscriptions whose rules match to the Go route plan', function
         ['matching', 'account-42'],
         ['not-matching', 'account-99'],
     ] as [$subscriber, $account]) {
-        $subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::matching(
+        $subscriptions->handle($endpoint->record->endpoint_key, WebSubscriptionDefinition::matching(
             subscriberId: $subscriber,
             subscriptionId: $subscriber.'-messages',
             webhookGroup: 'meta',
@@ -273,7 +274,7 @@ it('patches subscription rules incrementally and invalidates the cached route', 
     $endpoint = relayEndpoint();
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::matching(
+        WebSubscriptionDefinition::matching(
             subscriberId: 'incremental',
             subscriptionId: 'incremental-messages',
             webhookGroup: 'meta',
@@ -331,7 +332,7 @@ it('rejects unsafe incremental match rules', function (): void {
     $endpoint = relayEndpoint();
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::matching(
+        WebSubscriptionDefinition::matching(
             subscriberId: 'incremental',
             subscriptionId: 'incremental-messages',
             webhookGroup: 'meta',
@@ -377,7 +378,7 @@ it('does not patch a destination through a different endpoint', function (): voi
     $endpoint = relayEndpoint();
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::matching(
+        WebSubscriptionDefinition::matching(
             subscriberId: 'endpoint-owner',
             subscriptionId: 'endpoint-owner-messages',
             webhookGroup: 'meta',
@@ -416,7 +417,7 @@ it('manages the complete subscription lifecycle with route-scoped listings and r
     $endpoint = relayEndpoint();
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::matching(
+        WebSubscriptionDefinition::matching(
             subscriberId: 'managed-subscriber',
             subscriptionId: 'managed-subscription',
             webhookGroup: 'meta',
@@ -513,7 +514,7 @@ it('requires an If-Match revision for subscription mutations', function (): void
     $endpoint = relayEndpoint();
     $destination = app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::matching(
+        WebSubscriptionDefinition::matching(
             subscriberId: 'conditional',
             subscriptionId: 'conditional-subscription',
             webhookGroup: 'meta',
@@ -540,7 +541,7 @@ it('requires an If-Match revision for subscription mutations', function (): void
 it('does not reactivate a reply after another active reply takes the route', function (): void {
     $endpoint = relayEndpoint();
     $subscriptions = app(SubscribeEndpoint::class);
-    $definition = static fn (string $subscriber): SubscriptionDefinition => SubscriptionDefinition::matching(
+    $definition = static fn (string $subscriber): SubscriptionDefinition => WebSubscriptionDefinition::matching(
         subscriberId: $subscriber,
         subscriptionId: $subscriber.'-reply',
         webhookGroup: 'meta',
@@ -592,7 +593,7 @@ it('invalidates cached subscriptions after attaching a destination', function ()
     $planner = app(RegistryRoutePlanner::class);
 
     $subscribe = static function (string $subscriber) use ($subscriptions, $endpoint): void {
-        $subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::matching(
+        $subscriptions->handle($endpoint->record->endpoint_key, WebSubscriptionDefinition::matching(
             subscriberId: $subscriber,
             subscriptionId: $subscriber.'-messages',
             webhookGroup: 'meta',
@@ -693,7 +694,7 @@ it('allows explicit invalidation after direct registry mutations', function (): 
         body: '{}',
     );
 
-    $subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::matching(
+    $subscriptions->handle($endpoint->record->endpoint_key, WebSubscriptionDefinition::matching(
         subscriberId: 'cached',
         subscriptionId: 'cached-messages',
         webhookGroup: 'meta',
@@ -716,7 +717,7 @@ it('selects a matching synchronous reply for Go to execute', function (): void {
 
     app(SubscribeEndpoint::class)->handle(
         $endpoint->record->endpoint_key,
-        SubscriptionDefinition::matching(
+        WebSubscriptionDefinition::matching(
             subscriberId: 'primary-handler',
             subscriptionId: 'primary-handler-messages',
             webhookGroup: 'meta',
@@ -748,7 +749,7 @@ it('prevents competing synchronous replies on the same route', function (): void
     $endpoint = relayEndpoint();
     $subscriptions = app(SubscribeEndpoint::class);
 
-    $definition = static fn (string $subscriber): SubscriptionDefinition => SubscriptionDefinition::matching(
+    $definition = static fn (string $subscriber): SubscriptionDefinition => WebSubscriptionDefinition::matching(
         subscriberId: $subscriber,
         subscriptionId: $subscriber.'-reply',
         webhookGroup: 'meta',
@@ -827,7 +828,7 @@ it('registers a Shell reply, selects its hook, and manages its lifecycle', funct
     $created->assertCreated()
         ->assertJsonPath('target_kind', 'shell')
         ->assertJsonPath('hook', 'github/deploy')
-        ->assertJsonPath('url', null);
+        ->assertJsonMissingPath('url');
     $created->assertDontSee('gateway-shell://');
     $this->withToken('registry-secret')->getJson($route.'/'.$created->json('id'))
         ->assertOk()->assertJsonPath('hook', 'github/deploy')->assertDontSee('gateway-shell://');

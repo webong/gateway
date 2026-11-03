@@ -7,8 +7,8 @@ return [
     // process.
     'internal_token' => (string) env('GATEWAY_INTERNAL_TOKEN', ''),
 
-    // Optional custom planner. If omitted, RegistryRoutePlanner is used when
-    // path_resolver is configured.
+    // Optional custom route planner. Otherwise an installed Planner Extension
+    // provides the default route planner.
     'planner' => env('GATEWAY_PLANNER'),
 
     // Optional planner for protocol-neutral events such as SMTP and

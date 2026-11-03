@@ -48,13 +48,13 @@ Go owns the public network edge, request capture, stable delivery IDs,
 outbound HTTP connection pooling, DNS/SSRF checks, synchronous replies,
 asynchronous delivery queues, and the selected host runtime lifecycle.
 
-PHP/Laravel owns endpoint and subscription management through
-`webong/proxy`, the public registry JSON API, request validation, matching,
-subscriber resolution, and route planning. The bundled `RegistryRoutePlanner`
-uses an application-provided `PathResolver` to read the registry, resolve
-subscribers, and bind an arbitrary path. Applications may replace it with a
-custom planner for provider-specific validation or handlers. Its migrations
-stay on the PHP/application side.
+PHP/Laravel Planner owns the generic registry API, subscription identity,
+matching, extension registries, and shared lifecycle. Installed packages own
+the protocol-specific behavior. `webong/web` supplies the HTTP/Webhook route
+planner, HTTP subscription target, named proxy-profile handling, Web capture
+policy, and event recorder. It registers the default route planner and can be
+replaced by a host-provided `RoutePlanner`. Its migrations and routes stay with
+the owning package.
 
 Selective subscriber matching is also PHP-owned. Local PHP callers and remote
 HTTP subscribers produce the same versioned Laravel-style JSON rules. PHP
@@ -874,10 +874,12 @@ bash scripts/http-smoke.sh
 
 ## PHP control plane
 
-The Laravel side can either implement
+The Laravel side can implement
 `Webong\Gateway\Contracts\RoutePlanner` directly and configure it as
-`GATEWAY_PLANNER`, or use the bundled `RegistryRoutePlanner` with a
-`PathResolver` configured as `GATEWAY_PATH_RESOLVER`.
+`GATEWAY_PLANNER`. When `webong/web` is installed, its Planner Extension
+registers the Web route planner by default. The host supplies a `PathResolver`
+through `GATEWAY_PATH_RESOLVER`; Planner itself does not construct an HTTP
+route planner.
 
 The planner receives an `IngressRequest` containing the exact public path. It
 should validate the request, resolve the agnostic endpoint/subscriber
@@ -889,13 +891,13 @@ registry, and return one of:
 - `RoutePlan::relay(...)` with an optional synchronous reply and zero or more
   asynchronous `Delivery` objects.
 
-With `RegistryRoutePlanner`, the resolver returns a `PathBinding` containing an
-endpoint key, route scope/key, destination metadata criteria, and optional
-channel. The planner then uses `webong/proxy` to resolve the endpoint and
-its active destinations. A destination with
-`metadata.delivery_mode=reply` becomes the single synchronous reply; all other
-HTTP destinations become subscriber relays. PHP-native event and job
-destinations are dispatched by `webong/proxy` in the planner process.
+The Web route planner's resolver returns a `PathBinding` containing an endpoint
+key, route scope/key, destination metadata criteria, and optional channel. The
+Web package then uses `webong/proxy` to resolve the endpoint and its active
+destinations. A destination with `metadata.delivery_mode=reply` becomes the
+single synchronous reply; other HTTP destinations become subscriber relays.
+PHP-native event and job destinations are dispatched by `webong/proxy` in the
+Planner process.
 `subscriber_id` metadata is used when present; otherwise the destination owner
 identifier is carried across the bridge.
 
@@ -1028,11 +1030,11 @@ non-JSON bodies remain strings.
 The PHP-facing DSL compiles to a normal `webong/proxy` destination:
 
 ```php
-use Webong\Gateway\Protocol\MatchRules;
+use Webong\Gateway\Protocols\MatchRules;
 use Webong\Gateway\SubscribeEndpoint;
-use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Web\WebSubscriptionDefinition;
 
-$definition = SubscriptionDefinition::matching(
+$definition = WebSubscriptionDefinition::matching(
     subscriberId: 'workspace-42',
     subscriptionId: 'workspace-42-messages',
     webhookGroup: 'meta',

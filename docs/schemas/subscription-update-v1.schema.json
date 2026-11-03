@@ -2,23 +2,40 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/webong/gateway/blob/main/docs/schemas/subscription-update-v1.schema.json",
   "title": "Gateway subscription update v1",
-  "description": "Request for PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}. Requires the current ETag in If-Match.",
+  "description": "Core fields for PATCH /registry/endpoints/{endpointKey}/subscriptions/{destinationId}. Requires the current ETag in If-Match. Installed target extensions define the fields used to change their target.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "minProperties": 1,
   "properties": {
-    "url": {"type": "string", "format": "uri", "pattern": "^https?://"},
-    "hook": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$"},
-    "type": {"type": "string", "enum": ["relay", "reply"]},
-    "profile": {"type": ["string", "null"], "minLength": 1, "maxLength": 64},
-    "channel": {"type": ["string", "null"], "maxLength": 255},
+    "type": {
+      "type": "string",
+      "enum": [
+        "relay",
+        "reply"
+      ]
+    },
+    "channel": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 255
+    },
     "metadata": {
       "type": "object",
       "propertyNames": {
         "not": {
           "anyOf": [
-            {"enum": ["subscriber_id", "delivery_mode", "profile"]},
-            {"pattern": "^_"}
+            {
+              "enum": [
+                "subscriber_id",
+                "delivery_mode",
+                "target_kind"
+              ]
+            },
+            {
+              "pattern": "^_"
+            }
           ]
         }
       },
@@ -26,10 +43,15 @@
     }
   },
   "anyOf": [
-    {"required": ["url"]},
-    {"required": ["hook"]},
-    {"required": ["type"]},
-    {"required": ["profile"]},
-    {"required": ["metadata"]}
+    {
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "required": [
+        "metadata"
+      ]
+    }
   ]
 }

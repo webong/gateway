@@ -18,6 +18,7 @@ final readonly class Delivery
         public array $headers = [],
         public string $body = '',
         public ?HttpTransport $transport = null,
+        public Protocol $protocol = Protocol::HTTP,
     ) {
         $this->assertValid();
     }

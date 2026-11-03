@@ -1,8 +1,8 @@
 # Subscription JSON DSL v1
 
 This document describes the shared fields for registering a Gateway
-subscription over HTTP. The machine-readable companion describes the built-in
-HTTP target contract:
+subscription over HTTP. The machine-readable companion describes the shared Planner fields; the
+selected installed target extension owns target-specific fields:
 [`schemas/subscription-v1.schema.json`](schemas/subscription-v1.schema.json).
 Installed target extensions own their additional request fields and publish
 their usage alongside the extension. For example, see the
@@ -77,9 +77,9 @@ extension are accepted. Unknown properties must not be sent.
 | `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/proxy` to manage the destination. |
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
-| `target_kind` | no | extension-defined identifier | Defaults to `http`. Installed target extensions may provide additional kinds. |
-| `url` | for HTTP | absolute HTTP(S) URL | The HTTP destination for matching ingress traffic. |
-| `profile` | HTTP only | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
+| `target_kind` | no | extension-defined identifier | Defaults to the target kind registered as the Planner default, currently `http` when `webong/web` is installed. `webong/web` also registers `websocket`. |
+| `url` | Web HTTP or WebSocket target | absolute HTTP(S) or WS(S) URL | Destination for matching ingress traffic. |
+| `profile` | Web HTTP or WebSocket target | non-empty string, max 64 | Name of an active endpoint-scoped `webong/proxy` profile used for outbound delivery. |
 | `channel` | no | string, max 255, or `null` | Selects a configured `proxy` channel. The default channel is used when omitted or `null`. |
 | `metadata` | no | JSON object | Subscriber metadata. Keys beginning `_`, plus `subscriber_id`, `delivery_mode`, and `profile`, are reserved. |
 | `match` | no | match object | Versioned ingress-event selection rules. Omission means match every event. |
@@ -91,10 +91,29 @@ selected extension's guide for its request shape and setup requirements.
 
 The profile itself is registered and stored by `webong/proxy` on the endpoint.
 Subscriptions retain only its name. Planner resolves the active profile and
-normalizes its HTTP proxy, no-proxy, connect-timeout, and request-timeout
-settings into the Go delivery contract; Spinner performs the network request.
-Proxy credentials therefore stay encrypted in the Proxy registry and are not
-copied into subscription metadata or returned by the subscription API.
+normalizes supported headers and timeout settings into the Go delivery
+contract; HTTP targets also use its HTTP proxy and no-proxy settings. WebSocket
+targets reject configured proxies so they cannot bypass Spinner's destination
+network checks. Profile credentials stay encrypted in the Proxy registry and
+are not copied into subscription metadata or returned by the subscription API.
+
+### WebSocket delivery target
+
+Set `target_kind` to `websocket` and `url` to your application's `ws://` or
+`wss://` endpoint. WebSocket targets accept `relay` subscriptions only. For
+each matching HTTP event, Spinner opens one outbound WebSocket connection,
+sends the original request body as one text or binary frame, and closes the
+connection. A named endpoint profile can provide handshake headers. Inbound
+request authorization headers are never copied into that handshake. Profiles
+that configure an HTTP proxy are rejected for this target because they could
+bypass destination network checks. The
+Planner-managed `configuration.websocket.outbound_private_network_cidrs`
+extension setting controls which private target networks are permitted.
+
+This target is useful when the receiving application exposes a WebSocket
+server but the event source sends ordinary HTTP requests. It is distinct from
+Gateway accepting WebSocket clients and delivering their message events to an
+HTTP subscription.
 
 Register the profile on the endpoint before a PHP or remote HTTP subscriber
 selects it:
@@ -118,7 +137,7 @@ $endpoint->registerProfile(new ProfileDefinition(
 ));
 ```
 
-Both the PHP `SubscriptionDefinition` DSL and the HTTP JSON DSL use the same
+The Web package PHP `WebSubscriptionDefinition` DSL and the HTTP JSON DSL use the same
 profile name. Registration fails closed when the profile is absent, inactive,
 malformed, or uses a non-HTTP driver.
 
@@ -523,11 +542,11 @@ Validation failures use this shape:
 
 ## PHP equivalent
 
-The PHP DSL and HTTP JSON compile to the same `webong/proxy` destination
-metadata. This PHP definition is equivalent to the request above:
+The Web package’s PHP DSL and HTTP JSON compile to the same generic Planner
+target contract. This definition is equivalent to the request above:
 
 ```php
-$definition = SubscriptionDefinition::matching(
+$definition = WebSubscriptionDefinition::matching(
     subscriberId: 'workspace-42',
     subscriptionId: 'workspace-42-messages',
     webhookGroup: 'meta',

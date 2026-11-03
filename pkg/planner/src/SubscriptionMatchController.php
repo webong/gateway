@@ -54,7 +54,7 @@ final readonly class SubscriptionMatchController
             $extension = $this->targetExtensions->forDestination($resource->destination);
             if (! $principal->isOperator()
                 && ($resource->destination->owner_id !== $principal->accountId
-                    || ($extension !== null && $extension->kind() !== 'http')
+                    || ! $extension->allowsAccountCredentials('match', $resource->type())
                     || ! $this->endpointAccess->allows(
                         $endpointKey,
                         (string) $principal->accountId,

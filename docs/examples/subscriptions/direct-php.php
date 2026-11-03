@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\SubscribeEndpoint;
-use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Web\WebSubscriptionDefinition;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EndpointRegistry;
 use Webong\Proxy\ProfileDefinition;
@@ -43,7 +43,7 @@ $endpoint->registerProfile(new ProfileDefinition(
 $subscriptions = app(SubscribeEndpoint::class);
 
 // No profile: Spinner uses its default outbound HTTP configuration.
-$subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::matching(
+$subscriptions->handle($endpoint->record->endpoint_key, WebSubscriptionDefinition::matching(
     subscriberId: 'audit-direct',
     subscriptionId: 'audit-direct-messages',
     webhookGroup: 'meta',
@@ -58,7 +58,7 @@ $subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::
 
 // Named profile: Planner resolves it and Spinner applies its proxy and timeout
 // settings only when this subscription matches.
-$subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::matching(
+$subscriptions->handle($endpoint->record->endpoint_key, WebSubscriptionDefinition::matching(
     subscriberId: 'audit-proxied',
     subscriptionId: 'audit-proxied-messages',
     webhookGroup: 'meta',

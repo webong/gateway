@@ -40,7 +40,15 @@ POST /web/event-policy
 Authorization: Bearer <REGISTRY_TOKEN>
 Content-Type: application/json
 
-{"enabled":true,"retention_days":30}
+{"enabled":true}
+```
+
+```http
+POST /events/retention
+Authorization: Bearer <REGISTRY_TOKEN>
+Content-Type: application/json
+
+{"retention_days":30}
 ```
 
 Both use the shared `configurations` table and return ETags. Replace with a
@@ -50,7 +58,7 @@ domain can receive mail. These are policy changes, not listener provisioning.
 
 | Surface | Planner-owned state now | Deployment-owned settings | Gap |
 | --- | --- | --- | --- |
-| Webhook/WebSocket | Endpoints, subscriptions, routes, targets, event retention through `/web/event-policy`, body capture opt-in per endpoint, and WebSocket limits in the `webong/web` runtime snapshot | Public HTTP listener, global body ceiling, authentication keys | Event history is off until the operator creates an enabled policy. |
+| Webhook/WebSocket | Endpoints, subscriptions, routes, targets, Web capture through `/web/event-policy`; shared event retention through `/events/retention`, body capture opt-in per endpoint, and WebSocket limits in the `webong/web` runtime snapshot | Public HTTP listener, global body ceiling, authentication keys | Event history is off until the operator creates an enabled policy. |
 | Webstream | Subscription-selected source; private exact-origin source/CIDR grants via `/webstream/private-sources`; upload/retry policies via `/webstream/routes`; network ceiling, heartbeat, retry, and connection/duration limits in `webong/web` runtime configuration | Public HTTP listener and global body ceiling | Generic hosts no longer read Webstream settings. Per-request propagation and host/path isolation across two Spinners are verified by `scripts/config-ownership-smoke.sh`. |
 | DNS | Zones, nameservers, SOA, TTL, provided Endpoints, Forwarders, and the installable runtime snapshot through `/extensions` | Provisioner credentials and host/network permission to bind the selected address | Spinner no longer parses DNS environment variables or imports DNS. The selected `webong/dns` process validates its bounded listener configuration and revisioned desired-state snapshot before serving. |
 | Email | Domains, aliases, suppressions, hooks, account-owned mailbox connections, submission quotas, runtime behavior through `/email/runtime-policy`, SRS policy, upstream catalogs, hosted adapters/routes, DKIM keys, and the revisioned `webong/email` listener/relay/failure-follow-up snapshot | Port publication, referenced TLS/scanner secret files, OAuth application credentials, and private Planner connectivity | Planner selects mailbox endpoints; the Email process validates and pins DNS answers before dialing. Generic hosts neither import Email nor parse Email settings. |

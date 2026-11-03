@@ -3,10 +3,9 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
-use Webong\Gateway\Protocols\MatchRules;
 use Webong\Gateway\RegistryRouteCache;
 use Webong\Gateway\SubscribeEndpoint;
-use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Web\WebSubscriptionDefinition;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EndpointRegistry;
 
@@ -41,14 +40,14 @@ Artisan::command('gateway:subscribe {key} {subscriber} {url}', function (
         throw new InvalidArgumentException('Invalid endpoint key.');
     }
 
-    app(SubscribeEndpoint::class)->handle($key, new SubscriptionDefinition(
+    app(SubscribeEndpoint::class)->handle($key, WebSubscriptionDefinition::matching(
         subscriberId: $subscriber,
         subscriptionId: $subscriber,
         webhookGroup: 'default',
         routingScope: 'path',
         routingKey: "/hooks/{$key}",
         url: $url,
-        match: MatchRules::any(),
+        rules: [],
     ));
 
     $this->info("Subscribed {$subscriber} to /hooks/{$key}");

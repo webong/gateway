@@ -162,6 +162,7 @@ it('keeps the shared event ledger in Planner instead of making DNS depend on Web
 
     expect($root.'/pkg/planner/src/Events/Models/GatewayEndpointEvent.php')->toBeFile()
         ->and($root.'/pkg/planner/src/database/migrations/2026_08_30_000004_create_events_table.php')->toBeFile()
-        ->and($root.'/pkg/web/src/Events')->not->toBeDirectory()
+        ->and($root.'/pkg/web/src/Events/WebEventRecorder.php')->toBeFile()
+        ->and($root.'/pkg/web/src/Events/Models')->not->toBeDirectory()
         ->and(array_keys($dns['require']))->not->toContain('webong/web');
 });

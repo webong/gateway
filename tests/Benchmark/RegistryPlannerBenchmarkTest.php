@@ -5,9 +5,9 @@ declare(strict_types=1);
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EnsureEndpoint;
 use Webong\Gateway\Protocols\IngressRequest;
-use Webong\Gateway\RegistryRoutePlanner;
+use Webong\Gateway\Web\RegistryRoutePlanner;
 use Webong\Gateway\SubscribeEndpoint;
-use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Web\WebSubscriptionDefinition;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 
 it('benchmarks cached planning with realistic subscription counts', function (): void {
@@ -28,7 +28,7 @@ it('benchmarks cached planning with realistic subscription counts', function ():
     $subscriptions = app(SubscribeEndpoint::class);
     for ($index = 0; $index < $subscriberCount; $index++) {
         $account = $index % 2 === 0 ? 'account-42' : 'account-other';
-        $subscriptions->handle($endpoint->record->endpoint_key, SubscriptionDefinition::matching(
+        $subscriptions->handle($endpoint->record->endpoint_key, WebSubscriptionDefinition::matching(
             subscriberId: 'subscriber-'.$index,
             subscriptionId: 'benchmark-'.$index,
             webhookGroup: 'benchmark',

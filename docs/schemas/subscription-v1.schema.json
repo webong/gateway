@@ -1,16 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/webong/gateway/blob/main/docs/schemas/subscription-v1.schema.json",
-  "title": "Gateway HTTP subscription JSON DSL v1",
-  "description": "Built-in HTTP target contract for POST /registry/endpoints/{endpointKey}/subscriptions. Installed target extensions define additional request fields in their own package documentation.",
+  "title": "Gateway subscription JSON contract v1",
+  "description": "Core subscription fields for POST /registry/endpoints/{endpointKey}/subscriptions. The installed target extension owns target_kind fields, validation, and public target fields.",
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "required": [
     "subscriber_id",
     "webhook_group",
     "routing_scope",
-    "routing_key",
-    "url"
+    "routing_key"
   ],
   "properties": {
     "subscriber_id": {
@@ -21,7 +20,10 @@
     },
     "type": {
       "type": "string",
-      "enum": ["relay", "reply"],
+      "enum": [
+        "relay",
+        "reply"
+      ],
       "default": "relay"
     },
     "webhook_group": {
@@ -33,24 +35,16 @@
     "routing_key": {
       "$ref": "#/$defs/requiredIdentifier"
     },
-    "url": {
-      "type": "string",
-      "format": "uri",
-      "pattern": "^https?://"
-    },
     "target_kind": {
       "type": "string",
-      "const": "http",
-      "default": "http"
-    },
-    "profile": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 64,
-      "description": "Active endpoint-scoped webong/proxy profile used for this subscription's outbound HTTP delivery."
+      "pattern": "^[a-z][a-z0-9.-]{0,63}$",
+      "description": "Installed extension target kind. If omitted by an API client, Planner uses the installed default."
     },
     "channel": {
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "maxLength": 255
     },
     "metadata": {
@@ -59,7 +53,11 @@
         "not": {
           "anyOf": [
             {
-              "enum": ["subscriber_id", "delivery_mode", "profile", "target_kind"]
+              "enum": [
+                "subscriber_id",
+                "delivery_mode",
+                "target_kind"
+              ]
             },
             {
               "pattern": "^_"
@@ -84,7 +82,10 @@
     "match": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "rules"],
+      "required": [
+        "version",
+        "rules"
+      ],
       "properties": {
         "version": {
           "const": "v1"
@@ -145,7 +146,21 @@
       "maxLength": 512,
       "anyOf": [
         {
-          "enum": ["protocol", "event", "session_id", "host", "route", "headers", "payload", "attributes", "method", "scheme", "path", "query", "body"]
+          "enum": [
+            "protocol",
+            "event",
+            "session_id",
+            "host",
+            "route",
+            "headers",
+            "payload",
+            "attributes",
+            "method",
+            "scheme",
+            "path",
+            "query",
+            "body"
+          ]
         },
         {
           "pattern": "^(headers|payload|attributes|query|body)\\.[A-Za-z0-9_*-]+(?:\\.[A-Za-z0-9_*-]+)*$"

@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway\Events;
+namespace Webong\Gateway\Web\Events;
 
 use Psr\Log\LoggerInterface;
 use Throwable;
+use Webong\Gateway\Events\EventRetention;
 use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;

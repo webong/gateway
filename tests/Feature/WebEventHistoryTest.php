@@ -51,7 +51,7 @@ function webHistoryRequest(string $receipt, string $body = 'private body'): Ingr
 }
 
 it('records repeated identical Web ingress as separate redacted events on the shared endpoint', function (): void {
-    app(\Webong\Gateway\Events\WebEventPolicyStore::class)->create([]);
+    app(\Webong\Gateway\Web\Events\WebEventPolicyStore::class)->create([]);
     $endpointKey = webHistoryEndpoint();
     $planner = app(CapabilityAwareRoutePlanner::class);
 
@@ -83,7 +83,8 @@ it('records repeated identical Web ingress as separate redacted events on the sh
 });
 
 it('captures only an opted-in bounded body and prunes old shared events', function (): void {
-    app(\Webong\Gateway\Events\WebEventPolicyStore::class)->create(['retention_days' => 7]);
+    app(\Webong\Gateway\Web\Events\WebEventPolicyStore::class)->create([]);
+    app(\Webong\Gateway\Events\EventRetentionPolicyStore::class)->create(['retention_days' => 7]);
     config()->set('gateway.events.max_body_bytes', 4);
     $endpointKey = webHistoryEndpoint(['_gateway' => ['capture_body' => true]]);
     app(CapabilityAwareRoutePlanner::class)->plan(webHistoryRequest('captured-1', 'top-secret'));
@@ -113,19 +114,19 @@ it('applies Web event policy changes without rebuilding the route planner', func
     expect(GatewayEndpointEvent::query()->count())->toBe(0);
 
     $policy = $this->withToken('registry-secret')->postJson('/web/event-policy', [
-        'enabled' => true, 'retention_days' => 7,
+        'enabled' => true,
     ])->assertCreated();
     $planner->plan(webHistoryRequest('live-on'));
     expect(GatewayEndpointEvent::query()->count())->toBe(1);
 
     $this->withToken('registry-secret')->withHeader('If-Match', $policy->headers->get('ETag'))
-        ->putJson('/web/event-policy', ['enabled' => false, 'retention_days' => 7])->assertOk();
+        ->putJson('/web/event-policy', ['enabled' => false])->assertOk();
     $planner->plan(webHistoryRequest('live-off-again'));
     expect(GatewayEndpointEvent::query()->count())->toBe(1);
 });
 
 it('records WebSocket messages and Webstream connects through the same endpoint history', function (): void {
-    app(\Webong\Gateway\Events\WebEventPolicyStore::class)->create([]);
+    app(\Webong\Gateway\Web\Events\WebEventPolicyStore::class)->create([]);
     $key = webHistoryEndpoint();
     $planner = app(ProtocolPlanner::class);
     $planner->planEvent(new GatewayEvent(

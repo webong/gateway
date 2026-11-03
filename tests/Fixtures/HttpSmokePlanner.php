@@ -9,7 +9,7 @@ use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\Response;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\RegistryRoutePlanner;
+use Webong\Gateway\Web\RegistryRoutePlanner;
 
 final class HttpSmokePlanner implements RoutePlanner
 {

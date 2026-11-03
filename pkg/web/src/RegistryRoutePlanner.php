@@ -2,8 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Webong\Gateway;
+namespace Webong\Gateway\Web;
 
+use Webong\Gateway\CachedRegistryRoute;
+use Webong\Gateway\RegistryRouteCache;
+use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\SubscriptionMatcher;
+use Webong\Gateway\SubscriptionTargetExtensionRegistry;
+use Webong\Gateway\Web\EndpointHttpTransportResolver;
+use Webong\Gateway\Web\WebSubscriptionTargetExtension;
 use InvalidArgumentException;
 use RuntimeException;
 use Webong\Proxy\DestinationRecord;
@@ -121,22 +128,17 @@ final class RegistryRoutePlanner implements RoutePlanner
                 ? $this->targetExtensions->forDestination($destination)
                 : null;
             if ($targetExtension !== null) {
-                if ($destination->target_type !== WebhookProxyTargetType::REQUEST
-                    || ($destination->metadata['delivery_mode'] ?? null) !== 'reply'
-                    || isset($destination->metadata[SubscriptionDefinition::PROFILE_METADATA_KEY])
-                    || $automationTarget !== null) {
-                    throw new InvalidArgumentException('Extension targets must be a single reply target without an HTTP profile.');
+                $targetPlan = $targetExtension->plan($destination, $cachedRoute->endpointKey, $request->protocol);
+                if ($targetPlan !== null) {
+                    if (! $targetExtension->supportsProtocol($request->protocol)) {
+                        throw new InvalidArgumentException('The subscription target does not support this ingress protocol.');
+                    }
+                    if (($destination->metadata['delivery_mode'] ?? null) !== 'reply' || $automationTarget !== null) {
+                        throw new InvalidArgumentException('Extension automation targets must be a single reply target.');
+                    }
+                    $automationTarget = $targetPlan;
+                    continue;
                 }
-                if (! $targetExtension->supportsProtocol($request->protocol)) {
-                    throw new InvalidArgumentException('The subscription target does not support this ingress protocol.');
-                }
-                $automationTarget = $targetExtension->plan(
-                    $destination,
-                    $cachedRoute->endpointKey,
-                    $request->protocol,
-                );
-
-                continue;
             }
 
             if ($destination->target_type !== WebhookProxyTargetType::REQUEST) {
@@ -156,7 +158,13 @@ final class RegistryRoutePlanner implements RoutePlanner
                 continue;
             }
 
-            $profile = $destination->metadata[SubscriptionDefinition::PROFILE_METADATA_KEY] ?? null;
+            $targetOptions = $destination->metadata[SubscriptionDefinition::TARGET_OPTIONS_METADATA_KEY] ?? null;
+            if ($targetOptions === null && is_string($destination->metadata['_gateway_profile'] ?? null)) {
+                $targetOptions = ['profile' => $destination->metadata['_gateway_profile']];
+            }
+            $targetOptions ??= [];
+            if (! is_array($targetOptions)) { throw new InvalidArgumentException('Subscription target options are malformed.'); }
+            $profile = $targetOptions['profile'] ?? null;
             if ($profile !== null && (! is_string($profile) || $profile === '')) {
                 throw new InvalidArgumentException('Subscription proxy profile is malformed.');
             }
@@ -167,7 +175,6 @@ final class RegistryRoutePlanner implements RoutePlanner
             $transport = $profile === null
                 ? null
                 : ($profileTransports[$profile] ??= $this->transportResolver->resolve($profileEndpoint, $profile));
-
             $delivery = new Delivery(
                 url: $destination->target,
                 subscriberId: $this->subscriberId($destination->owner_id, $destination->metadata),

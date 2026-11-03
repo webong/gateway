@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Email\EmailRuntimePolicyStore;
-use Webong\Gateway\Events\WebEventPolicyStore;
+use Webong\Gateway\Web\Events\WebEventPolicyStore;
 
 it('manages Email runtime behavior through a versioned Planner resource', function (): void {
     $this->getJson('/email/runtime-policy')->assertUnauthorized();
@@ -38,20 +38,25 @@ it('manages Email runtime behavior through a versioned Planner resource', functi
     expect(array_column($history, 'operation'))->toBe(['created', 'replaced', 'deleted']);
 });
 
-it('manages Web event capture and retention through a versioned Planner resource', function (): void {
-    expect(app(WebEventPolicyStore::class)->current())->toBe(['enabled' => false, 'retention_days' => 30]);
+it('manages Web capture and shared event retention through versioned Planner resources', function (): void {
+    expect(app(WebEventPolicyStore::class)->current())->toBe(['enabled' => false]);
     $created = $this->withToken('registry-secret')->postJson('/web/event-policy', [
-        'enabled' => true, 'retention_days' => 7,
+        'enabled' => true,
     ])->assertCreated()->assertHeader('ETag', '"1"');
-    expect(app(WebEventPolicyStore::class)->current())->toBe(['enabled' => true, 'retention_days' => 7]);
+    expect(app(WebEventPolicyStore::class)->current())->toBe(['enabled' => true]);
     $this->withToken('registry-secret')->withHeader('If-Match', '"1"')
-        ->putJson('/web/event-policy', ['enabled' => false, 'retention_days' => 4])
+        ->putJson('/web/event-policy', ['enabled' => false])
         ->assertOk()->assertHeader('ETag', '"2"');
-    expect(app(WebEventPolicyStore::class)->current())->toBe(['enabled' => false, 'retention_days' => 4]);
+    expect(app(WebEventPolicyStore::class)->current())->toBe(['enabled' => false]);
     $this->withToken('registry-secret')->withHeader('If-Match', '"2"')
         ->deleteJson('/web/event-policy')->assertNoContent();
-    $this->withToken('registry-secret')->postJson('/web/event-policy', ['retention_days' => 0])
+    $this->withToken('registry-secret')->postJson('/web/event-policy', ['retention_days' => 7])
         ->assertUnprocessable();
+    $retention = $this->withToken('registry-secret')->postJson('/events/retention', ['retention_days' => 30])
+        ->assertCreated()->assertJsonPath('retention_days', 30);
+    $this->withToken('registry-secret')->withHeader('If-Match', $retention->headers->get('ETag'))
+        ->putJson('/events/retention', ['retention_days' => 7])->assertOk();
+    $this->withToken('registry-secret')->postJson('/events/retention', ['retention_days' => 0])->assertUnprocessable();
     $this->withToken('registry-secret')->postJson('/web/event-policy', ['enabled' => 'true'])
         ->assertUnprocessable();
     $this->withToken('registry-secret')->getJson('/configurations/web.event-policy/'.$created->json('id').'/revisions')

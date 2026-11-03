@@ -13,6 +13,7 @@ use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Deliveries\DeliveryAdminClient;
+use Webong\Gateway\Deliveries\DeliveryAdminReplayPolicyRegistry;
 use Webong\Gateway\GatewayRouter;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
@@ -26,6 +27,9 @@ final class EmailServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->afterResolving(DeliveryAdminReplayPolicyRegistry::class,
+            static fn (DeliveryAdminReplayPolicyRegistry $policies) => $policies->register('POST', '/email/submissions'));
+
         $this->mergeConfigFrom(__DIR__.'/../config/email.php', 'gateway.email');
 
         $this->app->bind(TxtResolver::class, NativeTxtResolver::class);
