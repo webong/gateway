@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
+use Webong\Gateway\Email\EmailDkimKeyStore;
 use Webong\Gateway\Protocols\GatewayEvent;
 
 final class DeliveryStatusEmailSubmissionAuthenticator implements EmailSubmissionAuthenticator
@@ -41,6 +42,7 @@ beforeEach(function (): void {
     config()->set('gateway.email.submission_authenticator', DeliveryStatusEmailSubmissionAuthenticator::class);
     app(\Webong\Gateway\Email\EmailRuntimePolicyStore::class)->create(['http_submission_enabled' => true]);
     config()->set('gateway.delivery_admin_url', 'http://spinner.internal:5052');
+    app(EmailDkimKeyStore::class)->ensureGenerated('example.test', 'test');
 });
 
 it('configures one account-scoped delivery status hook without exposing its secret', function (): void {

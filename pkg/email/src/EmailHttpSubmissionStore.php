@@ -19,10 +19,11 @@ final readonly class EmailHttpSubmissionStore
         private EmailDeliveryStatusHookStore $statusHooks,
         private EmailDeliveryStatusOutbox $statusOutbox,
         private AccountStore $accounts,
+        private EmailDkimKeyStore $dkimKeys,
     ) {}
 
     /** @param non-empty-array<string, string> $nodes */
-    public function reserve(string $identity, string $mailFrom, array $recipients, string $key, string $requestHash, array $nodes, int $limit, int $messageBytes, int $byteLimit): stdClass
+    public function reserve(string $identity, string $mailFrom, array $recipients, string $key, string $requestHash, array $nodes, int $limit, int $messageBytes, int $byteLimit, ?string $managedSigningDomain): stdClass
     {
         if ($nodes === [] || strlen($requestHash) !== 64) {
             throw new RuntimeException('HTTP Email submission requires a valid node and message fingerprint.');
@@ -33,7 +34,7 @@ final readonly class EmailHttpSubmissionStore
 
         for ($attempt = 0; $attempt < 2; $attempt++) {
             try {
-                return DB::transaction(function () use ($identity, $mailFrom, $recipients, $identityHash, $keyHash, $requestHash, $nodeNames, $limit, $messageBytes, $byteLimit): stdClass {
+                return DB::transaction(function () use ($identity, $mailFrom, $recipients, $identityHash, $keyHash, $requestHash, $nodeNames, $limit, $messageBytes, $byteLimit, $managedSigningDomain): stdClass {
                     $now = now('UTC');
                     $query = DB::table('email_http_submissions')
                         ->where('identity_hash', $identityHash)->where('key_hash', $keyHash);
@@ -51,6 +52,12 @@ final readonly class EmailHttpSubmissionStore
 
                     if ($this->suppressions->containsAny($recipients)) {
                         throw new EmailRecipientSuppressed('One or more Email recipients are suppressed.');
+                    }
+                    // Planner checks its local key before handing the request to
+                    // Spinner. A Spinner callback to this same worker would block
+                    // the submission on a single-worker Planner deployment.
+                    if ($managedSigningDomain !== null && $this->dkimKeys->active($managedSigningDomain) === null) {
+                        throw new EmailSigningKeyUnavailable('Email signing key is unavailable.');
                     }
 
                     $node = $nodeNames[hexdec(substr($identityHash, 0, 7)) % count($nodeNames)];

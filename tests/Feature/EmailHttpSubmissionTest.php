@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Carbon;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
+use Webong\Gateway\Email\EmailDkimKeyStore;
 use Webong\Gateway\Protocols\GatewayEvent;
 
 final class HttpEmailSubmissionAuthenticator implements EmailSubmissionAuthenticator
@@ -31,6 +32,38 @@ beforeEach(function (): void {
     config()->set('gateway.email.submission_authenticator', HttpEmailSubmissionAuthenticator::class);
     app(\Webong\Gateway\Email\EmailRuntimePolicyStore::class)->create(['http_submission_enabled' => true]);
     config()->set('gateway.delivery_admin_url', 'http://spinner.internal:5052');
+    app(EmailDkimKeyStore::class)->ensureGenerated('example.test', 'test');
+});
+
+it('requires an active Planner DKIM key before reserving or handing off a managed submission', function (): void {
+    $keys = app(EmailDkimKeyStore::class);
+    $key = $keys->all()[0];
+    $keys->replace($key->id, ['domain' => 'example.test', 'selector' => 'test', 'enabled' => false], $key->revision);
+    Http::fake();
+
+    $headers = ['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'missing-dkim'];
+    $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())
+        ->assertServiceUnavailable()->assertJsonPath('message', 'Email signing key is unavailable.');
+    expect(DB::table('email_http_submissions')->count())->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('replays an accepted receipt after its signing key is disabled but rejects a new submission', function (): void {
+    Http::fake(fn (ClientRequest $request) => Http::response(['id' => $request['receipt_id']], 202));
+    $headers = ['Authorization' => 'Basic '.base64_encode('alice:secret'), 'Idempotency-Key' => 'signed-email-1'];
+    $id = $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())
+        ->assertAccepted()->json('id');
+    $keys = app(EmailDkimKeyStore::class);
+    $key = $keys->all()[0];
+    $keys->replace($key->id, ['domain' => 'example.test', 'selector' => 'test', 'enabled' => false], $key->revision);
+
+    $this->withHeaders($headers)->postJson('https://localhost/email/submissions', emailSubmissionBody())
+        ->assertAccepted()->assertJsonPath('id', $id);
+    $this->withHeaders(['Authorization' => $headers['Authorization'], 'Idempotency-Key' => 'signed-email-2'])
+        ->postJson('https://localhost/email/submissions', emailSubmissionBody())
+        ->assertServiceUnavailable()->assertJsonPath('message', 'Email signing key is unavailable.');
+    expect(DB::table('email_http_submissions')->count())->toBe(1);
+    Http::assertSentCount(1);
 });
 
 it('keeps HTTP submission off unless explicitly enabled', function (): void {

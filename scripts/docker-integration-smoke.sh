@@ -254,15 +254,38 @@ if [[ "$quota_status" != "201" ]]; then
     echo "Container Email submission quota setup failed: status=$quota_status body=$(<"$BODY")" >&2
     exit 1
 fi
+for signing_domain in example.test other.test; do
+    php -r '
+        $key = openssl_pkey_new(["private_key_type" => OPENSSL_KEYTYPE_RSA, "private_key_bits" => 2048]);
+        if ($key === false || !openssl_pkey_export($key, $pem)) { exit(1); }
+        file_put_contents($argv[2], json_encode([
+            "domain" => $argv[1], "selector" => "smoke", "private_key_pem" => $pem,
+        ], JSON_THROW_ON_ERROR));
+    ' "$signing_domain" "$TEMP_DIR/dkim.json"
+    dkim_status="$(curl -ksS --max-time 15 -o "$BODY" -w '%{http_code}' \
+        -X POST -H "Authorization: Bearer $REGISTRY_TOKEN" -H 'Content-Type: application/json' \
+        --data-binary @"$TEMP_DIR/dkim.json" "$BASE_URL/email/dkim-keys")"
+    if [[ "$dkim_status" != "201" ]]; then
+        echo "Container DKIM setup for $signing_domain failed: status=$dkim_status body=$(<"$BODY")" >&2
+        exit 1
+    fi
+done
 email_body="$(php -r 'echo json_encode([
     "mail_from" => "sender@example.test",
     "recipients" => ["recipient@example.test"],
     "message_base64" => base64_encode("From: sender@example.test\r\nSubject: container smoke\r\n\r\nhello"),
 ], JSON_THROW_ON_ERROR);')"
-email_status="$(curl -ksS --max-time 10 -o "$BODY" -w '%{http_code}' \
-    -u 'smoke-sender:smoke-secret' \
-    -H 'Idempotency-Key: container-email-1' -H 'Content-Type: application/json' \
-    --data "$email_body" "$BASE_URL/email/submissions")"
+email_status=""
+for _ in $(seq 1 180); do
+    email_status="$(curl -ksS --max-time 10 -o "$BODY" -w '%{http_code}' \
+        -u 'smoke-sender:smoke-secret' \
+        -H 'Idempotency-Key: container-email-1' -H 'Content-Type: application/json' \
+        --data "$email_body" "$BASE_URL/email/submissions")"
+    if [[ "$email_status" != "503" ]]; then
+        break
+    fi
+    sleep 0.5
+done
 email_id="$(php -r '$value=json_decode(file_get_contents($argv[1]), true); echo $value["id"] ?? "";' "$BODY")"
 if [[ "$email_status" != "202" || ! "$email_id" =~ ^[a-f0-9]{32}$ ]]; then
     echo "Container HTTP email submission failed: status=$email_status body=$(<"$BODY")" >&2

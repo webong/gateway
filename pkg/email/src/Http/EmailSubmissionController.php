@@ -11,6 +11,7 @@ use Throwable;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Email\EmailHttpSubmissionStore;
+use Webong\Gateway\Email\EmailSigningKeyUnavailable;
 use Webong\Gateway\Email\EmailSubmissionKeyConflict;
 use Webong\Gateway\Email\EmailSubmissionLimitExceeded;
 use Webong\Gateway\Email\EmailRecipientSuppressed;
@@ -201,10 +202,14 @@ final readonly class EmailSubmissionController
         if ($limit === null || $byteLimit === null) {
             return response()->json(['message' => 'Email submission quota policy is invalid.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }
+        $senderSeparator = strrpos($input['mail_from'], '@');
+        $managedSigningDomain = $connectionId === '' && $senderSeparator !== false
+            && $senderSeparator < strlen($input['mail_from']) - 1
+            ? strtolower(substr($input['mail_from'], $senderSeparator + 1)) : null;
         try {
             $nodes = $this->admin->nodes();
             $fingerprint = hash('sha256', json_encode([$connectionId, $sharedRouteId, $input['mail_from'], $input['recipients']], JSON_THROW_ON_ERROR)."\0".$message);
-            $reservation = $this->submissions->reserve($identity, $input['mail_from'], $input['recipients'], $key, $fingerprint, $nodes, $limit, strlen($message), $byteLimit);
+            $reservation = $this->submissions->reserve($identity, $input['mail_from'], $input['recipients'], $key, $fingerprint, $nodes, $limit, strlen($message), $byteLimit, $managedSigningDomain);
             $node = $reservation->node;
             $id = $reservation->receipt_id;
             if ($reservation->accepted_at !== null) {
@@ -225,6 +230,8 @@ final readonly class EmailSubmissionController
             return response()->json(['message' => 'Daily submission quota exceeded.'], Response::HTTP_TOO_MANY_REQUESTS);
         } catch (EmailRecipientSuppressed) {
             return response()->json(['message' => 'Recipient is suppressed.'], Response::HTTP_UNPROCESSABLE_ENTITY);
+        } catch (EmailSigningKeyUnavailable) {
+            return response()->json(['message' => 'Email signing key is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
         } catch (Throwable) {
             return response()->json(['message' => 'Email submission is unavailable.'], Response::HTTP_SERVICE_UNAVAILABLE);
         }
