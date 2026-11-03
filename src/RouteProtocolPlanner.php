@@ -111,8 +111,16 @@ class RouteProtocolPlanner implements ProtocolPlanner
 
     protected function delivery(Delivery $delivery, GatewayEvent $event): GatewayDelivery
     {
+        $contentType = '';
+        foreach ($event->headers as $name => $values) {
+            if (strcasecmp($name, 'Content-Type') === 0) {
+                $contentType = $values[0] ?? '';
+                break;
+            }
+        }
+
         return new GatewayDelivery(
-            protocol: Protocol::HTTP,
+            protocol: $delivery->protocol,
             target: $delivery->url,
             subscriberId: $delivery->subscriberId,
             headers: $delivery->headers,
@@ -121,6 +129,7 @@ class RouteProtocolPlanner implements ProtocolPlanner
                 'event_id' => $event->id,
                 'method' => $delivery->method,
                 'raw_query' => $delivery->rawQuery,
+                'content_type' => $contentType,
             ], static fn (mixed $value): bool => $value !== ''),
             payload: $delivery->body !== '' ? $delivery->body : $event->payload,
             transport: $delivery->transport,
