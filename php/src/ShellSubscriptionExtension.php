@@ -67,15 +67,16 @@ final readonly class ShellSubscriptionExtension implements SubscriptionTargetExt
 
     public function assertDefinition(SubscriptionDefinition $definition): void
     {
-        if ($definition->type !== 'reply' || $definition->target === null || $definition->profile !== null) {
-            throw new InvalidArgumentException('This subscription target supports replies without HTTP profiles.');
+        if ($definition->type !== 'reply' || $definition->targetKind !== $this->kind() || $definition->targetOptions !== []) {
+            throw new InvalidArgumentException('This subscription target supports reply hooks only.');
         }
         $hook = ShellSubscriptionTarget::hook($definition->target);
         $this->validateMetadata($definition->metadata);
     }
 
-    public function assertAllowed(string $endpointKey, string $subscriberId, string $target, array $metadata): void
+    public function assertAllowed(string $endpointKey, string $subscriberId, string $target, array $targetOptions, array $metadata, ?\Webong\Proxy\Endpoint $endpoint = null): void
     {
+        if ($targetOptions !== []) { throw new InvalidArgumentException('Shell target options are not supported.'); }
         $hook = ShellSubscriptionTarget::hook($target);
         $sshId = ShellSubscriptionTarget::sshId($target);
         $sshIdentity = $sshId === null ? null : $this->sshExecutions->publicIdentity($sshId);
@@ -95,10 +96,8 @@ final readonly class ShellSubscriptionExtension implements SubscriptionTargetExt
         $sshId = ShellSubscriptionTarget::sshId($destination->target);
 
         return [
-            'url' => null,
             'hook' => ShellSubscriptionTarget::hook($destination->target),
             'ssh' => $sshId === null ? null : $this->sshExecutions->publicIdentity($sshId),
-            'profile' => null,
         ];
     }
 
@@ -109,7 +108,7 @@ final readonly class ShellSubscriptionExtension implements SubscriptionTargetExt
 
     public function assertMutationAllowed(ResolvedSubscription $resolved, array $changes): void
     {
-        if (array_key_exists('url', $changes) || array_key_exists('profile', $changes)
+        if (array_diff(array_keys($changes), ['hook', 'type']) !== []
             || (($changes['type'] ?? null) !== null && $changes['type'] !== 'reply')) {
             throw new InvalidArgumentException('This subscription target accepts only reply-target updates.');
         }
@@ -139,6 +138,21 @@ final readonly class ShellSubscriptionExtension implements SubscriptionTargetExt
         return ShellSubscriptionTarget::encode($hook);
     }
 
+    public function createTargetOptions(array $input): array
+    {
+        return [];
+    }
+
+    public function updateTargetOptions(ResolvedSubscription $resolved, array $changes): array
+    {
+        return [];
+    }
+
+    public function allowsAccountCredentials(string $operation, string $type): bool
+    {
+        return false;
+    }
+
     public function validateMetadata(array $metadata): void
     {
         foreach (array_keys($metadata) as $key) {
@@ -151,7 +165,7 @@ final readonly class ShellSubscriptionExtension implements SubscriptionTargetExt
 
     public function canReuseReply(SubscriptionDefinition $definition, DestinationRecord $existing): bool
     {
-        return ShellSubscriptionTarget::sshId($definition->target ?? '') === null
+        return ShellSubscriptionTarget::sshId($definition->target) === null
             && ShellSubscriptionTarget::sshId($existing->target) === null;
     }
 
@@ -160,7 +174,7 @@ final readonly class ShellSubscriptionExtension implements SubscriptionTargetExt
         return $protocol === 'http';
     }
 
-    public function plan(DestinationRecord $destination, string $endpointKey, string $protocol): SubscriptionAutomationPlan
+    public function plan(DestinationRecord $destination, string $endpointKey, string $protocol): ?SubscriptionAutomationPlan
     {
         if (! $this->supportsProtocol($protocol)) {
             throw new InvalidArgumentException('This subscription target does not support this ingress protocol.');
