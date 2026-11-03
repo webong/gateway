@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
@@ -25,9 +26,15 @@ type configuration struct {
 	Webstream webstreamConfiguration `json:"webstream"`
 }
 
+type serviceRuntime struct {
+	mu              sync.RWMutex
+	deliveryAdapter runtimecontract.GatewayDeliveryAdapter
+}
+
 type webSocketConfiguration struct {
-	MaxConnections int `json:"max_connections"`
-	MaxDurationMS  int `json:"max_duration_ms"`
+	MaxConnections              int      `json:"max_connections"`
+	MaxDurationMS               int      `json:"max_duration_ms"`
+	OutboundPrivateNetworkCIDRs []string `json:"outbound_private_network_cidrs,omitempty"`
 }
 
 type webstreamConfiguration struct {
@@ -39,17 +46,26 @@ type webstreamConfiguration struct {
 }
 
 func main() {
-	if err := runtimecontract.ServeRuntime(context.Background(), runtimecontract.RuntimeStarterFunc(start)); err != nil {
+	runtime := &serviceRuntime{}
+	if err := runtimecontract.ServeRuntimeWithHandler(context.Background(),
+		runtimecontract.RuntimeStarterFunc(runtime.start), runtimecontract.RuntimeOperationHandlerFunc(runtime.handle)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func start(_ context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
+func (runtime *serviceRuntime) start(_ context.Context, request runtimecontract.RuntimeStartRequest, caller plugin.ReverseCaller) (runtimecontract.RuntimeStartResponse, error) {
 	configured, err := decodeConfiguration(request.Configuration)
 	if err != nil {
 		return runtimecontract.RuntimeStartResponse{}, err
 	}
+	deliveryAdapter, err := websocket.NewDeliveryAdapter(configured.WebSocket.OutboundPrivateNetworkCIDRs)
+	if err != nil {
+		return runtimecontract.RuntimeStartResponse{}, err
+	}
+	runtime.mu.Lock()
+	runtime.deliveryAdapter = deliveryAdapter
+	runtime.mu.Unlock()
 	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
 	edge := web.NewEdge(host.Planner(), host.Executor(), request.MaxBodySize).
 		SetAutomationExecutor(host.Automation()).
@@ -90,7 +106,36 @@ func start(_ context.Context, request runtimecontract.RuntimeStartRequest, calle
 	}()
 	return runtimecontract.RuntimeStartResponse{HTTP: []runtimecontract.HTTPMount{{
 		Prefix: "/", Address: "http://" + listener.Addr().String(),
-	}}}, nil
+	}}, DeliveryAdapters: []string{"websocket"}}, nil
+}
+
+func (runtime *serviceRuntime) handle(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+	if request.Contract != runtimecontract.DeliveryAdapterContract || request.Operation != runtimecontract.OperationDeliverAdapter {
+		return nil, plugin.ErrUnsupported
+	}
+	var input runtimecontract.DeliveryAdapterRequest
+	if err := plugin.Decode(request.Payload, &input); err != nil || input.Adapter != "websocket" || input.Delivery.Validate() != nil || input.Delivery.AdapterName() != input.Adapter {
+		return nil, plugin.ErrInvalid
+	}
+	runtime.mu.RLock()
+	adapter := runtime.deliveryAdapter
+	runtime.mu.RUnlock()
+	if adapter == nil {
+		return nil, plugin.ErrUnsupported
+	}
+	err := adapter.DeliverGateway(ctx, input.Delivery)
+	response := runtimecontract.DeliveryAdapterResponse{}
+	if err != nil {
+		switch {
+		case errors.Is(err, runtimecontract.ErrPermanentDelivery):
+			response.Failure = runtimecontract.AdapterFailurePermanent
+		case errors.Is(err, runtimecontract.ErrUncertainDelivery):
+			response.Failure = runtimecontract.AdapterFailureUncertain
+		default:
+			response.Failure = runtimecontract.AdapterFailureTransient
+		}
+	}
+	return json.Marshal(response)
 }
 
 func decodeConfiguration(raw json.RawMessage) (configuration, error) {

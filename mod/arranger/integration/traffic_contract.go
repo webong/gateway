@@ -99,9 +99,11 @@ func (a Automation) Validate() error {
 	return nil
 }
 
-// Delivery describes a destination resolved by PHP. Go still applies its
-// outbound HTTP and DNS policy when it performs the delivery.
+// Delivery describes a destination resolved by PHP. Protocol and Adapter
+// select egress; empty values preserve the original HTTP-only v1 behavior.
 type Delivery struct {
+	Protocol     Protocol            `json:"protocol,omitempty"`
+	Adapter      string              `json:"adapter,omitempty"`
 	ID           string              `json:"id,omitempty"`
 	EventID      string              `json:"event_id,omitempty"`
 	SubscriberID string              `json:"subscriber_id,omitempty"`
@@ -154,9 +156,9 @@ type ProtocolPlanner interface {
 	PlanEvent(context.Context, GatewayEvent) (GatewayDecision, error)
 }
 
-// GatewayExecutor executes protocol-neutral deliveries resolved by PHP. The
-// current transport implementation accepts HTTP destinations; other network
-// protocols can add their own executor without changing the event contract.
+// GatewayExecutor accepts protocol-neutral deliveries resolved by PHP.
+// Runtime Extensions advertise the delivery adapters that execute each egress
+// protocol without changing this contract.
 type GatewayExecutor interface {
 	EnqueueGateway(GatewayDelivery) bool
 }
@@ -295,6 +297,29 @@ func (d Delivery) Validate() error {
 	if strings.TrimSpace(d.URL) == "" {
 		return fmt.Errorf("%w: URL is required", ErrInvalidDelivery)
 	}
+	protocol := d.EgressProtocol()
+	if err := protocol.Validate(); err != nil {
+		return fmt.Errorf("%w: protocol: %v", ErrInvalidDelivery, err)
+	}
+	target, err := url.Parse(d.URL)
+	if err != nil || target.Host == "" || target.User != nil || target.Fragment != "" {
+		return fmt.Errorf("%w: target URL is invalid", ErrInvalidDelivery)
+	}
+	switch protocol {
+	case ProtocolHTTP:
+		if target.Scheme != "http" && target.Scheme != "https" {
+			return fmt.Errorf("%w: HTTP delivery requires an HTTP(S) URL", ErrInvalidDelivery)
+		}
+	case ProtocolWebSocket:
+		if target.Scheme != "ws" && target.Scheme != "wss" {
+			return fmt.Errorf("%w: WebSocket delivery requires a WS(S) URL", ErrInvalidDelivery)
+		}
+	default:
+		return fmt.Errorf("%w: unsupported route delivery protocol %q", ErrInvalidDelivery, protocol)
+	}
+	if d.Adapter != "" && !validAdapterName(d.Adapter) {
+		return fmt.Errorf("%w: invalid adapter %q", ErrInvalidDelivery, d.Adapter)
+	}
 	if d.Method != "" {
 		if _, ok := allowedMethods[strings.ToUpper(d.Method)]; !ok {
 			return fmt.Errorf("%w: unsupported method %q", ErrInvalidDelivery, d.Method)
@@ -306,6 +331,20 @@ func (d Delivery) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (d Delivery) EgressProtocol() Protocol {
+	if d.Protocol == "" {
+		return ProtocolHTTP
+	}
+	return d.Protocol
+}
+
+func (d Delivery) AdapterName() string {
+	if d.Adapter != "" {
+		return d.Adapter
+	}
+	return string(d.EgressProtocol())
 }
 
 func (t HTTPTransport) Validate() error {

@@ -51,6 +51,10 @@ final readonly class Delivery
         if (array_key_exists('transport', $payload) && ! is_array($payload['transport'])) {
             throw new InvalidArgumentException('Delivery transport must be an object.');
         }
+        $protocol = Protocol::tryFrom((string) ($payload['protocol'] ?? Protocol::HTTP->value));
+        if ($protocol === null) {
+            throw new InvalidArgumentException('Delivery protocol is unsupported.');
+        }
 
         return new self(
             url: trim((string) $payload['url']),
@@ -63,6 +67,7 @@ final readonly class Delivery
             transport: isset($payload['transport'])
                 ? HttpTransport::fromArray($payload['transport'])
                 : null,
+            protocol: $protocol,
         );
     }
 
@@ -78,6 +83,7 @@ final readonly class Delivery
             'headers' => $this->headers,
             'body' => base64_encode($this->body),
             'transport' => $this->transport?->toArray(),
+            'protocol' => $this->protocol === Protocol::HTTP ? null : $this->protocol->value,
         ], static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
     }
 
@@ -88,8 +94,14 @@ final readonly class Delivery
         }
 
         $parsed = parse_url($this->url);
-        if (! is_array($parsed) || ! in_array($parsed['scheme'] ?? null, ['http', 'https'], true) || ($parsed['host'] ?? '') === '') {
-            throw new InvalidArgumentException('Relay delivery URL must be an HTTP(S) URL.');
+        $schemes = match ($this->protocol) {
+            Protocol::HTTP => ['http', 'https'],
+            Protocol::WEBSOCKET => ['ws', 'wss'],
+            default => [],
+        };
+        if (! is_array($parsed) || ! in_array($parsed['scheme'] ?? null, $schemes, true)
+            || ($parsed['host'] ?? '') === '' || isset($parsed['user']) || isset($parsed['fragment'])) {
+            throw new InvalidArgumentException('Relay delivery URL does not match its egress protocol.');
         }
 
         if ($this->method !== '' && ! in_array($this->method, [

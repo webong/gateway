@@ -202,11 +202,56 @@ status is ready.
 
 ### WebSocket
 
-Enable the webong/web add-on. Create an endpoint and destination as in the
-Webhook example, but point the destination to your application's WebSocket
-route. Clients connect to the same Gateway host and matching route using wss://.
-Configure your TLS proxy to allow WebSocket upgrades. Test with a real client
-and confirm the application receives the connection.
+Enable the webong/web add-on. Gateway supports both WebSocket ingress and
+WebSocket delivery targets:
+
+- WebSocket clients can connect to Gateway at a configured route. Gateway sends
+  connection, message, and close events to Planner; an `http` subscription can
+  deliver those events to an application callback.
+- An HTTP route can deliver each matching event to your application's
+  WebSocket server by creating a `websocket` subscription target. Gateway dials
+  the configured `ws://` or `wss://` address, sends the HTTP request body as one
+  WebSocket frame, and closes that connection. This is an asynchronous `relay`
+  target, not an HTTP `reply` target.
+
+For example, after creating the `orders` endpoint and granting the route to an
+account, register a WebSocket destination for the same ingress path:
+
+~~~sh
+curl -fsS -X POST "$GATEWAY_URL/registry/endpoints/orders/subscriptions" \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{
+    "subscriber_id":"orders-realtime",
+    "subscription_id":"orders-realtime",
+    "type":"relay",
+    "webhook_group":"orders",
+    "routing_scope":"path",
+    "routing_key":"/hooks/orders",
+    "target_kind":"websocket",
+    "url":"wss://realtime.example.net/gateway/orders"
+  }'
+~~~
+
+The application must accept outbound WebSocket connections from Gateway.
+Gateway sends the original HTTP body as a text frame for textual content types
+and uses valid UTF-8 as a fallback when the content type is missing or invalid;
+otherwise it sends a binary frame. It includes
+`X-Gateway-Event-ID` in the handshake so the application can deduplicate
+retries. A lost connection after the server receives a frame can still result
+in an uncertain outcome. Gateway stops automatic retries in that case because
+the application may already have processed the frame. If callers replay an
+ingress event, the application can use the event ID to deduplicate it.
+
+Use the subscription's endpoint-scoped `profile` to supply handshake headers
+such as an authorization token. Gateway never forwards the incoming HTTP
+request's authorization headers into the WebSocket handshake. Profiles that
+configure an HTTP proxy are rejected for this target because the proxy could
+bypass Gateway's destination network checks. Public target addresses are
+allowed by default. To dial private application addresses, add
+the permitted ranges to the Planner-managed
+`configuration.websocket.outbound_private_network_cidrs` setting on the active
+`webong/web` extension.
 
 ### Webstream (SSE)
 

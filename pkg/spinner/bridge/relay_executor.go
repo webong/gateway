@@ -62,6 +62,9 @@ func NewRelayExecutor(forwarder *forwarding.Forwarder, workerPool *workers.Worke
 }
 
 func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Response, error) {
+	if delivery.EgressProtocol() != ProtocolHTTP || delivery.AdapterName() != string(ProtocolHTTP) {
+		return Response{}, errors.New("synchronous reply delivery supports HTTP targets only")
+	}
 	response, err := e.forwarder.ForwardSync(forwarding.ForwardRequest{
 		TargetURL:   delivery.URL,
 		RequestBody: append([]byte(nil), delivery.Body...),
@@ -86,20 +89,40 @@ func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 	if e == nil || delivery.Validate() != nil {
 		return false
 	}
+	method := delivery.Method
+	if method == "" {
+		method = http.MethodGet
+	}
 	if e.queue != nil {
-		method := delivery.Method
-		if method == "" {
-			method = http.MethodGet
-		}
 		return e.queue.EnqueueGateway(GatewayDelivery{
-			Protocol: ProtocolHTTP, Target: delivery.URL, SubscriberID: delivery.SubscriberID,
+			Protocol: delivery.EgressProtocol(), Adapter: delivery.Adapter, Target: delivery.URL, SubscriberID: delivery.SubscriberID,
 			Headers: cloneRelayHeaders(delivery.Headers), Payload: append([]byte(nil), delivery.Body...),
-			Attributes: map[string]string{"method": method, "raw_query": delivery.RawQuery, "destination_id": delivery.ID, "event_id": delivery.EventID},
+			Attributes: deliveryAttributes(delivery, method),
 			Transport:  delivery.Transport,
 		}) == nil
 	}
 	if e.workerPool == nil {
 		return false
+	}
+	if delivery.EgressProtocol() != ProtocolHTTP || delivery.AdapterName() != string(ProtocolHTTP) {
+		adapter := e.adapters[delivery.AdapterName()]
+		if adapter == nil {
+			return false
+		}
+		gatewayDelivery := GatewayDelivery{
+			Protocol: delivery.EgressProtocol(), Adapter: delivery.Adapter, Target: delivery.URL,
+			SubscriberID: delivery.SubscriberID, Headers: cloneRelayHeaders(delivery.Headers),
+			Attributes: deliveryAttributes(delivery, method), Payload: append([]byte(nil), delivery.Body...),
+			Transport: delivery.Transport,
+		}
+		return e.workerPool.SubmitTask(workers.Task{
+			Label: strings.ToLower(delivery.AdapterName()) + ":" + delivery.URL,
+			Run: func() error {
+				ctx, cancel := context.WithTimeout(context.Background(), e.timeout)
+				defer cancel()
+				return adapter.DeliverGateway(ctx, gatewayDelivery)
+			},
+		})
 	}
 	return e.workerPool.Submit(forwarding.ForwardRequest{
 		TargetURL:   delivery.URL,
@@ -109,6 +132,20 @@ func (e *RelayExecutor) Enqueue(delivery Delivery) bool {
 		Headers:     cloneRelayHeaders(delivery.Headers),
 		Transport:   forwardTransport(delivery.Transport),
 	})
+}
+
+func deliveryAttributes(delivery Delivery, method string) map[string]string {
+	attributes := map[string]string{
+		"method": method, "raw_query": delivery.RawQuery,
+		"destination_id": delivery.ID, "event_id": delivery.EventID,
+	}
+	for name, values := range delivery.Headers {
+		if strings.EqualFold(name, "Content-Type") && len(values) > 0 {
+			attributes["content_type"] = values[0]
+			break
+		}
+	}
+	return attributes
 }
 
 func forwardTransport(transport *HTTPTransport) forwarding.HTTPTransport {
