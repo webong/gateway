@@ -7,7 +7,7 @@
   "additionalProperties": true,
   "required": [
     "subscriber_id",
-    "webhook_group",
+    "group",
     "routing_scope",
     "routing_key"
   ],
@@ -26,7 +26,7 @@
       ],
       "default": "relay"
     },
-    "webhook_group": {
+    "group": {
       "$ref": "#/$defs/requiredIdentifier"
     },
     "routing_scope": {

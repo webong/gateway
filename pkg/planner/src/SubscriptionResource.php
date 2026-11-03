@@ -36,7 +36,7 @@ final readonly class SubscriptionResource
             'subscriber_id' => $this->subscriberId(),
             'subscription_id' => $this->destination->registration_id,
             'type' => $this->type(),
-            'webhook_group' => $this->destination->webhook_group,
+            'group' => $this->destination->webhook_group,
             'routing_scope' => $this->destination->routing_scope,
             'routing_key' => $this->destination->routing_key,
             'target_kind' => $extension->kind(),

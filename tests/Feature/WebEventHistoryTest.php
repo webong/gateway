@@ -91,7 +91,7 @@ it('does not record ordinary HTTP routes as Webhook events', function (): void {
     $key = webHistoryEndpoint();
     app(SubscribeEndpoint::class)->handle($key, new SubscriptionDefinition(
         subscriberId: 'application', subscriptionId: 'ordinary-http-target',
-        webhookGroup: 'application', routingScope: 'application', routingKey: 'app-123',
+        group: 'application', routingScope: 'application', routingKey: 'app-123',
         targetKind: 'http', target: 'https://application.example.test/receive',
         match: MatchRules::any(),
     ));

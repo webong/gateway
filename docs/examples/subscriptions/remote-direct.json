@@ -2,7 +2,7 @@
   "subscriber_id": "audit-direct",
   "subscription_id": "audit-direct-messages",
   "type": "relay",
-  "webhook_group": "meta",
+  "group": "meta",
   "routing_scope": "application",
   "routing_key": "app-123",
   "url": "https://direct-subscriber.example.test/webhooks/meta",

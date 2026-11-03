@@ -237,7 +237,7 @@ curl -sS --max-time 5 -D "$HEADERS" -o "$BODY" \
     -X POST \
     -H "Authorization: Bearer $REGISTRY_TOKEN" \
     -H 'Content-Type: application/json' \
-    --data "{\"subscriber_id\":\"http-smoke-subscriber\",\"subscription_id\":\"http-smoke-subscription\",\"webhook_group\":\"http-smoke\",\"routing_scope\":\"application\",\"routing_key\":\"app-123\",\"url\":\"$PHP_URL/http-smoke/receiver\",\"match\":{\"version\":\"v1\",\"rules\":{\"body.event\":[\"required\",\"in:registry\"]}}}" \
+    --data "{\"subscriber_id\":\"http-smoke-subscriber\",\"subscription_id\":\"http-smoke-subscription\",\"group\":\"http-smoke\",\"routing_scope\":\"application\",\"routing_key\":\"app-123\",\"url\":\"$PHP_URL/http-smoke/receiver\",\"match\":{\"version\":\"v1\",\"rules\":{\"body.event\":[\"required\",\"in:registry\"]}}}" \
     "$RELAY_URL/registry/endpoints/$endpoint_key/subscriptions"
 subscription_status="$(awk '/^HTTP\// { status = $2 } END { print status }' "$HEADERS")"
 subscription_etag="$(awk 'tolower($1) == "etag:" { sub(/\r$/, "", $2); print $2; exit }' "$HEADERS")"

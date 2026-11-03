@@ -139,7 +139,7 @@ it('routes DNS subscriptions and exposes query history and usage', function (): 
             'subscriber_id' => 'workspace-42',
             'subscription_id' => 'workspace-42-dns',
             'type' => 'relay',
-            'webhook_group' => 'dns',
+            'group' => 'dns',
             'routing_scope' => 'dns',
             'routing_key' => 'query',
             'url' => 'https://subscriber.example.test/dns',

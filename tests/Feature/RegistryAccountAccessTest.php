@@ -41,7 +41,7 @@ it('lets an account manage only its subscriptions on endpoints granted by the Ga
     $subscriptionPath = '/registry/endpoints/'.$endpoint.'/subscriptions';
     $base = [
         'type' => 'relay',
-        'webhook_group' => 'orders',
+        'group' => 'orders',
         'routing_scope' => 'path',
         'routing_key' => '/hooks/shared-events',
     ];
@@ -146,7 +146,7 @@ it('rotates an account credential and invalidates the old token', function (): v
 
     $subscription = [
         'subscription_id' => 'rotating-client-events',
-        'webhook_group' => 'events',
+        'group' => 'events',
         'routing_scope' => 'path',
         'routing_key' => '/hooks/rotating-events',
         'url' => 'https://rotating-client.example.test/events',

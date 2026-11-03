@@ -20,7 +20,7 @@ final readonly class SubscriptionDefinition
     public function __construct(
         public string $subscriberId,
         public string $subscriptionId,
-        public string $webhookGroup,
+        public string $group,
         public string $routingScope,
         public string $routingKey,
         public string $targetKind,
@@ -50,7 +50,7 @@ final readonly class SubscriptionDefinition
         return new DestinationDefinition(
             ownerId: $this->subscriberId,
             registrationId: $this->subscriptionId,
-            webhookGroup: $this->webhookGroup,
+            webhookGroup: $this->group,
             routingScope: $this->routingScope,
             routingKey: $this->routingKey,
             target: $this->target,
@@ -65,7 +65,7 @@ final readonly class SubscriptionDefinition
         foreach ([
             'subscriber ID' => $this->subscriberId,
             'subscription ID' => $this->subscriptionId,
-            'webhook group' => $this->webhookGroup,
+            'group' => $this->group,
             'routing scope' => $this->routingScope,
             'routing key' => $this->routingKey,
             'target kind' => $this->targetKind,

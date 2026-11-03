@@ -88,6 +88,53 @@ it('registers endpoints through the PHP-owned registry API', function (): void {
         ->and(WebProxyEndpoint::query()->where('endpoint_key', $endpointKey)->exists())->toBeTrue();
 });
 
+it('manages HTTP and Webhook route kinds through the endpoint CMS', function (): void {
+    $input = [
+        'client' => 'relay-test', 'external_id' => 'route-kind-endpoint',
+        'endpoint_key' => 'route-kind-endpoint', 'credential_owner_id' => 'endpoint-owner',
+        'route_kind' => 'http', 'metadata' => ['_gateway' => ['capture_body' => true]],
+    ];
+    $created = $this->withToken('registry-secret')->postJson('/registry/endpoints', $input)
+        ->assertCreated()->assertJsonPath('route_kind', 'http')
+        ->assertJsonPath('metadata._gateway.capture_body', true);
+    $key = $created->json('endpoint_key');
+    expect($created->json('metadata._gateway.route_kind'))->toBeNull();
+    TestPathResolver::$endpointKey = $key;
+
+    $this->withToken('invalid')->getJson('/registry/endpoints/'.$key)->assertUnauthorized();
+    $this->withToken('registry-secret')->getJson('/registry/endpoints/'.$key)
+        ->assertOk()->assertJsonPath('route_kind', 'http');
+    $this->withToken('registry-secret')->patchJson('/registry/endpoints/'.$key, ['route_kind' => 'missing'])
+        ->assertUnprocessable();
+    $this->withToken('registry-secret')->postJson('/registry/endpoints', [
+        ...$input, 'metadata' => ['_gateway' => ['route_kind' => 'webhook']],
+    ])->assertUnprocessable();
+
+    $request = new IngressRequest(
+        deliveryId: 'route-kind-request', method: 'POST', host: 'relay.example.test',
+        path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
+    );
+    $planner = app(CapabilityAwareRoutePlanner::class);
+    expect($planner->plan($request)->metadata)->not->toHaveKey('route_kind');
+    $socketRequest = new IngressRequest(
+        deliveryId: 'route-kind-socket', method: 'POST', host: 'relay.example.test',
+        path: '/provider/events/app-123', rawQuery: '', headers: [], body: '{}',
+        protocol: 'websocket',
+    );
+    expect(app(RegistryRouteCache::class)->resolvePath(
+        app(\Webong\Gateway\Contracts\PathResolver::class), $socketRequest,
+    )?->kind)->toBe('webhook');
+
+    $this->withToken('registry-secret')->patchJson('/registry/endpoints/'.$key, ['route_kind' => 'webhook'])
+        ->assertOk()->assertJsonPath('route_kind', 'webhook');
+    expect($planner->plan($request)->metadata['route_kind'])->toBe('webhook');
+    $upsert = $input;
+    unset($upsert['route_kind']);
+    $upsert['metadata'] = ['environment' => 'test'];
+    $this->withToken('registry-secret')->postJson('/registry/endpoints', $upsert)
+        ->assertCreated()->assertJsonPath('route_kind', 'webhook');
+});
+
 it('does not expose the old package-prefixed registry API', function (): void {
     $this->withToken('registry-secret')
         ->postJson('/gateway/endpoints/legacy/subscriptions', [])
@@ -103,7 +150,7 @@ it('registers the canonical match rules through remote HTTP JSON', function (): 
             'subscriber_id' => 'workspace-42',
             'subscription_id' => 'workspace-42-messages',
             'type' => 'relay',
-            'webhook_group' => 'meta',
+            'group' => 'meta',
             'routing_scope' => 'application',
             'routing_key' => 'app-123',
             'url' => 'https://subscriber.example.test/webhooks/meta',
@@ -119,7 +166,15 @@ it('registers the canonical match rules through remote HTTP JSON', function (): 
 
     $response->assertCreated()
         ->assertHeader('ETag', SubscriptionState::etag($response->json('revision')))
-        ->assertJsonPath('status', 'active');
+        ->assertJsonPath('status', 'active')
+        ->assertJsonPath('group', 'meta');
+    expect($response->json())->not->toHaveKey('webhook_group');
+    $this->withToken('registry-secret')->postJson(
+        '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
+        ['subscriber_id' => 'old-client', 'webhook_group' => 'meta',
+            'routing_scope' => 'application', 'routing_key' => 'app-123',
+            'url' => 'https://old.example.test/hook'],
+    )->assertUnprocessable();
     expect($response->json('match.rules'))->toBe([
         'headers.x-event-type' => ['required', 'in:message.created'],
         'body.account.id' => ['required', 'in:account-42'],
@@ -198,7 +253,7 @@ it('resolves an endpoint network profile into the Go delivery contract', functio
         '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
         [
             'subscriber_id' => 'profiled-subscriber',
-            'webhook_group' => 'meta',
+            'group' => 'meta',
             'routing_scope' => 'application',
             'routing_key' => 'app-123',
             'url' => 'https://profiled.example.test/hook',
@@ -260,7 +315,7 @@ it('rejects a subscription that selects an unavailable network profile', functio
         '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
         [
             'subscriber_id' => 'profiled-subscriber',
-            'webhook_group' => 'meta',
+            'group' => 'meta',
             'routing_scope' => 'application',
             'routing_key' => 'app-123',
             'url' => 'https://profiled.example.test/hook',
@@ -775,7 +830,7 @@ it('rejects unsafe rules from a remote subscriber', function (): void {
         '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
         [
             'subscriber_id' => 'workspace-42',
-            'webhook_group' => 'meta',
+            'group' => 'meta',
             'routing_scope' => 'application',
             'routing_key' => 'app-123',
             'url' => 'https://subscriber.example.test/webhooks/meta',
@@ -791,7 +846,7 @@ it('rejects unsafe rules from a remote subscriber', function (): void {
         '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
         [
             'subscriber_id' => 'workspace-42',
-            'webhook_group' => 'meta',
+            'group' => 'meta',
             'routing_scope' => 'application',
             'routing_key' => 'app-123',
             'url' => 'https://subscriber.example.test/webhooks/meta',
@@ -820,7 +875,7 @@ it('registers a Shell reply, selects its hook, and manages its lifecycle', funct
         'type' => 'reply',
         'target_kind' => 'shell',
         'hook' => 'github/deploy',
-        'webhook_group' => 'meta',
+        'group' => 'meta',
         'routing_scope' => 'application',
         'routing_key' => 'app-123',
         'match' => ['version' => 'v1', 'rules' => ['body.account.id' => ['in:account-42']]],
@@ -895,7 +950,7 @@ it('registers an SSH Shell reply without exposing its write-only credential', fu
     $input = [
         'subscriber_id' => 'shell-owner', 'subscription_id' => 'ssh-deploy',
         'type' => 'reply', 'target_kind' => 'shell', 'hook' => 'github/deploy',
-        'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
         'ssh' => [
             'host' => 'worker.example.test', 'port' => 22, 'user' => 'gateway',
             'host_public_key' => $hostKey,
@@ -944,7 +999,7 @@ it('rotates and revokes an SSH Shell credential through authenticated subscripti
     $created = $this->withToken('registry-secret')->postJson($route, [
         'subscriber_id' => 'shell-owner', 'subscription_id' => 'ssh-deploy',
         'type' => 'reply', 'target_kind' => 'shell', 'hook' => 'github/deploy',
-        'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
         'ssh' => ['host' => 'worker.example.test', 'user' => 'gateway',
             'host_public_key' => 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK5kAfyNpppj3EYei3vB4jC6TMMgrW9P3xOaUbE5bciE',
             'private_key' => $firstKey],
@@ -989,7 +1044,7 @@ it('shares reply cardinality between HTTP and Shell subscriptions', function ():
     ]);
     $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
     $base = [
-        'webhook_group' => 'meta',
+        'group' => 'meta',
         'routing_scope' => 'application',
         'routing_key' => 'app-123',
         'type' => 'reply',
@@ -1024,7 +1079,7 @@ it('keeps HTTP relay fan-out alongside a Shell reply and requires Spinner capabi
     grantShellHooks($endpoint->record->endpoint_key, ['shell-owner' => ['github/deploy']]);
     $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
     $base = [
-        'webhook_group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
     ];
     $this->withToken('registry-secret')->postJson($route, [
         ...$base, 'subscriber_id' => 'shell-owner', 'type' => 'reply',
@@ -1057,7 +1112,7 @@ it('offers the same Shell reply definition to trusted PHP callers', function ():
         ShellReplySubscription::make(
             subscriberId: 'php-owner',
             subscriptionId: 'php-deploy',
-            webhookGroup: 'meta',
+            group: 'meta',
             routingScope: 'application',
             routingKey: 'app-123',
             hook: 'github/deploy.ps1',
@@ -1081,7 +1136,7 @@ it('rejects unsafe Shell reply registrations and hook changes', function (): voi
         'type' => 'reply',
         'target_kind' => 'shell',
         'hook' => 'github/deploy',
-        'webhook_group' => 'meta',
+        'group' => 'meta',
         'routing_scope' => 'application',
         'routing_key' => 'app-123',
     ];

@@ -167,7 +167,7 @@ curl -ksS --max-time 15 -D "$HEADERS" -o "$BODY" \
     -X POST \
     -H "Authorization: Bearer $REGISTRY_TOKEN" \
     -H 'Content-Type: application/json' \
-    --data '{"subscriber_id":"container-subscriber","subscription_id":"container-subscription","webhook_group":"container-smoke","routing_scope":"application","routing_key":"app-123","url":"http://planner:8080/http-smoke/receiver","match":{"version":"v1","rules":{"body.event":["required","in:container"]}}}' \
+    --data '{"subscriber_id":"container-subscriber","subscription_id":"container-subscription","group":"container-smoke","routing_scope":"application","routing_key":"app-123","url":"http://planner:8080/http-smoke/receiver","match":{"version":"v1","rules":{"body.event":["required","in:container"]}}}' \
     "$BASE_URL/registry/endpoints/$endpoint_key/subscriptions"
 
 subscription_status="$(awk '/^HTTP\// { status = $2 } END { print status }' "$HEADERS")"

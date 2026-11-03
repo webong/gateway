@@ -2,7 +2,7 @@
   "subscriber_id": "audit-proxied",
   "subscription_id": "audit-proxied-messages",
   "type": "relay",
-  "webhook_group": "meta",
+  "group": "meta",
   "routing_scope": "application",
   "routing_key": "app-123",
   "url": "https://proxied-subscriber.example.test/webhooks/meta",

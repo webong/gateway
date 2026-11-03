@@ -19,7 +19,8 @@ observation behavior.
 
 ## Consequences
 
-The Planner's existing subscription storage still uses `webhook_group` and
-`webong/proxy` records. Those persisted fields remain compatible and are not a
-signal that every HTTP request is a Webhook. A later storage migration can
-rename the generic group field without changing route-kind dispatch.
+Planner exposes `group` in its subscription API. The current `webong/proxy`
+storage adapter still writes that value to its `webhook_group` column; the
+storage name is never exposed as the public subscription field. Planner stores
+endpoint `route_kind` in existing endpoint metadata and exposes it through
+`/registry/endpoints` management, so no route-kind table is required.

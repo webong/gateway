@@ -314,7 +314,7 @@ if [[ "$WITH_WEBSTREAM" == true ]]; then
     if [[ $(tls_status -X POST "$TLS_URL/registry/endpoints/planner-tls-smoke/subscriptions" \
         -H "Authorization: Bearer $REGISTRY_TOKEN" \
         -H 'Content-Type: application/json' \
-        --data '{"subscriber_id":"webstream-smoke","type":"reply","webhook_group":"webstream-smoke","routing_scope":"path","routing_key":"/hooks/planner-tls-smoke","url":"http://webstream-source:8080/events"}') != 201 ]]; then
+        --data '{"subscriber_id":"webstream-smoke","type":"reply","group":"webstream-smoke","routing_scope":"path","routing_key":"/hooks/planner-tls-smoke","url":"http://webstream-source:8080/events"}') != 201 ]]; then
         echo 'Production Planner could not register the private Webstream fixture as a reply source.' >&2
         exit 1
     fi

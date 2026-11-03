@@ -152,6 +152,25 @@ curl -fsS -H "Authorization: Bearer $REGISTRY_TOKEN" \
   "$GATEWAY_URL/deliveries?state=failed&limit=50"
 ~~~
 
+Planner also manages how an endpoint treats HTTP requests. Existing endpoints
+use the `webhook` route kind. Set `route_kind` to `http` on endpoint creation,
+or change it later with the management API:
+
+~~~sh
+curl -fsS -H "Authorization: Bearer $REGISTRY_TOKEN" \
+  "$GATEWAY_URL/registry/endpoints/orders"
+
+curl -fsS -X PATCH "$GATEWAY_URL/registry/endpoints/orders" \
+  -H "Authorization: Bearer $REGISTRY_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"route_kind":"http"}'
+~~~
+
+Both route kinds can select subscriptions and HTTP targets. `webhook` uses the
+Web extension's event policy and history; `http` uses core Planner routing.
+Unbound paths pass through to the configured HTTP host. The management token
+is required to change an endpoint's route kind.
+
 A subscription created with the command above accepts all events for that
 endpoint. For production, use matching rules to limit which events reach each
 receiver. See the [third-party app setup walkthrough](third-party-subscription-guide.md),
@@ -225,7 +244,7 @@ curl -fsS -X POST "$GATEWAY_URL/registry/endpoints/orders/subscriptions" \
     "subscriber_id":"orders-realtime",
     "subscription_id":"orders-realtime",
     "type":"relay",
-    "webhook_group":"orders",
+    "group":"orders",
     "routing_scope":"path",
     "routing_key":"/hooks/orders",
     "target_kind":"websocket",

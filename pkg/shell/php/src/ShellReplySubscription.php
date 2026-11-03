@@ -13,7 +13,7 @@ final class ShellReplySubscription
     public static function make(
         string $subscriberId,
         string $subscriptionId,
-        string $webhookGroup,
+        string $group,
         string $routingScope,
         string $routingKey,
         string $hook,
@@ -24,7 +24,7 @@ final class ShellReplySubscription
         return new SubscriptionDefinition(
             subscriberId: $subscriberId,
             subscriptionId: $subscriptionId,
-            webhookGroup: $webhookGroup,
+            group: $group,
             routingScope: $routingScope,
             routingKey: $routingKey,
             match: MatchRules::make($rules),

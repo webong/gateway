@@ -39,7 +39,7 @@ final readonly class SubscriptionController
 
         $targetRules = $extension->creationRules();
         $allowed = [
-            'subscriber_id', 'subscription_id', 'type', 'webhook_group', 'routing_scope',
+            'subscriber_id', 'subscription_id', 'type', 'group', 'routing_scope',
             'routing_key', 'target_kind', 'channel', 'metadata', 'match', ...array_keys($targetRules),
         ];
         if (array_diff(array_keys($input), $allowed) !== []) {
@@ -53,7 +53,7 @@ final readonly class SubscriptionController
             'subscriber_id' => $principal->isOperator() ? ['required', 'string', 'max:255'] : ['sometimes', 'string', 'max:255'],
             'subscription_id' => ['sometimes', 'string', 'max:255'],
             'type' => ['sometimes', 'in:relay,reply'],
-            'webhook_group' => ['required', 'string', 'max:255'],
+            'group' => ['required', 'string', 'max:255'],
             'routing_scope' => ['required', 'string', 'max:255'],
             'routing_key' => ['required', 'string', 'max:255'],
             'target_kind' => ['sometimes', 'string', 'max:64'],
@@ -92,7 +92,7 @@ final readonly class SubscriptionController
                 $definition = new SubscriptionDefinition(
                     subscriberId: $input['subscriber_id'],
                     subscriptionId: $input['subscription_id'] ?? $input['subscriber_id'],
-                    webhookGroup: $input['webhook_group'],
+                    group: $input['group'],
                     routingScope: $input['routing_scope'],
                     routingKey: $input['routing_key'],
                     targetKind: $targetKind,

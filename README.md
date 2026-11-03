@@ -1089,7 +1089,7 @@ curl -X POST https://relay.example.test/registry/endpoints/RESOLVED_ENDPOINT_KEY
     "subscriber_id": "workspace-42",
     "subscription_id": "workspace-42-messages",
     "type": "relay",
-    "webhook_group": "meta",
+    "group": "meta",
     "routing_scope": "application",
     "routing_key": "app-123",
     "url": "https://subscriber.example.test/webhooks/meta",

@@ -165,7 +165,7 @@ request POST "$edge_a/registry/endpoints" -H "$auth" -H 'Content-Type: applicati
 # A subscription is refused while no grant exists.
 request POST "$edge_a/registry/endpoints/$endpoint_key/subscriptions" -H "$auth" -H "$shell_auth" \
     -H 'Content-Type: application/json' \
-    -d "{\"subscriber_id\":\"deploy-owner\",\"subscription_id\":\"deploy\",\"type\":\"reply\",\"target_kind\":\"shell\",\"hook\":\"github/deploy\",\"webhook_group\":\"config-smoke\",\"routing_scope\":\"application\",\"routing_key\":\"app-123\"}"
+    -d "{\"subscriber_id\":\"deploy-owner\",\"subscription_id\":\"deploy\",\"type\":\"reply\",\"target_kind\":\"shell\",\"hook\":\"github/deploy\",\"group\":\"config-smoke\",\"routing_scope\":\"application\",\"routing_key\":\"app-123\"}"
 [[ "$CODE" =~ ^4[0-9][0-9]$ ]] || fail "Ungranted Shell subscription was accepted: $CODE $(cat "$RESP_BODY")"
 
 # The operator grants the exact endpoint/subscriber/hook after both nodes are up.
@@ -177,7 +177,7 @@ grant_etag="$(etag_of)"
 
 request POST "$edge_a/registry/endpoints/$endpoint_key/subscriptions" -H "$auth" -H "$shell_auth" \
     -H 'Content-Type: application/json' \
-    -d "{\"subscriber_id\":\"deploy-owner\",\"subscription_id\":\"deploy\",\"type\":\"reply\",\"target_kind\":\"shell\",\"hook\":\"github/deploy\",\"webhook_group\":\"config-smoke\",\"routing_scope\":\"application\",\"routing_key\":\"app-123\"}"
+    -d "{\"subscriber_id\":\"deploy-owner\",\"subscription_id\":\"deploy\",\"type\":\"reply\",\"target_kind\":\"shell\",\"hook\":\"github/deploy\",\"group\":\"config-smoke\",\"routing_scope\":\"application\",\"routing_key\":\"app-123\"}"
 [[ "$CODE" == "201" ]] || fail "Shell subscription failed: $CODE $(cat "$RESP_BODY")"
 sub_id="$(field id)"
 sub_etag="$(etag_of)"

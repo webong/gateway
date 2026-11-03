@@ -62,7 +62,7 @@ Authorization: Bearer {REGISTRY_TOKEN}
 X-Gateway-Shell-Subscription: {SHELL_OPERATOR_TOKEN}
 Content-Type: application/json
 
-{"subscriber_id":"deploy-owner","type":"reply","target_kind":"shell","hook":"github/deploy","webhook_group":"github","routing_scope":"repository","routing_key":"my-repo"}
+{"subscriber_id":"deploy-owner","type":"reply","target_kind":"shell","hook":"github/deploy","group":"github","routing_scope":"repository","routing_key":"my-repo"}
 ```
 
 Only one active reply subscription, whether HTTP or Shell, may own a route.
@@ -134,7 +134,7 @@ authenticated subscription create request includes:
 {
   "subscriber_id": "deploy-owner", "subscription_id": "deploy-ssh",
   "type": "reply", "target_kind": "shell", "hook": "github/deploy",
-  "webhook_group": "github", "routing_scope": "repository", "routing_key": "my-repo",
+  "group": "github", "routing_scope": "repository", "routing_key": "my-repo",
   "ssh": {
     "host": "worker.internal.example", "port": 22, "user": "gateway",
     "host_public_key": "ssh-ed25519 AAAA...",

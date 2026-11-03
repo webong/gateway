@@ -138,7 +138,7 @@ curl --fail-with-body --silent --show-error --include \
   --data '{
     "subscription_id":"store-42-order-created-v1",
     "type":"relay",
-    "webhook_group":"orders",
+    "group":"orders",
     "routing_scope":"path",
     "routing_key":"/hooks/orders",
     "url":"https://app.example.com/webhooks/gateway/orders",

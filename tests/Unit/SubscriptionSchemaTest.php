@@ -32,7 +32,7 @@ it('keeps the subscription JSON schema aligned with match-rules v1', function ()
         ->and($schema['properties']['target_kind']['pattern'])
         ->toBe('^[a-z][a-z0-9.-]{0,63}$')
         ->and($schema['required'])
-        ->toContain('subscriber_id', 'webhook_group', 'routing_scope', 'routing_key')
+        ->toContain('subscriber_id', 'group', 'routing_scope', 'routing_key')
         ->and($schema['additionalProperties'])
         ->toBeTrue()
         ->and(preg_match('/'.$schema['$defs']['fieldName']['anyOf'][1]['pattern'].'/', 'payload.data'))
@@ -72,5 +72,5 @@ it('keeps lifecycle schemas aligned with subscription states', function (): void
         ->toBe([SubscriptionState::ACTIVE, SubscriptionState::PAUSED])
         ->and($update['properties']['type']['enum'])
         ->toBe(['relay', 'reply'])
-        ->and($update['anyOf'][1]['required'])->toBe(['hook']);
+        ->and(array_column($update['anyOf'], 'required'))->toContain(['type'], ['metadata']);
 });

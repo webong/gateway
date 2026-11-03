@@ -60,7 +60,7 @@ curl -X POST https://gateway.example.com/registry/endpoints/account-42/subscript
   --data '{
     "subscriber_id":"orders-service",
     "subscription_id":"orders-created",
-    "webhook_group":"orders",
+    "group":"orders",
     "routing_scope":"application",
     "routing_key":"orders",
     "url":"https://orders.example.com/hooks/provider",

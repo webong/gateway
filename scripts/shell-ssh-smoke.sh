@@ -200,7 +200,7 @@ create_subscription() {
         echo json_encode([
             "subscriber_id" => $args[1], "subscription_id" => $args[0], "type" => "reply",
             "target_kind" => "shell", "hook" => $args[2],
-            "webhook_group" => "shell-smoke", "routing_scope" => "application", "routing_key" => "app-123",
+            "group" => "shell-smoke", "routing_scope" => "application", "routing_key" => "app-123",
             "ssh" => ["host" => $args[3], "port" => (int) $args[4], "user" => $args[5],
                 "host_public_key" => $args[6], "private_key" => $args[7]],
         ], JSON_THROW_ON_ERROR);

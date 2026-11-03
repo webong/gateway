@@ -43,7 +43,7 @@ requested key: `webong/proxy` may suffix unmanaged endpoint keys.
   "subscriber_id": "workspace-42",
   "subscription_id": "workspace-42-messages",
   "type": "relay",
-  "webhook_group": "meta",
+  "group": "meta",
   "routing_scope": "application",
   "routing_key": "app-123",
   "url": "https://subscriber.example.test/webhooks/meta",
@@ -74,7 +74,7 @@ extension are accepted. Unknown properties must not be sent.
 | `subscriber_id` | yes | non-empty string, max 255 | Stable identity of the subscriber. |
 | `subscription_id` | no | non-empty string, max 255 | Stable registration identity. Defaults to `subscriber_id`. |
 | `type` | no | `relay` or `reply` | Defaults to `relay`. A route may have only one synchronous `reply` subscription. |
-| `webhook_group` | yes | non-empty string, max 255 | Group used by `webong/proxy` to manage the destination. |
+| `group` | yes | non-empty string, max 255 | Generic subscription group. Gateway maps this to its current registry storage. |
 | `routing_scope` | yes | non-empty string, max 255 | Route namespace used during destination selection. |
 | `routing_key` | yes | non-empty string, max 255 | Key inside `routing_scope`. |
 | `target_kind` | no | extension-defined identifier | Defaults to Planner’s core `http` target kind. `webong/web` also registers `websocket`. |

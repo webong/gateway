@@ -24,7 +24,7 @@ final class WebSubscriptionDefinition
         }
 
         return new SubscriptionDefinition(
-            subscriberId: $subscriberId, subscriptionId: $subscriptionId, webhookGroup: $webhookGroup,
+            subscriberId: $subscriberId, subscriptionId: $subscriptionId, group: $webhookGroup,
             routingScope: $routingScope, routingKey: $routingKey, targetKind: HttpSubscriptionTargetExtension::KIND,
             target: $url, match: MatchRules::make($rules), metadata: $metadata,
             targetOptions: $profile === null ? [] : ['profile' => $profile], channel: $channel, type: $type,

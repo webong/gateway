@@ -24,7 +24,7 @@ it('routes verified MX mail to subscribed webhooks with raw MIME and envelope me
     $hook = $this->withToken('registry-secret')->postJson('/email/hooks', ['domain' => 'mailhook.test'])->assertCreated()->json();
     $this->withToken('registry-secret')->postJson($hook['subscriptions_url'], [
         'subscriber_id' => 'workspace-42', 'subscription_id' => 'workspace-42-mail',
-        'type' => 'relay', 'webhook_group' => 'mail', 'routing_scope' => 'smtp',
+        'type' => 'relay', 'group' => 'mail', 'routing_scope' => 'smtp',
         'routing_key' => 'recipient', 'url' => 'https://subscriber.example.test/mail',
     ])->assertCreated();
 

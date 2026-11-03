@@ -19,7 +19,7 @@ it('keeps remote subscription examples aligned with the Planner DSL', function (
         'subscriber_id',
         'subscription_id',
         'type',
-        'webhook_group',
+        'group',
         'routing_scope',
         'routing_key',
         'url',
