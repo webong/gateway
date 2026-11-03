@@ -36,19 +36,24 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
+    env:
+      GOWORK: 'off'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/spinner/go.mod
           cache: true
+          cache-dependency-path: |
+            pkg/shell/go.sum
+            tools/spinner/go.sum
       - name: Verify PowerShell is installed
         shell: pwsh
         run: |
           $command = Get-Command pwsh -ErrorAction Stop
           Write-Host "PowerShell executable: $($command.Source)"
       - name: Test shell runtime with PowerShell
-        run: GOWORK=off go -C pkg/shell test -mod=readonly -count=1 ./runtime
+        run: go -C pkg/shell test -mod=readonly -count=1 ./runtime
       - name: Test Shell bridge behavior
         if: runner.os == 'Linux'
-        run: GOWORK=off go -C tools/spinner test -mod=readonly -count=1 ./bridge -run 'TestRoutePlanAllowsOnlyGeneratedShellNotifications|TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput|TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion|TestEdgeStreamsPlannerSelectedShellHook'
+        run: go -C tools/spinner test -mod=readonly -count=1 ./bridge -run 'TestRoutePlanAllowsOnlyGeneratedShellNotifications|TestEdgeQueuesPlannerSelectedShellCompletionNoticeWithoutHookOutput|TestEdgeMarksBufferedNonzeroShellExitAsFailedCompletion|TestEdgeStreamsPlannerSelectedShellHook'
