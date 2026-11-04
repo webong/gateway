@@ -135,7 +135,7 @@ func (adapter *DeliveryAdapter) safeDialContext(timeout time.Duration) func(cont
 }
 
 func (adapter *DeliveryAdapter) addressAllowed(address netip.Addr) bool {
-	if address.IsGlobalUnicast() && !address.IsPrivate() && !address.IsLoopback() && !address.IsLinkLocalUnicast() && !address.IsUnspecified() {
+	if protocol.PublicEgressAddress(address) {
 		return true
 	}
 	for _, prefix := range adapter.privateNetworkCeilings {

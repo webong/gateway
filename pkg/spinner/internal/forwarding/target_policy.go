@@ -2,10 +2,17 @@
 
 package forwarding
 
-import "net"
+import (
+	"net"
+	"net/netip"
 
-// isAllowedTargetAddress is the production SSRF target policy. Private,
-// loopback, link-local, and unspecified addresses are never dialed.
+	"github.com/webong/gateway/arranger/integration"
+)
+
+// isAllowedTargetAddress is the production SSRF target policy. Only public
+// addresses are dialed; private, loopback, link-local, and special-use
+// addresses are never dialed.
 func isAllowedTargetAddress(address net.IP) bool {
-	return address.IsGlobalUnicast() && !address.IsPrivate() && !address.IsLoopback() && !address.IsLinkLocalUnicast() && !address.IsUnspecified()
+	parsed, ok := netip.AddrFromSlice(address)
+	return ok && integration.PublicEgressAddress(parsed)
 }
