@@ -18,20 +18,36 @@ $host = getenv('GATEWAY_PLANNER_HOST') ?: '0.0.0.0';
 $port = (int) (getenv('GATEWAY_PLANNER_PORT') ?: 8080);
 $workers = getenv('GATEWAY_PLANNER_WORKERS');
 $workerCount = is_string($workers) && ctype_digit($workers) ? max(1, (int) $workers) : 4;
+$requests = getenv('GATEWAY_PLANNER_MAX_REQUESTS');
+$maxRequests = is_string($requests) && ctype_digit($requests) ? max(1, (int) $requests) : 500;
 $dataDirectory = getenv('GATEWAY_ROUTER_DATA_DIR') ?: dirname(__DIR__).'/.gateway-router-data';
 
 Worker::$logFile = rtrim($dataDirectory, '/').'/storage/logs/workerman.log';
 Worker::$pidFile = rtrim($dataDirectory, '/').'/workerman.pid';
 
-$handler = new WorkermanLaravelHandler(__DIR__);
+$handler = null;
+$handledRequests = 0;
 $http = new Worker("http://{$host}:{$port}");
 $http->name = 'gateway-planner';
 $http->count = $workerCount;
-$http->onMessage = static function (TcpConnection $connection, Request $request) use ($handler): void {
-    $connection->send($handler->handle($request));
+$http->onWorkerStart = static function () use (&$handler, &$handledRequests): void {
+    $handler = new WorkermanLaravelHandler(__DIR__);
+    $handledRequests = 0;
 };
-$http->onWorkerStop = static function () use ($handler): void {
-    $handler->terminate();
+$http->onMessage = static function (TcpConnection $connection, Request $request) use (&$handler, &$handledRequests, $maxRequests, $http): void {
+    if (! $handler instanceof WorkermanLaravelHandler) {
+        $connection->send(new Workerman\Protocols\Http\Response(503, ['Content-Type' => 'text/plain'], 'Service Unavailable'));
+
+        return;
+    }
+    $connection->send($handler->handle($request));
+    if (++$handledRequests >= $maxRequests) {
+        Worker::stopAll();
+    }
+};
+$http->onWorkerStop = static function () use (&$handler): void {
+    $handler?->terminate();
+    $handler = null;
 };
 
 Worker::runAll();

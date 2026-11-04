@@ -2,6 +2,16 @@
 
 declare(strict_types=1);
 
+beforeEach(function (): void {
+    $this->opensslRandomState = sys_get_temp_dir().'/gateway-openssl-'.bin2hex(random_bytes(8));
+    putenv('RANDFILE='.$this->opensslRandomState);
+});
+
+afterEach(function (): void {
+    putenv('RANDFILE');
+    @unlink($this->opensslRandomState);
+});
+
 it('stores a private DKIM key in the shared encrypted collection and exposes it only internally', function (): void {
     $private = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_RSA, 'private_key_bits' => 2048]);
     expect($private)->not->toBeFalse();

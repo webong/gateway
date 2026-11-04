@@ -88,6 +88,21 @@ for server in frankenphp swoole roadrunner; do
     fi
 done
 
+workerman_log="$TEMP_DIR/workerman.log"
+PATH="$TEMP_DIR/bin:$PATH" \
+APP_KEY=test REGISTRY_TOKEN=test GATEWAY_INTERNAL_TOKEN=test \
+DB_CONNECTION=pgsql DB_URL=postgresql://gateway:test@database/gateway \
+COMPOSER_VENDOR_DIR="$ROOT/vendor" \
+GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/data-workerman" \
+GATEWAY_PLANNER_APP_DIR="$TEMP_DIR/app" \
+GATEWAY_PLANNER_SERVER=workerman GATEWAY_TEST_COMMAND_LOG="$workerman_log" \
+    sh "$ROOT/scripts/planner-start" serve
+
+if ! grep -Fq 'workerman.php start' "$workerman_log"; then
+    echo 'Planner did not launch Workerman.' >&2
+    exit 1
+fi
+
 if ! grep -Fq -- '--admin-port=2019' "$TEMP_DIR/frankenphp.log"; then
     echo 'Octane/FrankenPHP did not keep its admin listener separate.' >&2
     exit 1
@@ -105,4 +120,4 @@ if GATEWAY_PLANNER_SERVER=invalid APP_KEY=test REGISTRY_TOKEN=test \
     exit 1
 fi
 
-echo 'Planner launcher supports PHP-FPM, Octane/FrankenPHP, Octane/Swoole, and Octane/RoadRunner.'
+echo 'Planner launcher supports PHP-FPM, Workerman, Octane/FrankenPHP, Octane/Swoole, and Octane/RoadRunner.'

@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Gateway\Router\WorkermanLaravelHandler;
 use Workerman\Protocols\Http\Request;
 
-it('handles repeated Workerman requests with isolated Laravel applications', function (): void {
+it('handles sustained Workerman requests with isolated Laravel applications and bounded memory', function (): void {
     $testApplication = $this->app;
     $dataDirectory = sys_get_temp_dir().'/gateway-workerman-'.bin2hex(random_bytes(8));
     mkdir($dataDirectory, 0700, true);
@@ -17,16 +17,24 @@ it('handles repeated Workerman requests with isolated Laravel applications', fun
     putenv('APP_RUNNING_IN_CONSOLE=false');
     require_once dirname(__DIR__, 2).'/app/WorkermanLaravelHandler.php';
 
+    $handler = null;
     try {
         $handler = new WorkermanLaravelHandler(dirname(__DIR__, 2).'/app');
         $request = new Request("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
 
         $first = (string) $handler->handle($request);
-        $second = (string) $handler->handle($request);
+        $baselineMemory = memory_get_usage(true);
+        $last = '';
+        for ($requestNumber = 0; $requestNumber < 250; $requestNumber++) {
+            $last = (string) $handler->handle($request);
+        }
+        gc_collect_cycles();
 
         expect($first)->toContain('204 No Content')
-            ->and($second)->toContain('204 No Content');
+            ->and($last)->toContain('204 No Content')
+            ->and(memory_get_usage(true) - $baselineMemory)->toBeLessThanOrEqual(8 * 1024 * 1024);
     } finally {
+        $handler?->terminate();
         Laravel\Octane\CurrentApplication::set($testApplication);
         Illuminate\Container\Container::setInstance($testApplication);
         Illuminate\Support\Facades\Facade::clearResolvedInstances();
