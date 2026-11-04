@@ -69,9 +69,9 @@ fi
 
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" "$ROOT/cmd/gateway"
-go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$INTEGRATION_BIN" ./cmd/integration
-go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+GOWORK=off go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$INTEGRATION_BIN" ./cmd/integration
+GOWORK=off go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
 
 (
     cd "$APP_PATH"

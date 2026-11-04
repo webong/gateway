@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Install locked Composer dependencies without rewriting composer.lock.
+#
+# wikimedia/composer-merge-plugin runs "composer update" for every package it
+# merges from pkg/*/composer.json (laravel/framework, webong/proxy, ...) when
+# it is installed during the current run, which is always the case on a fresh
+# checkout without vendor/. A plain `composer install` therefore moves those
+# packages to their newest allowed releases and rewrites the lock file.
+#
+# This installs exactly what the lock file records with plugins disabled, then
+# regenerates the autoloader with the plugin enabled so extension namespaces
+# and package discovery are merged as usual. The Router image build does the
+# same (infra/docker/Gateway.router.Dockerfile).
+#
+# Usage: scripts/composer-install [--working-dir=DIR] [composer install options]
+#   scripts/composer-install                       # repository root
+#   scripts/composer-install --working-dir=app     # bundled Router host
+#   scripts/composer-install --no-dev --prefer-dist
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+WORKING_DIR=$ROOT
+install_args=()
+
+for argument in "$@"; do
+    case $argument in
+        --working-dir=*) WORKING_DIR=${argument#--working-dir=} ;;
+        --working-dir|-d)
+            echo "Pass the directory as --working-dir=DIR." >&2
+            exit 2
+            ;;
+        *) install_args+=("$argument") ;;
+    esac
+done
+
+if [[ ! -f "$WORKING_DIR/composer.lock" ]]; then
+    echo "No composer.lock in $WORKING_DIR; refusing to resolve new versions." >&2
+    exit 1
+fi
+
+dump_args=(--no-interaction)
+for argument in ${install_args[@]+"${install_args[@]}"}; do
+    case $argument in
+        --no-dev) dump_args+=(--no-dev) ;;
+        --optimize-autoloader|-o|--classmap-authoritative|-a) dump_args+=("$argument") ;;
+    esac
+done
+
+composer install --working-dir="$WORKING_DIR" --no-interaction --no-plugins --no-scripts \
+    ${install_args[@]+"${install_args[@]}"}
+composer dump-autoload --working-dir="$WORKING_DIR" "${dump_args[@]}"

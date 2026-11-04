@@ -8,6 +8,8 @@ ADMIN_PORT="${GATEWAY_SCHEDULE_ADMIN_PORT:-18392}"
 CALLBACK_PORT="${GATEWAY_SCHEDULE_CALLBACK_PORT:-18393}"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-schedule-rr.XXXXXX")"
 ROUTER_BIN="$TEMP_DIR/gateway-router-roadrunner"
+PLANNER_EXTENSIONS="$TEMP_DIR/extensions-planner"
+SPINNER_EXTENSIONS="$TEMP_DIR/extensions-spinner"
 ROUTER_LOG="$TEMP_DIR/router.log"
 SCHEDULE_RESPONSE="$TEMP_DIR/schedule.json"
 RUNS_RESPONSE="$TEMP_DIR/runs.json"
@@ -38,6 +40,9 @@ if [[ ! -x "$ROOT/vendor/bin/roadrunner-worker" || ! -f "$ROOT/vendor/autoload.p
     exit 1
 fi
 
+# shellcheck source=scripts/lib/automation-extension-smoke.sh
+source "$ROOT/scripts/lib/automation-extension-smoke.sh"
+
 # The smoke build permits loopback callbacks. Serve a real HTTP 200 response
 # so the scheduled assertion can observe a terminal 204-versus-200 mismatch.
 php -S "127.0.0.1:$CALLBACK_PORT" -t "$ROOT" >"$TEMP_DIR/callback.log" 2>&1 &
@@ -59,9 +64,16 @@ if ! curl -fsS --max-time 2 "http://127.0.0.1:$CALLBACK_PORT/README.md" >/dev/nu
 fi
 README_DIGEST="$(php -r 'echo hash_file("sha256", $argv[1]);' "$ROOT/README.md")"
 
-go -C "$ROOT/pkg/roadrunner/cmd/router" build -mod=mod -tags=gateway_smoke -o "$ROUTER_BIN" .
+# The Router never compiles an automation engine. Lua arrives as a Gateway
+# Extension: build and archive `webong/lua`, then seed Planner's cache and the
+# Router's own Spinner cache with it (see scripts/lib/automation-extension-smoke.sh).
+# `gateway_smoke` only permits the loopback callbacks this script asserts on.
+GOWORK=off go -C "$ROOT/pkg/roadrunner/cmd/router" build -mod=mod -tags=gateway_smoke -o "$ROUTER_BIN" .
+gateway_prepare_automation_extension "$ROOT" lua "$PLANNER_EXTENSIONS" "$SPINNER_EXTENSIONS"
 
 GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/data" \
+GATEWAY_PLUGIN_DIR="$SPINNER_EXTENSIONS" \
+GATEWAY_COMPANION_PLUGIN_DIR="$PLANNER_EXTENSIONS" \
 GATEWAY_ROUTER_ROADRUNNER_BIN="$ROUTER_BIN" \
 GATEWAY_ROUTER_LISTEN="127.0.0.1:$PORT" \
 GATEWAY_PLANNER_WORKERS=1 \
@@ -94,6 +106,31 @@ fi
 set -a
 source "$TEMP_DIR/data/gateway.env"
 set +a
+
+# Planner only exists inside the running Router, so Lua is activated after
+# startup. The Router preloads its cache before Planner exists, but its first
+# reconciliation (no activation yet) unloads that engine again; it is live only
+# once the 15-second reconciler launches it from the activation. The launch logs
+# one more line than the preload did, so wait for that before creating schedules
+# or a due run is claimed while `lua` is still unsupported.
+LUA_LOADED='loaded external plugin: webong/lua (lang=lua)'
+LUA_LOADED_BEFORE="$(grep -Fc "$LUA_LOADED" "$ROUTER_LOG" || true)"
+gateway_activate_automation_extension lua "http://127.0.0.1:$PORT" "$REGISTRY_TOKEN"
+for _ in $(seq 1 160); do
+    if [[ "$(grep -Fc "$LUA_LOADED" "$ROUTER_LOG" || true)" -gt "$LUA_LOADED_BEFORE" ]]; then
+        break
+    fi
+    if ! kill -0 "$ROUTER_PID" 2>/dev/null; then
+        tail -80 "$ROUTER_LOG" >&2
+        exit 1
+    fi
+    sleep 0.25
+done
+if [[ "$(grep -Fc "$LUA_LOADED" "$ROUTER_LOG" || true)" -le "$LUA_LOADED_BEFORE" ]]; then
+    echo 'RoadRunner did not load the activated Lua extension.' >&2
+    tail -80 "$ROUTER_LOG" >&2
+    exit 1
+fi
 
 curl -fsS --max-time 10 -X POST "http://127.0.0.1:$PORT/schedules/notification-destination" \
     -H "Authorization: Bearer $REGISTRY_TOKEN" \

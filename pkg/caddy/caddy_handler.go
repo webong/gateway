@@ -314,10 +314,6 @@ func (g *CaddyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request, next ca
 			g.runtimeErr = fmt.Errorf("gateway transport does not provide protocol delivery")
 			return
 		}
-		if err := automationextensions.ConfigureShellSSHHandler(&caddyHTTPAdapter{handler: next}, g.InternalToken); err != nil {
-			g.runtimeErr = err
-			return
-		}
 		integrationextensions.DefaultHost.Configure(integrationextensions.Services{
 			Planner: planner, ProtocolPlanner: protocolPlanner, PassThrough: &caddyHTTPAdapter{handler: next}, Observations: observations,
 			Executor: executor, Automation: automationextensions.Runtime(), InternalToken: g.InternalToken,

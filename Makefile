@@ -1,4 +1,4 @@
-.PHONY: build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-container-entrypoint test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: composer-install build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-container-entrypoint test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-composer-install test-php test-roadrunner-planner-envtest-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -72,6 +72,12 @@ test-arranger-release:
 
 test-contract-package:
 	bash scripts/test-contract-package
+
+test-composer-install:
+	bash scripts/test-composer-install-stability
+
+composer-install:
+	bash scripts/composer-install
 
 test-php:
 	$(MAKE) test-contract-package

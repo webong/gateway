@@ -12,6 +12,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	"github.com/webong/gateway/arranger/integration"
+	secretextensions "github.com/webong/gateway/pkg/spinner/extensions/secret"
 )
 
 func TestRoadRunnerStopsWorkerServerOnCancellation(t *testing.T) {
@@ -35,6 +39,52 @@ func TestRoadRunnerStopsWorkerServerOnCancellation(t *testing.T) {
 	case <-server.done:
 	default:
 		t.Fatal("worker server was not stopped")
+	}
+}
+
+// A Shell guest resolves its SSH credential through the host's identity-scoped
+// secret service, which reaches Planner over the private internal path. The
+// Router no longer wires a Shell-specific resolver, so pin that the generic
+// service answers from the embedded Planner with the Router's internal token.
+func TestRoadRunnerResolvesExtensionSecretsThroughEmbeddedPlanner(t *testing.T) {
+	t.Setenv("GATEWAY_RUNTIME", "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
+	t.Setenv("GATEWAY_PLUGIN_DIR", "")
+	t.Setenv("GATEWAY_SCHEDULES_ENABLED", "false")
+	t.Setenv("ROADRUNNER_CONFIG", "test.yaml")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	const reference = "ssh-2c034453-f6ef-4f98-a9a2-6dfb624758d0"
+	server := &testWorkerServer{done: make(chan struct{}), cancel: cancel}
+	var resolved json.RawMessage
+	var resolveErr error
+	err := runRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (workerServer, error) {
+		middleware(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path != "/_internal/gateway/extensions/webong/shell/secrets/"+reference ||
+				request.Header.Get("X-Gateway-Internal") != "test-token" {
+				http.NotFound(writer, request)
+				return
+			}
+			_ = json.NewEncoder(writer).Encode(integration.SecretValue{
+				Reference: reference, Version: 1, Value: json.RawMessage(`{"host":"ssh.internal"}`),
+			})
+		}))
+		payload, _ := json.Marshal(integration.SecretRequest{Reference: reference})
+		shell := secretextensions.DefaultHost.ReverseOptionsFor(plugin.Identity{ID: "webong/shell", Revision: "r1"}, nil)
+		resolved, resolveErr = shell.Handle(ctx, plugin.Request{
+			Contract: integration.SecretContract, Operation: integration.OperationResolveSecret, Payload: payload,
+		})
+		return server, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolveErr != nil {
+		t.Fatalf("Shell secret lookup through the Router failed: %v", resolveErr)
+	}
+	var value integration.SecretValue
+	if err := json.Unmarshal(resolved, &value); err != nil || value.Reference != reference || value.Version != 1 {
+		t.Fatalf("Shell secret lookup returned %s (%v)", resolved, err)
 	}
 }
 

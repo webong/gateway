@@ -3,8 +3,11 @@
 # Disposable end-to-end Shell-over-SSH verification.
 #
 # This starts a throwaway OpenSSH server on loopback whose account is forced to
-# run the real gateway-shell-helper, a Planner PHP fixture, and one Spinner
-# built with the gateway_shell extension. It then exercises the public Planner
+# run the real gateway-shell-helper, a Planner PHP fixture, and one Spinner. The
+# Shell engine is not compiled into the Spinner host: the script builds the
+# `webong/shell` extension package, activates it through Planner's /extensions
+# resource, and Spinner loads it from its extension cache (see
+# scripts/lib/automation-extension-smoke.sh). It then exercises the public Planner
 # subscription API against the private Planner credential resolution and the
 # live Spinner execution path: grant, create, execute, rotate, revoke, host-key
 # mismatch, and an unreachable destination.
@@ -31,6 +34,8 @@ SSHD_LOG="$TEMP_DIR/sshd.log"
 GATEWAY_BIN="$TEMP_DIR/gateway"
 HELPER_BIN="$TEMP_DIR/gateway-shell-helper"
 HOOKS_DIR="$TEMP_DIR/hooks"
+PLANNER_EXTENSIONS="$TEMP_DIR/extensions-planner"
+SPINNER_EXTENSIONS="$TEMP_DIR/extensions-spinner"
 HOST_KEY="$TEMP_DIR/host_ed25519"
 CLIENT_KEY="$TEMP_DIR/client_ed25519"
 CLIENT2_KEY="$TEMP_DIR/client2_ed25519"
@@ -71,10 +76,15 @@ for tool in ssh ssh-keygen curl php; do
     fi
 done
 
+# shellcheck source=scripts/lib/automation-extension-smoke.sh
+source "$ROOT/scripts/lib/automation-extension-smoke.sh"
+
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
-go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
+# The host never compiles an automation engine; Shell arrives as an extension.
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+GOWORK=off go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
+gateway_prepare_automation_extension "$ROOT" shell "$PLANNER_EXTENSIONS" "$SPINNER_EXTENSIONS"
 
 # --- Disposable forced-command OpenSSH server ------------------------------
 ssh-keygen -q -t ed25519 -N '' -f "$HOST_KEY"
@@ -143,6 +153,7 @@ CURRENT_USER="$(id -un)"
     GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" REGISTRY_TOKEN="$REGISTRY_TOKEN" \
+    GATEWAY_COMPANION_PLUGIN_DIR="$PLANNER_EXTENSIONS" \
     GATEWAY_SHELL_SUBSCRIPTION_TOKEN="$SHELL_TOKEN" \
     exec php -S "127.0.0.1:$PHP_PORT" -t public public/index.php
 ) >"$PHP_LOG" 2>&1 &
@@ -159,10 +170,11 @@ wait_http() {
     return 1
 }
 wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
+gateway_activate_automation_extension shell "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
 
 GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" PORT="$HTTP_PORT" LOG_LEVEL=error \
-GATEWAY_SHELL_ENABLED=true GATEWAY_SHELL_SSH_ALLOWED_CIDRS=127.0.0.0/8 \
+GATEWAY_PLUGIN_DIR="$SPINNER_EXTENSIONS" GATEWAY_SHELL_SSH_ALLOWED_CIDRS=127.0.0.0/8 \
 GATEWAY_SHELL_TIMEOUT=10s \
 "$GATEWAY_BIN" >"$HTTP_LOG" 2>&1 &
 HTTP_PID=$!
