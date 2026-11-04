@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
 )
@@ -63,6 +64,47 @@ func TestSpinnerLaunchRejectsPackageBuiltForAnotherPlatform(t *testing.T) {
 	}})
 	if err == nil || !strings.Contains(err.Error(), "does not match host") {
 		t.Fatalf("platform mismatch was not rejected clearly: %v", err)
+	}
+}
+
+// A package whose metadata ext rejects cannot be installed, so the environment
+// key must pass ext's manifest validation, not just be readable by Spinner.
+func TestSpinnerLaunchInheritsEnvironmentDeclaredByAValidPackage(t *testing.T) {
+	t.Setenv("GATEWAY_SHELL_HOOKS_DIR", "/opt/gateway/hooks")
+	directory := t.TempDir()
+	spinner := writeEntrypointArtifact(t, directory, "spinner")
+	environment, err := json.Marshal(map[string]any{
+		"inherit": []string{"GATEWAY_SHELL_HOOKS_DIR", "GATEWAY_SHELL_NOT_SET"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := packagekit.Manifest{
+		APIVersion: packagekit.Version,
+		Descriptor: plugin.Descriptor{
+			APIVersion: plugin.APIVersion,
+			Identity:   plugin.Identity{ID: "webong/shell", Revision: "r1", Version: "1.0.0"},
+			Contracts: []plugin.Contract{{
+				ContractRef: plugin.ContractRef{Name: "gateway.automation", Version: "v1"},
+				Operations:  []plugin.Operation{{Name: "execute", Surface: "shell"}},
+			}},
+		},
+		Artifacts: []packagekit.Artifact{{Name: "spinner", Path: "spinner", SHA256: spinner}},
+		Entrypoints: []packagekit.Entrypoint{{
+			Name: "spinner", Runtime: "process", Artifact: "spinner", Protocols: []string{plugin.APIVersion},
+		}},
+		Metadata: map[string]json.RawMessage{spinnerEnvironmentMetadata: environment},
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("ext rejects the Spinner environment metadata key %q: %v", spinnerEnvironmentMetadata, err)
+	}
+
+	launch, err := SpinnerLaunch(store.Installed{Directory: directory, Manifest: manifest})
+	if err != nil {
+		t.Fatalf("select Spinner entrypoint: %v", err)
+	}
+	if launch == nil || len(launch.Env) != 1 || launch.Env[0] != "GATEWAY_SHELL_HOOKS_DIR=/opt/gateway/hooks" {
+		t.Fatalf("package did not inherit exactly its declared, set variables: %#v", launch)
 	}
 }
 
