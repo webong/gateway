@@ -4,6 +4,29 @@ declare(strict_types=1);
 
 use Webong\Gateway\Email\MailNetworkPolicy;
 
+it('agrees with Arranger on public and private egress decisions', function (): void {
+    $path = __DIR__.'/../../mod/arranger/integration/testdata/egress_decisions.csv';
+    $file = fopen($path, 'rb');
+    expect($file)->not->toBeFalse();
+    try {
+        expect(fgetcsv($file))->toBe(['address', 'public', 'private']);
+        $seen = [];
+        while (($row = fgetcsv($file)) !== false) {
+            expect($row)->toHaveCount(3);
+            [$address, $public, $private] = $row;
+            expect(isset($seen[$address]))->toBeFalse()
+                ->and(in_array($public, ['allow', 'deny'], true))->toBeTrue()
+                ->and(in_array($private, ['allow', 'deny'], true))->toBeTrue();
+            $seen[$address] = true;
+            expect(MailNetworkPolicy::permits($address, 'public'))->toBe($public === 'allow', $address.' public')
+                ->and(MailNetworkPolicy::permits($address, 'private'))->toBe($private === 'allow', $address.' private');
+        }
+        expect($seen)->not->toBeEmpty();
+    } finally {
+        fclose($file);
+    }
+});
+
 it('allows public mail targets with either network scope', function (): void {
     expect(MailNetworkPolicy::permits('8.8.8.8', 'public'))->toBeTrue()
         ->and(MailNetworkPolicy::permits('8.8.8.8', 'private'))->toBeTrue()
