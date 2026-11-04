@@ -1,5 +1,5 @@
 {
-    "name": "webong/gateway-planner",
+    "name": "webong/gateway",
     "description": "Laravel Planner runtime for Webong Gateway",
     "type": "library",
     "license": "MIT",
@@ -8,7 +8,7 @@
         "laravel/framework": "^12.0",
         "robmorgan/phinx": "^0.16",
         "symfony/console": "^7.3 || ^8.0",
-        "webong/gateway": "dev-main",
+        "webong/gateway-adapter": "dev-main",
         "webong/proxy": "^0.2.0"
     },
     "autoload": {
