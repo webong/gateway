@@ -35,6 +35,7 @@ SSHD_LOG="$TEMP_DIR/sshd.log"
 GATEWAY_BIN="$TEMP_DIR/gateway"
 HELPER_BIN="$TEMP_DIR/gateway-shell-helper"
 HOOKS_DIR="$TEMP_DIR/hooks"
+RUN_LOG_DIR="$TEMP_DIR/runs"
 PLANNER_EXTENSIONS="$TEMP_DIR/extensions-planner"
 SPINNER_EXTENSIONS="$TEMP_DIR/extensions-spinner"
 HOST_KEY="$TEMP_DIR/host_ed25519"
@@ -94,6 +95,7 @@ ssh-keygen -q -t ed25519 -N '' -f "$CLIENT2_KEY"
 HOST_PUB="$(awk '{print $1" "$2}' "$HOST_KEY.pub")"
 
 mkdir -p "$HOOKS_DIR/github"
+mkdir -m 0700 "$RUN_LOG_DIR"
 cat > "$HOOKS_DIR/github/deploy" <<'HOOK'
 #!/bin/sh
 cat >/dev/null
@@ -180,7 +182,7 @@ gateway_activate_automation_extension shell "http://127.0.0.1:$PHP_PORT" "$REGIS
 GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" PORT="$HTTP_PORT" LOG_LEVEL=error \
 GATEWAY_PLUGIN_DIR="$SPINNER_EXTENSIONS" GATEWAY_SHELL_SSH_ALLOWED_CIDRS=127.0.0.0/8 \
-GATEWAY_SHELL_TIMEOUT=10s \
+GATEWAY_SHELL_TIMEOUT=10s GATEWAY_SHELL_RUN_LOG_DIR="$RUN_LOG_DIR" \
 "$GATEWAY_BIN" >"$HTTP_LOG" 2>&1 &
 HTTP_PID=$!
 wait_http "http://127.0.0.1:$HTTP_PORT/health" "$HTTP_LOG" "$HTTP_PID"
@@ -327,7 +329,7 @@ ssh-keygen -q -t ed25519 -N '' -f "$TEMP_DIR/wrong_host_ed25519"
 wrong_pub="$(awk '{print $1" "$2}' "$TEMP_DIR/wrong_host_ed25519.pub")"
 curl -fsS -X POST "$planner/shell/hook-grants" -H "$auth" -H "$shell_auth" -H 'Content-Type: application/json' \
     -d "{\"endpoint_key\":\"$endpoint_key\",\"subscriber_id\":\"mismatch-owner\",\"hook\":\"github/deploy\",\"mode\":\"ssh\",\"host\":\"127.0.0.1\",\"port\":$SSHD_PORT,\"user\":\"$CURRENT_USER\",\"host_public_key\":\"$wrong_pub\"}" >/dev/null
-create_subscription "mismatch" "github/deploy" "127.0.0.1" "$SSHD_PORT" "$CURRENT_USER" "$wrong_pub" "$(cat "$CLIENT_KEY")"
+create_subscription "mismatch" "github/deploy" "127.0.0.1" "$SSHD_PORT" "$CURRENT_USER" "$wrong_pub" "$(cat "$CLIENT2_KEY")"
 [[ "$(status_of "$TEMP_DIR/sub.headers")" == "201" ]]
 mismatch_id="$(json_field "$TEMP_DIR/sub.body" id)"
 mismatch_etag="$(header_of "$TEMP_DIR/sub.headers" ETag)"
@@ -336,9 +338,20 @@ if [[ "$code" != "502" ]]; then
     echo "Pinned host-key mismatch was accepted: status=$code body=$(<"$TEMP_DIR/ingress.body")" >&2
     exit 1
 fi
-# Reaching the SSH execution stage proves the plan resolved; the handshake is
-# what fails when the pinned identity does not match the presented one.
-[[ "$(header_of "$TEMP_DIR/ingress.headers" X-Gateway-Shell-Run-Id)" =~ ^[a-f0-9]{32}$ ]]
+# The private run record proves the failure reached the SSH handshake, rather
+# than a planning or credential lookup error. Errors crossing the guest process
+# boundary do not retain the Go RunFailure type used for the response header.
+if ! php -r '
+    foreach (glob($argv[1]."/*.json") ?: [] as $path) {
+        $record = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        if (($record["hook"] ?? null) === "github/deploy"
+            && ($record["error"] ?? null) === "SSH Shell handshake failed") exit(0);
+    }
+    exit(1);
+' "$RUN_LOG_DIR"; then
+    echo "Host-key mismatch did not reach the SSH handshake: status=$code body=$(<"$TEMP_DIR/ingress.body")" >&2
+    exit 1
+fi
 curl -sS -o /dev/null -X DELETE "$edge/registry/endpoints/$endpoint_key/subscriptions/$mismatch_id" \
     -H "$auth" -H "$shell_auth" -H "If-Match: $mismatch_etag"
 
@@ -346,7 +359,7 @@ curl -sS -o /dev/null -X DELETE "$edge/registry/endpoints/$endpoint_key/subscrip
 closed_port="${GATEWAY_SHELL_CLOSED_PORT:-9}"
 curl -fsS -X POST "$planner/shell/hook-grants" -H "$auth" -H "$shell_auth" -H 'Content-Type: application/json' \
     -d "{\"endpoint_key\":\"$endpoint_key\",\"subscriber_id\":\"down-owner\",\"hook\":\"github/deploy\",\"mode\":\"ssh\",\"host\":\"127.0.0.1\",\"port\":$closed_port,\"user\":\"$CURRENT_USER\",\"host_public_key\":\"$HOST_PUB\"}" >/dev/null
-create_subscription "down" "github/deploy" "127.0.0.1" "$closed_port" "$CURRENT_USER" "$HOST_PUB" "$(cat "$CLIENT_KEY")"
+create_subscription "down" "github/deploy" "127.0.0.1" "$closed_port" "$CURRENT_USER" "$HOST_PUB" "$(cat "$CLIENT2_KEY")"
 [[ "$(status_of "$TEMP_DIR/sub.headers")" == "201" ]]
 down_id="$(json_field "$TEMP_DIR/sub.body" id)"
 down_etag="$(header_of "$TEMP_DIR/sub.headers" ETag)"
