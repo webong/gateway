@@ -8,10 +8,6 @@ require (
 	golang.org/x/crypto v0.38.0
 )
 
-require (
-	golang.org/x/sys v0.33.0 // indirect
-)
+require golang.org/x/sys v0.33.0 // indirect
 
 replace github.com/webong/gateway/arranger => ../../mod/arranger
-
-replace github.com/webong/ext/pkg/plugin-go => ../../../ext/pkg/plugin-go

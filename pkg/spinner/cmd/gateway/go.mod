@@ -26,7 +26,3 @@ require (
 replace github.com/webong/gateway/arranger => ../../../../mod/arranger
 
 replace github.com/webong/gateway/pkg/spinner => ../..
-
-replace github.com/webong/ext/pkg/plugin-go => ../../../../../ext/pkg/plugin-go
-
-replace github.com/webong/ext/pkg/plugin-go/hashicorp => ../../../../../ext/pkg/plugin-go/hashicorp
