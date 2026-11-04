@@ -15,7 +15,8 @@
 # It never touches a production host and it does not need root: sshd runs as
 # the invoking user on a high loopback port.
 
-set -euo pipefail
+set -Eeuo pipefail
+trap 'status=$?; echo "Shell SSH smoke failed at line $LINENO (exit $status)." >&2' ERR
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${GATEWAY_SHELL_APP_PATH:-$ROOT/tests/Fixtures/octane-app}"
