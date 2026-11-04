@@ -7,6 +7,4 @@ require (
 	github.com/webong/gateway/arranger v0.0.0
 )
 
-replace github.com/webong/ext/pkg/plugin-go => ../../../ext/pkg/plugin-go
-
 replace github.com/webong/gateway/arranger => ../../mod/arranger

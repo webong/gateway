@@ -15,10 +15,6 @@ require (
 	golang.org/x/sys v0.48.0
 )
 
-replace github.com/webong/ext/pkg/plugin-go => ../../../ext/pkg/plugin-go
-
-replace github.com/webong/ext/pkg/plugin-go/hashicorp => ../../../ext/pkg/plugin-go/hashicorp
-
 require (
 	github.com/Masterminds/semver/v3 v3.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
