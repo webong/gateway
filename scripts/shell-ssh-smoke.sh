@@ -7,7 +7,7 @@
 # Shell engine is not compiled into the Spinner host: the script builds the
 # `webong/shell` extension package, activates it through Planner's /extensions
 # resource, and Spinner loads it from its extension cache (see
-# scripts/lib/shell-extension-smoke.sh). It then exercises the public Planner
+# scripts/lib/automation-extension-smoke.sh). It then exercises the public Planner
 # subscription API against the private Planner credential resolution and the
 # live Spinner execution path: grant, create, execute, rotate, revoke, host-key
 # mismatch, and an unreachable destination.
@@ -76,15 +76,15 @@ for tool in ssh ssh-keygen curl php; do
     fi
 done
 
-# shellcheck source=scripts/lib/shell-extension-smoke.sh
-source "$ROOT/scripts/lib/shell-extension-smoke.sh"
+# shellcheck source=scripts/lib/automation-extension-smoke.sh
+source "$ROOT/scripts/lib/automation-extension-smoke.sh"
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 # The host never compiles an automation engine; Shell arrives as an extension.
 GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
 GOWORK=off go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
-gateway_prepare_shell_extension "$ROOT" "$PLANNER_EXTENSIONS" "$SPINNER_EXTENSIONS"
+gateway_prepare_automation_extension "$ROOT" shell "$PLANNER_EXTENSIONS" "$SPINNER_EXTENSIONS"
 
 # --- Disposable forced-command OpenSSH server ------------------------------
 ssh-keygen -q -t ed25519 -N '' -f "$HOST_KEY"
@@ -170,7 +170,7 @@ wait_http() {
     return 1
 }
 wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
-gateway_activate_shell_extension "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
+gateway_activate_automation_extension shell "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
 
 GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" PORT="$HTTP_PORT" LOG_LEVEL=error \
