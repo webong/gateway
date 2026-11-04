@@ -88,6 +88,70 @@ it('exposes the same builder as a Composer plugin command', function (): void {
         ->toContain('--output=OUTPUT');
 });
 
+it('assembles artifacts from named source roots', function (): void {
+    $root = sys_get_temp_dir().'/gateway-builder-sources-'.bin2hex(random_bytes(6));
+    $extension = $root.'/extension';
+    $generated = $root.'/generated';
+    $vendor = $root.'/vendor';
+    $output = $root.'/output/example%2fdemo';
+    mkdir($extension, 0700, true);
+    mkdir($generated, 0700, true);
+    mkdir($vendor, 0700, true);
+    file_put_contents($generated.'/guest', 'generated-guest');
+    file_put_contents($vendor.'/autoload.php', '<?php');
+    file_put_contents($extension.'/extension.build.json', json_encode([
+        'identity' => 'example/demo',
+        'metadata' => ['example/v1' => ['os' => '{{target_os}}']],
+        'artifacts' => [
+            [
+                'name' => 'guest',
+                'sourceRoot' => 'generated',
+                'source' => 'guest',
+                'path' => 'bin/guest',
+                'executable' => true,
+            ],
+            [
+                'name' => 'vendor',
+                'sourceRoot' => 'vendor',
+                'source' => '.',
+                'path' => 'vendor',
+                'kind' => 'tree',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    $process = new Process([
+        PHP_BINARY,
+        dirname(__DIR__, 2).'/mod/builder/bin/gy',
+        'build',
+        '--manifest='.$extension.'/extension.build.json',
+        '--version=1.0.0',
+        '--output='.$output,
+        '--source=generated='.$generated,
+        '--source=vendor='.$vendor,
+        '--value=target_os=linux',
+    ]);
+
+    try {
+        $process->mustRun();
+        expect(file_get_contents($output.'/bin/guest'))->toBe('generated-guest')
+            ->and(file_get_contents($output.'/vendor/autoload.php'))->toBe('<?php')
+            ->and(json_decode((string) file_get_contents($output.'/plugin.json'), true)['metadata']['example/v1']['os'])
+            ->toBe('linux');
+    } finally {
+        if (is_dir($root)) {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST,
+            );
+            foreach ($iterator as $entry) {
+                $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+            }
+            @rmdir($root);
+        }
+    }
+});
+
 it('rejects symbolic-link artifact sources without leaving partial output', function (): void {
     $root = sys_get_temp_dir().'/gateway-builder-link-'.bin2hex(random_bytes(6));
     $source = $root.'/extension';

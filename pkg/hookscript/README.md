@@ -36,13 +36,18 @@ php artisan vendor:publish --tag=gateway-webhookscript-config
 ## Dynamic installation
 
 The same PHP code can run as a self-contained ext process without changing
-Planner's root Composer installation. Build the release artifact after a
-package-local production Composer install:
+Planner's root Composer installation. Install the package's development tools,
+prepare the companion's production dependency tree, then build the release:
 
 ```bash
-composer install --no-dev --classmap-authoritative
-php scripts/build-ext-package /tmp/webong-hookscript 1.0.0
+composer install
+composer install --working-dir=companion --no-dev --classmap-authoritative
+php scripts/build-ext-package '/tmp/webong%2fhookscript' 1.0.0
 ```
+
+The wrapper compiles the Go guest in an isolated cache and delegates package
+assembly, hashing, validation, and `plugin.json` generation to `gy` using the
+declarative `extension.build.json` manifest.
 
 Archive that directory as a gzip-compressed tar file and publish it over HTTPS.
 The package declares a Go `spinner` entrypoint and a `planner` entrypoint using

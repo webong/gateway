@@ -2,7 +2,12 @@
 
 declare(strict_types=1);
 
-/** Build a self-contained combined Spinner and Planner ext.package/v1 directory. */
+use Webong\GatewayBuilder\PackageBuilder;
+
+$autoload = is_file(dirname(__DIR__).'/vendor/autoload.php')
+    ? dirname(__DIR__).'/vendor/autoload.php'
+    : dirname(__DIR__, 3).'/vendor/autoload.php';
+require $autoload;
 
 if ($argc < 3 || $argc > 4) {
     fwrite(STDERR, "Usage: php scripts/build-ext-package DESTINATION VERSION [REVISION]\n");
@@ -11,198 +16,89 @@ if ($argc < 3 || $argc > 4) {
 
 $source = dirname(__DIR__);
 $destination = rtrim($argv[1], DIRECTORY_SEPARATOR);
-$vendorSource = (string) (getenv('GATEWAY_HOOKSCRIPT_VENDOR_DIR') ?: $source.'/companion/vendor');
-$identity = 'webong/hookscript';
-$installedName = str_replace('/', '%2f', $identity);
-if (basename($destination) !== $installedName) {
-    fwrite(STDERR, "Destination directory must be named {$installedName}.\n");
-    exit(2);
-}
 $version = $argv[2];
-if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $version) !== 1) {
-    fwrite(STDERR, "Invalid extension version.\n");
-    exit(2);
-}
-if (! is_file($vendorSource.'/autoload.php')) {
+$revision = $argv[3] ?? null;
+$vendor = (string) (getenv('GATEWAY_HOOKSCRIPT_VENDOR_DIR') ?: $source.'/companion/vendor');
+
+if (! is_file($vendor.'/autoload.php')) {
     fwrite(STDERR, "Run composer install --no-dev in pkg/hookscript/companion before building the ext package.\n");
     exit(1);
 }
-if (file_exists($destination)) {
-    fwrite(STDERR, "Destination already exists.\n");
-    exit(1);
+
+$temporary = sys_get_temp_dir().'/gateway-hookscript-build-'.bin2hex(random_bytes(8));
+$generated = $temporary.'/generated';
+$goCache = $temporary.'/go-cache';
+
+/** @param list<string> $command */
+function runHookScriptBuild(array $command, string $directory, array $environment, bool $capture = false): string
+{
+    $pipes = [];
+    $process = proc_open(
+        $command,
+        [0 => ['pipe', 'r'], 1 => $capture ? ['pipe', 'w'] : STDOUT, 2 => STDERR],
+        $pipes,
+        $directory,
+        $environment,
+    );
+    if (! is_resource($process)) {
+        throw new RuntimeException('Cannot start the HookScript Spinner build.');
+    }
+    fclose($pipes[0]);
+    $output = $capture ? trim((string) stream_get_contents($pipes[1])) : '';
+    if ($capture) {
+        fclose($pipes[1]);
+    }
+    if (proc_close($process) !== 0 || ($capture && $output === '')) {
+        throw new RuntimeException('Cannot build or inspect the HookScript Spinner guest.');
+    }
+
+    return $output;
 }
 
-/** @return never */
-function failBuild(string $message): void
+function removeHookScriptBuildTree(string $directory): void
 {
-    fwrite(STDERR, $message."\n");
-    exit(1);
-}
-
-function copyBuildTree(string $source, string $destination): void
-{
-    if (! mkdir($destination, 0700, true) && ! is_dir($destination)) {
-        failBuild("Cannot create {$destination}.");
+    if (! is_dir($directory)) {
+        return;
     }
     $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::SELF_FIRST,
+        new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
     );
     foreach ($iterator as $entry) {
-        if ($entry->isLink()) {
-            failBuild("Refusing symbolic link {$entry->getPathname()}.");
-        }
-        $relative = substr($entry->getPathname(), strlen($source) + 1);
-        $target = $destination.DIRECTORY_SEPARATOR.$relative;
-        if ($entry->isDir()) {
-            if (! is_dir($target) && ! mkdir($target, 0700, true)) {
-                failBuild("Cannot create {$target}.");
-            }
-        } elseif ($entry->isFile()) {
-            if (! copy($entry->getPathname(), $target)) {
-                failBuild("Cannot copy {$target}.");
-            }
-            chmod($target, 0600);
-        } else {
-            failBuild("Refusing non-regular package entry {$entry->getPathname()}.");
-        }
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
     }
+    @rmdir($directory);
 }
 
-function buildTreeDigest(string $directory): string
-{
-    $files = [];
-    $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(
-        $directory,
-        FilesystemIterator::SKIP_DOTS,
-    ));
-    foreach ($iterator as $file) {
-        if ($file->isLink() || ! $file->isFile()) {
-            failBuild("Invalid tree entry {$file->getPathname()}.");
-        }
-        $files[] = str_replace('\\', '/', substr($file->getPathname(), strlen($directory) + 1));
+try {
+    if (! mkdir($generated, 0700, true) || ! mkdir($goCache, 0700, true)) {
+        throw new RuntimeException('Cannot create the HookScript build workspace.');
     }
-    sort($files, SORT_STRING);
-    $context = hash_init('sha256');
-    foreach ($files as $relative) {
-        $digest = hash_file('sha256', $directory.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative));
-        hash_update($context, './'.$relative.' '.$digest."\n");
-    }
+    $environment = array_merge(getenv(), ['GOCACHE' => $goCache]);
+    runHookScriptBuild(
+        ['go', 'build', '-trimpath', '-ldflags=-s -w', '-o', $generated.'/spinner', './cmd/spinner'],
+        $source,
+        $environment,
+    );
+    $targetOS = runHookScriptBuild(['go', 'env', 'GOOS'], $source, $environment, true);
+    $targetArch = runHookScriptBuild(['go', 'env', 'GOARCH'], $source, $environment, true);
 
-    return hash_final($context);
-}
-
-/** @param list<string> $command */
-function runBuildCommand(array $command, string $directory): void
-{
-    $pipes = [];
-    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $pipes, $directory);
-    if (! is_resource($process)) {
-        failBuild('Cannot start the HookScript Spinner build.');
-    }
-    fclose($pipes[0]);
-    if (proc_close($process) !== 0) {
-        failBuild('Cannot build the HookScript Spinner guest.');
-    }
-}
-
-/** @param list<string> $command */
-function readBuildValue(array $command, string $directory): string
-{
-    $pipes = [];
-    $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => STDERR], $pipes, $directory);
-    if (! is_resource($process)) {
-        failBuild('Cannot inspect the HookScript Spinner build target.');
-    }
-    fclose($pipes[0]);
-    $value = trim((string) stream_get_contents($pipes[1]));
-    fclose($pipes[1]);
-    if (proc_close($process) !== 0 || $value === '') {
-        failBuild('Cannot inspect the HookScript Spinner build target.');
-    }
-
-    return $value;
-}
-
-mkdir($destination, 0700, true) || failBuild("Cannot create {$destination}.");
-mkdir($destination.'/bin', 0700, true) || failBuild('Cannot create bin directory.');
-copy($source.'/bin/companion', $destination.'/bin/companion') || failBuild('Cannot copy companion entrypoint.');
-runBuildCommand(['go', 'build', '-trimpath', '-ldflags=-s -w', '-o', $destination.'/bin/spinner', './cmd/spinner'], $source);
-copyBuildTree($source.'/src', $destination.'/src');
-copyBuildTree($vendorSource, $destination.'/vendor');
-chmod($destination.'/bin/spinner', 0700);
-chmod($destination.'/bin/companion', 0700);
-
-$artifacts = [
-    ['name' => 'spinner-guest', 'path' => 'bin/spinner', 'sha256' => hash_file('sha256', $destination.'/bin/spinner')],
-    ['name' => 'planner-companion', 'path' => 'bin/companion', 'sha256' => hash_file('sha256', $destination.'/bin/companion')],
-    ['name' => 'source', 'path' => 'src', 'kind' => 'tree', 'sha256' => buildTreeDigest($destination.'/src')],
-    ['name' => 'vendor', 'path' => 'vendor', 'kind' => 'tree', 'sha256' => buildTreeDigest($destination.'/vendor')],
-];
-$revision = $argv[3] ?? hash('sha256', implode("\n", array_column($artifacts, 'sha256')));
-if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9._:+\/-]{0,255}\z/D', $revision) !== 1) {
-    failBuild('Invalid extension revision.');
-}
-$packageIdentity = ['id' => $identity, 'revision' => $revision, 'version' => $version];
-$targetOS = readBuildValue(['go', 'env', 'GOOS'], $source);
-$targetArch = readBuildValue(['go', 'env', 'GOARCH'], $source);
-$companionDescriptor = [
-    'apiVersion' => 'ext.plugin/v1',
-    'identity' => $packageIdentity,
-    'contracts' => [[
-        'name' => 'gateway.companion',
-        'version' => 'v1',
-        'operations' => [['name' => 'gateway.hookscript.execute']],
-    ]],
-];
-$manifest = [
-    'apiVersion' => 'ext.package/v1',
-    'descriptor' => [
-        'apiVersion' => 'ext.plugin/v1',
-        'identity' => $packageIdentity,
-        'contracts' => [[
-            'name' => 'gateway.automation',
-            'version' => 'v1',
-            'operations' => [['name' => 'execute', 'surface' => 'webhookscript']],
-        ]],
-        'reverse' => [[
-            'name' => 'gateway.companion',
-            'version' => 'v1',
-            'operations' => [['name' => 'gateway.hookscript.execute']],
-        ]],
-    ],
-    'metadata' => [
-        'gateway.spinner/v1' => [
-            'platform' => ['os' => $targetOS, 'arch' => $targetArch],
+    (new PackageBuilder)->build(
+        manifestPath: $source.'/extension.build.json',
+        version: $version,
+        output: $destination,
+        revision: $revision,
+        sourceRoots: [
+            'project' => $source,
+            'generated' => $generated,
+            'vendor' => $vendor,
         ],
-        'gateway.automation/v1' => [
-            'languages' => [[
-                'id' => 'webhookscript',
-                'target' => 'spinner',
-                'capabilities' => ['route', 'schedule', 'credential'],
-            ]],
-        ],
-        'gateway.companion/v1' => ['descriptor' => $companionDescriptor],
-    ],
-    'artifacts' => $artifacts,
-    'entrypoints' => [
-        [
-            'name' => 'spinner',
-            'runtime' => 'process',
-            'artifact' => 'spinner-guest',
-            'protocols' => ['ext.plugin/v1'],
-        ],
-        [
-            'name' => 'planner',
-            'runtime' => 'php-jsonline',
-            'artifact' => 'planner-companion',
-            'protocols' => ['ext.plugin/v1'],
-        ],
-    ],
-];
-file_put_contents(
-    $destination.'/plugin.json',
-    json_encode($manifest, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)."\n",
-) ?: failBuild('Cannot write plugin.json.');
-
-fwrite(STDOUT, $destination."\n");
+        values: ['target_os' => $targetOS, 'target_arch' => $targetArch],
+    );
+    fwrite(STDOUT, $destination."\n");
+} catch (Throwable $exception) {
+    fwrite(STDERR, $exception->getMessage()."\n");
+    exit(1);
+} finally {
+    removeHookScriptBuildTree($temporary);
+}

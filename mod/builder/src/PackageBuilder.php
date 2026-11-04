@@ -19,9 +19,12 @@ final class PackageBuilder
         string $version,
         string $output,
         ?string $revision = null,
+        array $sourceRoots = [],
+        array $values = [],
     ): array {
         $manifestPath = realpath($manifestPath) ?: throw new BuildException('Build manifest does not exist.');
-        $sourceRoot = dirname($manifestPath);
+        $sourceRoots = $this->sourceRoots(dirname($manifestPath), $sourceRoots);
+        $values = $this->values($values);
         $build = json_decode((string) file_get_contents($manifestPath), true, flags: JSON_THROW_ON_ERROR);
 
         if (! is_array($build)) {
@@ -61,7 +64,11 @@ final class PackageBuilder
                 }
                 $artifactNames[$name] = true;
 
-                $source = $this->sourcePath($sourceRoot, $artifact['source'] ?? null);
+                $rootName = $artifact['sourceRoot'] ?? 'manifest';
+                if (! is_string($rootName) || ! isset($sourceRoots[$rootName])) {
+                    throw new BuildException("Unknown artifact source root [{$rootName}].");
+                }
+                $source = $this->sourcePath($sourceRoots[$rootName], $artifact['source'] ?? null);
                 $path = $this->relativePath($artifact['path'] ?? null, 'artifact path');
                 $target = $output.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $path);
                 $kind = $artifact['kind'] ?? 'file';
@@ -119,8 +126,8 @@ final class PackageBuilder
             $descriptor['identity'] = $packageIdentity;
             $result = [
                 'apiVersion' => 'ext.package/v1',
-                'descriptor' => $this->expand($descriptor, $packageIdentity),
-                'metadata' => $this->expand($metadata, $packageIdentity),
+                'descriptor' => $this->expand($descriptor, $packageIdentity, $values),
+                'metadata' => $this->expand($metadata, $packageIdentity, $values),
                 'artifacts' => $builtArtifacts,
                 'entrypoints' => $entrypoints,
             ];
@@ -160,8 +167,8 @@ final class PackageBuilder
 
     private function sourcePath(string $root, mixed $source): string
     {
-        $relative = $this->relativePath($source, 'artifact source');
-        $candidate = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+        $relative = $source === '.' ? '.' : $this->relativePath($source, 'artifact source');
+        $candidate = $relative === '.' ? $root : $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
         if (is_link($candidate)) {
             throw new BuildException('Artifact source cannot be a symbolic link.');
         }
@@ -172,6 +179,44 @@ final class PackageBuilder
         }
 
         return $path;
+    }
+
+    /**
+     * @param array<string, string> $roots
+     * @return array<string, string>
+     */
+    private function sourceRoots(string $manifestRoot, array $roots): array
+    {
+        $resolved = ['manifest' => realpath($manifestRoot) ?: $manifestRoot];
+        foreach ($roots as $name => $root) {
+            if (! is_string($name) || preg_match('/\A[A-Za-z][A-Za-z0-9._-]{0,63}\z/D', $name) !== 1 || $name === 'manifest') {
+                throw new BuildException('Invalid named source root.');
+            }
+            if (! is_string($root) || is_link($root) || ($path = realpath($root)) === false || ! is_dir($path)) {
+                throw new BuildException("Named source root [{$name}] is invalid.");
+            }
+            $resolved[$name] = $path;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param array<string, string> $values
+     * @return array<string, string>
+     */
+    private function values(array $values): array
+    {
+        foreach ($values as $name => $value) {
+            if (! is_string($name) || preg_match('/\A[A-Za-z][A-Za-z0-9._-]{0,63}\z/D', $name) !== 1 || ! is_string($value)) {
+                throw new BuildException('Invalid build value.');
+            }
+            if (in_array($name, ['identity', 'revision', 'version'], true)) {
+                throw new BuildException("Build value [{$name}] is reserved.");
+            }
+        }
+
+        return $values;
     }
 
     private function makeDirectory(string $directory): void
@@ -226,20 +271,25 @@ final class PackageBuilder
     }
 
     /** @param array{id: string, revision: string, version: string} $identity */
-    private function expand(mixed $value, array $identity): mixed
+    private function expand(mixed $value, array $identity, array $values): mixed
     {
         if (is_string($value)) {
-            return strtr($value, [
+            $replacements = [
                 '{{identity}}' => $identity['id'],
                 '{{revision}}' => $identity['revision'],
                 '{{version}}' => $identity['version'],
-            ]);
+            ];
+            foreach ($values as $name => $replacement) {
+                $replacements['{{'.$name.'}}'] = $replacement;
+            }
+
+            return strtr($value, $replacements);
         }
         if (! is_array($value)) {
             return $value;
         }
         foreach ($value as $key => $child) {
-            $value[$key] = $this->expand($child, $identity);
+            $value[$key] = $this->expand($child, $identity, $values);
         }
         if (($value['apiVersion'] ?? null) === 'ext.plugin/v1') {
             $value['identity'] = $identity;

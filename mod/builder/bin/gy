@@ -18,17 +18,32 @@ if (is_file($autoload)) {
 use Webong\GatewayBuilder\PackageBuilder;
 
 if (($argv[1] ?? null) !== 'build') {
-    fwrite(STDERR, "Usage: gy build --manifest=FILE --version=VERSION --output=DIR [--revision=REVISION]\n");
+    fwrite(STDERR, "Usage: gy build --manifest=FILE --version=VERSION --output=DIR [--revision=REVISION] [--source=NAME=DIR ...] [--value=NAME=VALUE ...]\n");
     exit(2);
 }
 
 $options = [];
+$sources = [];
+$values = [];
 foreach (array_slice($argv, 2) as $argument) {
     if (! str_starts_with($argument, '--') || ! str_contains($argument, '=')) {
         fwrite(STDERR, "Invalid argument [{$argument}].\n");
         exit(2);
     }
     [$name, $value] = explode('=', substr($argument, 2), 2);
+    if ($name === 'source' || $name === 'value') {
+        if (! str_contains($value, '=')) {
+            fwrite(STDERR, "Invalid named source [{$value}].\n");
+            exit(2);
+        }
+        [$bindingName, $bindingValue] = explode('=', $value, 2);
+        if ($name === 'source') {
+            $sources[$bindingName] = $bindingValue;
+        } else {
+            $values[$bindingName] = $bindingValue;
+        }
+        continue;
+    }
     $options[$name] = $value;
 }
 
@@ -45,6 +60,8 @@ try {
         version: $options['version'],
         output: $options['output'],
         revision: $options['revision'] ?? null,
+        sourceRoots: $sources,
+        values: $values,
     );
     fwrite(STDOUT, rtrim($options['output'], DIRECTORY_SEPARATOR)."\n");
 } catch (Throwable $exception) {
