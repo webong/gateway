@@ -148,6 +148,17 @@ docker build \
     "$ROOT"
 IMAGE_CREATED="true"
 
+# Kind nodes use a separate image store. Explicitly load the just-built image
+# when the smoke is running against a named Kind cluster.
+if [[ -n "${GATEWAY_REVERB_KIND_CLUSTER:-}" ]]; then
+    expected_context="kind-$GATEWAY_REVERB_KIND_CLUSTER"
+    if [[ "$(kubectl config current-context)" != "$expected_context" ]]; then
+        echo "Expected Kubernetes context $expected_context before loading the smoke image." >&2
+        exit 1
+    fi
+    kind load docker-image "$IMAGE" --name "$GATEWAY_REVERB_KIND_CLUSTER"
+fi
+
 kubectl create namespace "$NAMESPACE" >/dev/null
 NAMESPACE_CREATED="true"
 kubectl create configmap "$CONFIG_MAP" \

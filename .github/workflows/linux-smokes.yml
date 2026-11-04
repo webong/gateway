@@ -1,0 +1,81 @@
+name: Linux smoke tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  process-smokes:
+    name: Planner and Spinner process smokes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOWORK: 'off'
+      GOTELEMETRY: off
+      CGO_ENABLED: '1'
+      GOFLAGS: -mod=mod
+      COMPOSER_ROOT_VERSION: dev-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
+      - name: Install OpenSSH server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+          sudo install -d -m 0755 /run/sshd
+      - name: Install locked Planner dependencies
+        run: scripts/composer-install --prefer-dist
+      - name: Check composer.lock
+        run: git diff --exit-code -- composer.lock
+      - name: Configuration ownership
+        run: bash scripts/config-ownership-smoke.sh
+      - name: Shell over SSH
+        run: bash scripts/shell-ssh-smoke.sh
+      - name: RoadRunner schedules
+        run: bash scripts/schedule-roadrunner-smoke.sh
+      - name: Reverb process provisioning
+        run: bash pkg/reverb/scripts/reverb-smoke.sh
+
+  kubernetes-reverb:
+    name: Reverb Kubernetes provisioning
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GOWORK: 'off'
+      GOTELEMETRY: off
+      CGO_ENABLED: '1'
+      GOFLAGS: -mod=mod
+      COMPOSER_ROOT_VERSION: dev-main
+      GATEWAY_REVERB_KIND_CLUSTER: kind
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
+      - name: Install locked Planner dependencies
+        run: scripts/composer-install --prefer-dist
+      - name: Check composer.lock
+        run: git diff --exit-code -- composer.lock
+      - name: Start disposable Kind cluster
+        uses: helm/kind-action@v1.15.1
+        with:
+          cluster_name: kind
+      - name: Reverb Kubernetes provisioning
+        run: bash pkg/reverb/scripts/reverb-kubernetes-smoke.sh
