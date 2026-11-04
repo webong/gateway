@@ -12,12 +12,47 @@ arguments. This supports `.ps1` hooks on Unix and Windows without treating a
 route source as a command line. Interpreter mode is selected for the whole
 Spinner instance; the default remains `direct`.
 
-Build Spinner with the extension and enable it at runtime:
+No Gateway host binary compiles this engine. Install it as a Gateway Extension:
+release builds attach `webong-shell-<version>-linux-<arch>.tar.gz` with a
+`.sha256` sidecar, or build the package on the Spinner's platform and archive it:
 
 ```bash
-make build GATEWAY_BUILD_TAGS=gateway_shell
+scripts/build-gateway-automation-extension \
+  pkg/shell /tmp/extensions/webong%2fshell 1.0.0
+scripts/archive-gateway-extension \
+  /tmp/extensions/webong%2fshell /tmp/webong-shell-1.0.0.tar.gz
+```
 
-export GATEWAY_SHELL_ENABLED=true
+The archive command prints the SHA-256 that Planner pins. Publish the archive
+over HTTPS, then activate it through Planner's `/extensions` resource:
+
+```http
+POST /extensions
+Authorization: Bearer <registry token>
+Content-Type: application/json
+
+{
+  "extension": "webong/shell",
+  "enabled": true,
+  "version": "1.0.0",
+  "artifact": {
+    "url": "https://extensions.example.com/webong-shell-1.0.0.tar.gz",
+    "sha256": "<sha256-of-the-tar-gz>"
+  }
+}
+```
+
+Spinner pulls the archive into its `GATEWAY_PLUGIN_DIR` cache, and Planner pulls
+it into `GATEWAY_COMPANION_PLUGIN_DIR`; both must name a writable directory. See
+[Gateway Automations](../../docs/automations.md) for the full flow. Installing
+the extension is what enables Shell: a `shell` route plan fails closed until
+Spinner has installed the package, and there is no separate on/off setting.
+
+The guest inherits the `GATEWAY_SHELL_*` settings below from the Spinner
+process environment (the package declares them in its `extension.json`), so set
+them where Spinner starts, not on Planner:
+
+```bash
 export GATEWAY_SHELL_HOOKS_DIR=/opt/gateway/hooks
 export GATEWAY_SHELL_TIMEOUT=15s
 export GATEWAY_SHELL_MAX_OUTPUT_BYTES=65536
@@ -91,14 +126,14 @@ and match rules.
 
 ## SSH-backed replies
 
-SSH is opt-in. Build the `gateway_shell` extension, set
-`GATEWAY_SHELL_ENABLED=true`, and deploy a hard outbound ceiling such as
-`GATEWAY_SHELL_SSH_ALLOWED_CIDRS=10.42.0.0/16`. This is a process safety
-limit, not a route destination; Planner cannot widen it. A Spinner with only
-SSH targets does not need `GATEWAY_SHELL_HOOKS_DIR`. Without a CIDR ceiling or
-a private Planner resolver, SSH sources fail closed. In HTTP Planner mode,
-the private credential connection must use HTTPS, loopback HTTP, or a Unix
-socket. Plaintext HTTP to another host is refused when SSH is enabled.
+SSH is opt-in. Install the `webong/shell` extension and deploy a hard outbound
+ceiling such as `GATEWAY_SHELL_SSH_ALLOWED_CIDRS=10.42.0.0/16` in Spinner's
+environment. This is a process safety limit, not a route destination; Planner
+cannot widen it. A Spinner with only SSH targets does not need
+`GATEWAY_SHELL_HOOKS_DIR`. Without a CIDR ceiling or a private Planner
+resolver, SSH sources fail closed. In HTTP Planner mode, the private credential
+connection must use HTTPS, loopback HTTP, or a Unix socket. Plaintext HTTP to
+another host is refused when SSH is enabled.
 
 On each remote host, install the separately built helper and an
 operator-owned hook tree:

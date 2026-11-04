@@ -1,5 +1,3 @@
-//go:build !gateway_javascript && !gateway_lua
-
 package automationextensions
 
 import (
