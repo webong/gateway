@@ -13,7 +13,7 @@ composer require --dev webong/gateway-builder
 Build through the installed binary:
 
 ```bash
-vendor/bin/gateway-extension build \
+vendor/bin/gy build \
   --manifest=extension.build.json \
   --version=1.0.0 \
   --output=dist/webong%2fexample
@@ -22,7 +22,7 @@ vendor/bin/gateway-extension build \
 Or through its Composer plugin command:
 
 ```bash
-composer gateway-extension:build \
+composer gy:build \
   --manifest=extension.build.json \
   --extension-version=1.0.0 \
   --output=dist/webong%2fexample

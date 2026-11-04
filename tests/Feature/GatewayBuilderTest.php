@@ -38,7 +38,7 @@ it('assembles a deterministic extension package through the standalone CLI', fun
 
     $process = new Process([
         PHP_BINARY,
-        dirname(__DIR__, 2).'/mod/builder/bin/gateway-extension',
+        dirname(__DIR__, 2).'/mod/builder/bin/gy',
         'build',
         '--manifest='.$source.'/extension.build.json',
         '--version=1.2.3',
@@ -78,7 +78,7 @@ it('assembles a deterministic extension package through the standalone CLI', fun
 });
 
 it('exposes the same builder as a Composer plugin command', function (): void {
-    $process = new Process(['composer', 'gateway-extension:build', '--help'], dirname(__DIR__, 2));
+    $process = new Process(['composer', 'gy:build', '--help'], dirname(__DIR__, 2));
     $process->mustRun();
 
     expect($process->getOutput())
@@ -104,7 +104,7 @@ it('rejects symbolic-link artifact sources without leaving partial output', func
 
     $process = new Process([
         PHP_BINARY,
-        dirname(__DIR__, 2).'/mod/builder/bin/gateway-extension',
+        dirname(__DIR__, 2).'/mod/builder/bin/gy',
         'build',
         '--manifest='.$source.'/extension.build.json',
         '--version=1.0.0',

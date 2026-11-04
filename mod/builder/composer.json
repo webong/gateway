@@ -16,7 +16,7 @@
         "class": "Webong\\GatewayBuilder\\Composer\\GatewayBuilderPlugin"
     },
     "bin": [
-        "bin/gateway-extension"
+        "bin/gy"
     ],
     "minimum-stability": "dev",
     "prefer-stable": true

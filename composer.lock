@@ -13570,14 +13570,14 @@
             "dist": {
                 "type": "path",
                 "url": "mod/builder",
-                "reference": "fc4a72dd82fc7c1e4edf1438d9b5e59b98eb0edc"
+                "reference": "0031667562c6fe14689e47dc1f54303a49eec800"
             },
             "require": {
                 "composer-plugin-api": "^2.3",
                 "php": "^8.3"
             },
             "bin": [
-                "bin/gateway-extension"
+                "bin/gy"
             ],
             "type": "composer-plugin",
             "extra": {

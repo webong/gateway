@@ -14,7 +14,7 @@ final class BuildExtensionCommand extends BaseCommand
 {
     protected function configure(): void
     {
-        $this->setName('gateway-extension:build')
+        $this->setName('gy:build')
             ->setDescription('Build a deterministic ext.package/v1 Gateway extension')
             ->addOption('manifest', null, InputOption::VALUE_REQUIRED)
             ->addOption('extension-version', null, InputOption::VALUE_REQUIRED)
