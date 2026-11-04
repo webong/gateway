@@ -465,8 +465,11 @@ forward commands to the same private Planner endpoint. The bundled Router uses
 its in-process handler rather than an external connection.
 
 From the repository checkout, `make test-schedule-roadrunner` builds the
-bundled Router with Lua, starts a temporary Laravel/SQLite Planner, and
-verifies both a due run and a child schedule registered by that run.
+bundled Router, which compiles no automation engine, and starts it with a
+temporary Laravel/SQLite Planner. It builds and archives the `webong/lua`
+package, seeds Planner's and the Router's extension caches with it, activates it
+through `/extensions`, and waits for the Router to launch it. It then verifies
+both a due run and a child schedule registered by that run.
 
 JavaScript:
 
