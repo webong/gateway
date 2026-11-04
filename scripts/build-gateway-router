@@ -38,9 +38,11 @@ cp -R "$REPO_DIR/vendor" "$STAGE/"
 if [ -d "$STAGE/vendor/webong/gateway-adapter" ]; then
     cp -R "$REPO_DIR/mod/adapter/." "$STAGE/vendor/webong/gateway-adapter/"
 fi
-for package in gateway web dns email database; do
-    source=$package
-    [ "$package" = gateway ] && source=planner
+for package in gateway gateway-web gateway-dns gateway-email gateway-database; do
+    case "$package" in
+        gateway) source=planner ;;
+        gateway-*) source=${package#gateway-} ;;
+    esac
     rm -rf "$STAGE/vendor/webong/$package"
     cp -R "$REPO_DIR/pkg/$source" "$STAGE/vendor/webong/$package"
 done

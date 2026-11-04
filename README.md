@@ -74,7 +74,8 @@ The monorepo publishes separate Composer packages:
 - `webong/gateway` contains the PHP Planner core in `pkg/planner/`,
   including Laravel integration and framework-neutral Symfony Console migration
   tooling.
-- `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are
+- `webong/gateway-web`, `webong/gateway-dns`, `webong/gateway-email`, and
+  `webong/gateway-database` are
   self-contained Gateway Extensions. Each owns its Planner policy entrypoint
   and Spinner transport entrypoint under one package identity and version.
 - `webong/gateway-*` extension packages own their sources, dependencies, and

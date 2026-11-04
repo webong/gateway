@@ -82,14 +82,20 @@ it('keeps Planner core independent of transport extension namespaces', function 
 
     $manifest = json_decode((string) file_get_contents($planner.'/composer.json'), true, flags: JSON_THROW_ON_ERROR);
     expect(array_keys($manifest['require']))
-        ->not->toContain('webong/web', 'webong/dns', 'webong/email', 'webong/database');
+        ->not->toContain('webong/gateway-web', 'webong/gateway-dns', 'webong/gateway-email', 'webong/gateway-database');
 });
 
 it('keeps each Gateway extension self-contained across Planner and Spinner', function (): void {
     $root = dirname(__DIR__, 2);
 
     foreach (['web', 'dns', 'email', 'database'] as $extension) {
+        $manifest = json_decode(
+            (string) file_get_contents($root."/pkg/{$extension}/composer.json"),
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
         expect($root."/pkg/{$extension}/composer.json")->toBeFile()
+            ->and($manifest['name'])->toBe("webong/gateway-{$extension}")
             ->and($root."/pkg/{$extension}/go.mod")->toBeFile()
             ->and($root."/pkg/{$extension}/spinner")->toBeDirectory();
 
@@ -176,5 +182,5 @@ it('keeps the shared event ledger in Planner instead of making DNS depend on Web
         ->and($root.'/pkg/planner/src/database/migrations/2026_08_30_000004_create_events_table.php')->toBeFile()
         ->and($root.'/pkg/web/src/Events/WebEventRecorder.php')->toBeFile()
         ->and($root.'/pkg/web/src/Events/Models')->not->toBeDirectory()
-        ->and(array_keys($dns['require']))->not->toContain('webong/web');
+        ->and(array_keys($dns['require']))->not->toContain('webong/gateway-web');
 });

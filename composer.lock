@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "461f3009824c02983f133d7a2883109f",
+    "content-hash": "426c2cfac25b5f94ce21a95e5618158c",
     "packages": [
         {
             "name": "brick/math",
@@ -13565,12 +13565,12 @@
             "time": "2026-10-22T12:42:03+00:00"
         },
         {
-            "name": "webong/database",
+            "name": "webong/gateway-database",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "pkg/database",
-                "reference": "5dda019c88a331c6c7c4f02d336adc40972c644a"
+                "reference": "a42ee068af94a0f55b6653ac5557d85d5e60b711"
             },
             "require": {
                 "laravel/framework": "^12.0",
@@ -13597,12 +13597,12 @@
             }
         },
         {
-            "name": "webong/dns",
+            "name": "webong/gateway-dns",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "pkg/dns",
-                "reference": "616130142313234d22b5a2023cf5b9bd38638983"
+                "reference": "845d47497ac566433320ad2032faa0a3178562d8"
             },
             "require": {
                 "laravel/framework": "^12.0",
@@ -13630,12 +13630,12 @@
             }
         },
         {
-            "name": "webong/email",
+            "name": "webong/gateway-email",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "pkg/email",
-                "reference": "c68dab3f588a269e8bbea32f5f02fd30491d6f70"
+                "reference": "be5fd18056a16c11f5d85b8ac4ce510534d9dc93"
             },
             "require": {
                 "laravel/framework": "^12.0",
@@ -13663,12 +13663,12 @@
             }
         },
         {
-            "name": "webong/web",
+            "name": "webong/gateway-web",
             "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "pkg/web",
-                "reference": "5a9053efa0fd04eb7e8005c29d91e6504433568b"
+                "reference": "8c9a7caca80a3c43027e74f715b90138a787553b"
             },
             "require": {
                 "laravel/framework": "^12.0",
@@ -13871,12 +13871,12 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "webong/database": 20,
-        "webong/dns": 20,
-        "webong/email": 20,
         "webong/gateway": 20,
         "webong/gateway-adapter": 20,
-        "webong/web": 20
+        "webong/gateway-database": 20,
+        "webong/gateway-dns": 20,
+        "webong/gateway-email": 20,
+        "webong/gateway-web": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

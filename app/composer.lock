@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8e53b8428ef0cb0c494781d2584403c4",
+    "content-hash": "a6cd20f525943c1f9e3a13c5ab1944b8",
     "packages": [
         {
             "name": "brick/math",
@@ -8335,104 +8335,6 @@
             "time": "2026-04-26T05:33:54+00:00"
         },
         {
-            "name": "webong/database",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../pkg/database",
-                "reference": "f71e743e302f858e88d4371bf8c708216c94ebd2"
-            },
-            "require": {
-                "laravel/framework": "^12.0",
-                "php": "^8.3",
-                "webong/gateway": "dev-main",
-                "webong/gateway-adapter": "dev-main"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Webong\\Gateway\\Database\\": "src/"
-                },
-                "files": [
-                    "register.php"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Managed Database extension for Gateway",
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
-        },
-        {
-            "name": "webong/dns",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../pkg/dns",
-                "reference": "5109b195fd6871b4929cbc34b24af277f8951b28"
-            },
-            "require": {
-                "laravel/framework": "^12.0",
-                "php": "^8.3",
-                "webong/gateway": "dev-main",
-                "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Webong\\Gateway\\Dns\\": "src/"
-                },
-                "files": [
-                    "register.php"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "DNS transport extension for Gateway",
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
-        },
-        {
-            "name": "webong/email",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../pkg/email",
-                "reference": "bedbfc74907849f22e58548c8d3e93956f7bde1b"
-            },
-            "require": {
-                "laravel/framework": "^12.0",
-                "php": "^8.3",
-                "webong/gateway": "dev-main",
-                "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Webong\\Gateway\\Email\\": "src/"
-                },
-                "files": [
-                    "register.php"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Email transport extension for Gateway",
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
-        },
-        {
             "name": "webong/gateway",
             "version": "dev-main",
             "dist": {
@@ -8499,6 +8401,137 @@
             }
         },
         {
+            "name": "webong/gateway-database",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../pkg/database",
+                "reference": "50bc5d5e57587600565d54fe0c173efdfc390dec"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-adapter": "dev-main"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Database\\": "src/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Managed Database extension for Gateway",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/gateway-dns",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../pkg/dns",
+                "reference": "b01cbde2aa5e05664e00e6cef7fe3cafd7f451b9"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-adapter": "dev-main",
+                "webong/proxy": "^0.2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Dns\\": "src/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "DNS transport extension for Gateway",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/gateway-email",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../pkg/email",
+                "reference": "250b199f1124052f015f096d9169041711c98298"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-adapter": "dev-main",
+                "webong/proxy": "^0.2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Email\\": "src/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Email transport extension for Gateway",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/gateway-web",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../pkg/web",
+                "reference": "1804ed93e1a6a920bd5c4840a7c871cc713a61f3"
+            },
+            "require": {
+                "laravel/framework": "^12.0",
+                "php": "^8.3",
+                "webong/gateway": "dev-main",
+                "webong/gateway-adapter": "dev-main"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Web\\": "src/",
+                    "Webong\\Gateway\\Webstream\\": "src/Webstream/"
+                },
+                "files": [
+                    "register.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Web transport extension for Gateway",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
             "name": "webong/proxy",
             "version": "v0.2.0",
             "source": {
@@ -8548,39 +8581,6 @@
                 "source": "https://github.com/webong/proxy/tree/v0.2.0"
             },
             "time": "2026-10-22T10:42:07+00:00"
-        },
-        {
-            "name": "webong/web",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../pkg/web",
-                "reference": "f56ac065e90b8b1557f61d4ed6140f0ef2b81e8d"
-            },
-            "require": {
-                "laravel/framework": "^12.0",
-                "php": "^8.3",
-                "webong/gateway": "dev-main",
-                "webong/gateway-adapter": "dev-main"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Webong\\Gateway\\Web\\": "src/",
-                    "Webong\\Gateway\\Webstream\\": "src/Webstream/"
-                },
-                "files": [
-                    "register.php"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Web transport extension for Gateway",
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
         },
         {
             "name": "wikimedia/composer-merge-plugin",
@@ -8759,12 +8759,12 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "webong/database": 20,
-        "webong/dns": 20,
-        "webong/email": 20,
         "webong/gateway": 20,
         "webong/gateway-adapter": 20,
-        "webong/web": 20
+        "webong/gateway-database": 20,
+        "webong/gateway-dns": 20,
+        "webong/gateway-email": 20,
+        "webong/gateway-web": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

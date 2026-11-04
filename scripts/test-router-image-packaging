@@ -110,10 +110,10 @@ php -r '
     $localPackages = [
         "webong/gateway" => "../pkg/planner",
         "webong/gateway-adapter" => "../mod/adapter",
-        "webong/web" => "../pkg/web",
-        "webong/dns" => "../pkg/dns",
-        "webong/email" => "../pkg/email",
-        "webong/database" => "../pkg/database",
+        "webong/gateway-web" => "../pkg/web",
+        "webong/gateway-dns" => "../pkg/dns",
+        "webong/gateway-email" => "../pkg/email",
+        "webong/gateway-database" => "../pkg/database",
     ];
     foreach ($lock["packages"] ?? [] as $package) {
         if (($package["name"] ?? null) === "webong/gateway-adapter") {
