@@ -225,7 +225,9 @@ php -r '
     $quote = static fn (string $value): string => json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
     $app = getenv("GATEWAY_ROUTER_APP_DIR");
     $octane = getenv("GATEWAY_ROUTER_DATA_DIR")."/octane";
-    $worker = "php ../vendor/bin/roadrunner-worker";
+    // Octane reads COMPOSER_VENDOR_DIR from $_ENV. Some PHP CLI installations
+    // omit E from variables_order, so set it for the worker explicitly.
+    $worker = "php -d variables_order=EGPCS ../vendor/bin/roadrunner-worker";
     $config = "version: \"3\"\nserver:\n  command: ".$quote($worker)."\n  env:\n";
     foreach (["APP_BASE_PATH" => $octane, "COMPOSER_VENDOR_DIR" => dirname($app)."/vendor", "LARAVEL_OCTANE" => "1"] as $key => $value) {
         $config .= "    ".$key.": ".$quote($value)."\n";
