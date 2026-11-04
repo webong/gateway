@@ -15,7 +15,7 @@
 # It never touches a production host and it does not need root: sshd runs as
 # the invoking user on a high loopback port.
 
-set -Eeuo pipefail
+set -euo pipefail
 trap 'status=$?; echo "Shell SSH smoke failed at line $LINENO (exit $status)." >&2' ERR
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -109,10 +109,14 @@ exec "$HELPER_BIN"
 WRAPPER
 chmod 0755 "$TEMP_DIR/helper-wrapper.sh"
 
-cat > "$TEMP_DIR/authorized_keys" <<AUTH
-restrict,command="$TEMP_DIR/helper-wrapper.sh" $(cat "$CLIENT_KEY.pub")
+authorize_client_key() {
+    local public_key_file="$1"
+    cat > "$TEMP_DIR/authorized_keys" <<AUTH
+restrict,command="$TEMP_DIR/helper-wrapper.sh" $(cat "$public_key_file")
 AUTH
-chmod 0600 "$TEMP_DIR/authorized_keys"
+    chmod 0600 "$TEMP_DIR/authorized_keys"
+}
+authorize_client_key "$CLIENT_KEY.pub"
 
 cat > "$TEMP_DIR/sshd_config" <<SSHD
 Port $SSHD_PORT
@@ -261,6 +265,9 @@ curl -sS -D "$TEMP_DIR/rotate.headers" -o "$TEMP_DIR/rotate.body" -X POST \
 [[ "$(status_of "$TEMP_DIR/rotate.headers")" == "200" ]]
 etag="$(header_of "$TEMP_DIR/rotate.headers" ETag)"
 [[ -n "$etag" && "$etag" != "$create_etag" ]]
+# The disposable SSH server must trust the newly rotated client key before it
+# can exercise Gateway's live credential. Replace the old authorization too.
+authorize_client_key "$CLIENT2_KEY.pub"
 code="$(ingress)"
 [[ "$code" == "202" && "$(<"$TEMP_DIR/ingress.body")" == "deploy-ok" ]]
 if ssh -i "$CLIENT_KEY" -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
