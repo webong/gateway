@@ -29,7 +29,12 @@ composer gy:build \
 ```
 
 The manifest declares the extension identity, descriptor, metadata, artifacts,
-and entrypoints. Artifact sources are resolved relative to the manifest. The
-builder rejects traversal and symbolic links, copies artifacts with restrictive
-permissions, calculates deterministic SHA-256 digests, injects package identity
-into plugin descriptors, and writes `plugin.json`.
+and entrypoints. Artifact sources are resolved relative to the manifest. A
+manifest may also select a named source root with `"sourceRoot": "generated"`;
+provide it by repeating `--source=NAME=DIR`. Repeat `--value=NAME=VALUE` to
+expand custom `{{name}}` placeholders alongside the built-in identity, version,
+and revision placeholders.
+
+The builder rejects traversal and symbolic links, copies artifacts with
+restrictive permissions, calculates deterministic SHA-256 digests, injects
+package identity into plugin descriptors, and writes `plugin.json`.
