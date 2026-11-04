@@ -1262,6 +1262,24 @@ configuration and private-upstream CA trust.
 
 ## Tests
 
+Install the locked PHP dependencies with `scripts/composer-install` (or
+`make composer-install`) rather than a plain `composer install`:
+
+```bash
+scripts/composer-install                    # repository root
+scripts/composer-install --working-dir=app  # bundled Router host
+```
+
+On a fresh checkout Composer Merge Plugin is installed during the run, which
+makes it update every package it merged from `pkg/*/composer.json`. A plain
+`composer install` then moves `laravel/framework`, `webong/proxy`, and similar
+packages past the versions in `composer.lock` and rewrites the lock file. The
+script installs exactly what the lock records with plugins disabled, then
+regenerates the autoloader with the plugin enabled so extension namespaces are
+still merged. Run `make test-composer-install` to verify a fresh install leaves
+`composer.lock` unchanged; it needs network access. Run `composer update` only
+when you mean to change locked versions, and commit the lock file with it.
+
 Run the Go transport, Arranger contracts, and isolated release-consumer tests
 from the repository root:
 
