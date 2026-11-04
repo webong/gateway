@@ -14,7 +14,8 @@
     "require-dev": {
         "orchestra/testbench": "^10.0",
         "pestphp/pest": "^4.0",
-        "pestphp/pest-plugin-laravel": "^4.0"
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "webong/gateway-builder": "dev-main"
     },
     "autoload": {
         "psr-4": {

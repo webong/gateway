@@ -1,0 +1,47 @@
+{
+    "identity": "webong/hookscript",
+    "descriptor": {
+        "contracts": [{
+            "name": "gateway.automation",
+            "version": "v1",
+            "operations": [{"name": "execute", "surface": "webhookscript"}]
+        }],
+        "reverse": [{
+            "name": "gateway.companion",
+            "version": "v1",
+            "operations": [{"name": "gateway.hookscript.execute"}]
+        }]
+    },
+    "metadata": {
+        "gateway.spinner/v1": {
+            "platform": {"os": "{{target_os}}", "arch": "{{target_arch}}"}
+        },
+        "gateway.automation/v1": {
+            "languages": [{
+                "id": "webhookscript",
+                "target": "spinner",
+                "capabilities": ["route", "schedule", "credential"]
+            }]
+        },
+        "gateway.companion/v1": {
+            "descriptor": {
+                "apiVersion": "ext.plugin/v1",
+                "contracts": [{
+                    "name": "gateway.companion",
+                    "version": "v1",
+                    "operations": [{"name": "gateway.hookscript.execute"}]
+                }]
+            }
+        }
+    },
+    "artifacts": [
+        {"name": "spinner-guest", "sourceRoot": "generated", "source": "spinner", "path": "bin/spinner", "executable": true},
+        {"name": "planner-companion", "sourceRoot": "project", "source": "bin/companion", "path": "bin/companion", "executable": true},
+        {"name": "source", "sourceRoot": "project", "source": "src", "path": "src", "kind": "tree"},
+        {"name": "vendor", "sourceRoot": "vendor", "source": ".", "path": "vendor", "kind": "tree"}
+    ],
+    "entrypoints": [
+        {"name": "spinner", "runtime": "process", "artifact": "spinner-guest", "protocols": ["ext.plugin/v1"]},
+        {"name": "planner", "runtime": "php-jsonline", "artifact": "planner-companion", "protocols": ["ext.plugin/v1"]}
+    ]
+}
