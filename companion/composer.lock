@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e8c9b2c3d0e9bfbe1a9280e918e38b3c",
+    "content-hash": "b6c068b88d03486538e27390f66c061b",
     "packages": [
         {
             "name": "smuuf/php-peg",
@@ -121,87 +121,28 @@
             "time": "2020-03-28T11:28:46+00:00"
         },
         {
-            "name": "webong/gateway",
+            "name": "webong/gateway-adapter",
             "version": "dev-main",
             "dist": {
                 "type": "path",
-                "url": "../../..",
-                "reference": "843b14c64f162b7c613451bd6e2c52ee0f5b3aef"
+                "url": "../../../mod/adapter",
+                "reference": "1753afbafef13d5d26c8676452d10c5f1298b87e"
             },
             "require": {
                 "php": "^8.3"
             },
-            "require-dev": {
-                "laravel/octane": "^2.17",
-                "laravel/reverb": "^1.10",
-                "orchestra/testbench": "^10.0",
-                "pestphp/pest": "^4.0",
-                "pestphp/pest-plugin-laravel": "^4.0",
-                "smuuf/primi": "^0.4",
-                "spiral/roadrunner-cli": "^2.6",
-                "spiral/roadrunner-http": "^3.3",
-                "webong/database": "dev-main",
-                "webong/dns": "dev-main",
-                "webong/email": "dev-main",
-                "webong/gateway-planner": "dev-main",
-                "webong/web": "dev-main",
-                "wikimedia/composer-merge-plugin": "^2.1"
-            },
             "type": "library",
-            "extra": {
-                "merge-plugin": {
-                    "include": [
-                        "pkg/*/composer.json"
-                    ],
-                    "exclude": [
-                        "pkg/hookscript/composer.json"
-                    ],
-                    "recurse": false,
-                    "replace": false,
-                    "merge-dev": true,
-                    "merge-extra": false,
-                    "merge-scripts": false
-                }
-            },
             "autoload": {
                 "psr-4": {
-                    "Webong\\Gateway\\Companion\\": "mod/adapter/src/Companion/",
-                    "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contract/",
-                    "Webong\\Gateway\\Protocols\\": "mod/adapter/src/Protocol/"
+                    "Webong\\Gateway\\Companion\\": "src/Companion/",
+                    "Webong\\Gateway\\Contracts\\": "src/Contract/",
+                    "Webong\\Gateway\\Protocols\\": "src/Protocol/"
                 }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Webong\\Gateway\\Tests\\": "tests/"
-                }
-            },
-            "archive": {
-                "exclude": [
-                    "/*",
-                    "/.*",
-                    "!/composer.json",
-                    "!/LICENSE",
-                    "!/README.md",
-                    "!/mod",
-                    "/mod/*",
-                    "!/mod/adapter",
-                    "/mod/adapter/*",
-                    "!/mod/adapter/src",
-                    "!/mod/adapter/src/**"
-                ]
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "test-package": [
-                    "bash scripts/test-core-package"
-                ]
             },
             "license": [
                 "MIT"
             ],
-            "description": "Framework-free contracts and protocol for the Webong Gateway transport",
+            "description": "Framework-neutral contracts and protocol values for custom Gateway Planners and extensions",
             "transport-options": {
                 "symlink": false,
                 "relative": true
@@ -212,7 +153,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "webong/gateway": 20
+        "webong/gateway-adapter": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

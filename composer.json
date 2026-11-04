@@ -9,7 +9,7 @@
         "php": "^8.3",
         "smuuf/primi": "^0.4",
         "webong/gateway": "dev-main",
-        "webong/gateway-planner": "dev-main"
+        "webong/gateway-adapter": "dev-main"
     },
     "require-dev": {
         "orchestra/testbench": "^10.0",
