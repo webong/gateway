@@ -76,3 +76,37 @@ func TestPublicEgressAddress(t *testing.T) {
 		t.Error("the zero address must not be a public egress address")
 	}
 }
+
+func TestEgressAddressAllowedWithPrivateNetworks(t *testing.T) {
+	for _, test := range []struct {
+		address string
+		want    bool
+	}{
+		{"8.8.8.8", true},
+		{"10.0.0.1", true},
+		{"172.16.0.1", true},
+		{"192.168.1.1", true},
+		{"fd00::1", true},
+		{"::ffff:10.0.0.1", true},
+		{"64:ff9b::a00:1", true},
+		{"2002:a00:1::1", true},
+
+		// Private approval never reaches local or special-use space.
+		{"127.0.0.1", false},
+		{"::1", false},
+		{"169.254.169.254", false},
+		{"fe80::1", false},
+		{"0.0.0.0", false},
+		{"224.0.0.1", false},
+		{"100.100.100.200", false},
+		{"198.18.0.1", false},
+		{"192.0.2.5", false},
+		{"2001:db8::1", false},
+		{"::ffff:127.0.0.1", false},
+		{"64:ff9b::a9fe:a9fe", false},
+	} {
+		if got := EgressAddressAllowed(netip.MustParseAddr(test.address), true); got != test.want {
+			t.Errorf("EgressAddressAllowed(%s, true) = %v, want %v", test.address, got, test.want)
+		}
+	}
+}
