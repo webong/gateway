@@ -1,4 +1,4 @@
-# Gateway PHP Contract
+# Gateway Adapter
 
 Framework-free PHP interfaces and protocol values shared by Gateway Planner
 and optional Planner extension packages live here. Implementations remain in
@@ -14,7 +14,7 @@ stable action name and handler class; Spinner invokes only that name and typed
 input through the private companion-action protocol. The contract never accepts
 PHP source.
 
-The root `webong/gateway` Composer package currently includes this source and
-autoloads its namespaces. The nested manifest keeps the seam independently
-testable and ready for a split-package release without coupling extensions to
-`src/planner` implementation paths.
+Install `webong/gateway-adapter` when building a custom Planner or an extension
+that only needs the stable Gateway seam. The package has no Laravel or Symfony
+dependency. The official Planner implementation is published separately as
+`webong/gateway` from `pkg/planner`.

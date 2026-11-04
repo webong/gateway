@@ -1,6 +1,6 @@
 {
-    "name": "webong/gateway-contract",
-    "description": "Framework-free PHP contracts shared by Gateway Planner and its extensions",
+    "name": "webong/gateway-adapter",
+    "description": "Framework-neutral contracts and protocol values for custom Gateway Planners and extensions",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -8,6 +8,7 @@
     },
     "autoload": {
         "psr-4": {
+            "Webong\\Gateway\\Companion\\": "src/Companion/",
             "Webong\\Gateway\\Contracts\\": "src/Contract/",
             "Webong\\Gateway\\Protocols\\": "src/Protocol/"
         }
