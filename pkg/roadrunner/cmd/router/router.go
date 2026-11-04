@@ -64,11 +64,6 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 	var extensionErr error
 	artifactReady := make(chan *spinnerextensions.ArtifactReconciler, 1)
 	server, err := newServer(configPath, func(next http.Handler) http.Handler {
-		if resolverErr := automationextensions.ConfigureShellSSHHandler(next, spinner.InternalToken); resolverErr != nil {
-			return http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-				http.Error(writer, "Planner Shell credential control is unavailable", http.StatusServiceUnavailable)
-			})
-		}
 		companionActions, companionErr := bridge.NewPHPCompanionRunner(next, spinner.MaxBodySize, spinner.InternalToken)
 		if companionErr != nil {
 			select {
