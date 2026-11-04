@@ -41,6 +41,39 @@ jobs:
       - name: Test Spinner with real guest engines
         run: go -C tools/spinner test -mod=readonly ./...
 
+  build:
+    name: Build Go modules
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: '1'
+      GOWORK: 'off'
+      GOTELEMETRY: off
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      # Host and adapter modules have no tests that would catch a call to a
+      # removed API, so compile every module listed in go.work. The FrankenPHP
+      # modules are skipped because they need ZTS PHP embed headers that this
+      # runner does not install.
+      - name: Build every workspace module
+        run: |
+          failed=0
+          while read -r module; do
+            echo "::group::go build $module"
+            if ! go -C "$module" build -mod=readonly ./...; then
+              echo "::error title=Build failed::$module does not build"
+              failed=1
+            fi
+            echo '::endgroup::'
+          done < <(awk '/^[[:space:]]+\.\//{print $1}' go.work | grep -v '^\./pkg/frankenphp')
+          exit "$failed"
+
   boundaries:
     name: Module boundaries
     runs-on: ubuntu-24.04
