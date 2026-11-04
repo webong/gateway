@@ -45,6 +45,7 @@ type extensionProcess interface {
 type httpMount struct {
 	prefix string
 	proxy  http.Handler
+	match  string
 }
 
 // Registry owns live process sessions. At most one active extension may claim
@@ -149,10 +150,10 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 	buildMounts := func(advertisedMounts []integrationcontract.HTTPMount, destination *[]httpMount) error {
 		for _, advertised := range advertisedMounts {
 			prefix, err := validHTTPPrefix(advertised.Prefix)
-			if err != nil || seenPrefixes[prefix] {
+			if err != nil || !validHTTPMatch(advertised.Match) || seenPrefixes[prefix+"\x00"+advertised.Match] {
 				return errors.New("Spinner integration advertised an invalid or duplicate HTTP prefix")
 			}
-			seenPrefixes[prefix] = true
+			seenPrefixes[prefix+"\x00"+advertised.Match] = true
 			target, err := url.Parse(advertised.Address)
 			if err != nil || target.Scheme != "http" || target.User != nil || target.Path != "" || target.RawQuery != "" || target.Fragment != "" || !loopback(target.Host) {
 				return errors.New("Spinner integration advertised an invalid private HTTP endpoint")
@@ -161,7 +162,7 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 			reverseProxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, _ error) {
 				http.Error(writer, "Gateway integration is unavailable", http.StatusBadGateway)
 			}
-			*destination = append(*destination, httpMount{prefix: prefix, proxy: reverseProxy})
+			*destination = append(*destination, httpMount{prefix: prefix, proxy: reverseProxy, match: advertised.Match})
 		}
 		return nil
 	}
@@ -616,6 +617,24 @@ func (r *Registry) Handler() http.Handler {
 	return r.handler(false)
 }
 
+// ServeIfMatched lets the core HTTP edge handle requests that no installed
+// integration claims. Ambiguous claims still fail closed.
+func (r *Registry) ServeIfMatched(writer http.ResponseWriter, request *http.Request) bool {
+	if request.URL.Path == "/_internal" || strings.HasPrefix(request.URL.Path, "/_internal/") {
+		return false
+	}
+	return r.serveIfMatched(writer, request, false)
+}
+
+func (r *Registry) HandlerWithFallback(fallback http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if r.ServeIfMatched(writer, request) {
+			return
+		}
+		fallback.ServeHTTP(writer, request)
+	})
+}
+
 // PrivateHandler exposes only Extension mounts advertised for Spinner's
 // authenticated admin listener. Public mounts can never be reached through it.
 func (r *Registry) PrivateHandler() http.Handler {
@@ -624,37 +643,67 @@ func (r *Registry) PrivateHandler() http.Handler {
 
 func (r *Registry) handler(private bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		r.mu.RLock()
-		var selected http.Handler
-		selectedLength := -1
-		ambiguous := false
-		for _, extension := range r.mounted {
-			mounts := extension.http
-			if private {
-				mounts = extension.private
-			}
-			for _, mount := range mounts {
-				if !pathMatches(request.URL.Path, mount.prefix) {
-					continue
-				}
-				if len(mount.prefix) > selectedLength {
-					selected, selectedLength, ambiguous = mount.proxy, len(mount.prefix), false
-				} else if len(mount.prefix) == selectedLength {
-					ambiguous = true
-				}
-			}
-		}
-		r.mu.RUnlock()
-		if selected == nil {
+		if !r.serveIfMatched(writer, request, private) {
 			http.Error(writer, "Gateway extension for this route is not installed", http.StatusServiceUnavailable)
-			return
 		}
-		if ambiguous {
-			http.Error(writer, "Gateway extension route selection is ambiguous", http.StatusServiceUnavailable)
-			return
-		}
-		selected.ServeHTTP(writer, request)
 	})
+}
+
+func (r *Registry) serveIfMatched(writer http.ResponseWriter, request *http.Request, private bool) bool {
+	r.mu.RLock()
+	var selected http.Handler
+	selectedLength := -1
+	ambiguous := false
+	for _, extension := range r.mounted {
+		mounts := extension.http
+		if private {
+			mounts = extension.private
+		}
+		for _, mount := range mounts {
+			if !pathMatches(request.URL.Path, mount.prefix) || !httpMatch(request, mount.match) {
+				continue
+			}
+			if len(mount.prefix) > selectedLength {
+				selected, selectedLength, ambiguous = mount.proxy, len(mount.prefix), false
+			} else if len(mount.prefix) == selectedLength {
+				ambiguous = true
+			}
+		}
+	}
+	r.mu.RUnlock()
+	if selected == nil {
+		return false
+	}
+	if ambiguous {
+		http.Error(writer, "Gateway extension route selection is ambiguous", http.StatusServiceUnavailable)
+		return true
+	}
+	selected.ServeHTTP(writer, request)
+	return true
+}
+
+func validHTTPMatch(match string) bool {
+	return match == "" || match == integrationcontract.HTTPMatchWebSocketUpgrade || match == integrationcontract.HTTPMatchEventStream
+}
+
+func httpMatch(request *http.Request, match string) bool {
+	switch match {
+	case "":
+		return true
+	case integrationcontract.HTTPMatchWebSocketUpgrade:
+		for _, value := range request.Header.Values("Connection") {
+			for _, token := range strings.Split(value, ",") {
+				if strings.EqualFold(strings.TrimSpace(token), "upgrade") && strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
+					return true
+				}
+			}
+		}
+	case integrationcontract.HTTPMatchEventStream:
+		return !httpMatch(request, integrationcontract.HTTPMatchWebSocketUpgrade) &&
+			(request.Method == http.MethodGet || request.Method == http.MethodPost) &&
+			strings.Contains(strings.ToLower(request.Header.Get("Accept")), "text/event-stream")
+	}
+	return false
 }
 
 func pathMatches(requestPath, prefix string) bool {

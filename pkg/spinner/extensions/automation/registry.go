@@ -23,8 +23,8 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
 	"github.com/webong/gateway/arranger/automation"
 	companionextensions "github.com/webong/gateway/pkg/spinner/extensions/companion"
-	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 	extensionhost "github.com/webong/gateway/pkg/spinner/extensions/internal/host"
+	secretextensions "github.com/webong/gateway/pkg/spinner/extensions/secret"
 )
 
 var registry = NewRegistry()
@@ -48,7 +48,7 @@ func Register(engine automation.Engine) error {
 		Verify:    func(context.Context, contract.Descriptor) error { return nil },
 		Connect:   func(context.Context, contract.Descriptor) (contract.Backend, error) { return backend, nil },
 		Authorize: func(context.Context, contract.Request) error { return nil },
-		Reverse: integrationextensions.DefaultHost.SecretReverseOptionsFor(
+		Reverse: secretextensions.DefaultHost.ReverseOptionsFor(
 			descriptor.Identity,
 			companionextensions.DefaultHost.ReverseOptions(),
 		),
@@ -141,7 +141,7 @@ func loadNativeGoPlugins(ctx context.Context, dir string) error {
 			Verify:    func(context.Context, contract.Descriptor) error { return nil },
 			Connect:   func(context.Context, contract.Descriptor) (contract.Backend, error) { return backend, nil },
 			Authorize: func(context.Context, contract.Request) error { return nil },
-			Reverse: integrationextensions.DefaultHost.SecretReverseOptionsFor(
+			Reverse: secretextensions.DefaultHost.ReverseOptionsFor(
 				descriptor.Identity,
 				companionextensions.DefaultHost.ReverseOptions(),
 			),
@@ -201,7 +201,7 @@ func LoadExternalInstalled(ctx context.Context, target *Registry, inst store.Ins
 		return fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
 	proc, err := host.Open(ctx, inst, host.Options{
-		Reverse: integrationextensions.DefaultHost.SecretReverseOptionsFor(
+		Reverse: secretextensions.DefaultHost.ReverseOptionsFor(
 			inst.Manifest.Descriptor.Identity,
 			companionextensions.DefaultHost.ReverseOptions(),
 		),

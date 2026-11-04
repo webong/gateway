@@ -19,7 +19,7 @@ in both deployment shapes. The optional `pkg/frankenphp` Go module embeds the
 Planner through the FrankenPHP library without importing the standalone Spinner
 command. The legacy Caddy adapter remains optional; the combined Router Docker
 image uses the Go-library extension. RoadRunner embeds PHP workers in
-`cmd/gateway`. None of these modes
+`pkg/roadrunner/cmd/router`. None of these modes
 needs a separate public Planner listener.
 
 ```text
@@ -150,8 +150,8 @@ migration stream, then remove it.
   companion interface; invocation transports data, never PHP source.
 - `pkg/spinner` is the separate `github.com/webong/gateway/pkg/spinner` Go
   module; `pkg/spinner/proxy` contains its HTTP lifecycle package.
-- `cmd/gateway` is the root-module composition executable; it installs optional
-  Go extensions and starts Spinner.
+- `pkg/spinner/cmd/gateway` is the Spinner host executable, in its own Go
+  module; it loads installed Automation extensions and starts Spinner.
 - `pkg/spinner/bridge` is the transport-neutral Go edge and protocol boundary.
 - `pkg/caddy` is the optional FrankenPHP/Caddy runtime adapter.
 - `pkg/spinner/internal` contains Go configuration, forwarding, worker, and logging
@@ -173,10 +173,13 @@ migration stream, then remove it.
 
 Every Go runtime under `pkg/` owns its own module and runtime-specific
 dependencies. Spinner is its own module and depends only on Arranger's public
-contracts. The root `github.com/webong/gateway` module is the composition root
-(`cmd/gateway`): it owns the JavaScript, Lua, and Shell module dependencies and
-registers them through `cmd/gateway/composition`. Bundled RoadRunner and
-FrankenPHP Router commands import that same composition package. Native
+contracts. There is no root Go module: `pkg/spinner/cmd/gateway`,
+`pkg/roadrunner/cmd/router`, and `pkg/frankenphp/cmd/router` are the host
+executables, and each is its own module. None of them compiles a concrete
+Automation runtime; JavaScript, Lua, Shell, and the other languages are
+installed as Gateway Extensions (see [Automations](docs/automations.md)). The
+bundled RoadRunner and FrankenPHP Router commands assemble Spinner through
+`pkg/spinner/router`. Native
 FrankenPHP remains outside Spinner-only builds. Arranger owns host-neutral
 routing policy, while `pkg/spinner/router` owns bundled host assembly. The root
 `go.work` ties these modules together for local commands; release builds use
@@ -322,7 +325,7 @@ or local URL:
 export GATEWAY_RUNTIME=http
 export GATEWAY_PLANNER_URL=http://127.0.0.1:8000
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./cmd/gateway
+go -C pkg/spinner/cmd/gateway run .
 ```
 
 Go sends `POST /_internal/gateway/plan` to that backend and reverse-proxies
@@ -340,7 +343,7 @@ export GATEWAY_RUNTIME=http
 export GATEWAY_PLANNER_URL=http://gateway-planner
 export GATEWAY_PLANNER_SOCKET=/run/gateway/planner.sock
 export GATEWAY_INTERNAL_TOKEN='use-a-long-random-value'
-go run ./cmd/gateway
+go -C pkg/spinner/cmd/gateway run .
 ```
 
 Configure Nginx, Caddy, or another local HTTP server to listen on that socket.
@@ -1290,6 +1293,24 @@ shape yet. See [Email forwarding](docs/mail-forwarding.md) for listener
 configuration and private-upstream CA trust.
 
 ## Tests
+
+Install the locked PHP dependencies with `scripts/composer-install` (or
+`make composer-install`) rather than a plain `composer install`:
+
+```bash
+scripts/composer-install                    # repository root
+scripts/composer-install --working-dir=app  # bundled Router host
+```
+
+On a fresh checkout Composer Merge Plugin is installed during the run, which
+makes it update every package it merged from `pkg/*/composer.json`. A plain
+`composer install` then moves `laravel/framework`, `webong/proxy`, and similar
+packages past the versions in `composer.lock` and rewrites the lock file. The
+script installs exactly what the lock records with plugins disabled, then
+regenerates the autoloader with the plugin enabled so extension namespaces are
+still merged. Run `make test-composer-install` to verify a fresh install leaves
+`composer.lock` unchanged; it needs network access. Run `composer update` only
+when you mean to change locked versions, and commit the lock file with it.
 
 Run the Go transport, Arranger contracts, and isolated release-consumer tests
 from the repository root:

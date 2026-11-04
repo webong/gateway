@@ -3,8 +3,11 @@
 # Disposable end-to-end Shell-over-SSH verification.
 #
 # This starts a throwaway OpenSSH server on loopback whose account is forced to
-# run the real gateway-shell-helper, a Planner PHP fixture, and one Spinner
-# built with the gateway_shell extension. It then exercises the public Planner
+# run the real gateway-shell-helper, a Planner PHP fixture, and one Spinner. The
+# Shell engine is not compiled into the Spinner host: the script builds the
+# `webong/shell` extension package, activates it through Planner's /extensions
+# resource, and Spinner loads it from its extension cache (see
+# scripts/lib/automation-extension-smoke.sh). It then exercises the public Planner
 # subscription API against the private Planner credential resolution and the
 # live Spinner execution path: grant, create, execute, rotate, revoke, host-key
 # mismatch, and an unreachable destination.
@@ -13,6 +16,7 @@
 # the invoking user on a high loopback port.
 
 set -euo pipefail
+trap 'status=$?; echo "Shell SSH smoke failed at line $LINENO (exit $status)." >&2' ERR
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${GATEWAY_SHELL_APP_PATH:-$ROOT/tests/Fixtures/octane-app}"
@@ -31,6 +35,9 @@ SSHD_LOG="$TEMP_DIR/sshd.log"
 GATEWAY_BIN="$TEMP_DIR/gateway"
 HELPER_BIN="$TEMP_DIR/gateway-shell-helper"
 HOOKS_DIR="$TEMP_DIR/hooks"
+RUN_LOG_DIR="$TEMP_DIR/runs"
+PLANNER_EXTENSIONS="$TEMP_DIR/extensions-planner"
+SPINNER_EXTENSIONS="$TEMP_DIR/extensions-spinner"
 HOST_KEY="$TEMP_DIR/host_ed25519"
 CLIENT_KEY="$TEMP_DIR/client_ed25519"
 CLIENT2_KEY="$TEMP_DIR/client2_ed25519"
@@ -71,10 +78,15 @@ for tool in ssh ssh-keygen curl php; do
     fi
 done
 
+# shellcheck source=scripts/lib/automation-extension-smoke.sh
+source "$ROOT/scripts/lib/automation-extension-smoke.sh"
+
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
-go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
+# The host never compiles an automation engine; Shell arrives as an extension.
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+GOWORK=off go -C "$ROOT/pkg/shell" build "$GO_BUILD_FLAGS" -o "$HELPER_BIN" ./cmd/gateway-shell-helper
+gateway_prepare_automation_extension "$ROOT" shell "$PLANNER_EXTENSIONS" "$SPINNER_EXTENSIONS"
 
 # --- Disposable forced-command OpenSSH server ------------------------------
 ssh-keygen -q -t ed25519 -N '' -f "$HOST_KEY"
@@ -83,6 +95,7 @@ ssh-keygen -q -t ed25519 -N '' -f "$CLIENT2_KEY"
 HOST_PUB="$(awk '{print $1" "$2}' "$HOST_KEY.pub")"
 
 mkdir -p "$HOOKS_DIR/github"
+mkdir -m 0700 "$RUN_LOG_DIR"
 cat > "$HOOKS_DIR/github/deploy" <<'HOOK'
 #!/bin/sh
 cat >/dev/null
@@ -98,10 +111,14 @@ exec "$HELPER_BIN"
 WRAPPER
 chmod 0755 "$TEMP_DIR/helper-wrapper.sh"
 
-cat > "$TEMP_DIR/authorized_keys" <<AUTH
-restrict,command="$TEMP_DIR/helper-wrapper.sh" $(cat "$CLIENT_KEY.pub")
+authorize_client_key() {
+    local public_key_file="$1"
+    cat > "$TEMP_DIR/authorized_keys" <<AUTH
+restrict,command="$TEMP_DIR/helper-wrapper.sh" $(cat "$public_key_file")
 AUTH
-chmod 0600 "$TEMP_DIR/authorized_keys"
+    chmod 0600 "$TEMP_DIR/authorized_keys"
+}
+authorize_client_key "$CLIENT_KEY.pub"
 
 cat > "$TEMP_DIR/sshd_config" <<SSHD
 Port $SSHD_PORT
@@ -143,6 +160,7 @@ CURRENT_USER="$(id -un)"
     GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" REGISTRY_TOKEN="$REGISTRY_TOKEN" \
+    GATEWAY_COMPANION_PLUGIN_DIR="$PLANNER_EXTENSIONS" \
     GATEWAY_SHELL_SUBSCRIPTION_TOKEN="$SHELL_TOKEN" \
     exec php -S "127.0.0.1:$PHP_PORT" -t public public/index.php
 ) >"$PHP_LOG" 2>&1 &
@@ -159,11 +177,12 @@ wait_http() {
     return 1
 }
 wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
+gateway_activate_automation_extension shell "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
 
 GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" PORT="$HTTP_PORT" LOG_LEVEL=error \
-GATEWAY_SHELL_ENABLED=true GATEWAY_SHELL_SSH_ALLOWED_CIDRS=127.0.0.0/8 \
-GATEWAY_SHELL_TIMEOUT=10s \
+GATEWAY_PLUGIN_DIR="$SPINNER_EXTENSIONS" GATEWAY_SHELL_SSH_ALLOWED_CIDRS=127.0.0.0/8 \
+GATEWAY_SHELL_TIMEOUT=10s GATEWAY_SHELL_RUN_LOG_DIR="$RUN_LOG_DIR" \
 "$GATEWAY_BIN" >"$HTTP_LOG" 2>&1 &
 HTTP_PID=$!
 wait_http "http://127.0.0.1:$HTTP_PORT/health" "$HTTP_LOG" "$HTTP_PID"
@@ -248,6 +267,9 @@ curl -sS -D "$TEMP_DIR/rotate.headers" -o "$TEMP_DIR/rotate.body" -X POST \
 [[ "$(status_of "$TEMP_DIR/rotate.headers")" == "200" ]]
 etag="$(header_of "$TEMP_DIR/rotate.headers" ETag)"
 [[ -n "$etag" && "$etag" != "$create_etag" ]]
+# The disposable SSH server must trust the newly rotated client key before it
+# can exercise Gateway's live credential. Replace the old authorization too.
+authorize_client_key "$CLIENT2_KEY.pub"
 code="$(ingress)"
 [[ "$code" == "202" && "$(<"$TEMP_DIR/ingress.body")" == "deploy-ok" ]]
 if ssh -i "$CLIENT_KEY" -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
@@ -307,7 +329,7 @@ ssh-keygen -q -t ed25519 -N '' -f "$TEMP_DIR/wrong_host_ed25519"
 wrong_pub="$(awk '{print $1" "$2}' "$TEMP_DIR/wrong_host_ed25519.pub")"
 curl -fsS -X POST "$planner/shell/hook-grants" -H "$auth" -H "$shell_auth" -H 'Content-Type: application/json' \
     -d "{\"endpoint_key\":\"$endpoint_key\",\"subscriber_id\":\"mismatch-owner\",\"hook\":\"github/deploy\",\"mode\":\"ssh\",\"host\":\"127.0.0.1\",\"port\":$SSHD_PORT,\"user\":\"$CURRENT_USER\",\"host_public_key\":\"$wrong_pub\"}" >/dev/null
-create_subscription "mismatch" "github/deploy" "127.0.0.1" "$SSHD_PORT" "$CURRENT_USER" "$wrong_pub" "$(cat "$CLIENT_KEY")"
+create_subscription "mismatch" "github/deploy" "127.0.0.1" "$SSHD_PORT" "$CURRENT_USER" "$wrong_pub" "$(cat "$CLIENT2_KEY")"
 [[ "$(status_of "$TEMP_DIR/sub.headers")" == "201" ]]
 mismatch_id="$(json_field "$TEMP_DIR/sub.body" id)"
 mismatch_etag="$(header_of "$TEMP_DIR/sub.headers" ETag)"
@@ -316,9 +338,20 @@ if [[ "$code" != "502" ]]; then
     echo "Pinned host-key mismatch was accepted: status=$code body=$(<"$TEMP_DIR/ingress.body")" >&2
     exit 1
 fi
-# Reaching the SSH execution stage proves the plan resolved; the handshake is
-# what fails when the pinned identity does not match the presented one.
-[[ "$(header_of "$TEMP_DIR/ingress.headers" X-Gateway-Shell-Run-Id)" =~ ^[a-f0-9]{32}$ ]]
+# The private run record proves the failure reached the SSH handshake, rather
+# than a planning or credential lookup error. Errors crossing the guest process
+# boundary do not retain the Go RunFailure type used for the response header.
+if ! php -r '
+    foreach (glob($argv[1]."/*.json") ?: [] as $path) {
+        $record = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        if (($record["hook"] ?? null) === "github/deploy"
+            && ($record["error"] ?? null) === "SSH Shell handshake failed") exit(0);
+    }
+    exit(1);
+' "$RUN_LOG_DIR"; then
+    echo "Host-key mismatch did not reach the SSH handshake: status=$code body=$(<"$TEMP_DIR/ingress.body")" >&2
+    exit 1
+fi
 curl -sS -o /dev/null -X DELETE "$edge/registry/endpoints/$endpoint_key/subscriptions/$mismatch_id" \
     -H "$auth" -H "$shell_auth" -H "If-Match: $mismatch_etag"
 
@@ -326,7 +359,7 @@ curl -sS -o /dev/null -X DELETE "$edge/registry/endpoints/$endpoint_key/subscrip
 closed_port="${GATEWAY_SHELL_CLOSED_PORT:-9}"
 curl -fsS -X POST "$planner/shell/hook-grants" -H "$auth" -H "$shell_auth" -H 'Content-Type: application/json' \
     -d "{\"endpoint_key\":\"$endpoint_key\",\"subscriber_id\":\"down-owner\",\"hook\":\"github/deploy\",\"mode\":\"ssh\",\"host\":\"127.0.0.1\",\"port\":$closed_port,\"user\":\"$CURRENT_USER\",\"host_public_key\":\"$HOST_PUB\"}" >/dev/null
-create_subscription "down" "github/deploy" "127.0.0.1" "$closed_port" "$CURRENT_USER" "$HOST_PUB" "$(cat "$CLIENT_KEY")"
+create_subscription "down" "github/deploy" "127.0.0.1" "$closed_port" "$CURRENT_USER" "$HOST_PUB" "$(cat "$CLIENT2_KEY")"
 [[ "$(status_of "$TEMP_DIR/sub.headers")" == "201" ]]
 down_id="$(json_field "$TEMP_DIR/sub.body" id)"
 down_etag="$(header_of "$TEMP_DIR/sub.headers" ETag)"

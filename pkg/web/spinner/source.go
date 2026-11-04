@@ -183,7 +183,7 @@ func (source *WebstreamSource) transport(settings *protocol.HTTPTransport, priva
 			openingTimeout = timeout
 		}
 	}
-	allowed := publicAddress
+	allowed := protocol.PublicEgressAddress
 	if len(privateRanges) > 0 {
 		if settings != nil && settings.Proxy != nil && (settings.Proxy.HTTP != "" || settings.Proxy.HTTPS != "" || len(settings.Proxy.NoProxy) > 0) {
 			return nil, 0, fmt.Errorf("private Webstream source cannot use an HTTP proxy")
@@ -235,11 +235,6 @@ func dialAllowed(timeout time.Duration, allowed func(netip.Addr) bool) func(cont
 		}
 		return nil, fmt.Errorf("Webstream source resolves only to blocked addresses")
 	}
-}
-
-func publicAddress(address netip.Addr) bool {
-	return address.IsGlobalUnicast() && !address.IsPrivate() && !address.IsLoopback() &&
-		!address.IsLinkLocalUnicast() && !address.IsUnspecified()
 }
 
 func durationSeconds(value float64) time.Duration {

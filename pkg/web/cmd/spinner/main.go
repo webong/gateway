@@ -67,10 +67,6 @@ func (runtime *serviceRuntime) start(_ context.Context, request runtimecontract.
 	runtime.deliveryAdapter = deliveryAdapter
 	runtime.mu.Unlock()
 	host := runtimecontract.NewRuntimeHost(caller, request.AutomationLanguages)
-	edge := web.NewEdge(host.Planner(), host.Executor(), request.MaxBodySize).
-		SetAutomationExecutor(host.Automation()).
-		SetScheduleRegistrar(host.Schedules()).
-		SetPassThrough(host.PassThrough())
 	websocketHandler := websocket.NewHandler(host.ProtocolPlanner(), host.Executor(), websocket.Config{
 		MaxMessageSize: request.MaxBodySize, PlannerTimeout: request.PlannerTimeout,
 		MaxConnections: configured.WebSocket.MaxConnections, MaxDuration: durationMS(configured.WebSocket.MaxDurationMS),
@@ -91,7 +87,7 @@ func (runtime *serviceRuntime) start(_ context.Context, request runtimecontract.
 		case webstream.IsRequest(incoming):
 			webstreamHandler.ServeHTTP(writer, incoming)
 		default:
-			edge.ServeHTTP(writer, incoming)
+			http.NotFound(writer, incoming)
 		}
 	})
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -104,9 +100,10 @@ func (runtime *serviceRuntime) start(_ context.Context, request runtimecontract.
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}()
-	return runtimecontract.RuntimeStartResponse{HTTP: []runtimecontract.HTTPMount{{
-		Prefix: "/", Address: "http://" + listener.Addr().String(),
-	}}, DeliveryAdapters: []string{"websocket"}}, nil
+	return runtimecontract.RuntimeStartResponse{HTTP: []runtimecontract.HTTPMount{
+		{Prefix: "/", Address: "http://" + listener.Addr().String(), Match: runtimecontract.HTTPMatchWebSocketUpgrade},
+		{Prefix: "/", Address: "http://" + listener.Addr().String(), Match: runtimecontract.HTTPMatchEventStream},
+	}, DeliveryAdapters: []string{"websocket"}}, nil
 }
 
 func (runtime *serviceRuntime) handle(ctx context.Context, request plugin.Request) (json.RawMessage, error) {

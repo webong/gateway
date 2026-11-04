@@ -14,6 +14,12 @@ import (
 	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
 )
 
+// spinnerEnvironmentMetadata names the package metadata key listing the
+// GATEWAY_* variables a Spinner entrypoint inherits. ext accepts only keys of
+// the form "namespace/vN" (one slash), so the namespace carries the dots and
+// scripts/build-gateway-automation-extension must write exactly this key.
+const spinnerEnvironmentMetadata = "gateway.spinner.environment/v1"
+
 // SpinnerLaunch selects the named Spinner entrypoint from a verified package.
 // A nil command preserves ext's first-entrypoint behavior for legacy packages.
 func SpinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
@@ -54,7 +60,7 @@ func SpinnerLaunch(inst store.Installed) (*pluginprocess.Command, error) {
 }
 
 func spinnerEnvironment(inst store.Installed) ([]string, error) {
-	raw, ok := inst.Manifest.Metadata["gateway.spinner/environment/v1"]
+	raw, ok := inst.Manifest.Metadata[spinnerEnvironmentMetadata]
 	if !ok {
 		return nil, nil
 	}

@@ -59,11 +59,20 @@ type RuntimeStartRequest struct {
 	InstanceKey []byte `json:"instanceKey,omitempty"`
 }
 
-// HTTPMount advertises one private HTTP endpoint and the public path prefix it
-// owns. Address must be an http loopback URL; it is never exposed directly.
+// HTTP match selectors let an extension claim a request class at a shared
+// public path without taking ownership of ordinary HTTP traffic.
+const (
+	HTTPMatchWebSocketUpgrade = "websocket-upgrade"
+	HTTPMatchEventStream      = "event-stream"
+)
+
+// HTTPMount advertises one private HTTP endpoint and a public path prefix.
+// Address must be an http loopback URL; it is never exposed directly.
 type HTTPMount struct {
 	Prefix  string `json:"prefix"`
 	Address string `json:"address"`
+	// Match limits a mount to a transport request. Empty matches every request.
+	Match string `json:"match,omitempty"`
 }
 
 // RuntimeStartResponse advertises data endpoints opened by the extension process.

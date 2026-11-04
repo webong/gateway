@@ -4,7 +4,10 @@
 #
 # It starts one Planner PHP fixture and two Spinner processes that share it, then
 # checks that Planner-managed desired state is owned by Planner and observed by
-# the Spinners without redeploying them:
+# the Spinners without redeploying them. The Shell engine is not compiled into
+# the Spinner host: the script builds the `webong/shell` extension package,
+# activates it through Planner's /extensions resource, and each Spinner loads it
+# from its own extension store (see scripts/lib/automation-extension-smoke.sh).
 #
 #   * Shell local hook grants: an already-running Spinner pair honors a grant
 #     created after they started, and both stop executing once it is revoked.
@@ -37,6 +40,9 @@ A_LOG="$TEMP_DIR/spinner-a.log"
 B_LOG="$TEMP_DIR/spinner-b.log"
 GATEWAY_BIN="$TEMP_DIR/gateway"
 HOOKS_DIR="$TEMP_DIR/hooks"
+PLANNER_EXTENSIONS="$TEMP_DIR/extensions-planner"
+A_EXTENSIONS="$TEMP_DIR/extensions-a"
+B_EXTENSIONS="$TEMP_DIR/extensions-b"
 RESP_HEADERS="$TEMP_DIR/resp.headers"
 RESP_BODY="$TEMP_DIR/resp.body"
 PHP_PID=""
@@ -72,9 +78,16 @@ for tool in curl php; do
     fi
 done
 
+# shellcheck source=scripts/lib/automation-extension-smoke.sh
+source "$ROOT/scripts/lib/automation-extension-smoke.sh"
+
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build -tags gateway_shell "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+# The host never compiles an automation engine; Shell arrives as an extension.
+GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+# Planner and each Spinner keep their own verified package cache, as separate
+# hosts do in production.
+gateway_prepare_automation_extension "$ROOT" shell "$PLANNER_EXTENSIONS" "$A_EXTENSIONS" "$B_EXTENSIONS"
 
 mkdir -p "$HOOKS_DIR/github"
 cat > "$HOOKS_DIR/github/deploy" <<'HOOK'
@@ -94,6 +107,7 @@ chmod 0755 "$HOOKS_DIR/github/deploy"
     GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
     GATEWAY_WEBSTREAM_REPLY_URL='http://events.internal:8080/events' \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" REGISTRY_TOKEN="$REGISTRY_TOKEN" \
+    GATEWAY_COMPANION_PLUGIN_DIR="$PLANNER_EXTENSIONS" \
     GATEWAY_SHELL_SUBSCRIPTION_TOKEN="$SHELL_TOKEN" \
     GATEWAY_SCHEDULE_NOTIFICATION_ALLOWED_HOSTS='127.0.0.1' \
     GATEWAY_EMAIL_UPSTREAM_ALLOWED_HOSTS='127.0.0.1' \
@@ -113,19 +127,20 @@ wait_http() {
     return 1
 }
 wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
+gateway_activate_automation_extension shell "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
 
 # --- Two Spinner nodes sharing one Planner ----------------------------------
 start_spinner() {
-    local port="$1" log="$2"
+    local port="$1" log="$2" extensions="$3"
     GATEWAY_RUNTIME=http GATEWAY_PLANNER_URL="http://127.0.0.1:$PHP_PORT" \
     GATEWAY_INTERNAL_TOKEN="$TOKEN" PORT="$port" LOG_LEVEL=error \
-    GATEWAY_SHELL_ENABLED=true GATEWAY_SHELL_HOOKS_DIR="$HOOKS_DIR" \
+    GATEWAY_PLUGIN_DIR="$extensions" GATEWAY_SHELL_HOOKS_DIR="$HOOKS_DIR" \
     GATEWAY_SHELL_OUTPUT_MODE=outcome GATEWAY_SHELL_TIMEOUT=10s \
     "$GATEWAY_BIN" >"$log" 2>&1 &
     echo $!
 }
-A_PID="$(start_spinner "$A_HTTP_PORT" "$A_LOG")"
-B_PID="$(start_spinner "$B_HTTP_PORT" "$B_LOG")"
+A_PID="$(start_spinner "$A_HTTP_PORT" "$A_LOG" "$A_EXTENSIONS")"
+B_PID="$(start_spinner "$B_HTTP_PORT" "$B_LOG" "$B_EXTENSIONS")"
 wait_http "http://127.0.0.1:$A_HTTP_PORT/health" "$A_LOG" "$A_PID"
 wait_http "http://127.0.0.1:$B_HTTP_PORT/health" "$B_LOG" "$B_PID"
 

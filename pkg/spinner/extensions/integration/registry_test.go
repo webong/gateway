@@ -39,6 +39,58 @@ func TestRegistryHTTPSelectionFailsClosed(t *testing.T) {
 	}
 }
 
+func TestWebTransportMountsLeaveOrdinaryHTTPToCore(t *testing.T) {
+	registry := NewRegistry()
+	core := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusAccepted)
+	})
+	handler := registry.HandlerWithFallback(core)
+	request := httptest.NewRequest(http.MethodPost, "http://gateway.test/hooks/example", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("core HTTP without Web returned %d", response.Code)
+	}
+
+	web := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusSwitchingProtocols)
+	})
+	registry.mounted["webong/web"] = mounted{http: []httpMount{
+		{prefix: "/", match: "websocket-upgrade", proxy: web},
+		{prefix: "/", match: "event-stream", proxy: web},
+	}}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("ordinary HTTP with Web returned %d", response.Code)
+	}
+
+	upgrade := httptest.NewRequest(http.MethodGet, "http://gateway.test/hooks/example", nil)
+	upgrade.Header.Set("Connection", "keep-alive, Upgrade")
+	upgrade.Header.Set("Upgrade", "websocket")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, upgrade)
+	if response.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("WebSocket upgrade returned %d", response.Code)
+	}
+
+	stream := httptest.NewRequest(http.MethodPost, "http://gateway.test/hooks/example", nil)
+	stream.Header.Set("Accept", "text/event-stream")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, stream)
+	if response.Code != http.StatusSwitchingProtocols {
+		t.Fatalf("Webstream request returned %d", response.Code)
+	}
+
+	internal := httptest.NewRequest(http.MethodGet, "http://gateway.test/_internal/gateway/ready", nil)
+	internal.Header = upgrade.Header.Clone()
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, internal)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("extension intercepted private Planner route: %d", response.Code)
+	}
+}
+
 func TestRegistryRoutesAdvertisedDeliveryAdaptersThroughTheExtensionProcess(t *testing.T) {
 	descriptor := plugin.Descriptor{APIVersion: plugin.APIVersion, Identity: plugin.Identity{ID: "example/mail", Revision: "r1"}, Contracts: []plugin.Contract{{
 		ContractRef: integrationcontract.DeliveryAdapterContract,

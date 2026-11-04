@@ -10,19 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-var blockedMailNetworks = []netip.Prefix{
-	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("192.0.2.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("198.51.100.0/24"),
-	netip.MustParsePrefix("203.0.113.0/24"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("2001::/32"),
-	netip.MustParsePrefix("2001:db8::/32"),
-}
+	"github.com/webong/gateway/arranger/integration"
+)
 
 // MailTLSDialer is the internal seam used by mailbox transport tests.
 type MailTLSDialer func(context.Context, string, string, string, time.Duration, *x509.CertPool) (net.Conn, error)
@@ -122,18 +112,5 @@ func dialMailUpstream(ctx context.Context, address, networkScope string, timeout
 
 func mailAddressAllowed(ip net.IP, scope string) bool {
 	address, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return false
-	}
-	address = address.Unmap()
-	if !address.IsGlobalUnicast() || address.IsLoopback() || address.IsLinkLocalUnicast() ||
-		address.IsLinkLocalMulticast() || address.IsUnspecified() {
-		return false
-	}
-	for _, blocked := range blockedMailNetworks {
-		if blocked.Contains(address) {
-			return false
-		}
-	}
-	return !address.IsPrivate() || scope == "private"
+	return ok && integration.EgressAddressAllowed(address, scope == "private")
 }

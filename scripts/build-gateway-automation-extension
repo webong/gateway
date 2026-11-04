@@ -133,7 +133,7 @@ try {
                     'capabilities' => array_values($capabilities),
                 ]],
             ],
-            ...($environment === [] ? [] : ['gateway.spinner/environment/v1' => ['inherit' => array_values($environment)]]),
+            ...($environment === [] ? [] : ['gateway.spinner.environment/v1' => ['inherit' => array_values($environment)]]),
         ],
         'artifacts' => [[
             'name' => 'spinner-guest',

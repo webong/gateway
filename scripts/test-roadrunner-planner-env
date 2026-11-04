@@ -69,6 +69,7 @@ assert_config_contains '    GATEWAY_EMAIL_MANAGED_SPF_VALUE: "v=spf1 include:_sp
 assert_config_contains '    GATEWAY_EMAIL_MAILBOX_AUTHENTICATOR: "App\\Email\\MailboxAuthenticator"'
 assert_config_contains '    num_workers: 4'
 assert_config_contains '    max_jobs: 250'
+assert_config_contains '  command: "php -d variables_order=EGPCS ../vendor/bin/roadrunner-worker"'
 
 LEGACY_DIR="$TEST_DIR/legacy"
 mkdir -p "$LEGACY_DIR"

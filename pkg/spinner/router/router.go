@@ -96,7 +96,11 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	if err != nil {
 		return err
 	}
-	handler := NewHandler(planner, integrationextensions.DefaultRegistry.Handler(), managed)
+	edge := bridge.NewEdge(httpPlanner, spinner.Executor, spinner.MaxBodySize).
+		SetAutomationExecutor(spinner.Automation).
+		SetScheduleRegistrar(control).
+		SetPassThrough(planner)
+	handler := NewHandler(planner, integrationextensions.DefaultRegistry.HandlerWithFallback(edge), managed)
 	listen := os.Getenv("GATEWAY_ROUTER_LISTEN")
 	if listen == "" {
 		listen = ":8080"

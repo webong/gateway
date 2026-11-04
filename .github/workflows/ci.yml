@@ -1,0 +1,184 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    name: Go core modules
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: '1'
+      GOWORK: 'off'
+      GOTELEMETRY: off
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: Test Arranger
+        run: go -C mod/arranger test -mod=readonly ./...
+
+      - name: Test Spinner
+        run: go -C pkg/spinner test -mod=readonly ./...
+
+      - name: Test Spinner with real guest engines
+        run: go -C tools/spinner test -mod=readonly ./...
+
+      - name: Test Router and managed server adapters
+        run: |
+          for module in pkg/caddy pkg/reverb pkg/mercure pkg/centrifugo pkg/roadrunner pkg/roadrunner/cmd/router; do
+            go -C "$module" test -mod=readonly ./...
+          done
+
+  build:
+    name: Build Go modules
+    runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: '1'
+      GOWORK: 'off'
+      GOTELEMETRY: off
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      # Host and adapter modules have no tests that would catch a call to a
+      # removed API, so compile every module listed in go.work. The FrankenPHP
+      # modules are skipped because they need ZTS PHP embed headers that this
+      # runner does not install.
+      - name: Build every workspace module
+        run: |
+          failed=0
+          while read -r module; do
+            echo "::group::go build $module"
+            if ! go -C "$module" build -mod=readonly ./...; then
+              echo "::error title=Build failed::$module does not build"
+              failed=1
+            fi
+            echo '::endgroup::'
+          done < <(awk '/^[[:space:]]+\.\//{print $1}' go.work | grep -v '^\./pkg/frankenphp')
+          exit "$failed"
+
+  router_images:
+    name: Router image (${{ matrix.runtime }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [roadrunner, frankenphp]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build combined Router image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Gateway.router.Dockerfile
+          build-args: GATEWAY_ROUTER_RUNTIME=${{ matrix.runtime }}
+          load: true
+          tags: gateway-ci:${{ matrix.runtime }}
+          cache-from: type=gha,scope=router-${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=router-${{ matrix.runtime }}
+
+      - name: Verify selected runtime
+        run: |
+          test "$(docker image inspect gateway-ci:${{ matrix.runtime }} --format '{{ index .Config.Labels "com.webong.gateway.router-runtime" }}')" = '${{ matrix.runtime }}'
+
+  boundaries:
+    name: Module boundaries
+    runs-on: ubuntu-24.04
+    env:
+      GOWORK: 'off'
+      GOTELEMETRY: off
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: |
+            mod/arranger/go.sum
+            pkg/spinner/go.sum
+
+      - name: Check runtime module ownership
+        run: bash scripts/test-runtime-module-boundaries
+
+      - name: Check Router host dependencies
+        run: bash scripts/test-router-boundaries
+
+      - name: Check Automation extension boundaries
+        run: bash scripts/test-automation-extension-boundaries
+
+      - name: Check Integration boundaries
+        run: bash scripts/test-integration-boundaries
+
+      - name: Check traffic extension boundaries
+        run: bash scripts/test-traffic-extension-boundaries
+
+      - name: Check Arranger release
+        run: bash scripts/test-arranger-release
+
+  planner:
+    name: Planner (Pest)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
+
+      # A plain `composer install` on a fresh checkout moves packages past
+      # composer.lock (see scripts/composer-install), so the suite would not
+      # test the locked versions.
+      - name: Install locked Planner dependencies
+        env:
+          COMPOSER_ROOT_VERSION: dev-main
+        run: scripts/composer-install --prefer-dist
+
+      - name: Check Router packaging and container entrypoint
+        run: |
+          bash scripts/test-router-image-packaging
+          bash scripts/test-router-container-entrypoint
+
+      - name: Check the install left composer.lock unchanged
+        run: git diff --exit-code -- composer.lock
+
+      - name: Audit locked Composer dependencies
+        continue-on-error: true
+        run: |
+          status=0
+          for directory in . app pkg/hookscript/companion; do
+            echo "::group::Composer audit $directory"
+            (cd "$directory" && composer audit --locked --format=summary --no-interaction) || status=1
+            echo '::endgroup::'
+          done
+          exit "$status"
+
+      - name: Install HookScript companion dependencies
+        run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative
+
+      - name: Run the Planner test suite
+        run: vendor/bin/pest --compact

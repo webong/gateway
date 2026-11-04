@@ -20,6 +20,7 @@ import (
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/integration"
+	secretextensions "github.com/webong/gateway/pkg/spinner/extensions/secret"
 )
 
 type Executor interface {
@@ -46,16 +47,18 @@ type Services struct {
 type Host struct {
 	mu       sync.RWMutex
 	services Services
+	secrets  *secretextensions.Host
 }
 
-func NewHost() *Host { return &Host{} }
+func NewHost() *Host { return &Host{secrets: secretextensions.NewHost()} }
 
-var DefaultHost = NewHost()
+var DefaultHost = &Host{secrets: secretextensions.DefaultHost}
 
 func (h *Host) Configure(services Services) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.services = services
+	h.secrets.Configure(services.PassThrough, services.InternalToken)
 }
 
 func (h *Host) current() Services {
@@ -110,40 +113,6 @@ func (h *Host) ReverseOptionsFor(identity plugin.Identity, fallback *plugin.Reve
 	}
 }
 
-// SecretReverseOptionsFor exposes only the identity-scoped Extension secret
-// lookup to a plugin. Other reverse calls continue through fallback.
-func (h *Host) SecretReverseOptionsFor(identity plugin.Identity, fallback *plugin.ReverseOptions) *plugin.ReverseOptions {
-	return &plugin.ReverseOptions{
-		Authorize: func(ctx context.Context, request plugin.Request) error {
-			if request.Contract == integration.SecretContract {
-				if request.Operation != integration.OperationResolveSecret {
-					return plugin.ErrDenied
-				}
-				return h.authorize(identity, request)
-			}
-			if fallback == nil || fallback.Authorize == nil {
-				return plugin.ErrDenied
-			}
-			return fallback.Authorize(ctx, request)
-		},
-		Handle: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
-			if request.Contract == integration.SecretContract {
-				if request.Operation != integration.OperationResolveSecret {
-					return nil, plugin.ErrDenied
-				}
-				return handleSecret(ctx, h.current(), identity, request)
-			}
-			if fallback == nil || fallback.Handle == nil {
-				return nil, plugin.ErrDenied
-			}
-			return fallback.Handle(ctx, request)
-		},
-		Timeout:         5 * time.Minute,
-		MaxPayloadBytes: plugin.MaxFrameBytes - (64 << 10),
-		MaxInFlight:     16,
-	}
-}
-
 func (h *Host) owns(ref plugin.ContractRef) bool {
 	return ref == integration.PlannerContract || ref == integration.DeliveryContract ||
 		ref == integration.AutomationContract || ref == integration.ScheduleContract ||
@@ -186,10 +155,7 @@ func (h *Host) authorize(identity plugin.Identity, request plugin.Request) error
 			return nil
 		}
 	case integration.SecretContract:
-		if services.PassThrough != nil && strings.TrimSpace(services.InternalToken) != "" &&
-			identity.ID != "" && identity.Validate() == nil && request.Operation == integration.OperationResolveSecret {
-			return nil
-		}
+		return h.secrets.Authorize(identity, request)
 	}
 	return plugin.ErrDenied
 }
@@ -230,37 +196,10 @@ func (h *Host) handle(ctx context.Context, identity plugin.Identity, request plu
 		}
 		return json.RawMessage("null"), nil
 	case integration.SecretContract:
-		return handleSecret(ctx, services, identity, request)
+		return h.secrets.Handle(ctx, identity, request)
 	default:
 		return nil, plugin.ErrUnsupported
 	}
-}
-
-func handleSecret(ctx context.Context, services Services, identity plugin.Identity, request plugin.Request) (json.RawMessage, error) {
-	var input integration.SecretRequest
-	if err := decode(request.Payload, &input); err != nil || !integration.ValidSecretReference(input.Reference) ||
-		identity.ID == "" || identity.Validate() != nil {
-		return nil, plugin.ErrInvalid
-	}
-	path := "/_internal/gateway/extensions/" + identity.ID + "/secrets/" + input.Reference
-	plannerRequest := httptest.NewRequest(http.MethodGet, "http://gateway.internal"+path, nil).WithContext(ctx)
-	plannerRequest.Header.Set("X-Gateway-Internal", services.InternalToken)
-	recorder := httptest.NewRecorder()
-	services.PassThrough.ServeHTTP(recorder, plannerRequest)
-	response := recorder.Result()
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, plugin.ErrDenied
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, (64<<10)+1))
-	if err != nil || len(body) > 64<<10 {
-		return nil, plugin.ErrInvalid
-	}
-	var secret integration.SecretValue
-	if err := decode(body, &secret); err != nil || secret.Reference != input.Reference || secret.Version < 1 || len(secret.Value) == 0 {
-		return nil, plugin.ErrInvalid
-	}
-	return json.Marshal(secret)
 }
 
 func handlePlanner(ctx context.Context, services Services, identity plugin.Identity, request plugin.Request) (json.RawMessage, error) {

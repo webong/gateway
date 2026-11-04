@@ -8,9 +8,20 @@ import (
 )
 
 func TestMailEgressRejectsPrivateAndSpecialAddressesByDefault(t *testing.T) {
-	for _, address := range []string{"127.0.0.1", "::1", "10.2.3.4", "172.20.1.4", "192.168.1.2", "169.254.169.254", "100.64.1.1", "192.0.2.5", "2001:db8::1"} {
+	for _, address := range []string{"127.0.0.1", "::1", "10.2.3.4", "172.20.1.4", "192.168.1.2", "169.254.169.254", "100.64.1.1", "192.0.2.5", "2001:db8::1",
+		"0.1.2.3", "100.100.100.200", "198.18.0.1", "224.0.0.1", "::ffff:100.100.100.200", "64:ff9b::a00:1", "2002:a00:1::1"} {
 		if mailAddressAllowed(net.ParseIP(address), "public") {
 			t.Errorf("public mail scope accepted %s", address)
+		}
+	}
+	for _, address := range []string{"0.1.2.3", "100.100.100.200", "198.18.0.1", "224.0.0.1", "64:ff9b::a9fe:a9fe", "::ffff:127.0.0.1"} {
+		if mailAddressAllowed(net.ParseIP(address), "private") {
+			t.Errorf("private mail scope accepted %s", address)
+		}
+	}
+	for _, address := range []string{"8.8.8.8", "::ffff:8.8.8.8", "64:ff9b::808:808", "2002:808:808::1"} {
+		if !mailAddressAllowed(net.ParseIP(address), "public") {
+			t.Errorf("public mail scope refused %s", address)
 		}
 	}
 	if !mailAddressAllowed(net.ParseIP("8.8.8.8"), "public") ||
