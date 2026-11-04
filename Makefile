@@ -1,4 +1,4 @@
-.PHONY: composer-install build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-router-image-packaging test-router-container-entrypoint test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-composer-install test-php test-roadrunner-planner-envtest-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
+.PHONY: composer-install build build-integration-manager build-with-script-extensions test test-go test-go-extensions test-runtime-module-boundaries test-automation-extension-boundaries test-integration-boundaries test-traffic-extension-boundaries test-router-image-packaging test-router-container-entrypoint test-router-companion-image test-planner-octane-servers test-arranger-release test-contract-package test-composer-install test-php test-roadrunner-planner-env test-octane test-http test-smtp test-dns test-dns-integration test-websocket test-webstream test-schedule-roadrunner test-frankenphp test-container test-container-integration benchmark benchmark-php vet
 
 GOFLAGS ?= -mod=mod
 # FrankenPHP-backed guests (php, hookscript) need ZTS PHP embed headers. The
@@ -32,6 +32,8 @@ test-go:
 	GOWORK=off go -C pkg/reverb test ./...
 	GOWORK=off go -C pkg/mercure test ./...
 	GOWORK=off go -C pkg/centrifugo test ./...
+	GOWORK=off go -C pkg/roadrunner test ./...
+	GOWORK=off go -C pkg/roadrunner/cmd/router test ./...
 	GOWORK=off go -C pkg/spinner test $(GOFLAGS) ./...
 	GOWORK=off go -C tools/spinner test $(GOFLAGS) ./...
 	$(MAKE) test-runtime-module-boundaries
@@ -41,6 +43,7 @@ test-go:
 	$(MAKE) test-go-extensions
 	$(MAKE) test-automation-extension-boundaries
 	$(MAKE) test-integration-boundaries
+	$(MAKE) test-traffic-extension-boundaries
 	$(MAKE) test-arranger-release
 
 test-go-extensions:
@@ -54,6 +57,9 @@ test-automation-extension-boundaries:
 
 test-integration-boundaries:
 	bash scripts/test-integration-boundaries
+
+test-traffic-extension-boundaries:
+	bash scripts/test-traffic-extension-boundaries
 
 test-router-image-packaging:
 	bash scripts/test-router-image-packaging

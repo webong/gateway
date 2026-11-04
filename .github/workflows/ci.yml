@@ -27,10 +27,7 @@ jobs:
         with:
           go-version-file: pkg/spinner/go.mod
           cache: true
-          cache-dependency-path: |
-            mod/arranger/go.sum
-            pkg/spinner/go.sum
-            tools/spinner/go.sum
+          cache-dependency-path: '**/go.sum'
 
       - name: Test Arranger
         run: go -C mod/arranger test -mod=readonly ./...
@@ -40,6 +37,12 @@ jobs:
 
       - name: Test Spinner with real guest engines
         run: go -C tools/spinner test -mod=readonly ./...
+
+      - name: Test Router and managed server adapters
+        run: |
+          for module in pkg/caddy pkg/reverb pkg/mercure pkg/centrifugo pkg/roadrunner pkg/roadrunner/cmd/router; do
+            go -C "$module" test -mod=readonly ./...
+          done
 
   build:
     name: Build Go modules
@@ -102,6 +105,9 @@ jobs:
 
       - name: Check Integration boundaries
         run: bash scripts/test-integration-boundaries
+
+      - name: Check traffic extension boundaries
+        run: bash scripts/test-traffic-extension-boundaries
 
       - name: Check Arranger release
         run: bash scripts/test-arranger-release
