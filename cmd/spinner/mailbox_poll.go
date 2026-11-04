@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailruntime "github.com/webong/gateway/pkg/email/spinner"
 )
 
@@ -97,8 +98,7 @@ func (callback *mailboxCallback) Deliver(ctx context.Context, target string, hea
 }
 
 func (callback *mailboxCallback) allowed(address netip.Addr) bool {
-	if address.IsGlobalUnicast() && !address.IsPrivate() && !address.IsLoopback() &&
-		!address.IsLinkLocalUnicast() && !address.IsUnspecified() {
+	if runtimecontract.PublicEgressAddress(address) {
 		return true
 	}
 	for _, prefix := range callback.private {
