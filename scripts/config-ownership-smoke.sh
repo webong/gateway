@@ -7,7 +7,7 @@
 # the Spinners without redeploying them. The Shell engine is not compiled into
 # the Spinner host: the script builds the `webong/shell` extension package,
 # activates it through Planner's /extensions resource, and each Spinner loads it
-# from its own extension store (see scripts/lib/shell-extension-smoke.sh).
+# from its own extension store (see scripts/lib/automation-extension-smoke.sh).
 #
 #   * Shell local hook grants: an already-running Spinner pair honors a grant
 #     created after they started, and both stop executing once it is revoked.
@@ -78,8 +78,8 @@ for tool in curl php; do
     fi
 done
 
-# shellcheck source=scripts/lib/shell-extension-smoke.sh
-source "$ROOT/scripts/lib/shell-extension-smoke.sh"
+# shellcheck source=scripts/lib/automation-extension-smoke.sh
+source "$ROOT/scripts/lib/automation-extension-smoke.sh"
 
 touch "$DB_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
@@ -87,7 +87,7 @@ GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
 # Planner and each Spinner keep their own verified package cache, as separate
 # hosts do in production.
-gateway_prepare_shell_extension "$ROOT" "$PLANNER_EXTENSIONS" "$A_EXTENSIONS" "$B_EXTENSIONS"
+gateway_prepare_automation_extension "$ROOT" shell "$PLANNER_EXTENSIONS" "$A_EXTENSIONS" "$B_EXTENSIONS"
 
 mkdir -p "$HOOKS_DIR/github"
 cat > "$HOOKS_DIR/github/deploy" <<'HOOK'
@@ -127,7 +127,7 @@ wait_http() {
     return 1
 }
 wait_http "http://127.0.0.1:$PHP_PORT/http-smoke/worker" "$PHP_LOG" "$PHP_PID"
-gateway_activate_shell_extension "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
+gateway_activate_automation_extension shell "http://127.0.0.1:$PHP_PORT" "$REGISTRY_TOKEN"
 
 # --- Two Spinner nodes sharing one Planner ----------------------------------
 start_spinner() {
