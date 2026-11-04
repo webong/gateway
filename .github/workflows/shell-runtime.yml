@@ -5,7 +5,7 @@ on:
     paths:
       - '.github/workflows/shell-runtime.yml'
       - 'pkg/shell/runtime/**'
-      - 'mod/driver/**'
+      - 'mod/arranger/**'
       - 'pkg/spinner/bridge/**'
       - 'pkg/spinner/extensions/automation/**'
       - 'tools/spinner/**'
@@ -19,7 +19,7 @@ on:
     paths:
       - '.github/workflows/shell-runtime.yml'
       - 'pkg/shell/runtime/**'
-      - 'mod/driver/**'
+      - 'mod/arranger/**'
       - 'pkg/spinner/bridge/**'
       - 'pkg/spinner/extensions/automation/**'
       - 'tools/spinner/**'
