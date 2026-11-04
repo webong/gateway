@@ -166,6 +166,17 @@ jobs:
       - name: Check the install left composer.lock unchanged
         run: git diff --exit-code -- composer.lock
 
+      - name: Audit locked Composer dependencies
+        continue-on-error: true
+        run: |
+          status=0
+          for directory in . app pkg/hookscript/companion; do
+            echo "::group::Composer audit $directory"
+            (cd "$directory" && composer audit --locked --format=summary --no-interaction) || status=1
+            echo '::endgroup::'
+          done
+          exit "$status"
+
       - name: Install HookScript companion dependencies
         run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative
 
