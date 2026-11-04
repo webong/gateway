@@ -170,3 +170,22 @@ version-pinned, hash-verified installation and a local specification probe,
 while activation remains an explicit `GATEWAY_INTEGRATION_PATHS` operator step.
 A hosted official registry, signing-key distribution, real workload validation
 on each target and publishing, and unattended updates remain future work.
+
+## Outbound address policy
+
+Arranger exposes `integration.PublicEgressAddress(netip.Addr) bool` for
+destinations supplied by an application or subscriber. It rejects private,
+loopback, link-local, multicast, unspecified, and special-use addresses. It
+also checks embedded IPv4 addresses in IPv4-mapped, NAT64, and 6to4 IPv6
+addresses. Apply the check to the IP address the integration will actually
+dial, after resolving the hostname, and repeat it on every new connection and
+redirect. A check of the hostname alone does not prevent DNS rebinding.
+
+`integration.EgressAddressAllowed(netip.Addr, allowPrivate bool)` uses the same
+policy with an explicit operator-controlled private-address option. Only pass
+`allowPrivate=true` when the deployment has authorized that private destination;
+tenant-supplied configuration must not grant itself that option. The private
+option does not permit loopback, link-local, multicast, unspecified, or
+special-use destinations. Neither function resolves DNS, selects a proxy,
+nor controls where a remote proxy ultimately connects; callers must preserve
+those boundaries when they construct their transport.
