@@ -163,11 +163,7 @@ it('keeps each Gateway extension self-contained across Planner and Spinner', fun
             $automationHostSource .= file_get_contents($file->getPathname());
         }
     }
-    // Automation may use the shared integration host only to resolve an
-    // identity-scoped Extension secret; it must not absorb integration policy.
-    expect(substr_count($automationHostSource, 'github.com/webong/gateway/pkg/spinner/extensions/integration'))->toBe(1)
-        ->and($automationHostSource)->toContain('SecretReverseOptionsFor')
-        ->not->toContain('DefaultRegistry.Handler');
+    expect($automationHostSource)->not->toContain('github.com/webong/gateway/pkg/spinner/extensions/integration');
 
     foreach (['dns', 'websocket', 'webstream', 'smtp', 'smtpout', 'imap', 'pop3'] as $legacy) {
         expect($root."/pkg/spinner/bridge/{$legacy}")->not->toBeDirectory();
