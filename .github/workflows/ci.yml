@@ -74,6 +74,33 @@ jobs:
           done < <(awk '/^[[:space:]]+\.\//{print $1}' go.work | grep -v '^\./pkg/frankenphp')
           exit "$failed"
 
+  router_images:
+    name: Router image (${{ matrix.runtime }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [roadrunner, frankenphp]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build combined Router image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Gateway.router.Dockerfile
+          build-args: GATEWAY_ROUTER_RUNTIME=${{ matrix.runtime }}
+          load: true
+          tags: gateway-ci:${{ matrix.runtime }}
+          cache-from: type=gha,scope=router-${{ matrix.runtime }}
+          cache-to: type=gha,mode=max,scope=router-${{ matrix.runtime }}
+
+      - name: Verify selected runtime
+        run: |
+          test "$(docker image inspect gateway-ci:${{ matrix.runtime }} --format '{{ index .Config.Labels "com.webong.gateway.router-runtime" }}')" = '${{ matrix.runtime }}'
+
   boundaries:
     name: Module boundaries
     runs-on: ubuntu-24.04
@@ -124,6 +151,11 @@ jobs:
         env:
           COMPOSER_ROOT_VERSION: dev-main
         run: scripts/composer-install --prefer-dist
+
+      - name: Check Router packaging and container entrypoint
+        run: |
+          bash scripts/test-router-image-packaging
+          bash scripts/test-router-container-entrypoint
 
       - name: Check the install left composer.lock unchanged
         run: git diff --exit-code -- composer.lock
