@@ -39,6 +39,14 @@ var (
 //
 // Callers must apply it to the address they dial, after resolution.
 func PublicEgressAddress(address netip.Addr) bool {
+	return EgressAddressAllowed(address, false)
+}
+
+// EgressAddressAllowed is PublicEgressAddress for a destination whose operator
+// may have approved private networks. When allowPrivate is set, RFC 1918 and
+// unique-local addresses are accepted as well; loopback, link-local,
+// multicast, unspecified, and special-use addresses are still refused.
+func EgressAddressAllowed(address netip.Addr, allowPrivate bool) bool {
 	address = address.Unmap()
 	if !address.IsValid() {
 		return false
@@ -49,12 +57,12 @@ func PublicEgressAddress(address netip.Addr) bool {
 		bytes := address.As16()
 		switch {
 		case nat64Prefix.Contains(address):
-			return PublicEgressAddress(netip.AddrFrom4([4]byte(bytes[12:16])))
+			return EgressAddressAllowed(netip.AddrFrom4([4]byte(bytes[12:16])), allowPrivate)
 		case sixToFour.Contains(address):
-			return PublicEgressAddress(netip.AddrFrom4([4]byte(bytes[2:6])))
+			return EgressAddressAllowed(netip.AddrFrom4([4]byte(bytes[2:6])), allowPrivate)
 		}
 	}
-	if !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLoopback() ||
+	if !address.IsGlobalUnicast() || (address.IsPrivate() && !allowPrivate) || address.IsLoopback() ||
 		address.IsLinkLocalUnicast() || address.IsUnspecified() {
 		return false
 	}
