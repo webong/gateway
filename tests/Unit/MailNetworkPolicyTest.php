@@ -28,9 +28,15 @@ it('rejects local and special-use addresses even with private scope', function (
 
 it('rejects special-use space that PHP does not classify as reserved', function (): void {
     foreach (['0.1.2.3', '100.64.0.1', '100.100.100.200', '198.18.0.1', '203.0.113.9', '224.0.0.1', '240.0.0.1',
-        '::10.0.0.1', '100::1', '3fff::1', 'ff02::1', '2001::1'] as $ip) {
+        '192.88.99.2', '::10.0.0.1', '100::1', '100:0:0:1::1', '2001:2::1', '2001:4::1', '2001:5::1', '3fff::1', '5f00::1', 'ff02::1', '2001::1'] as $ip) {
         expect(MailNetworkPolicy::permits($ip, 'public'))->toBeFalse($ip)
             ->and(MailNetworkPolicy::permits($ip, 'private'))->toBeFalse($ip);
+    }
+});
+
+it('permits the globally reachable exceptions within IETF IPv6 assignments', function (): void {
+    foreach (['2001:1::1', '2001:1::2', '2001:1::3', '2001:3::1', '2001:4:112::1', '2001:20::1', '2001:30::1'] as $ip) {
+        expect(MailNetworkPolicy::permits($ip, 'public'))->toBeTrue($ip);
     }
 });
 
