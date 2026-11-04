@@ -42,6 +42,8 @@ jobs:
         run: bash scripts/config-ownership-smoke.sh
       - name: Shell over SSH
         run: bash scripts/shell-ssh-smoke.sh
+      - name: RoadRunner Planner worker environment
+        run: bash scripts/test-roadrunner-planner-env
       - name: RoadRunner schedules
         run: bash scripts/schedule-roadrunner-smoke.sh
       - name: Reverb process provisioning
