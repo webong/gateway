@@ -1,0 +1,53 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoload = dirname(__DIR__).'/vendor/autoload.php';
+if (is_file($autoload)) {
+    require $autoload;
+} else {
+    spl_autoload_register(static function (string $class): void {
+        $prefix = 'Webong\\GatewayBuilder\\';
+        if (str_starts_with($class, $prefix)) {
+            require dirname(__DIR__).'/src/'.str_replace('\\', '/', substr($class, strlen($prefix))).'.php';
+        }
+    });
+}
+
+use Webong\GatewayBuilder\PackageBuilder;
+
+if (($argv[1] ?? null) !== 'build') {
+    fwrite(STDERR, "Usage: gateway-extension build --manifest=FILE --version=VERSION --output=DIR [--revision=REVISION]\n");
+    exit(2);
+}
+
+$options = [];
+foreach (array_slice($argv, 2) as $argument) {
+    if (! str_starts_with($argument, '--') || ! str_contains($argument, '=')) {
+        fwrite(STDERR, "Invalid argument [{$argument}].\n");
+        exit(2);
+    }
+    [$name, $value] = explode('=', substr($argument, 2), 2);
+    $options[$name] = $value;
+}
+
+foreach (['manifest', 'version', 'output'] as $required) {
+    if (($options[$required] ?? '') === '') {
+        fwrite(STDERR, "Missing --{$required}.\n");
+        exit(2);
+    }
+}
+
+try {
+    (new PackageBuilder)->build(
+        manifestPath: $options['manifest'],
+        version: $options['version'],
+        output: $options['output'],
+        revision: $options['revision'] ?? null,
+    );
+    fwrite(STDOUT, rtrim($options['output'], DIRECTORY_SEPARATOR)."\n");
+} catch (Throwable $exception) {
+    fwrite(STDERR, $exception->getMessage()."\n");
+    exit(1);
+}
