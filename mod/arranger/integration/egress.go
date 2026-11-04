@@ -11,21 +11,34 @@ var nonPublicEgressNetworks = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("192.0.0.0/24"),
 	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.2/32"),
 	netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("198.51.100.0/24"),
 	netip.MustParsePrefix("203.0.113.0/24"),
 	netip.MustParsePrefix("240.0.0.0/4"),
 	netip.MustParsePrefix("::/8"),
 	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("100:0:0:1::/64"),
 	netip.MustParsePrefix("2001::/32"),
 	netip.MustParsePrefix("2001:db8::/32"),
 	netip.MustParsePrefix("3fff::/20"),
+	netip.MustParsePrefix("5f00::/16"),
 	netip.MustParsePrefix("64:ff9b:1::/48"),
 }
 
 var (
-	nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
-	sixToFour   = netip.MustParsePrefix("2002::/16")
+	nat64Prefix             = netip.MustParsePrefix("64:ff9b::/96")
+	sixToFour               = netip.MustParsePrefix("2002::/16")
+	ietfProtocolAssignments = netip.MustParsePrefix("2001::/23")
+	publicIETFAssignments   = []netip.Prefix{
+		netip.MustParsePrefix("2001:1::1/128"),
+		netip.MustParsePrefix("2001:1::2/128"),
+		netip.MustParsePrefix("2001:1::3/128"),
+		netip.MustParsePrefix("2001:3::/32"),
+		netip.MustParsePrefix("2001:4:112::/48"),
+		netip.MustParsePrefix("2001:20::/28"),
+		netip.MustParsePrefix("2001:30::/28"),
+	}
 )
 
 // PublicEgressAddress reports whether an outbound connection may target
@@ -70,6 +83,14 @@ func EgressAddressAllowed(address netip.Addr, allowPrivate bool) bool {
 		if network.Contains(address) {
 			return false
 		}
+	}
+	if ietfProtocolAssignments.Contains(address) {
+		for _, network := range publicIETFAssignments {
+			if network.Contains(address) {
+				return true
+			}
+		}
+		return false
 	}
 	return true
 }

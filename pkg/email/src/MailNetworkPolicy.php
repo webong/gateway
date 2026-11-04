@@ -21,7 +21,7 @@ final class MailNetworkPolicy
         $flags = FILTER_FLAG_NO_RES_RANGE | ($scope === 'public' ? FILTER_FLAG_NO_PRIV_RANGE : 0);
         if (filter_var($ip, FILTER_VALIDATE_IP, $flags) === false) { return false; }
         if (strlen($packed) === 4) {
-            foreach (['0.0.0.0/8', '100.64.0.0/10', '192.0.0.0/24', '192.0.2.0/24', '198.18.0.0/15',
+            foreach (['0.0.0.0/8', '100.64.0.0/10', '192.0.0.0/24', '192.0.2.0/24', '192.88.99.2/32', '198.18.0.0/15',
                 '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4'] as $cidr) {
                 [$base, $bits] = explode('/', $cidr);
                 $mask = -1 << (32 - (int) $bits);
@@ -30,11 +30,28 @@ final class MailNetworkPolicy
             return true;
         }
         $hex = bin2hex($packed);
-        foreach (['00', '0100000000000000', '20010000', '20010db8', '3fff0', 'ff'] as $blocked) {
-            // ::/8, 100::/64, 2001::/32, 2001:db8::/32, 3fff::/20, ff00::/8
+        foreach (['00', '0100000000000000', '0100000000000001', '20010000', '20010db8', '3fff0', '5f00', 'ff'] as $blocked) {
+            // ::/8, 100::/64, 100:0:0:1::/64, 2001::/32, 2001:db8::/32, 3fff::/20, 5f00::/16, ff00::/8
             if (str_starts_with($hex, $blocked)) { return false; }
         }
+        if (self::inIpv6Prefix($packed, '2001::', 23)) {
+            foreach (['2001:1::1/128', '2001:1::2/128', '2001:1::3/128', '2001:3::/32',
+                '2001:4:112::/48', '2001:20::/28', '2001:30::/28'] as $cidr) {
+                [$base, $bits] = explode('/', $cidr);
+                if (self::inIpv6Prefix($packed, $base, (int) $bits)) { return true; }
+            }
+            return false;
+        }
         return true;
+    }
+
+    private static function inIpv6Prefix(string $packed, string $base, int $bits): bool
+    {
+        $network = inet_pton($base);
+        $wholeBytes = intdiv($bits, 8);
+        if (substr($packed, 0, $wholeBytes) !== substr($network, 0, $wholeBytes)) { return false; }
+        $remaining = $bits % 8;
+        return $remaining === 0 || ((ord($packed[$wholeBytes]) ^ ord($network[$wholeBytes])) & (0xff << (8 - $remaining))) === 0;
     }
 
     /** IPv4-mapped, NAT64 (64:ff9b::/96), and 6to4 (2002::/16) addresses are judged by the IPv4 address they carry. */
