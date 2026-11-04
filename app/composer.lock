@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "540bf2e9bbdc90bd1d0fd26ef3c19de4",
+    "content-hash": "8e53b8428ef0cb0c494781d2584403c4",
     "packages": [
         {
             "name": "brick/math",
@@ -8340,13 +8340,13 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/database",
-                "reference": "9a8c22a9f9cae7bbcabd53e386620cffa30a60a5"
+                "reference": "f71e743e302f858e88d4371bf8c708216c94ebd2"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
-                "webong/gateway-planner": "dev-main"
+                "webong/gateway-adapter": "dev-main"
             },
             "type": "library",
             "autoload": {
@@ -8372,13 +8372,13 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/dns",
-                "reference": "7543ed6ff42faf38036eaffbc0da874f7d2490f7"
+                "reference": "5109b195fd6871b4929cbc34b24af277f8951b28"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
-                "webong/gateway-planner": "dev-main",
+                "webong/gateway-adapter": "dev-main",
                 "webong/proxy": "^0.2.0"
             },
             "type": "library",
@@ -8405,13 +8405,13 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/email",
-                "reference": "8b8930f22e36c38b81b1ae954e2018a5a9f77226"
+                "reference": "bedbfc74907849f22e58548c8d3e93956f7bde1b"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
-                "webong/gateway-planner": "dev-main",
+                "webong/gateway-adapter": "dev-main",
                 "webong/proxy": "^0.2.0"
             },
             "type": "library",
@@ -8437,103 +8437,15 @@
             "version": "dev-main",
             "dist": {
                 "type": "path",
-                "url": "..",
-                "reference": "2b74b790a8d5e4401761cf2ca03ff6925d21972d"
-            },
-            "require": {
-                "php": "^8.3"
-            },
-            "require-dev": {
-                "laravel/octane": "^2.17",
-                "laravel/reverb": "^1.10",
-                "orchestra/testbench": "^10.0",
-                "pestphp/pest": "^4.0",
-                "pestphp/pest-plugin-laravel": "^4.0",
-                "smuuf/primi": "^0.4",
-                "spiral/roadrunner-cli": "^2.6",
-                "spiral/roadrunner-http": "^3.3",
-                "webong/database": "dev-main",
-                "webong/dns": "dev-main",
-                "webong/email": "dev-main",
-                "webong/gateway-planner": "dev-main",
-                "webong/web": "dev-main",
-                "wikimedia/composer-merge-plugin": "^2.1",
-                "workerman/workerman": "^5.2"
-            },
-            "type": "library",
-            "extra": {
-                "merge-plugin": {
-                    "include": [
-                        "pkg/*/composer.json"
-                    ],
-                    "exclude": [
-                        "pkg/hookscript/composer.json"
-                    ],
-                    "recurse": false,
-                    "replace": false,
-                    "merge-dev": true,
-                    "merge-extra": false,
-                    "merge-scripts": false
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Webong\\Gateway\\Companion\\": "mod/adapter/src/Companion/",
-                    "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contract/",
-                    "Webong\\Gateway\\Protocols\\": "mod/adapter/src/Protocol/"
-                }
-            },
-            "autoload-dev": {
-                "psr-4": {
-                    "Webong\\Gateway\\Tests\\": "tests/"
-                }
-            },
-            "archive": {
-                "exclude": [
-                    "/*",
-                    "/.*",
-                    "!/composer.json",
-                    "!/LICENSE",
-                    "!/README.md",
-                    "!/mod",
-                    "/mod/*",
-                    "!/mod/adapter",
-                    "/mod/adapter/*",
-                    "!/mod/adapter/src",
-                    "!/mod/adapter/src/**"
-                ]
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "test-package": [
-                    "bash scripts/test-core-package"
-                ]
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Framework-free contracts and protocol for the Webong Gateway transport",
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
-        },
-        {
-            "name": "webong/gateway-planner",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
                 "url": "../pkg/planner",
-                "reference": "718224ec9c4a05f83bb7c770ae5c0edc6bf5f66f"
+                "reference": "121bbda28388122066965119369d85712da14830"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "robmorgan/phinx": "^0.16",
                 "symfony/console": "^7.3 || ^8.0",
-                "webong/gateway": "dev-main",
+                "webong/gateway-adapter": "dev-main",
                 "webong/proxy": "^0.2.0"
             },
             "type": "library",
@@ -8553,6 +8465,34 @@
                 "MIT"
             ],
             "description": "Laravel Planner runtime for Webong Gateway",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/gateway-adapter",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../mod/adapter",
+                "reference": "1753afbafef13d5d26c8676452d10c5f1298b87e"
+            },
+            "require": {
+                "php": "^8.3"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Gateway\\Companion\\": "src/Companion/",
+                    "Webong\\Gateway\\Contracts\\": "src/Contract/",
+                    "Webong\\Gateway\\Protocols\\": "src/Protocol/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Framework-neutral contracts and protocol values for custom Gateway Planners and extensions",
             "transport-options": {
                 "symlink": false,
                 "relative": true
@@ -8615,13 +8555,13 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/web",
-                "reference": "e31bc02102b2568aadab05564bf6363470a8ef97"
+                "reference": "f56ac065e90b8b1557f61d4ed6140f0ef2b81e8d"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
-                "webong/gateway-planner": "dev-main"
+                "webong/gateway-adapter": "dev-main"
             },
             "type": "library",
             "autoload": {
@@ -8823,7 +8763,7 @@
         "webong/dns": 20,
         "webong/email": 20,
         "webong/gateway": 20,
-        "webong/gateway-planner": 20,
+        "webong/gateway-adapter": 20,
         "webong/web": 20
     },
     "prefer-stable": true,

@@ -12,7 +12,7 @@ together in the Gateway Router distribution.
 | --- | --- | --- |
 | Gateway Router | Spinner and the bundled Planner behind one public listener, hosted by embedded RoadRunner or FrankenPHP | You want a self-contained Gateway-owned registry |
 | Spinner | Go image plus an external PHP Planner | Your Planner lives in an existing Laravel app or a separate service |
-| Planner | `webong/gateway-planner` Composer package | Your Laravel app owns route policy and registry context |
+| Planner | `webong/gateway` Composer package | Your Laravel app owns route policy and registry context |
 
 The same route-plan and protocol-event contracts connect Spinner and Planner
 in both deployment shapes. The optional `pkg/frankenphp` Go module embeds the
@@ -69,9 +69,9 @@ selected runtime adapter.
 
 The monorepo publishes separate Composer packages:
 
-- `webong/gateway` contains the framework-free contracts and protocol values in
+- `webong/gateway-adapter` contains the framework-free contracts and protocol values in
   `mod/adapter/src/`.
-- `webong/gateway-planner` contains the PHP Planner core in `pkg/planner/`,
+- `webong/gateway` contains the PHP Planner core in `pkg/planner/`,
   including Laravel integration and framework-neutral Symfony Console migration
   tooling.
 - `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are
@@ -82,20 +82,19 @@ The monorepo publishes separate Composer packages:
   Automation, or Companion capabilities; those capability names describe what
   the package provides, while Extension describes the installable package.
 
-The root development project and the bundled Router host use Composer Merge
-Plugin to discover `pkg/*/composer.json`, so extension autoload paths and
-providers come from the extension manifests rather than from duplicated root
-mappings. The Go Spinner, Go Arranger library, bundled Router app, tests, and
-deployment/build tooling are not part of the Composer packages.
+The root development project uses Composer Source Plugin to select the local
+`pkg/planner` and `mod/adapter` package candidates. It and the bundled Router
+host use Composer Merge Plugin to discover extension manifests, so extension
+autoload paths and providers do not require duplicated root mappings. The Go
+Spinner, Go Arranger library, bundled Router app, tests, and deployment/build
+tooling are not part of the Composer packages.
 
-`.gitattributes` controls GitHub/Git source archives; `archive.exclude` in
-`composer.json` controls Composer-built archives for the core package. Verify
-the core archive with `composer test-package` from a source checkout.
+The repository root is the non-published `webong/gateway-monorepo` development
+project. Verify the independently installable adapter archive with
+`composer test-package` from a source checkout.
 
-This applies to releases containing these packaging rules, not existing tags
-or cached archives. `--prefer-source` (or a fallback to a Git clone) still
-downloads the full repository. Use a Git clone for Router/Spinner builds:
-the repository's generated source ZIP/tar downloads are core-only.
+This applies to releases containing these package names, not existing tags or
+cached archives. Use a Git clone for Router/Spinner builds.
 The Arranger release script constructs its own separate release tree and is
 unaffected by these root archive rules.
 

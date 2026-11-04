@@ -1,7 +1,7 @@
 {
-    "name": "webong/gateway",
-    "description": "Framework-free contracts and protocol for the Webong Gateway transport",
-    "type": "library",
+    "name": "webong/gateway-monorepo",
+    "description": "Development workspace for Webong Gateway",
+    "type": "project",
     "license": "MIT",
     "require": {
         "php": "^8.3"
@@ -15,15 +15,24 @@
         "smuuf/primi": "^0.4",
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3",
+        "webong/composer-source-plugin": "^0.2",
         "webong/database": "dev-main",
         "webong/dns": "dev-main",
         "webong/email": "dev-main",
-        "webong/gateway-planner": "dev-main",
+        "webong/gateway": "dev-main",
+        "webong/gateway-adapter": "dev-main",
         "webong/web": "dev-main",
         "workerman/workerman": "^5.2",
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
+        {
+            "type": "path",
+            "url": "mod/adapter",
+            "options": {
+                "symlink": true
+            }
+        },
         {
             "type": "path",
             "url": "pkg/planner",
@@ -54,32 +63,10 @@
     ],
     "minimum-stability": "dev",
     "prefer-stable": true,
-    "autoload": {
-        "psr-4": {
-            "Webong\\Gateway\\Companion\\": "mod/adapter/src/Companion/",
-            "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contract/",
-            "Webong\\Gateway\\Protocols\\": "mod/adapter/src/Protocol/"
-        }
-    },
     "autoload-dev": {
         "psr-4": {
             "Webong\\Gateway\\Tests\\": "tests/"
         }
-    },
-    "archive": {
-        "exclude": [
-            "/*",
-            "/.*",
-            "!/composer.json",
-            "!/LICENSE",
-            "!/README.md",
-            "!/mod",
-            "/mod/*",
-            "!/mod/adapter",
-            "/mod/adapter/*",
-            "!/mod/adapter/src",
-            "!/mod/adapter/src/**"
-        ]
     },
     "scripts": {
         "test": "pest",
@@ -98,11 +85,26 @@
             "merge-dev": true,
             "merge-extra": false,
             "merge-scripts": false
+        },
+        "source-plugin": {
+            "loaders": {
+                "webong/gateway": {
+                    "type": "auto",
+                    "path": "pkg/planner",
+                    "manifest": "pkg/planner/composer.json"
+                },
+                "webong/gateway-adapter": {
+                    "type": "auto",
+                    "path": "mod/adapter",
+                    "manifest": "mod/adapter/composer.json"
+                }
+            }
         }
     },
     "config": {
         "allow-plugins": {
             "pestphp/pest-plugin": true,
+            "webong/composer-source-plugin": true,
             "wikimedia/composer-merge-plugin": true
         },
         "sort-packages": true

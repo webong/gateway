@@ -7,7 +7,7 @@
         "php": "^8.3",
         "illuminate/database": "^12.0",
         "webong/gateway": "dev-main",
-        "webong/gateway-planner": "dev-main"
+        "webong/gateway-adapter": "dev-main"
     },
     "autoload": {
         "psr-4": {

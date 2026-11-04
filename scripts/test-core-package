@@ -2,44 +2,30 @@
 set -euo pipefail
 export LC_ALL=C
 
-# Exercise both archive mechanisms without modifying this checkout or its index.
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-core-package.XXXXXX")
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-adapter-package.XXXXXX")
 trap 'rm -rf "$TEST_DIR"' EXIT
-mkdir -p "$TEST_DIR/source/mod" "$TEST_DIR/output"
-cp "$ROOT/composer.json" "$ROOT/.gitattributes" "$ROOT/LICENSE" "$ROOT/README.md" "$TEST_DIR/source/"
-cp -R "$ROOT/mod/adapter" "$TEST_DIR/source/mod/adapter"
-cd "$TEST_DIR/source"
+mkdir -p "$TEST_DIR/output" "$TEST_DIR/unpacked"
 
-# Representative unwanted files, including future directories and local state.
-for path in pkg/planner/src/GatewayServiceProvider.php pkg/spinner/main.go mod/arranger/go.mod \
-    pkg/example/main.go app/bootstrap.php scripts/build-router infra/docker/Gateway.spinner.Dockerfile \
-    infra/kubernetes/router.yaml tests/Test.php vendor/autoload.php \
-    .gateway-router-data/gateway.env future/component.txt docs/deployment.md \
-    infra/caddy/Caddyfile go.mod go.sum composer.lock .env; do
-    mkdir -p "$(dirname "$path")"
-    touch "$path"
-done
+COMPOSER_ROOT_VERSION=dev-main composer --working-dir="$ROOT/mod/adapter" \
+    --no-plugins --no-scripts archive --format=tar --file=gateway-adapter \
+    --dir="$TEST_DIR/output" --no-interaction
 
-{ printf '%s\n' composer.json LICENSE README.md; find mod/adapter/src -type f; } | LC_ALL=C sort > "$TEST_DIR/expected"
-test -f mod/adapter/src/Contract/AutomationLanguageRegistry.php
+tar -xf "$TEST_DIR/output/gateway-adapter.tar" -C "$TEST_DIR/unpacked"
 
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_CONFIG_COUNT
-export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
-git init -q
-git add --all
-TREE=$(git write-tree)
-git archive --format=tar --output="$TEST_DIR/output/git.tar" "$TREE"
+test -f "$TEST_DIR/unpacked/composer.json"
+test -f "$TEST_DIR/unpacked/src/Contract/RoutePlanner.php"
+test -f "$TEST_DIR/unpacked/src/Protocol/RoutePlan.php"
+test ! -e "$TEST_DIR/unpacked/src/GatewayServiceProvider.php"
 
-# Remove Git attributes so Composer's own exclusions must work independently.
-rm .gitattributes
-COMPOSER_ROOT_VERSION=dev-main composer --no-plugins --no-scripts archive \
-    --format=tar --file=composer --dir="$TEST_DIR/output" --no-interaction
+php -r '
+$manifest = json_decode(file_get_contents($argv[1]."/composer.json"), true, flags: JSON_THROW_ON_ERROR);
+if (($manifest["name"] ?? null) !== "webong/gateway-adapter") {
+    throw new RuntimeException("Unexpected Gateway adapter package name.");
+}
+if (isset($manifest["require"]["laravel/framework"]) || isset($manifest["require"]["symfony/framework-bundle"])) {
+    throw new RuntimeException("Gateway adapter must remain framework-neutral.");
+}
+' "$TEST_DIR/unpacked"
 
-for archive in git composer; do
-    mkdir "$TEST_DIR/output/$archive"
-    tar -xf "$TEST_DIR/output/$archive.tar" -C "$TEST_DIR/output/$archive"
-    (cd "$TEST_DIR/output/$archive" && find . -type f | sed 's#^\./##' | sort) > "$TEST_DIR/actual"
-    diff -u "$TEST_DIR/expected" "$TEST_DIR/actual"
-done
-printf 'Gateway core Git and Composer archives contain exactly the core contract files.\n'
+printf 'Gateway adapter archive contains only its framework-neutral package.\n'

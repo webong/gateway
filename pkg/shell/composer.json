@@ -6,7 +6,7 @@
     "require": {
         "php": "^8.3",
         "webong/gateway": "dev-main",
-        "webong/gateway-planner": "dev-main"
+        "webong/gateway-adapter": "dev-main"
     },
     "autoload": {
         "psr-4": {

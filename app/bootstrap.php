@@ -76,7 +76,7 @@ $app->afterBootstrapping(LoadConfiguration::class, static function (Application 
 
     // In a source checkout the Planner is a path package, not a discovered
     // dependency. Installed Router distributions discover it normally.
-    if (! is_file($vendorDirectory.'/webong/gateway-planner/composer.json')) {
+    if (! is_file($vendorDirectory.'/webong/gateway/composer.json')) {
         $app['config']->push('app.providers', GatewayServiceProvider::class);
     }
 });
