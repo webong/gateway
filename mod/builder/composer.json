@@ -1,0 +1,23 @@
+{
+    "name": "webong/gateway-builder",
+    "description": "Build deterministic ext.package/v1 Gateway extension artifacts",
+    "type": "composer-plugin",
+    "license": "MIT",
+    "require": {
+        "composer-plugin-api": "^2.3",
+        "php": "^8.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\GatewayBuilder\\": "src/"
+        }
+    },
+    "extra": {
+        "class": "Webong\\GatewayBuilder\\Composer\\GatewayBuilderPlugin"
+    },
+    "bin": [
+        "bin/gateway-extension"
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

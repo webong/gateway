@@ -16,6 +16,7 @@
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3",
         "webong/composer-source-plugin": "^0.2",
+        "webong/gateway-builder": "dev-main",
         "webong/gateway-database": "dev-main",
         "webong/gateway-dns": "dev-main",
         "webong/gateway-email": "dev-main",
@@ -26,6 +27,13 @@
         "wikimedia/composer-merge-plugin": "^2.1"
     },
     "repositories": [
+        {
+            "type": "path",
+            "url": "mod/builder",
+            "options": {
+                "symlink": true
+            }
+        },
         {
             "type": "path",
             "url": "mod/adapter",
@@ -97,6 +105,11 @@
                     "type": "auto",
                     "path": "mod/adapter",
                     "manifest": "mod/adapter/composer.json"
+                },
+                "webong/gateway-builder": {
+                    "type": "auto",
+                    "path": "mod/builder",
+                    "manifest": "mod/builder/composer.json"
                 }
             }
         }
@@ -105,6 +118,7 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "webong/composer-source-plugin": true,
+            "webong/gateway-builder": true,
             "wikimedia/composer-merge-plugin": true
         },
         "sort-packages": true

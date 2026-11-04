@@ -142,6 +142,9 @@ migration stream, then remove it.
 - `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.
+- `mod/builder` publishes the `webong/gateway-builder` Composer plugin and
+  standalone CLI used to assemble deterministic `ext.package/v1` extension
+  artifacts; it is build tooling, not a runtime dependency.
 - Trusted extensions may register named [PHP companion actions](docs/companion-actions.md)
   in the Planner host and invoke them from Spinner through the Arranger
   companion interface; invocation transports data, never PHP source.
