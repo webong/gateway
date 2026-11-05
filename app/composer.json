@@ -4,54 +4,85 @@
     "license": "MIT",
     "type": "project",
     "require": {
-        "php": "^8.3",
         "laravel/framework": "^12.0",
         "laravel/octane": "^2.17",
+        "php": "^8.3",
         "spiral/roadrunner-http": "^3.3",
+        "webong/gateway": "dev-main",
+        "webong/gateway-adapter": "dev-main",
+        "webong/gateway-centrifugo": "dev-main",
         "webong/gateway-database": "dev-main",
         "webong/gateway-dns": "dev-main",
         "webong/gateway-email": "dev-main",
-        "webong/gateway": "dev-main",
-        "webong/gateway-adapter": "dev-main",
+        "webong/gateway-mercure": "dev-main",
+        "webong/gateway-reverb": "dev-main",
         "webong/gateway-web": "dev-main",
-        "workerman/workerman": "^5.2",
-        "wikimedia/composer-merge-plugin": "^2.1"
+        "webong/proxy": "^0.2.0",
+        "workerman/workerman": "^5.2"
     },
     "repositories": [
         {
             "type": "path",
-            "url": "..",
-            "options": { "symlink": false }
-        },
-        {
-            "type": "path",
             "url": "../mod/adapter",
-            "options": { "symlink": false }
+            "options": {
+                "symlink": false
+            }
         },
         {
             "type": "path",
             "url": "../pkg/planner",
-            "options": { "symlink": false }
+            "options": {
+                "symlink": false
+            }
         },
         {
             "type": "path",
             "url": "../pkg/web",
-            "options": { "symlink": false }
+            "options": {
+                "symlink": false
+            }
         },
         {
             "type": "path",
             "url": "../pkg/dns",
-            "options": { "symlink": false }
+            "options": {
+                "symlink": false
+            }
         },
         {
             "type": "path",
             "url": "../pkg/email",
-            "options": { "symlink": false }
+            "options": {
+                "symlink": false
+            }
         },
         {
             "type": "path",
             "url": "../pkg/database",
-            "options": { "symlink": false }
+            "options": {
+                "symlink": false
+            }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/centrifugo",
+            "options": {
+                "symlink": false
+            }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/mercure",
+            "options": {
+                "symlink": false
+            }
+        },
+        {
+            "type": "path",
+            "url": "../pkg/reverb",
+            "options": {
+                "symlink": false
+            }
         }
     ],
     "minimum-stability": "dev",
@@ -76,18 +107,6 @@
                 "pestphp/pest-plugin-laravel",
                 "webong/composer-source-plugin"
             ]
-        },
-        "merge-plugin": {
-            "include": [
-                "../pkg/centrifugo/composer.json",
-                "../pkg/mercure/composer.json",
-                "../pkg/reverb/composer.json"
-            ],
-            "recurse": false,
-            "replace": false,
-            "merge-dev": false,
-            "merge-extra": false,
-            "merge-scripts": false
         }
     },
     "config": {
@@ -97,8 +116,7 @@
         },
         "sort-packages": true,
         "allow-plugins": {
-            "pestphp/pest-plugin": true,
-            "wikimedia/composer-merge-plugin": true
+            "pestphp/pest-plugin": true
         }
     }
 }
