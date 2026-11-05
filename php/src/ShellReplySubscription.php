@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Shell;
 
+use Webong\Gateway\Laravel\SubscriptionDefinition;
 use Webong\Gateway\Protocols\MatchRules;
-use Webong\Gateway\SubscriptionDefinition;
 
 final class ShellReplySubscription
 {
