@@ -7,9 +7,9 @@ namespace Webong\Gateway\Email;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Account-owned, registered HTTPS origins; provider tokens never live here. */
 final readonly class MailboxCredentialSourceStore

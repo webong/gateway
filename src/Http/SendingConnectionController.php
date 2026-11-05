@@ -9,11 +9,11 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use RuntimeException;
-use stdClass;
 use Throwable;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\MailboxConnectionTester;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use stdClass;
 
 /** SMTP-only sending connection management; no IMAP credential is created. */
 final readonly class SendingConnectionController

@@ -7,7 +7,7 @@ namespace Webong\Gateway\Email\Http;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Webong\Gateway\Email\EmailDkimKeyStore;
-use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
 
 /** Return one current private key only to an authenticated Spinner. */
 final readonly class InternalDkimKeyController

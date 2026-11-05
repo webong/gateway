@@ -9,12 +9,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use RuntimeException;
-use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\EmailRouteRejected;
-use Webong\Gateway\Email\ManagedSendingStore;
 use Webong\Gateway\Email\EmailVerificationProfile;
+use Webong\Gateway\Email\ManagedSendingStore;
 use Webong\Gateway\Email\VerificationRecordMissing;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use stdClass;
 
 /** Account-facing managed submission identities, independent of external SMTP connections. */
 final readonly class ManagedSendingController

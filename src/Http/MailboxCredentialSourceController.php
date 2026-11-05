@@ -8,9 +8,9 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
-use Webong\Gateway\Resources\StaleResource;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\MailboxCredentialSourceStore;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Resources\StaleResource;
 
 /** Register account-owned callback origins; bearer credentials are write-only. */
 final readonly class MailboxCredentialSourceController

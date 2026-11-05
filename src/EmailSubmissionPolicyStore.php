@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Shared account and sender-domain quota defaults, not a transport ceiling. */
 final readonly class EmailSubmissionPolicyStore

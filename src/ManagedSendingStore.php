@@ -7,9 +7,9 @@ namespace Webong\Gateway\Email;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Gateway-owned sender identities; upstream transport is an operator concern. */
 final readonly class ManagedSendingStore

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use RuntimeException;
-use Webong\Gateway\RegistryRouteCache;
+use Webong\Gateway\Laravel\RegistryRouteCache;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EndpointRegistry;
 use Webong\Proxy\Models\WebProxyEndpoint;

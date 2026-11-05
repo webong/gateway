@@ -8,7 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
 use Webong\Gateway\Email\MailboxPollStore;
-use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
 
 final readonly class InternalMailboxPollController
 {

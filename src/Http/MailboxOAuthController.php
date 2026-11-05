@@ -9,8 +9,8 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\MailboxOAuthAuthorization;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 
 final readonly class MailboxOAuthController
 {

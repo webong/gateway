@@ -9,8 +9,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Webong\Gateway\Email\EmailVerificationProfile;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Resources\ResourcePrecondition;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 
 final readonly class EmailVerificationProfileController

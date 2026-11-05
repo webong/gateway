@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Email;
 
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Dedicated Worker bearer authority for one account-owned receiving route. */
 final readonly class WorkerIngressStore

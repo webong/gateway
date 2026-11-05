@@ -6,8 +6,8 @@ namespace Webong\Gateway\Email;
 
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Account-scoped mail receiving on the shared encrypted Planner document store. */
 final readonly class AccountReceivingStore

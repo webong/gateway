@@ -9,9 +9,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\MailboxPollConflict;
 use Webong\Gateway\Email\MailboxPollStore;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 
 final readonly class MailboxPollController
 {

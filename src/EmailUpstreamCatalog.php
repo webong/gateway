@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Validated mailbox transport endpoints in the shared configuration collection. */
 final readonly class EmailUpstreamCatalog

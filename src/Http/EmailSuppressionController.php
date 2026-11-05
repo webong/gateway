@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Email\EmailSuppressionStore;
-use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 
 final readonly class EmailSuppressionController
 {
