@@ -24,7 +24,7 @@ final class LuaExtensionServiceProvider extends ServiceProvider
         );
         $this->app->make(CredentialScriptRegistry::class)->register(
             LuaLanguage::ID,
-            new SpinnerCredentialScriptExecutor($this->app->make(\Webong\Gateway\Deliveries\DeliveryAdminClient::class), LuaLanguage::ID),
+            new SpinnerCredentialScriptExecutor($this->app->make(\Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient::class), LuaLanguage::ID),
         );
     }
 }
