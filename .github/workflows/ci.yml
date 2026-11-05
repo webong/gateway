@@ -142,17 +142,38 @@ jobs:
   planner:
     name: Planner (Pest)
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: gateway_test
+          POSTGRES_PASSWORD: gateway_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: gateway_test
+          MYSQL_ROOT_PASSWORD: gateway_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pgateway_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      GATEWAY_TEST_POSTGRES_DATABASE: gateway_test
+      GATEWAY_TEST_POSTGRES_PASSWORD: gateway_test
+      GATEWAY_TEST_MYSQL_DATABASE: gateway_test
+      GATEWAY_TEST_MYSQL_PASSWORD: gateway_test
     steps:
       - uses: actions/checkout@v4
 
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_mysql, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
 
-      # A plain `composer install` on a fresh checkout moves packages past
-      # composer.lock (see scripts/composer-install), so the suite would not
-      # test the locked versions.
       - name: Install locked Planner dependencies
         env:
           COMPOSER_ROOT_VERSION: dev-main
@@ -182,3 +203,12 @@ jobs:
 
       - name: Run the Planner test suite
         run: vendor/bin/pest --compact
+
+      - name: Check Laravel host configuration and migrations
+        run: bash scripts/test-router-host
+
+      - name: Check standalone Symfony consumer without Laravel
+        run: bash scripts/test-planner-package
+
+      - name: Check workspace install stability
+        run: bash scripts/test-composer-install-stability

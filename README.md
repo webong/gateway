@@ -72,8 +72,8 @@ The monorepo publishes separate Composer packages:
 - `webong/gateway-adapter` contains the framework-free contracts and protocol values in
   `mod/adapter/src/`.
 - `webong/gateway` contains the PHP Planner core in `pkg/planner/`,
-  including Laravel integration and framework-neutral Symfony Console migration
-  tooling.
+  including separate Laravel and Symfony integrations over shared planning and
+  migration code. See the [Planner package guide](pkg/planner/README.md).
 - `webong/gateway-web`, `webong/gateway-dns`, `webong/gateway-email`, and
   `webong/gateway-database` are
   self-contained Gateway Extensions. Each owns its Planner policy entrypoint
@@ -83,12 +83,19 @@ The monorepo publishes separate Composer packages:
   Automation, or Companion capabilities; those capability names describe what
   the package provides, while Extension describes the installable package.
 
-The root development project uses Composer Source Plugin to select the local
-`pkg/planner` and `mod/adapter` package candidates. It and the bundled Router
-host use Composer Merge Plugin to discover extension manifests, so extension
-autoload paths and providers do not require duplicated root mappings. The Go
+The root development project uses Composer Source Plugin workspaces to link
+`mod/adapter`, `mod/builder`, and the Composer packages in `pkg/*`. Each package
+owns its runtime autoload paths and discovery metadata. The bundled Router
+host still uses its own production dependency manifest. The Go
 Spinner, Go Arranger library, bundled Router app, tests, and deployment/build
 tooling are not part of the Composer packages.
+
+Run `composer source:workspaces` to inspect the local packages. When updating
+dependencies on a feature branch, use
+`COMPOSER_ROOT_VERSION=dev-main composer update` so sibling packages satisfy
+their development constraints. Commit the lock file; fresh checkouts can run
+`scripts/composer-install` using its recorded relative workspace paths.
+Workspaces provide local resolution, not release publishing or package splits.
 
 The repository root is the non-published `webong/gateway-monorepo` development
 project. Verify the independently installable adapter archive with
@@ -159,9 +166,11 @@ migration stream, then remove it.
 - `pkg/planner` is the PHP Planner core package source tree.
 - `app/` is the thin PHP host for the bundled Planner, not a conventional
   Laravel application skeleton.
-- `pkg/planner/config/` contains the Laravel Planner core configuration;
+- `pkg/planner/src/Laravel/` owns Laravel storage, management, and framework wiring;
+  `pkg/planner/src/Symfony/` owns Symfony wiring. The remaining source is shared.
+- `pkg/planner/config/` contains Laravel configuration and Symfony route imports;
   `infra/caddy/` holds Caddy examples used by integration builds.
-- `pkg/planner/src/Servers`, `pkg/planner/src/Reconciliation`, `pkg/planner/src/database/migrations`, and
+- `pkg/planner/src/Laravel/Servers`, `pkg/planner/src/Laravel/Reconciliation`, `pkg/planner/migrations`, and
   `pkg/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
   state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
@@ -1023,7 +1032,7 @@ successful writes. If application code mutates `proxy` directly, invalidate
 the affected snapshot explicitly:
 
 ```php
-use Webong\Gateway\RegistryRouteCache;
+use Webong\Gateway\Laravel\RegistryRouteCache;
 
 app(RegistryRouteCache::class)->invalidateEndpoint($endpointKey);
 app(RegistryRouteCache::class)->invalidatePaths(); // when path ownership changed
@@ -1062,7 +1071,7 @@ The PHP-facing DSL compiles to a normal `webong/proxy` destination:
 
 ```php
 use Webong\Gateway\Protocols\MatchRules;
-use Webong\Gateway\SubscribeEndpoint;
+use Webong\Gateway\Laravel\SubscribeEndpoint;
 use Webong\Gateway\Web\WebSubscriptionDefinition;
 
 $definition = WebSubscriptionDefinition::matching(
