@@ -32,9 +32,36 @@ final class WorkermanLaravelHandler implements Client
     {
         $context = new RequestContext(['workermanRequest' => $request, 'response' => null]);
         [$laravelRequest, $context] = $this->marshalRequest($context);
-        $this->worker->handle($laravelRequest, $context);
+        try {
+            $this->worker->handle($laravelRequest, $context);
+        } finally {
+            // A request may leave a transaction open (for example after an
+            // uncaught exception). Roll it back so it cannot leak state or lock
+            // rows into the next request served by this persistent worker.
+            $this->rollbackUnfinishedTransactions();
+        }
 
         return $context->response ?? new WorkermanResponse(500, ['Content-Type' => 'text/plain'], 'Internal Server Error');
+    }
+
+    /**
+     * Roll back any database transaction left open by the request. The Octane
+     * worker shares its database connections between the base application and
+     * each request sandbox, so an unrolled-back transaction would otherwise
+     * persist to the next request on the same worker.
+     */
+    private function rollbackUnfinishedTransactions(): void
+    {
+        try {
+            $db = $this->worker->application()->make('db');
+            foreach ($db->getConnections() as $connection) {
+                while ($connection->transactionLevel() > 0) {
+                    $connection->rollBack();
+                }
+            }
+        } catch (Throwable) {
+            // Transaction cleanup must never mask the response.
+        }
     }
 
     public function terminate(): void
