@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Webstream;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Exact ingress route => exact approved stream source and upload/retry switches. */
 final class WebstreamRoutePolicyStore

@@ -8,12 +8,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Webong\Gateway\Contracts\SubscriptionDeliveryTargetExtension;
-use Webong\Gateway\Contracts\SubscriptionTargetExtension;
+use Webong\Gateway\Laravel\Contracts\SubscriptionTargetExtension;
+use Webong\Gateway\Laravel\EndpointHttpTransportResolver;
+use Webong\Gateway\Laravel\ResolvedSubscription;
+use Webong\Gateway\Laravel\SubscriptionDefinition;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Protocols\SubscriptionAutomationPlan;
-use Webong\Gateway\ResolvedSubscription;
-use Webong\Gateway\EndpointHttpTransportResolver;
-use Webong\Gateway\SubscriptionDefinition;
 use Webong\Proxy\DestinationRecord;
 use Webong\Proxy\Endpoint;
 

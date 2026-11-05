@@ -6,8 +6,8 @@ namespace Webong\Gateway\Web\Events;
 
 use Psr\Log\LoggerInterface;
 use Throwable;
-use Webong\Gateway\Events\EventRetention;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\Events\EventRetention;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;
 use Webong\Proxy\Models\WebProxyEndpoint;
