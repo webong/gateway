@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Mercure;
 
 use Illuminate\Support\ServiceProvider;
+use Webong\Gateway\Laravel\Servers\ServerTypeRegistry;
 use Webong\Gateway\Mercure\ServerTypes\MercureServerType;
-use Webong\Gateway\Servers\ServerTypeRegistry;
 
 final class MercureIntegrationServiceProvider extends ServiceProvider
 {

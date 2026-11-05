@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
-use Webong\Gateway\Servers\ServerTables;
+use Webong\Gateway\Laravel\Servers\ServerTables;
 
 it('creates and manages an encrypted Mercure hub', function (): void {
     $server = $this->withToken('registry-secret')->postJson('/servers', [
