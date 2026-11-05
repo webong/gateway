@@ -6,8 +6,8 @@ namespace Webong\Gateway\Dns;
 
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Str;
-use Webong\Gateway\Events\EventRetention;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\Events\EventRetention;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocols\GatewayObservation;
 
 final readonly class DnsQueryObservationRecorder

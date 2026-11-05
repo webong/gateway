@@ -5,10 +5,10 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
-use Webong\Gateway\Email\MailboxConnectionTester;
 use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Email\MailboxConnectionTester;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 
 function oauthFixtures(): array
 {

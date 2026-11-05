@@ -7,10 +7,10 @@ namespace Webong\Gateway\Reverb\ServerTypes;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Webong\Gateway\Servers\Contracts\ApplicationServerType;
-use Webong\Gateway\Servers\Models\Application;
-use Webong\Gateway\Servers\Models\Server;
-use Webong\Gateway\Servers\ServerTables;
+use Webong\Gateway\Laravel\Servers\Contracts\ApplicationServerType;
+use Webong\Gateway\Laravel\Servers\Models\Application;
+use Webong\Gateway\Laravel\Servers\Models\Server;
+use Webong\Gateway\Laravel\Servers\ServerTables;
 
 final readonly class ReverbServerType implements ApplicationServerType
 {

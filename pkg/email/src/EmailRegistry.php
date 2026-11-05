@@ -7,8 +7,8 @@ namespace Webong\Gateway\Email;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 final readonly class EmailRegistry
 {

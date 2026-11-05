@@ -7,7 +7,7 @@ namespace Webong\Gateway\Reverb\Tests\Fixtures;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\ServiceProvider;
 use ReflectionClass;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 
 final class ReverbSmokeServiceProvider extends ServiceProvider
 {

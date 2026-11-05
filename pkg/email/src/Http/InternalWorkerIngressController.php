@@ -8,7 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Webong\Gateway\Email\EmailRouteRejected;
 use Webong\Gateway\Email\WorkerIngressStore;
-use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
 
 final readonly class InternalWorkerIngressController
 {

@@ -8,7 +8,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Throwable;
-use Webong\Gateway\Deliveries\DeliveryAdminClient;
+use Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient;
 
 /** Observes terminal Spinner receipts and sends signed at-least-once account callbacks. */
 final readonly class EmailDeliveryStatusDispatcher

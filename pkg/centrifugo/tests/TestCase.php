@@ -7,7 +7,7 @@ namespace Webong\Gateway\Centrifugo\Tests;
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Webong\Gateway\Centrifugo\CentrifugoIntegrationServiceProvider;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 
 abstract class TestCase extends Orchestra
 {

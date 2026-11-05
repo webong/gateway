@@ -7,7 +7,7 @@ namespace Webong\Gateway\Dns;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use RuntimeException;
 use Throwable;
-use Webong\Gateway\Companion\ExtensionSecretStore;
+use Webong\Gateway\Laravel\Companion\ExtensionSecretStore;
 
 final readonly class CloudflareDnsProvisioner implements DnsProvisioner
 {

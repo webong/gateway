@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Migrations\GatewayMigrationRunner;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Symfony\Component\Console\Tester\CommandTester;
-use Webong\Gateway\Migrations\Command\MigrateGatewayCommand;
+use Webong\Gateway\Migrations\GatewayMigrationRunner;
+use Webong\Gateway\Symfony\Console\MigrateGatewayCommand;
 
 it('applies planner migrations without booting a framework', function (): void {
     $database = tempnam(sys_get_temp_dir(), 'gateway-migrations-');

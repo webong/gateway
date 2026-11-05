@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Tests\Fixtures;
 
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Resources\PlannerResourceStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 
 /** Test-only DNS fixture for the local Email integration smoke. */
 final class EmailSmokeTxtResolver implements TxtResolver

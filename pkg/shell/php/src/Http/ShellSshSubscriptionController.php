@@ -8,17 +8,17 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\Gateway\Protocols\SubscriptionState;
-use Webong\Gateway\ResolvedSubscription;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Shell\ShellOperatorAuthenticator;
-use Webong\Gateway\Shell\ShellSubscriptionExtension;
-use Webong\Gateway\Shell\ShellSshExecutionStore;
-use Webong\Gateway\SubscriptionRegistry;
 use Webong\Gateway\Exceptions\EndpointNotFoundException;
 use Webong\Gateway\Exceptions\SubscriptionLockUnavailableException;
 use Webong\Gateway\Exceptions\SubscriptionNotFoundException;
 use Webong\Gateway\Exceptions\SubscriptionRevisionMismatchException;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\ResolvedSubscription;
+use Webong\Gateway\Laravel\SubscriptionRegistry;
+use Webong\Gateway\Protocols\SubscriptionState;
+use Webong\Gateway\Shell\ShellOperatorAuthenticator;
+use Webong\Gateway\Shell\ShellSshExecutionStore;
+use Webong\Gateway\Shell\ShellSubscriptionExtension;
 
 final readonly class ShellSshSubscriptionController
 {

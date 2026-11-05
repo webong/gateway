@@ -13,7 +13,7 @@ use Webong\Gateway\Dns\DnsEndpointRegistry;
 use Webong\Gateway\Dns\DnsForwarderStore;
 use Webong\Gateway\Dns\DnsObservationStore;
 use Webong\Gateway\Dns\DnsZoneStore;
-use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 
 /** One observation interface for every DNS answer mode. */
 final readonly class DnsObservationController

@@ -8,12 +8,12 @@ use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
+use Webong\Gateway\ExtensionSecretProviderRegistry;
+use Webong\Gateway\Laravel\SubscriptionTargetExtensionRegistry;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
 use Webong\Gateway\Shell\Http\ShellHookGrantController;
 use Webong\Gateway\Shell\Http\ShellRunController;
 use Webong\Gateway\Shell\Http\ShellSshSubscriptionController;
-use Webong\Gateway\SubscriptionTargetExtensionRegistry;
-use Webong\Gateway\ExtensionSecretProviderRegistry;
 
 final class ShellExtensionServiceProvider extends ServiceProvider
 {

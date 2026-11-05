@@ -7,7 +7,7 @@ namespace Webong\Gateway\Email\Http;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Webong\Gateway\Email\EmailHostedMailCatalog;
-use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
 
 /** Resolve one current hosted transport only for a private delivery attempt. */
 final readonly class InternalHostedMailAdapterController

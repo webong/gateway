@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Middleware;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 use Webong\Gateway\Tests\Fixtures\HttpRegistrySmokeServiceProvider;
-use Webong\Gateway\GatewayServiceProvider;
 
 $extensionProviders = array_values(array_filter(array_map(
     'trim',

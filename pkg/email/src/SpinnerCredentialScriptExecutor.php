@@ -6,7 +6,7 @@ namespace Webong\Gateway\Email;
 
 use RuntimeException;
 use Throwable;
-use Webong\Gateway\Deliveries\DeliveryAdminClient;
+use Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Protocols\Delivery;
 
 /** Executes a Go-hosted language without exposing the credential-source bearer. */

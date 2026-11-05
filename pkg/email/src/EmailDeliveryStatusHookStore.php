@@ -7,9 +7,9 @@ namespace Webong\Gateway\Email;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** One write-only signed delivery-status destination per Email account. */
 final readonly class EmailDeliveryStatusHookStore

@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
-use Webong\Gateway\Email\TxtResolver;
+use Illuminate\Support\Facades\DB;
+use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Email\DmarcAssessment;
 use Webong\Gateway\Email\EmailMessagePolicy;
+use Webong\Gateway\Email\EmailPolicyVerdict;
 use Webong\Gateway\Email\EmailSubmissionAuthenticator;
 use Webong\Gateway\Email\EmailSubmissionGrant;
 use Webong\Gateway\Email\EmailSubmissionQuota;
-use Webong\Gateway\Email\MailboxAuthenticator;
 use Webong\Gateway\Email\MailboxAccessGrant;
-use Webong\Gateway\Email\EmailPolicyVerdict;
-use Webong\Gateway\Email\DmarcAssessment;
+use Webong\Gateway\Email\MailboxAuthenticator;
+use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Email\VerificationRecordMissing;
-use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayDecision;
@@ -356,7 +356,7 @@ it('stores email domains and their aliases as audited Planner resources', functi
         'recipients' => ['tickets@example.net'],
     ])->assertOk();
 
-    $resources = app(\Webong\Gateway\Resources\PlannerResourceStore::class);
+    $resources = app(\Webong\Gateway\Laravel\Resources\PlannerResourceStore::class);
     expect($resources->byKey('email.domain', 'resource.test')->id)->toBe($domain['id'])
         ->and($resources->children('email.alias', $domain['id']))->toHaveCount(1)
         ->and($resources->byKey('email.alias', $domain['id'].'/support')->document['recipients'])
@@ -416,7 +416,7 @@ it('temporarily fails SMTP planning when an enabled domain needs TXT revalidatio
     expect($planner->planEvent($event)->action)->toBe(GatewayAction::SUBMIT);
 
     $stale = now()->subHours(2);
-    $resources = app(\Webong\Gateway\Resources\PlannerResourceStore::class);
+    $resources = app(\Webong\Gateway\Laravel\Resources\PlannerResourceStore::class);
     $resource = $resources->find('email.domain', $domain['id']);
     $resources->replace('email.domain', $resource->id, $resource->key,
         [...$resource->document, 'verified_at' => $stale->toIso8601String()], $resource->enabled, $resource->revision);

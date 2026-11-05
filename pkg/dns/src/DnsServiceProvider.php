@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Webong\Gateway\Dns;
 
 use Illuminate\Support\ServiceProvider;
+use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
-use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
-use Webong\Gateway\GatewayRouter;
+use Webong\Gateway\Laravel\GatewayRouter;
 use Webong\Gateway\Observations\GatewayObservationRegistry;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;

@@ -542,7 +542,7 @@ if [[ "$WITH_EMAIL" == true ]]; then
         env "EMAIL_DOMAIN_ID=$EMAIL_DOMAIN_ID" php -r '
             $app = require "/gateway/app/bootstrap/app.php";
             $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-            $store = $app->make(\Webong\Gateway\Resources\PlannerResourceStore::class);
+            $store = $app->make(\Webong\Gateway\Laravel\Resources\PlannerResourceStore::class);
             $resource = $store->find("email.domain", getenv("EMAIL_DOMAIN_ID"));
             if ($resource === null) { exit(1); }
             $store->replace("email.domain", $resource->id, $resource->key,

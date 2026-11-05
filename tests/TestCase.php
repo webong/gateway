@@ -8,12 +8,12 @@ use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
 use Spatie\WebhookClient\WebhookClientServiceProvider;
 use Spatie\WebhookServer\WebhookServerServiceProvider;
+use Webong\Gateway\Email\EmailServiceProvider;
 use Webong\Gateway\Email\MxResolver;
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Proxy\WebProxyServiceProvider;
-use Webong\Gateway\Email\EmailServiceProvider;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 use Webong\Gateway\Web\WebServiceProvider;
+use Webong\Proxy\WebProxyServiceProvider;
 
 abstract class TestCase extends Orchestra
 {

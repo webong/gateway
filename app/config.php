@@ -73,7 +73,7 @@ return [
             ],
         ],
         'routers' => [
-            'gateway' => Webong\Gateway\GatewayRouter::class,
+            'gateway' => Webong\Gateway\Laravel\GatewayRouter::class,
         ],
     ],
 ];

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** One active signing selector per author domain; private PEM stays encrypted. */
 final readonly class EmailDkimKeyStore

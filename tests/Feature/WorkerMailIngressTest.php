@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Email\TxtResolver;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\Protocol;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 it('provisions a route-scoped Worker token and signs only its approved recipient', function (): void {
     $dns = new class implements TxtResolver {

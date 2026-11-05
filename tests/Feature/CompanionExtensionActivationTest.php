@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Companion\CompanionActionActivationStore;
 use Webong\Gateway\Contracts\CompanionActionRegistry;
+use Webong\Gateway\Laravel\Companion\CompanionActionActivationStore;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 use Webong\Gateway\Tests\Fixtures\CreateTicketCompanionAction;
 use Webong\Gateway\Tests\Fixtures\FakeDynamicCompanionProvider;

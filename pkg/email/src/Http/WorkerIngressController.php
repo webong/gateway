@@ -6,10 +6,10 @@ namespace Webong\Gateway\Email\Http;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Webong\Gateway\Accounts\AccountStore;
-use Webong\Gateway\Email\WorkerIngressStore;
 use Webong\Gateway\Email\AccountReceivingStore;
-use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Email\WorkerIngressStore;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 
 final readonly class WorkerIngressController
 {

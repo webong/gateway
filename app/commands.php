@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
-use Webong\Gateway\RegistryRouteCache;
-use Webong\Gateway\SubscribeEndpoint;
+use Webong\Gateway\Laravel\RegistryRouteCache;
+use Webong\Gateway\Laravel\SubscribeEndpoint;
 use Webong\Gateway\Web\WebSubscriptionDefinition;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EndpointRegistry;

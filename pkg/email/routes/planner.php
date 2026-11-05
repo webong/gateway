@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Route;
-use Webong\Gateway\Accounts\Http\AccountController;
 use Webong\Gateway\Email\Http\AccountReceivingController;
 use Webong\Gateway\Email\Http\EmailController;
 use Webong\Gateway\Email\Http\EmailDeliveryStatusHookController;
@@ -22,15 +21,16 @@ use Webong\Gateway\Email\Http\InternalHostedMailAdapterController;
 use Webong\Gateway\Email\Http\InternalMailboxPollController;
 use Webong\Gateway\Email\Http\InternalMailboxTransportController;
 use Webong\Gateway\Email\Http\InternalWorkerIngressController;
+use Webong\Gateway\Email\Http\MailHookController;
 use Webong\Gateway\Email\Http\MailboxConnectionController;
 use Webong\Gateway\Email\Http\MailboxCredentialSourceController;
 use Webong\Gateway\Email\Http\MailboxOAuthController;
 use Webong\Gateway\Email\Http\MailboxPollController;
-use Webong\Gateway\Email\Http\MailHookController;
 use Webong\Gateway\Email\Http\ManagedSendingController;
 use Webong\Gateway\Email\Http\OutboundTransportController;
 use Webong\Gateway\Email\Http\SendingConnectionController;
 use Webong\Gateway\Email\Http\WorkerIngressController;
+use Webong\Gateway\Laravel\Accounts\Http\AccountController;
 
 Route::get('/_internal/gateway/mailbox-connections/{connection}/smtp', InternalMailboxTransportController::class);
 Route::get('/_internal/gateway/email/hosted-adapters/{name}', InternalHostedMailAdapterController::class);

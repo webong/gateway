@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Reverb\Models;
 
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Webong\Gateway\Servers\Models\Application;
+use Webong\Gateway\Laravel\Servers\Models\Application;
 
 final class ReverbApplication extends Application
 {

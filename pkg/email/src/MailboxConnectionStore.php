@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Account-owned definitions are audited resources; live credentials and test results are not. */
 final readonly class MailboxConnectionStore

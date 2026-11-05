@@ -8,7 +8,7 @@ use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\RoutePlan;
 
 /** Webhook route adapter with Web-owned observation identity. */
-final class RegistryRoutePlanner extends \Webong\Gateway\RegistryRoutePlanner
+final class RegistryRoutePlanner extends \Webong\Gateway\Laravel\RegistryRoutePlanner
 {
     public function plan(IngressRequest $request): RoutePlan
     {

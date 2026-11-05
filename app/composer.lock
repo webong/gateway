@@ -8528,7 +8528,7 @@
             "extra": {
                 "laravel": {
                     "providers": [
-                        "Webong\\Gateway\\GatewayServiceProvider"
+                        "Webong\\Gateway\\Laravel\\GatewayServiceProvider"
                     ]
                 }
             },

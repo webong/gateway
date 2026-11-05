@@ -6,7 +6,7 @@ namespace Webong\Gateway\Mercure\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 use Webong\Gateway\Mercure\MercureIntegrationServiceProvider;
 
 abstract class TestCase extends Orchestra

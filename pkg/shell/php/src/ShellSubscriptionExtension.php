@@ -7,12 +7,12 @@ namespace Webong\Gateway\Shell;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
-use Webong\Gateway\Contracts\SubscriptionTargetExtension;
+use Webong\Gateway\Laravel\Contracts\SubscriptionTargetExtension;
+use Webong\Gateway\Laravel\ResolvedSubscription;
+use Webong\Gateway\Laravel\SubscriptionDefinition;
 use Webong\Gateway\Protocols\Automation;
 use Webong\Gateway\Protocols\SubscriptionAutomationPlan;
 use Webong\Gateway\Protocols\SubscriptionState;
-use Webong\Gateway\ResolvedSubscription;
-use Webong\Gateway\SubscriptionDefinition;
 use Webong\Proxy\DestinationRecord;
 
 final readonly class ShellSubscriptionExtension implements SubscriptionTargetExtension

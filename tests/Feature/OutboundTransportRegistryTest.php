@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Email\OutboundTransportStore;
 use Webong\Gateway\Email\EmailDkimKeyStore;
+use Webong\Gateway\Email\OutboundTransportStore;
 use Webong\Gateway\Email\TxtResolver;
-use Webong\Gateway\Resources\PlannerResourceStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 
 beforeEach(function (): void {
     config()->set('gateway.email.managed_dkim_signing_enabled', true);

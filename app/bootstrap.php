@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\PackageManifest;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 
 $vendorDirectory = dirname(__DIR__).'/vendor';
 $loader = require $vendorDirectory.'/autoload.php';

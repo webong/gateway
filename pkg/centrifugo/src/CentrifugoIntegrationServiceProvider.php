@@ -6,7 +6,7 @@ namespace Webong\Gateway\Centrifugo;
 
 use Illuminate\Support\ServiceProvider;
 use Webong\Gateway\Centrifugo\ServerTypes\CentrifugoServerType;
-use Webong\Gateway\Servers\ServerTypeRegistry;
+use Webong\Gateway\Laravel\Servers\ServerTypeRegistry;
 
 final class CentrifugoIntegrationServiceProvider extends ServiceProvider
 {

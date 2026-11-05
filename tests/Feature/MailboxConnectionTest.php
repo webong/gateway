@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\ConnectedIMAPAuthenticator;
 use Webong\Gateway\Email\ConnectedSMTPAuthenticator;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\ProviderMailboxOAuthRefresher;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\Protocol;
@@ -132,7 +132,7 @@ it('refreshes Google and Microsoft tokens for the requested transport and stores
         && str_contains($request->body(), 'scope=https%3A%2F%2Foutlook.office.com%2FSMTP.Send'));
 
     registerMailboxUpstreams();
-    $store = new MailboxConnectionStore($refresher, app(EmailUpstreamCatalog::class), app(\Webong\Gateway\Resources\PlannerResourceStore::class), app(AccountStore::class));
+    $store = new MailboxConnectionStore($refresher, app(EmailUpstreamCatalog::class), app(\Webong\Gateway\Laravel\Resources\PlannerResourceStore::class), app(AccountStore::class));
     app(AccountStore::class)->create('oauth-account');
     $input = mailboxInput('oauth@example.test');
     $input['imap_auth'] = 'google';

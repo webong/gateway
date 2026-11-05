@@ -10,11 +10,11 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use RuntimeException;
 use Throwable;
-use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\MailboxConnectionStore;
-use Webong\Gateway\Email\MailboxPollStore;
 use Webong\Gateway\Email\MailboxConnectionTester;
+use Webong\Gateway\Email\MailboxPollStore;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use stdClass;
 
 /** Server-to-server control plane; a tenant token cannot address another account. */
 final readonly class MailboxConnectionController

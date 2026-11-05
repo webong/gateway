@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\RoutePlanner;
-use Webong\Gateway\IngressRoutePlanner;
+use Webong\Gateway\Laravel\IngressRoutePlanner;
+use Webong\Gateway\Laravel\RegistryRouteCache;
 use Webong\Gateway\Planning\RoutePlannerRegistry;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\PathBinding;
 use Webong\Gateway\Protocols\Response;
 use Webong\Gateway\Protocols\RoutePlan;
-use Webong\Gateway\RegistryRouteCache;
 
 function ingressRouteRequest(): IngressRequest
 {
@@ -32,7 +32,7 @@ it('passes unbound paths through without invoking Webhook', function (): void {
             public function __construct(private ?PathBinding $binding) {}
             public function resolve(IngressRequest $request): ?PathBinding { return $this->binding; }
         };
-        $planner = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), $routes, app(\Webong\Gateway\RegistryRoutePlanner::class));
+        $planner = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), $routes, app(\Webong\Gateway\Laravel\RegistryRoutePlanner::class));
         expect($planner->plan(ingressRouteRequest())->action)->toBe(RoutePlan::PASS_THROUGH);
     }
     expect($handler->calls)->toBe(0);
@@ -44,7 +44,7 @@ it('uses core registry routing for plain HTTP bindings', function (): void {
         public function __construct(private PathBinding $binding) {}
         public function resolve(IngressRequest $request): ?PathBinding { return $this->binding; }
     };
-    $planner = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), new RoutePlannerRegistry(), app(\Webong\Gateway\RegistryRoutePlanner::class));
+    $planner = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), new RoutePlannerRegistry(), app(\Webong\Gateway\Laravel\RegistryRoutePlanner::class));
     $plan = $planner->plan(ingressRouteRequest());
     expect($plan->action)->toBe(RoutePlan::RESPOND)
         ->and($plan->immediateResponse?->statusCode)->toBe(404);
@@ -70,10 +70,10 @@ it('dispatches a Webhook binding once and fails closed when its owner is absent'
     };
     $routes = new RoutePlannerRegistry();
     $routes->register('webhook', fn (): RoutePlanner => $handler);
-    $planner = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), $routes, app(\Webong\Gateway\RegistryRoutePlanner::class));
+    $planner = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), $routes, app(\Webong\Gateway\Laravel\RegistryRoutePlanner::class));
     expect($planner->plan(ingressRouteRequest())->immediateResponse?->statusCode)->toBe(202)
         ->and($paths->resolves)->toBe(1)->and($handler->calls)->toBe(1);
 
-    $unavailable = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), new RoutePlannerRegistry(), app(\Webong\Gateway\RegistryRoutePlanner::class));
+    $unavailable = new IngressRoutePlanner($paths, app(RegistryRouteCache::class), new RoutePlannerRegistry(), app(\Webong\Gateway\Laravel\RegistryRoutePlanner::class));
     expect($unavailable->plan(ingressRouteRequest())->immediateResponse?->statusCode)->toBe(503);
 });

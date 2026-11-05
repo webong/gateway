@@ -10,12 +10,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
 use RuntimeException;
-use stdClass;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Email\EmailRegistry;
 use Webong\Gateway\Email\EmailVerificationProfile;
 use Webong\Gateway\Email\VerificationRecordMissing;
-use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use stdClass;
 
 final readonly class EmailController
 {
