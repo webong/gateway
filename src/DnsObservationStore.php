@@ -7,7 +7,7 @@ namespace Webong\Gateway\Dns;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Database\Eloquent\Builder;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
 
 final class DnsObservationStore
 {

@@ -13,8 +13,8 @@ use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Dns\DnsEndpointRegistry;
 use Webong\Gateway\Dns\DnsEndpointResources;
 use Webong\Gateway\Dns\DnsZoneCatalog;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Resources\ResourcePrecondition;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 use Webong\Proxy\Models\WebProxyEndpoint;
 

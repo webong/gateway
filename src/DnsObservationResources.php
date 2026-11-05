@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Dns;
 
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
 
 final class DnsObservationResources
 {

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Webong\Gateway\Dns;
 
 use RuntimeException;
-use Webong\Gateway\RegistryRouteCache;
+use Webong\Gateway\Laravel\RegistryRouteCache;
 use Webong\Gateway\Resources\StaleResource;
 use Webong\Proxy\EndpointDefinition;
 use Webong\Proxy\EndpointRegistry;
