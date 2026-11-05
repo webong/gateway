@@ -6,7 +6,7 @@ namespace Webong\Gateway\Reverb\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Webong\Gateway\Servers\Models\Server;
+use Webong\Gateway\Laravel\Servers\Models\Server;
 
 final class ReverbServer extends Server
 {

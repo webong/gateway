@@ -8,7 +8,7 @@ use Laravel\Reverb\ApplicationManagerServiceProvider;
 use Laravel\Reverb\ReverbServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 use Webong\Gateway\Reverb\ReverbIntegrationServiceProvider;
 
 abstract class TestCase extends Orchestra
