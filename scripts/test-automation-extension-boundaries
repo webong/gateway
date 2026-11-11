@@ -6,10 +6,10 @@ GO_BUILD_FLAGS=${GOFLAGS:--mod=mod}
 
 if ! php -r '
     $composer = json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR);
-    $includes = $composer["extra"]["merge-plugin"]["include"] ?? [];
-    exit(in_array("pkg/*/composer.json", $includes, true) ? 0 : 1);
+    $workspaces = $composer["extra"]["source-plugin"]["workspaces"] ?? [];
+    exit(in_array("pkg/*", $workspaces, true) ? 0 : 1);
 ' "$ROOT/composer.json"; then
-    echo 'The root Composer project must discover extension-owned manifests through Composer Merge Plugin.' >&2
+    echo 'The root Composer project must discover extension-owned manifests through Composer source workspaces.' >&2
     exit 1
 fi
 
@@ -56,13 +56,13 @@ done
 
 if ! php -r '
     $composer = json_decode(file_get_contents($argv[1]), true, flags: JSON_THROW_ON_ERROR);
-    $includes = $composer["extra"]["merge-plugin"]["include"] ?? [];
+    $requires = $composer["require"] ?? [];
     $automation = ["hookscript", "javascript", "lua", "shell"];
     foreach ($automation as $name) {
-        if (in_array("../pkg/{$name}/composer.json", $includes, true)) exit(1);
+        if (isset($requires["webong/gateway-{$name}"])) exit(1);
     }
 ' "$ROOT/app/composer.json"; then
-    echo 'The production Planner host statically merges an installable automation extension.' >&2
+    echo 'The production Planner host statically requires an installable automation extension.' >&2
     exit 1
 fi
 

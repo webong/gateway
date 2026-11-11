@@ -113,6 +113,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install script dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: pkg/spinner/go.mod
@@ -169,6 +172,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install script dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
@@ -183,6 +189,7 @@ jobs:
         run: |
           bash scripts/test-router-image-packaging
           bash scripts/test-router-container-entrypoint
+          bash scripts/test-router-start-migrations
 
       - name: Check the install left composer.lock unchanged
         run: git diff --exit-code -- composer.lock

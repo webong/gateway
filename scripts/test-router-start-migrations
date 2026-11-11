@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-router-migrations.XXXXXX")
+trap 'rm -rf -- "$TEST_DIR"' EXIT
+cat > "$TEST_DIR/router" <<'PHP'
+#!/usr/bin/env php
+<?php
+$db = new PDO('sqlite:'.getenv('DB_DATABASE'));
+foreach (['configurations', 'gateway_migrations', 'schedules'] as $table) {
+    if ($db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'")->fetchColumn() === false) {
+        fwrite(STDERR, "Router started without migrating $table.\n");
+        exit(1);
+    }
+}
+PHP
+chmod +x "$TEST_DIR/router"
+export GATEWAY_ROUTER_DATA_DIR="$TEST_DIR/data"
+export DB_CONNECTION=sqlite DB_DATABASE="$TEST_DIR/data/gateway.sqlite"
+export GATEWAY_ROUTER_LIBRARY_BIN="$TEST_DIR/router"
+# Exercise the real bundled entrypoint, including a second boot on the same data.
+sh "$ROOT/scripts/router-start" library
+sh "$ROOT/scripts/router-start" library
+echo 'Router startup applies the Planner schema before launch and can restart.'
