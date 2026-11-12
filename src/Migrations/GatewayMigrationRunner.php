@@ -41,12 +41,14 @@ final readonly class GatewayMigrationRunner
     /**
      * @param array<string, mixed> $connection
      * @param array<string, mixed>|null $postgresConfig
+     * @param array<string, mixed>|null $mysqlConfig
      */
     private function __construct(
         private array $connection,
         private string $migrationsPath,
         private array $tables,
         private ?array $postgresConfig = null,
+        private ?array $mysqlConfig = null,
         private ?PDO $pdo = null,
     ) {}
 
@@ -82,6 +84,8 @@ final readonly class GatewayMigrationRunner
     }
 
     /**
+     * Hosts can supply their configured write PDO to preserve driver/session settings.
+     *
      * @param array<string, mixed> $connection
      * @param array<string, string> $tables
      */
@@ -90,14 +94,19 @@ final readonly class GatewayMigrationRunner
         $driver = $connection['driver'] ?? null;
 
         if ($driver === 'sqlite') {
-            return self::sqlite((string) ($connection['database'] ?? ''), $migrationsPath, $tables);
+            return new self([
+                'adapter' => 'sqlite',
+                'name' => (string) ($connection['database'] ?? ''),
+                'suffix' => '',
+                ...($pdo === null ? [] : ['connection' => $pdo]),
+            ], $migrationsPath, $tables);
         }
 
         if ($driver === 'pgsql') {
             return new self([
                 'adapter' => 'pgsql',
                 'name' => (string) ($connection['database'] ?? ''),
-            ], $migrationsPath, $tables, $connection, $pdo);
+            ], $migrationsPath, $tables, postgresConfig: $connection, pdo: $pdo);
         }
 
         if ($driver === 'mysql' || $driver === 'mariadb') {
@@ -109,7 +118,7 @@ final readonly class GatewayMigrationRunner
                 'user' => (string) ($connection['username'] ?? ''),
                 'pass' => (string) ($connection['password'] ?? ''),
                 'charset' => (string) ($connection['charset'] ?? 'utf8mb4'),
-            ], $migrationsPath, $tables);
+            ], $migrationsPath, $tables, mysqlConfig: $connection, pdo: $pdo);
         }
 
         throw new \InvalidArgumentException(sprintf(
@@ -182,6 +191,10 @@ final readonly class GatewayMigrationRunner
             // even when an existing PDO connection is supplied.
             $connection['connection'] = $pdo;
             $connection['schema'] = $schema;
+        }
+
+        if ($this->mysqlConfig !== null) {
+            $connection['connection'] = $this->pdo ?? MysqlMigrationConnection::connect($this->mysqlConfig);
         }
 
         return new Manager(new Config([

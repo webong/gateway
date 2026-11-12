@@ -23,6 +23,7 @@ final class Configuration implements ConfigurationInterface
                 ->scalarNode('username')->end()
                 ->scalarNode('password')->end()
                 ->scalarNode('charset')->end()
+                ->scalarNode('unix_socket')->end()
                 ->scalarNode('sslmode')->end()
                 ->scalarNode('sslcert')->end()
                 ->scalarNode('sslkey')->end()
