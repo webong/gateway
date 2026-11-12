@@ -1,0 +1,71 @@
+name: Composer packages
+
+# Publishes the monorepo's Composer packages from this repository: the dist/<package>
+# branches, the <package>/vX.Y.Z tags, and the Composer repository metadata on
+# dist/composer. See docs/composer-packages.md and scripts/split-packages.
+
+on:
+  # A release tag of the monorepo (v1.2.3) releases every package at that version.
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (MAJOR.MINOR.PATCH). Leave empty to only refresh the dist/ branches and the metadata (dev-main).'
+        required: false
+        type: string
+      push:
+        description: 'Push the result to this repository (otherwise only report what would change)'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: composer-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Split and publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+
+      - name: Check the split tool
+        run: bash scripts/test-split-packages
+
+      - name: Split, tag and publish
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PUSH: ${{ inputs.push }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then
+              version=${TAG#v}
+              mode=--push
+          else
+              version=$INPUT_VERSION
+              if [ "$INPUT_PUSH" = true ]; then mode=--push; else mode=--dry-run; fi
+          fi
+
+          if [ -n "$version" ]; then
+              scripts/split-packages release --version="$version" --remote=origin "$mode"
+          else
+              scripts/split-packages split --remote=origin "$mode"
+              # A dry run creates no branches, so there is nothing to describe yet.
+              if [ "$mode" = --push ]; then
+                  scripts/split-packages metadata --remote=origin "$mode"
+              fi
+          fi

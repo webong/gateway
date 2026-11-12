@@ -95,7 +95,11 @@ dependencies on a feature branch, use
 `COMPOSER_ROOT_VERSION=dev-main composer update` so sibling packages satisfy
 their development constraints. Commit the lock file; fresh checkouts can run
 `scripts/composer-install` using its recorded relative workspace paths.
-Workspaces provide local resolution, not release publishing or package splits.
+Workspaces provide local resolution. Installing the packages from this
+repository, and releasing them, is done by `scripts/split-packages`: it splits
+each package into a `dist/<package>` branch, tags releases, and publishes a
+Composer repository, so no separate repositories are needed. See
+[Installing and releasing the Composer packages](docs/composer-packages.md).
 
 The repository root is the non-published `webong/gateway-monorepo` development
 project. Verify the independently installable adapter archive with
