@@ -28,14 +28,17 @@ final class LaravelGatewayMigrateCommand extends Command
         // Use the configuration Laravel resolves for the connection, not the raw
         // array: a `url` (DB_URL / DATABASE_URL) only takes effect once Laravel
         // has parsed it, and the standalone Planner is configured with DB_URL
-        // alone. Resolving the connection does not open it.
-        $connection = $this->laravel['db']->connection($connectionName)->getConfig();
+        // alone. Reuse its configured write PDO for PostgreSQL so TLS and
+        // session search_path agree with the application.
+        $database = $this->laravel['db']->connection($connectionName);
+        $connection = $database->getConfig();
 
         $tables = config('gateway.servers.tables', []);
         $runner = GatewayMigrationRunner::fromConnection(
             connection: $connection,
             migrationsPath: dirname(__DIR__, 3).'/migrations',
             tables: is_array($tables) ? $tables : [],
+            pdo: $database->getDriverName() === 'pgsql' ? $database->getPdo() : null,
         );
         $result = $this->option('adopt-existing')
             ? $runner->adoptExistingSchema()

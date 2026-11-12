@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Migrations;
 
+use PDO;
 use Phinx\Config\Config;
 use Phinx\Migration\Manager;
 use Symfony\Component\Console\Input\ArrayInput;
@@ -37,11 +38,16 @@ final readonly class GatewayMigrationRunner
         'companion_action_executions' => ['execution_id', 'action', 'idempotency_hash', 'status'],
     ];
 
-    /** @param array<string, mixed> $connection */
+    /**
+     * @param array<string, mixed> $connection
+     * @param array<string, mixed>|null $postgresConfig
+     */
     private function __construct(
         private array $connection,
         private string $migrationsPath,
         private array $tables,
+        private ?array $postgresConfig = null,
+        private ?PDO $pdo = null,
     ) {}
 
     /** @param array<string, string> $tables */
@@ -64,13 +70,13 @@ final readonly class GatewayMigrationRunner
         string $migrationsPath,
         array $tables = [],
     ): self {
-        return new self([
-            'adapter' => 'pgsql',
+        return self::fromConnection([
+            'driver' => 'pgsql',
             'host' => $host,
             'port' => $port,
-            'name' => $database,
-            'user' => $username,
-            'pass' => $password,
+            'database' => $database,
+            'username' => $username,
+            'password' => $password,
             'charset' => 'utf8',
         ], $migrationsPath, $tables);
     }
@@ -79,7 +85,7 @@ final readonly class GatewayMigrationRunner
      * @param array<string, mixed> $connection
      * @param array<string, string> $tables
      */
-    public static function fromConnection(array $connection, string $migrationsPath, array $tables = []): self
+    public static function fromConnection(array $connection, string $migrationsPath, array $tables = [], ?PDO $pdo = null): self
     {
         $driver = $connection['driver'] ?? null;
 
@@ -88,15 +94,10 @@ final readonly class GatewayMigrationRunner
         }
 
         if ($driver === 'pgsql') {
-            return self::postgres(
-                host: (string) ($connection['host'] ?? '127.0.0.1'),
-                port: (int) ($connection['port'] ?? 5432),
-                database: (string) ($connection['database'] ?? ''),
-                username: (string) ($connection['username'] ?? ''),
-                password: (string) ($connection['password'] ?? ''),
-                migrationsPath: $migrationsPath,
-                tables: $tables,
-            );
+            return new self([
+                'adapter' => 'pgsql',
+                'name' => (string) ($connection['database'] ?? ''),
+            ], $migrationsPath, $tables, $connection, $pdo);
         }
 
         if ($driver === 'mysql' || $driver === 'mariadb') {
@@ -167,12 +168,28 @@ final readonly class GatewayMigrationRunner
 
     private function manager(): Manager
     {
+        $connection = $this->connection;
+        if ($this->postgresConfig !== null) {
+            // Laravel supplies its already configured write connection. Neutral
+            // consumers create an equivalent PDO connection here because Phinx's
+            // PostgreSQL connector does not forward TLS options.
+            $pdo = $this->pdo ?? PostgresMigrationConnection::connect($this->postgresConfig);
+            $schema = $pdo->query('SELECT current_schema()')->fetchColumn();
+            if (! is_string($schema) || $schema === '') {
+                throw new \RuntimeException('The PostgreSQL search_path does not select an existing schema.');
+            }
+            // Phinx qualifies introspection and DDL with its own schema option,
+            // even when an existing PDO connection is supplied.
+            $connection['connection'] = $pdo;
+            $connection['schema'] = $schema;
+        }
+
         return new Manager(new Config([
             'paths' => ['migrations' => $this->migrationsPath],
             'environments' => [
                 'default_environment' => self::ENVIRONMENT,
                 self::ENVIRONMENT => [
-                    ...$this->connection,
+                    ...$connection,
                     'migration_table' => 'gateway_migrations',
                     'gateway_tables' => $this->tables,
                 ],

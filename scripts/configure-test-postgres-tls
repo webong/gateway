@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Configure ONLY the disposable PostgreSQL test container supplied by the caller.
+set -euo pipefail
+container=${1:?Pass the disposable PostgreSQL container ID}
+output=${2:?Pass the test certificate directory}
+mkdir -p "$output"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+    -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+    -keyout "$output/server.key" -out "$output/server.crt" >/dev/null 2>&1
+docker cp "$output/server.key" "$container:/tmp/gateway-test-server.key"
+docker cp "$output/server.crt" "$container:/tmp/gateway-test-server.crt"
+docker exec -u root "$container" chown postgres:postgres /tmp/gateway-test-server.key
+docker exec -u root "$container" chmod 600 /tmp/gateway-test-server.key
+docker exec -u postgres "$container" psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl = 'on'"
+docker exec -u postgres "$container" psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_cert_file = '/tmp/gateway-test-server.crt'"
+docker exec -u postgres "$container" psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_key_file = '/tmp/gateway-test-server.key'"
+docker restart "$container" >/dev/null
+for _ in $(seq 1 60); do
+    if docker exec -u postgres "$container" pg_isready -U postgres >/dev/null 2>&1; then
+        echo 'Disposable PostgreSQL TLS fixture is ready.'
+        exit 0
+    fi
+    sleep 0.25
+done
+echo 'PostgreSQL TLS fixture failed to restart.' >&2
+exit 1

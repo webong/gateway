@@ -208,6 +208,11 @@ jobs:
       - name: Install HookScript companion dependencies
         run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative
 
+      - name: Configure disposable PostgreSQL TLS coverage
+        run: |
+          bash scripts/configure-test-postgres-tls '${{ job.services.postgres.id }}' "$RUNNER_TEMP/gateway-postgres-tls"
+          echo "GATEWAY_TEST_POSTGRES_SSLROOTCERT=$RUNNER_TEMP/gateway-postgres-tls/server.crt" >> "$GITHUB_ENV"
+
       - name: Run the Planner test suite
         run: vendor/bin/pest --compact
 

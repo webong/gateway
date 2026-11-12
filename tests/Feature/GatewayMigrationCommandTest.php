@@ -72,3 +72,61 @@ it('migrates the database named by a DB_URL-only PostgreSQL connection', functio
         }
     }
 });
+
+it('migrates and adopts the PostgreSQL schema selected by Laravel', function (): void {
+    $database = getenv('GATEWAY_TEST_POSTGRES_DATABASE');
+    if (! is_string($database) || $database === '') {
+        $this->markTestSkipped('Set GATEWAY_TEST_POSTGRES_DATABASE to run PostgreSQL schema coverage.');
+    }
+    $schema = 'gateway_schema_'.bin2hex(random_bytes(6));
+    $connection = [
+        'driver' => 'pgsql',
+        'host' => getenv('GATEWAY_TEST_POSTGRES_HOST') ?: '127.0.0.1',
+        'port' => (int) (getenv('GATEWAY_TEST_POSTGRES_PORT') ?: 5432),
+        'database' => $database,
+        'username' => getenv('GATEWAY_TEST_POSTGRES_USERNAME') ?: 'postgres',
+        'password' => getenv('GATEWAY_TEST_POSTGRES_PASSWORD') ?: '',
+        'search_path' => [$schema, 'public'],
+        'sslmode' => 'disable',
+    ];
+    config()->set('database.connections.gateway_schema_test', $connection);
+    $db = app('db')->connection('gateway_schema_test');
+    $db->statement('CREATE SCHEMA "'.$schema.'"');
+    try {
+        $this->artisan('gateway:migrate', ['--database' => 'gateway_schema_test'])->assertSuccessful();
+        expect($db->selectOne('SELECT current_schema() AS name')->name)->toBe($schema)
+            ->and($db->getSchemaBuilder()->hasTable('accounts'))->toBeTrue()
+            ->and($db->selectOne("SELECT to_regclass('{$schema}.gateway_migrations') AS name")->name)->not->toBeNull();
+        $db->table('accounts')->insert(['id' => 'preserved', 'token_hash' => str_repeat('c', 64)]);
+        $db->statement('DROP TABLE "'.$schema.'".gateway_migrations');
+        $this->artisan('gateway:migrate', ['--database' => 'gateway_schema_test', '--adopt-existing' => true])->assertSuccessful();
+        $this->artisan('gateway:migrate', ['--database' => 'gateway_schema_test'])->assertSuccessful();
+        expect($db->table('accounts')->where('id', 'preserved')->value('token_hash'))->toBe(str_repeat('c', 64));
+    } finally {
+        $db->statement('DROP SCHEMA "'.$schema.'" CASCADE');
+        app('db')->purge('gateway_schema_test');
+    }
+});
+
+it('does not discard PostgreSQL TLS policy during Laravel migrations', function (): void {
+    $database = getenv('GATEWAY_TEST_POSTGRES_DATABASE');
+    if (! is_string($database) || $database === '') {
+        $this->markTestSkipped('Set GATEWAY_TEST_POSTGRES_DATABASE to run PostgreSQL TLS policy coverage.');
+    }
+    config()->set('database.connections.gateway_tls_test', [
+        'driver' => 'pgsql',
+        'host' => getenv('GATEWAY_TEST_POSTGRES_HOST') ?: '127.0.0.1',
+        'port' => (int) (getenv('GATEWAY_TEST_POSTGRES_PORT') ?: 5432),
+        'database' => $database,
+        'username' => getenv('GATEWAY_TEST_POSTGRES_USERNAME') ?: 'postgres',
+        'password' => getenv('GATEWAY_TEST_POSTGRES_PASSWORD') ?: '',
+        // libpq must reject this policy, rather than silently using its default.
+        'sslmode' => 'invalid-policy',
+    ]);
+    try {
+        expect(fn () => $this->artisan('gateway:migrate', ['--database' => 'gateway_tls_test']))
+            ->toThrow(PDOException::class, 'invalid sslmode value');
+    } finally {
+        app('db')->purge('gateway_tls_test');
+    }
+});

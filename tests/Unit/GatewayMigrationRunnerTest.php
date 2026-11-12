@@ -240,3 +240,77 @@ it('provides the same migration runner through Symfony Console', function (): vo
         }
     }
 });
+
+it('migrates and adopts a non-public PostgreSQL schema without a framework', function (): void {
+    $database = getenv('GATEWAY_TEST_POSTGRES_DATABASE');
+    if (! is_string($database) || $database === '') {
+        $this->markTestSkipped('Set GATEWAY_TEST_POSTGRES_DATABASE for PostgreSQL schema coverage.');
+    }
+    $schema = 'neutral_schema_'.bin2hex(random_bytes(6));
+    $connection = [
+        'driver' => 'pgsql',
+        'host' => getenv('GATEWAY_TEST_POSTGRES_HOST') ?: '127.0.0.1',
+        'port' => (int) (getenv('GATEWAY_TEST_POSTGRES_PORT') ?: 5432),
+        'database' => $database,
+        'username' => getenv('GATEWAY_TEST_POSTGRES_USERNAME') ?: 'postgres',
+        'password' => getenv('GATEWAY_TEST_POSTGRES_PASSWORD') ?: '',
+        // A missing first entry must resolve to the first existing schema.
+        'search_path' => ['missing_schema', $schema, 'public'],
+    ];
+    $pdo = new PDO(sprintf('pgsql:host=%s;port=%d;dbname=%s', $connection['host'], $connection['port'], $database), $connection['username'], $connection['password']);
+    $pdo->exec('CREATE SCHEMA "'.$schema.'"');
+    try {
+        $runner = GatewayMigrationRunner::fromConnection($connection, dirname(__DIR__, 2).'/pkg/planner/migrations');
+        expect($runner->migrate()->applied)->not->toBeEmpty()
+            ->and($pdo->query("SELECT to_regclass('{$schema}.accounts')")->fetchColumn())->not->toBeNull();
+        $pdo->exec('DROP TABLE "'.$schema.'".gateway_migrations');
+        expect($runner->adoptExistingSchema()->applied)->not->toBeEmpty()
+            ->and($runner->migrate()->applied)->toBe([]);
+    } finally {
+        $pdo->exec('DROP SCHEMA "'.$schema.'" CASCADE');
+    }
+});
+
+it('honours PostgreSQL TLS certificate verification', function (bool $laravel): void {
+    $root = getenv('GATEWAY_TEST_POSTGRES_SSLROOTCERT');
+    if (! is_string($root) || $root === '') {
+        $this->markTestSkipped('Set GATEWAY_TEST_POSTGRES_SSLROOTCERT for verified TLS coverage.');
+    }
+    $connection = [
+        'driver' => 'pgsql',
+        'host' => getenv('GATEWAY_TEST_POSTGRES_HOST') ?: '127.0.0.1',
+        'port' => (int) (getenv('GATEWAY_TEST_POSTGRES_PORT') ?: 5432),
+        'database' => getenv('GATEWAY_TEST_POSTGRES_DATABASE'),
+        'username' => getenv('GATEWAY_TEST_POSTGRES_USERNAME') ?: 'postgres',
+        'password' => getenv('GATEWAY_TEST_POSTGRES_PASSWORD') ?: '',
+        'sslmode' => 'verify-full',
+        'sslrootcert' => $root,
+    ];
+    // No actual schema changes: connecting and querying the migration ledger is
+    // enough to exercise TLS while other tests own schema setup.
+    $migrations = sys_get_temp_dir().'/gateway-empty-migrations-'.bin2hex(random_bytes(6));
+    mkdir($migrations);
+    try {
+        if ($laravel) {
+            config()->set('database.connections.gateway_verified_tls', $connection);
+            $this->artisan('gateway:migrate', ['--database' => 'gateway_verified_tls'])->assertSuccessful();
+        } else {
+            expect(GatewayMigrationRunner::fromConnection($connection, $migrations)->migrate()->applied)->toBe([]);
+        }
+        // A missing trust anchor MUST fail. Silently ignoring TLS options would
+        // connect successfully and make this assertion go red.
+        $connection['sslrootcert'] = $root.'.does-not-exist';
+        if ($laravel) {
+            app('db')->purge('gateway_verified_tls');
+            config()->set('database.connections.gateway_verified_tls', $connection);
+            expect(fn () => $this->artisan('gateway:migrate', ['--database' => 'gateway_verified_tls']))
+                ->toThrow(PDOException::class, 'root certificate file');
+        } else {
+            expect(fn () => GatewayMigrationRunner::fromConnection($connection, $migrations)->migrate())
+                ->toThrow(PDOException::class, 'root certificate file');
+        }
+    } finally {
+        app('db')->purge('gateway_verified_tls');
+        rmdir($migrations);
+    }
+})->with(['neutral' => false, 'Laravel' => true]);
