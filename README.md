@@ -50,6 +50,30 @@ upgrading. Shared contracts retain their existing namespaces.
 Octane and Workerman are host runtime choices in `app/`; they do not change
 which code belongs in the shared Planner.
 
+### Running the Workerman host
+
+`GATEWAY_PLANNER_SERVER=workerman gateway-planner-start serve` runs
+`app/workerman.php`, which keeps Octane's per-request isolation: every request is
+served from a fresh sandbox of one persistent application, a transaction a request
+leaves open is rolled back (per connection; a connection whose rollback fails is
+discarded), and each worker is recycled after `GATEWAY_PLANNER_MAX_REQUESTS`.
+
+- **Stopping.** Workerman finishes in-flight requests only on `SIGQUIT`; `SIGTERM`
+  and `SIGINT` (what `docker stop` and Kubernetes send) stop it immediately.
+  `gateway-planner-start` therefore stays the container's entrypoint and turns
+  `SIGTERM`/`SIGINT` into `SIGQUIT`, then exits with Workerman's own status.
+  A graceful Workerman worker also waits until every connection has closed and
+  never closes one itself, so `app/workerman.php` closes the worker's connections
+  as it stops; without that, a client holding an idle keep-alive connection would
+  keep the container up until the orchestrator's `SIGKILL`.
+  `scripts/test-planner-workerman-shutdown` checks that translation, and
+  `php scripts/bench-planner-hosts.php --check-shutdown` checks a real container.
+  Draining is unbounded by Workerman itself, so set the orchestrator's grace period
+  (`terminationGracePeriodSeconds`, `docker stop -t`) to cover your slowest request.
+- **Benchmarking.** `php scripts/bench-planner-hosts.php --help` documents the
+  head-to-head harness against Octane/FrankenPHP: same image, PHP settings, worker
+  count, database state and client, with every response validated.
+
 ## Symfony
 
 Install `webong/gateway` and `symfony/framework-bundle`. Register
