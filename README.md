@@ -124,7 +124,10 @@ use the same history table. SQLite, PostgreSQL, MySQL, and MariaDB Laravel-style
 connection arrays are supported. PostgreSQL migrations preserve TLS settings
 (`sslmode`, `sslrootcert`, `sslcert`, `sslkey`) and target the first existing
 schema in `search_path`. Laravel supplies its configured write connection;
-neutral consumers open a PDO connection from the same options.
+neutral consumers open a PDO connection from the same options. MySQL migrations
+preserve PDO options (including TLS) and Unix sockets. Laravel migrations reuse
+the configured write PDO for SQLite, PostgreSQL and MySQL, including in-memory
+SQLite databases.
 
 The bundled Planner host also accepts `GATEWAY_PLANNER_SERVER=workerman`.
 Workerman owns the HTTP workers while Octane owns Laravel's application sandbox

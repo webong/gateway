@@ -314,3 +314,29 @@ it('honours PostgreSQL TLS certificate verification', function (bool $laravel): 
         rmdir($migrations);
     }
 })->with(['neutral' => false, 'Laravel' => true]);
+
+it('does not discard MySQL TLS options', function (bool $laravel): void {
+    $database = getenv('GATEWAY_TEST_MYSQL_DATABASE');
+    if (! is_string($database) || $database === '') {
+        $this->markTestSkipped('Set GATEWAY_TEST_MYSQL_DATABASE for MySQL TLS coverage.');
+    }
+    $connection = [
+        'driver' => 'mysql',
+        'host' => getenv('GATEWAY_TEST_MYSQL_HOST') ?: '127.0.0.1',
+        'port' => (int) (getenv('GATEWAY_TEST_MYSQL_PORT') ?: 3306),
+        'database' => $database,
+        'username' => getenv('GATEWAY_TEST_MYSQL_USERNAME') ?: 'root',
+        'password' => getenv('GATEWAY_TEST_MYSQL_PASSWORD') ?: '',
+        'options' => [PDO::MYSQL_ATTR_SSL_CA => '/gateway-tests/missing-ca.pem'],
+    ];
+    try {
+        if ($laravel) {
+            config()->set('database.connections.gateway_mysql_tls_test', $connection);
+            expect(fn () => $this->artisan('gateway:migrate', ['--database' => 'gateway_mysql_tls_test']))->toThrow(PDOException::class);
+        } else {
+            expect(fn () => GatewayMigrationRunner::fromConnection($connection, dirname(__DIR__, 2).'/pkg/planner/migrations')->migrate())->toThrow(PDOException::class);
+        }
+    } finally {
+        app('db')->purge('gateway_mysql_tls_test');
+    }
+})->with(['neutral' => false, 'Laravel' => true]);
