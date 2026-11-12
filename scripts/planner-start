@@ -93,7 +93,23 @@ case "${1:-serve}" in
         php "$APP_DIR/artisan" migrate --force
 
         if [ "$SERVER" = workerman ]; then
-            exec php "$APP_DIR/workerman.php" start
+            # Workerman stops immediately on SIGTERM and SIGINT, which is what
+            # `docker stop` and Kubernetes send, and drains in-flight requests only
+            # on SIGQUIT. Keep this script as the container's entrypoint and
+            # translate those stop signals into SIGQUIT, so a stop lets requests
+            # finish. The master's own exit status becomes ours.
+            php "$APP_DIR/workerman.php" start &
+            WORKERMAN_PID=$!
+            trap 'kill -QUIT "$WORKERMAN_PID" 2>/dev/null || true' TERM INT
+            while :; do
+                status=0
+                wait "$WORKERMAN_PID" || status=$?
+                # `wait` also returns when a trapped signal arrives; only leave
+                # once the master has really exited.
+                kill -0 "$WORKERMAN_PID" 2>/dev/null || break
+            done
+            trap - TERM INT
+            exit "$status"
         fi
 
         if [ "$SERVER" = fpm ]; then

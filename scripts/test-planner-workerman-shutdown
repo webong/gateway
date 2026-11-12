@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Check which signal the Planner launcher delivers to Workerman when the
+# container is asked to stop.
+#
+# Workerman drains in-flight requests only on SIGQUIT; SIGTERM and SIGINT (what
+# `docker stop` and Kubernetes send) stop it immediately. The launcher must
+# therefore translate its stop signal. A stub `php` stands in for Workerman and
+# records the signal it receives; no real server is started.
+
+set -euo pipefail
+# Job control: background jobs then start with default signal handling. Without
+# it a non-interactive shell would start the launcher with SIGINT ignored, which
+# no container entrypoint is.
+set -m
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-shutdown.XXXXXX")
+LAUNCHER_PID=
+cleanup() {
+    if [ -n "$LAUNCHER_PID" ]; then
+        # The launcher leads its own process group (job control): take the stand-in with it.
+        kill -KILL -- "-$LAUNCHER_PID" 2>/dev/null || kill -KILL "$LAUNCHER_PID" 2>/dev/null || true
+    fi
+    rm -rf "$TEMP_DIR"
+}
+trap cleanup EXIT
+
+mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/app"
+touch "$TEMP_DIR/app/artisan"
+
+# The launcher starts the server as a background job, and a non-interactive shell
+# starts those with SIGINT and SIGQUIT ignored. Like PHP's pcntl_signal, Perl can
+# still install handlers for them; a shell `trap` cannot. Hence the Perl stand-in.
+cat > "$TEMP_DIR/bin/php" <<'SH'
+#!/bin/sh
+case "$*" in
+    *workerman.php\ start*)
+        exec perl -e '
+            my $log = $ENV{GATEWAY_TEST_SIGNAL_LOG};
+            sub note { open(my $fh, ">>", $log) or die; print $fh "$_[0]\n"; close $fh }
+            $SIG{TERM} = sub { note("SIGTERM"); exit 143 };
+            $SIG{INT}  = sub { note("SIGINT");  exit 130 };
+            # Workerman graceful stop: finish what is in flight, then exit.
+            $SIG{QUIT} = sub { note("SIGQUIT"); exit($ENV{GATEWAY_TEST_QUIT_STATUS} // 0) };
+            note("started");
+            select(undef, undef, undef, 0.05) while 1;
+        '
+        ;;
+esac
+exit 0
+SH
+chmod +x "$TEMP_DIR/bin/php"
+
+# Start the launcher, send it the given signal, and report what Workerman saw.
+#   $1 signal sent to the launcher   $2 status the stub exits with on SIGQUIT
+run_case() {
+    local signal=$1 quit_status=$2
+    local log="$TEMP_DIR/signals-$signal.log"
+    : > "$log"
+
+    PATH="$TEMP_DIR/bin:$PATH" \
+    APP_KEY=test REGISTRY_TOKEN=test GATEWAY_INTERNAL_TOKEN=test \
+    DB_CONNECTION=pgsql DB_URL=postgresql://gateway:test@database/gateway \
+    COMPOSER_VENDOR_DIR="$ROOT/vendor" \
+    GATEWAY_ROUTER_DATA_DIR="$TEMP_DIR/data-$signal" \
+    GATEWAY_PLANNER_APP_DIR="$TEMP_DIR/app" \
+    GATEWAY_PLANNER_SERVER=workerman \
+    GATEWAY_TEST_SIGNAL_LOG="$log" GATEWAY_TEST_QUIT_STATUS="$quit_status" \
+        sh "$ROOT/scripts/planner-start" serve &
+    LAUNCHER_PID=$!
+
+    local attempts=0
+    until grep -Fxq started "$log"; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 200 ] || ! kill -0 "$LAUNCHER_PID" 2>/dev/null; then
+            echo "Workerman stand-in never started ($signal case)." >&2
+            exit 1
+        fi
+        sleep 0.05
+    done
+
+    kill "-$signal" "$LAUNCHER_PID"
+
+    attempts=0
+    while kill -0 "$LAUNCHER_PID" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 200 ]; then
+            echo "Launcher did not exit after SIG$signal." >&2
+            exit 1
+        fi
+        sleep 0.05
+    done
+
+    local status=0
+    wait "$LAUNCHER_PID" || status=$?
+    LAUNCHER_PID=
+
+    if ! grep -Fxq SIGQUIT "$log" || grep -Eq '^SIG(TERM|INT)$' "$log"; then
+        echo "SIG$signal reached Workerman as: $(grep -E '^SIG' "$log" | tr '\n' ' ')(expected only SIGQUIT)." >&2
+        exit 1
+    fi
+    if [ "$status" -ne "$quit_status" ]; then
+        echo "Launcher exited $status after SIG$signal; Workerman exited $quit_status." >&2
+        exit 1
+    fi
+}
+
+run_case TERM 0
+run_case INT 0
+# Whatever status Workerman exits with is the launcher's status.
+run_case TERM 7
+
+echo 'Planner launcher turns SIGTERM and SIGINT into Workerman graceful stop (SIGQUIT) and keeps its exit status.'

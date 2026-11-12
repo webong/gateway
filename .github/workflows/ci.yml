@@ -217,5 +217,8 @@ jobs:
       - name: Check standalone Symfony consumer without Laravel
         run: bash scripts/test-planner-package
 
+      - name: Check the Planner launcher stops Workerman gracefully
+        run: bash scripts/test-planner-workerman-shutdown
+
       - name: Check workspace install stability
         run: bash scripts/test-composer-install-stability

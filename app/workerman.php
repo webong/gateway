@@ -45,9 +45,22 @@ $http->onMessage = static function (TcpConnection $connection, Request $request)
         Worker::stopAll();
     }
 };
-$http->onWorkerStop = static function () use (&$handler): void {
+$http->onWorkerStop = static function (Worker $worker) use (&$handler): void {
     $handler?->terminate();
     $handler = null;
+
+    // On SIGQUIT (graceful stop) Workerman stops accepting and then waits until every
+    // connection has closed, and it never closes one itself: not an idle keep-alive
+    // connection, and not even the one a response was just written to. A client that
+    // keeps its connection pool open would hold this worker, the master and the container
+    // until the orchestrator's SIGKILL.
+    //
+    // No request is being handled here (the stop is processed between events, after a
+    // response has been written), so everything still open is idle or finished. Close it;
+    // a connection whose response is still buffered is closed once the buffer is flushed.
+    foreach ($worker->connections as $connection) {
+        $connection->close();
+    }
 };
 
 Worker::runAll();
