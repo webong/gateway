@@ -21,6 +21,22 @@ require $root.'/vendor/autoload.php';
 $app = require $root.'/app/bootstrap.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
+// Second line of defence (callers also verify before launching this script):
+// never write unless the connection Laravel resolved is the intended database.
+$resolvedConnection = $app->make('db')->connection();
+$intendedDatabase = (string) getenv('DB_DATABASE');
+$resolvedDatabase = $resolvedConnection->getDatabaseName();
+if ($resolvedConnection->getDriverName() === 'sqlite') {
+    $resolvedIsIntended = realpath($resolvedDatabase) !== false
+        && realpath($resolvedDatabase) === realpath($intendedDatabase);
+} else {
+    $resolvedIsIntended = $resolvedDatabase === $intendedDatabase;
+}
+if ($intendedDatabase === '' || ! $resolvedIsIntended || $app->configurationIsCached()) {
+    fwrite(STDERR, "Refusing to seed: resolved database [{$resolvedDatabase}] is not the intended [{$intendedDatabase}].\n");
+    exit(3);
+}
+
 $endpointKey = (string) (getenv('GATEWAY_SEED_ENDPOINT_KEY') ?: 'http-smoke-endpoint');
 $externalId = (string) (getenv('GATEWAY_SEED_EXTERNAL_ID') ?: 'provider-app-123');
 $routingScope = (string) (getenv('GATEWAY_SEED_ROUTING_SCOPE') ?: 'application');
