@@ -49,18 +49,45 @@ final class WorkermanLaravelHandler implements Client
      * worker shares its database connections between the base application and
      * each request sandbox, so an unrolled-back transaction would otherwise
      * persist to the next request on the same worker.
+     *
+     * Each connection is handled on its own. A connection whose rollback fails is
+     * discarded (so the next request opens a clean one) and cleanup carries on with
+     * the remaining connections: one broken connection must not leave another
+     * connection's transaction open.
      */
     private function rollbackUnfinishedTransactions(): void
     {
         try {
             $db = $this->worker->application()->make('db');
-            foreach ($db->getConnections() as $connection) {
-                while ($connection->transactionLevel() > 0) {
-                    $connection->rollBack();
-                }
-            }
+            $connections = $db->getConnections();
         } catch (Throwable) {
             // Transaction cleanup must never mask the response.
+            return;
+        }
+
+        foreach ($connections as $name => $connection) {
+            try {
+                // Bounded by the depth we found, so a connection that keeps
+                // reporting an open transaction cannot spin this loop forever.
+                for ($open = $connection->transactionLevel(); $open > 0; $open--) {
+                    $connection->rollBack();
+                }
+            } catch (Throwable) {
+                $this->discardConnection($db, (string) $name, $connection);
+            }
+        }
+    }
+
+    private function discardConnection(object $db, string $name, object $connection): void
+    {
+        try {
+            $db->purge($name);
+        } catch (Throwable) {
+            try {
+                $connection->disconnect();
+            } catch (Throwable) {
+                // Nothing left to do for a connection that cannot even disconnect.
+            }
         }
     }
 
