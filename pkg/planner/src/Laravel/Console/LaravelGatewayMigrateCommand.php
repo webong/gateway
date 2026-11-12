@@ -18,13 +18,18 @@ final class LaravelGatewayMigrateCommand extends Command
     public function handle(): int
     {
         $connectionName = $this->option('database') ?: config('database.default');
-        $connection = config('database.connections.'.$connectionName);
 
-        if (! is_array($connection)) {
+        if (! is_array(config('database.connections.'.$connectionName))) {
             $this->components->error("Database connection [{$connectionName}] is not configured.");
 
             return self::FAILURE;
         }
+
+        // Use the configuration Laravel resolves for the connection, not the raw
+        // array: a `url` (DB_URL / DATABASE_URL) only takes effect once Laravel
+        // has parsed it, and the standalone Planner is configured with DB_URL
+        // alone. Resolving the connection does not open it.
+        $connection = $this->laravel['db']->connection($connectionName)->getConfig();
 
         $tables = config('gateway.servers.tables', []);
         $runner = GatewayMigrationRunner::fromConnection(
