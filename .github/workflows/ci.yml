@@ -225,5 +225,8 @@ jobs:
       - name: Check the Planner launcher stops Workerman gracefully
         run: bash scripts/test-planner-workerman-shutdown
 
+      - name: Check the Composer package split and metadata
+        run: bash scripts/test-split-packages
+
       - name: Check workspace install stability
         run: bash scripts/test-composer-install-stability

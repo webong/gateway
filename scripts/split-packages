@@ -1,0 +1,744 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Publish the monorepo's Composer packages from this one repository.
+ *
+ * Composer binds a VCS repository to one package name, so the packages under mod/
+ * and pkg/ cannot simply be installed from this repository. This tool makes them
+ * installable without separate repositories:
+ *
+ *   1. `git subtree split` turns each package directory into its own history, kept
+ *      on a branch named dist/<package> (a package's own composer.json at the root).
+ *   2. A release tags every package <package>/vX.Y.Z (all packages move together).
+ *   3. A static Composer repository (packages.json) is generated from those
+ *      branches and tags and kept on the dist/composer branch. Consumers add it as
+ *      one `composer` repository and require packages by name as usual.
+ *
+ * Between packages, `dev-main` requirements are rewritten to ^X.Y.Z in the metadata
+ * of every tagged version, so a release is installable as a stable set.
+ *
+ * Usage: scripts/split-packages <command> [options]
+ *
+ *   list                  show the packages that would be split
+ *   split                 update the local dist/<package> branches from --ref
+ *   metadata              regenerate packages.json and update the metadata branch
+ *   release --version=X.Y.Z
+ *                         split, tag every package, regenerate the metadata
+ *   verify                check the metadata is consistent (--composer also asks Composer)
+ *
+ * Options:
+ *   --repo=DIR            monorepo checkout (default: the current git repository)
+ *   --ref=REF             commit to split (default: HEAD)
+ *   --remote=NAME         remote to push to and to take the clone URL from
+ *                         (default: upstream if present, else origin)
+ *   --source-url=URL      clone URL written into the metadata
+ *                         (default: the remote's URL, with ssh turned into https)
+ *   --dist-url=TEMPLATE   zip URL template, {sha} replaced by the commit
+ *                         (default for github.com: the zipball API URL)
+ *   --metadata-branch=B   branch holding packages.json (default: dist/composer)
+ *   --out-dir=DIR         also write packages.json into DIR
+ *   --push                push the branches and tags (default: local only; atomic)
+ *   --dry-run             report what would change, change nothing
+ *   --force-branches      allow dist/<package> to move to a commit that is not a
+ *                         descendant of its current tip (history was rewritten)
+ *   --composer            (verify) resolve every package with Composer as well
+ *
+ * Nothing is pushed unless --push is given. Needs git with `git subtree`.
+ */
+
+exit(SplitPackages::main($argv));
+
+final class SplitFailed extends RuntimeException
+{
+}
+
+/** Thin wrapper around the git executable, in one repository. */
+final class Git
+{
+    /** @param array<string, string> $env */
+    public function __construct(public readonly string $directory, private array $env = [])
+    {
+    }
+
+    /** @param list<string> $arguments @return array{code: int, out: string, err: string} */
+    public function run(array $arguments, ?string $stdin = null): array
+    {
+        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open(['git', ...$arguments], $descriptors, $pipes, $this->directory, $this->env === [] ? null : array_merge(getenv() ?: [], $this->env));
+        if (! is_resource($process)) {
+            throw new SplitFailed('Unable to run git.');
+        }
+        fwrite($pipes[0], $stdin ?? '');
+        fclose($pipes[0]);
+        $out = stream_get_contents($pipes[1]);
+        $err = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['code' => proc_close($process), 'out' => (string) $out, 'err' => (string) $err];
+    }
+
+    /** @param list<string> $arguments */
+    public function out(array $arguments, ?string $stdin = null): string
+    {
+        $result = $this->run($arguments, $stdin);
+        if ($result['code'] !== 0) {
+            throw new SplitFailed('git '.implode(' ', $arguments).' failed: '.trim($result['err'] ?: $result['out']));
+        }
+
+        return rtrim($result['out'], "\n");
+    }
+
+    /** @param list<string> $arguments */
+    public function ok(array $arguments): bool
+    {
+        return $this->run($arguments)['code'] === 0;
+    }
+
+    public function ref(string $name): ?string
+    {
+        $result = $this->run(['rev-parse', '--verify', '-q', $name.'^{commit}']);
+
+        return $result['code'] === 0 ? trim($result['out']) : null;
+    }
+}
+
+/** One Composer package that lives in a directory of the monorepo. */
+final class SplitPackage
+{
+    /** @param array<string, mixed> $manifest */
+    public function __construct(
+        public readonly string $name,
+        public readonly string $path,
+        public readonly array $manifest,
+    ) {
+    }
+
+    /** The name without the vendor: webong/gateway-adapter -> gateway-adapter. */
+    public function short(): string
+    {
+        return substr($this->name, (int) strpos($this->name, '/') + 1);
+    }
+
+    public function branch(): string
+    {
+        return 'dist/'.$this->short();
+    }
+
+    public function tag(string $version): string
+    {
+        return $this->short().'/v'.$version;
+    }
+
+    public function tagGlob(): string
+    {
+        return $this->short().'/v*';
+    }
+}
+
+final class SplitPackages
+{
+    private const ROOT_ONLY_KEYS = ['repositories', 'config', 'scripts', 'scripts-descriptions', 'minimum-stability', 'prefer-stable', 'version'];
+
+    private const OPTIONS = ['repo', 'ref', 'remote', 'source-url', 'dist-url', 'metadata-branch', 'out-dir', 'push', 'dry-run', 'force-branches', 'composer', 'version', 'help'];
+
+    private const VERSION_PATTERN = '/^\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.]*)?$/';
+
+    private Git $git;
+
+    /** @param array<string, string|bool> $options */
+    private function __construct(private string $command, private array $options)
+    {
+        $directory = (string) ($options['repo'] ?? getcwd());
+        $probe = new Git($directory);
+        $this->git = new Git($probe->out(['rev-parse', '--show-toplevel']), $this->identityEnvironment($probe));
+    }
+
+    public static function main(array $argv): int
+    {
+        $options = [];
+        $command = null;
+        foreach (array_slice($argv, 1) as $argument) {
+            if (preg_match('/^--([a-z-]+)(?:=(.*))?$/s', $argument, $match) === 1) {
+                $options[$match[1]] = $match[2] ?? true;
+            } elseif ($command === null) {
+                $command = $argument;
+            } else {
+                fwrite(STDERR, "Unexpected argument [$argument].\n");
+
+                return 2;
+            }
+        }
+        $unknown = array_diff(array_keys($options), self::OPTIONS);
+        if ($unknown !== []) {
+            fwrite(STDERR, 'Unknown option --'.implode(', --', $unknown).". Run with --help for the list.\n");
+
+            return 2;
+        }
+        if ($command === null || isset($options['help'])) {
+            preg_match('#/\*\*(.*?)\*/#s', (string) file_get_contents(__FILE__), $doc);
+            echo trim((string) preg_replace('/^ \* ?/m', '', $doc[1] ?? ''))."\n";
+
+            return $command === null && ! isset($options['help']) ? 2 : 0;
+        }
+
+        try {
+            $tool = new self($command, $options);
+
+            return match ($command) {
+                'list' => $tool->list(),
+                'split' => $tool->split(),
+                'metadata' => $tool->metadata(),
+                'release' => $tool->release(),
+                'verify' => $tool->verify(),
+                default => throw new SplitFailed("Unknown command [$command]. Use list, split, metadata, release or verify."),
+            };
+        } catch (SplitFailed $e) {
+            fwrite(STDERR, 'split-packages: '.$e->getMessage()."\n");
+
+            return 1;
+        }
+    }
+
+    // ------------------------------------------------------------------ commands
+
+    private function list(): int
+    {
+        $commit = $this->commit();
+        foreach ($this->packages($commit) as $package) {
+            printf("%-34s %-18s %s\n", $package->name, $package->path, $package->branch());
+        }
+
+        return 0;
+    }
+
+    private function split(): int
+    {
+        $commit = $this->commit();
+        $packages = $this->packages($commit);
+        $plan = $this->planSplit($packages, $commit);
+        $this->printSplit($packages, $plan);
+        if ($this->flag('dry-run')) {
+            echo "Dry run: no branch was changed.\n";
+
+            return 0;
+        }
+        $this->applyBranches($packages, $plan);
+
+        return $this->flag('push') ? $this->push($this->branchRefspecs($packages)) : 0;
+    }
+
+    private function metadata(): int
+    {
+        $commit = $this->commit();
+        $packages = $this->packages($commit);
+        $document = $this->buildMetadata($packages, [], []);
+        $json = $this->encode($document);
+        $this->summary($document);
+
+        if (isset($this->options['out-dir'])) {
+            $this->writeOutDir($json);
+        }
+        if ($this->flag('dry-run')) {
+            echo "Dry run: the metadata branch was not changed.\n";
+
+            return 0;
+        }
+        $this->writeMetadataBranch($json, $document);
+
+        return $this->flag('push') ? $this->push([$this->metadataRefspec()]) : 0;
+    }
+
+    private function release(): int
+    {
+        $version = $this->options['version'] ?? null;
+        if (! is_string($version) || preg_match(self::VERSION_PATTERN, $version) !== 1) {
+            throw new SplitFailed('release needs --version=MAJOR.MINOR.PATCH (a pre-release suffix such as -rc1 is allowed).');
+        }
+
+        $commit = $this->commit();
+        $packages = $this->packages($commit);
+        $plan = $this->planSplit($packages, $commit);
+
+        // Check every tag before creating anything, so a refused release leaves no partial state.
+        $newTags = [];
+        $conflicts = [];
+        foreach ($packages as $package) {
+            $tag = $package->tag($version);
+            $existing = $this->git->ref('refs/tags/'.$tag);
+            if ($existing === null) {
+                $newTags[$tag] = $plan[$package->name];
+            } elseif ($existing !== $plan[$package->name]) {
+                $conflicts[] = "$tag already exists at ".substr($existing, 0, 10).' but this ref splits to '.substr($plan[$package->name], 0, 10);
+            }
+        }
+        if ($conflicts !== []) {
+            throw new SplitFailed("Version $version was already released from different content:\n  ".implode("\n  ", $conflicts)."\nPick a new version.");
+        }
+
+        // Build the metadata as it will be, with the new branches and tags laid over the repository.
+        $branches = [];
+        foreach ($packages as $package) {
+            $branches[$package->branch()] = $plan[$package->name];
+        }
+        $document = $this->buildMetadata($packages, $branches, $newTags);
+        $json = $this->encode($document);
+
+        $this->printSplit($packages, $plan);
+        printf("Tags to create for %s: %d (%d already present at the same commit)\n", $version, count($newTags), count($packages) - count($newTags));
+        $this->summary($document);
+
+        if (isset($this->options['out-dir'])) {
+            $this->writeOutDir($json);
+        }
+        if ($this->flag('dry-run')) {
+            echo "Dry run: no branch, tag or metadata was changed.\n";
+
+            return 0;
+        }
+
+        $this->applyBranches($packages, $plan);
+        foreach ($newTags as $tag => $sha) {
+            $this->git->out(['tag', $tag, $sha]);
+        }
+        $this->writeMetadataBranch($json, $document);
+
+        if (! $this->flag('push')) {
+            echo "Local only. Re-run with --push, or push the dist/ branches and the new tags yourself.\n";
+
+            return 0;
+        }
+
+        $releaseTags = array_map(static fn (SplitPackage $package): string => "refs/tags/{$package->tag($version)}:refs/tags/{$package->tag($version)}", $packages);
+
+        return $this->push([...$this->branchRefspecs($packages), $this->metadataRefspec(), ...$releaseTags]);
+    }
+
+    private function verify(): int
+    {
+        $commit = $this->commit();
+        $packages = $this->packages($commit);
+        $document = $this->buildMetadata($packages, [], []);
+        $this->summary($document);
+        echo "Internal requirements are consistent.\n";
+
+        if (! $this->flag('composer')) {
+            return 0;
+        }
+
+        $directory = sys_get_temp_dir().'/split-packages-verify-'.bin2hex(random_bytes(4));
+        mkdir($directory.'/repository', 0700, true);
+        file_put_contents($directory.'/repository/packages.json', $this->encode($document));
+        file_put_contents($directory.'/composer.json', json_encode([
+            'name' => 'split-packages/verify',
+            'repositories' => [['type' => 'composer', 'url' => 'file://'.$directory.'/repository'], ['packagist.org' => false]],
+            'minimum-stability' => 'dev',
+        ], JSON_UNESCAPED_SLASHES));
+        $environment = ['COMPOSER_HOME' => $directory.'/home', 'COMPOSER_CACHE_DIR' => $directory.'/cache', 'COMPOSER_NO_INTERACTION' => '1', 'COMPOSER_ROOT_VERSION' => '1.0.0'];
+        $failed = false;
+        foreach (array_keys($document['packages']) as $name) {
+            $versions = array_keys($document['packages'][$name]);
+            $process = proc_open(['composer', 'show', '--available', $name, '--working-dir='.$directory], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, array_merge(getenv() ?: [], $environment));
+            $output = stream_get_contents($pipes[1]).stream_get_contents($pipes[2]);
+            $code = proc_close($process);
+            $seen = preg_match('/^versions\s*:\s*(.+)$/m', $output, $match) === 1 ? array_map('trim', explode(',', $match[1])) : [];
+            $missing = array_diff(array_map(static fn ($v) => ltrim((string) $v, 'v'), $versions), array_map(static fn ($v) => ltrim((string) $v, '* '), $seen));
+            if ($code !== 0 || $missing !== []) {
+                $failed = true;
+                fwrite(STDERR, "Composer cannot see $name: ".($code !== 0 ? trim($output) : 'missing '.implode(', ', $missing))."\n");
+            }
+        }
+        if ($failed) {
+            throw new SplitFailed('Composer could not read the generated repository.');
+        }
+        echo 'Composer lists every package and version from the generated repository ('.count($document['packages'])." packages).\n";
+
+        return 0;
+    }
+
+    // --------------------------------------------------------------- discovery
+
+    private function commit(): string
+    {
+        $ref = (string) ($this->options['ref'] ?? 'HEAD');
+        $commit = $this->git->ref($ref);
+        if ($commit === null) {
+            throw new SplitFailed("[$ref] is not a commit in {$this->git->directory}.");
+        }
+
+        return $commit;
+    }
+
+    /** @return list<SplitPackage> packages whose manifests are at mod/<dir> or pkg/<dir> in the commit */
+    private function packages(string $commit): array
+    {
+        $packages = [];
+        $names = [];
+        foreach (['mod', 'pkg'] as $base) {
+            $listing = $this->git->run(['ls-tree', '-d', '--name-only', $commit.':'.$base]);
+            if ($listing['code'] !== 0) {
+                continue;
+            }
+            $directories = array_filter(explode("\n", trim($listing['out'])));
+            sort($directories, SORT_STRING);
+            foreach ($directories as $directory) {
+                $path = "$base/$directory";
+                $manifest = $this->git->run(['show', "$commit:$path/composer.json"]);
+                if ($manifest['code'] !== 0) {
+                    continue; // not a Composer package (for example a Go module)
+                }
+                $decoded = json_decode($manifest['out'], true);
+                if (! is_array($decoded) || ! is_string($decoded['name'] ?? null) || ! str_contains($decoded['name'], '/')) {
+                    throw new SplitFailed("$path/composer.json has no valid package name.");
+                }
+                if (($decoded['type'] ?? 'library') === 'project') {
+                    continue; // build or host projects are not published
+                }
+                if (isset($names[$decoded['name']])) {
+                    throw new SplitFailed("Package {$decoded['name']} is declared by both {$names[$decoded['name']]} and $path.");
+                }
+                $names[$decoded['name']] = $path;
+                $packages[] = new SplitPackage($decoded['name'], $path, $decoded);
+            }
+        }
+        if ($packages === []) {
+            throw new SplitFailed('No Composer packages found under mod/ or pkg/ at '.substr($commit, 0, 10).'.');
+        }
+
+        return $packages;
+    }
+
+    // ------------------------------------------------------------------- split
+
+    /** @param list<SplitPackage> $packages @return array<string, string> package name => split commit */
+    private function planSplit(array $packages, string $commit): array
+    {
+        if (! is_file($this->exec_path().'/git-subtree') && ! $this->git->ok(['subtree', '--help'])) {
+            // `git subtree --help` also fails when only the man page is missing, so check the executable first.
+            throw new SplitFailed('`git subtree` is not installed.');
+        }
+        $plan = [];
+        foreach ($packages as $package) {
+            $lines = array_values(array_filter(array_map('trim', explode("\n", $this->git->out(['subtree', 'split', '--prefix='.$package->path, $commit])))));
+            $sha = (string) end($lines);
+            if (preg_match('/^[0-9a-f]{40}$/', $sha) !== 1) {
+                throw new SplitFailed("git subtree split of {$package->path} did not return a commit (got [$sha]).");
+            }
+            $plan[$package->name] = $sha;
+        }
+
+        return $plan;
+    }
+
+    private function exec_path(): string
+    {
+        return $this->git->out(['--exec-path']);
+    }
+
+    /** @param list<SplitPackage> $packages @param array<string, string> $plan */
+    private function printSplit(array $packages, array $plan): void
+    {
+        foreach ($packages as $package) {
+            $current = $this->git->ref('refs/heads/'.$package->branch());
+            $state = $current === null ? 'new' : ($current === $plan[$package->name] ? 'unchanged' : 'updated');
+            printf("%-34s %-26s %s %s\n", $package->name, $package->branch(), substr($plan[$package->name], 0, 10), $state);
+        }
+    }
+
+    /** @param list<SplitPackage> $packages @param array<string, string> $plan */
+    private function applyBranches(array $packages, array $plan): void
+    {
+        // Validate every move first: either all branches move or none does.
+        foreach ($packages as $package) {
+            $current = $this->git->ref('refs/heads/'.$package->branch());
+            if ($current !== null && $current !== $plan[$package->name] && ! $this->git->ok(['merge-base', '--is-ancestor', $current, $plan[$package->name]]) && ! $this->flag('force-branches')) {
+                throw new SplitFailed("{$package->branch()} would not fast-forward (history changed); pass --force-branches if that is intended.");
+            }
+        }
+        foreach ($packages as $package) {
+            $this->git->out(['update-ref', 'refs/heads/'.$package->branch(), $plan[$package->name]]);
+        }
+    }
+
+    // ---------------------------------------------------------------- metadata
+
+    /**
+     * @param list<SplitPackage> $packages
+     * @param array<string, string> $branchOverlay branch => commit not yet in the repository
+     * @param array<string, string> $tagOverlay tag => commit not yet in the repository
+     * @return array{packages: array<string, array<string, array<string, mixed>>>}
+     */
+    private function buildMetadata(array $packages, array $branchOverlay, array $tagOverlay): array
+    {
+        $internal = array_map(static fn (SplitPackage $package): string => $package->name, $packages);
+        $source = $this->sourceUrl();
+        $document = ['packages' => []];
+
+        foreach ($packages as $package) {
+            $entries = [];
+
+            $tip = $branchOverlay[$package->branch()] ?? $this->git->ref('refs/heads/'.$package->branch());
+            if ($tip !== null) {
+                $entries['dev-main'] = $this->entry($package, $tip, 'dev-main', $source, false, $internal);
+            }
+
+            $tags = [];
+            foreach (array_filter(explode("\n", $this->git->out(['tag', '-l', $package->tagGlob()]))) as $tag) {
+                $tags[$tag] = $this->git->ref('refs/tags/'.$tag) ?? '';
+            }
+            foreach ($tagOverlay as $tag => $sha) {
+                if (fnmatch($package->tagGlob(), $tag)) {
+                    $tags[$tag] = $sha;
+                }
+            }
+            foreach ($tags as $tag => $sha) {
+                $version = substr($tag, strlen($package->short()) + 2);
+                if (preg_match(self::VERSION_PATTERN, $version) !== 1) {
+                    continue; // not a release tag
+                }
+                $entries[$version] = $this->entry($package, $sha, $version, $source, true, $internal);
+            }
+            if ($entries === []) {
+                continue;
+            }
+            uksort($entries, static function (string $a, string $b): int {
+                if ($a === 'dev-main' || $b === 'dev-main') {
+                    return $a === 'dev-main' ? -1 : 1;
+                }
+
+                return version_compare($b, $a);
+            });
+            $document['packages'][$package->name] = $entries;
+        }
+        if ($document['packages'] === []) {
+            throw new SplitFailed('No dist/<package> branches or release tags exist yet; run `split` or `release` first.');
+        }
+        ksort($document['packages'], SORT_STRING);
+        $this->assertConsistent($document, $internal);
+
+        return $document;
+    }
+
+    /**
+     * @param list<string> $internal
+     * @return array<string, mixed>
+     */
+    private function entry(SplitPackage $package, string $sha, string $version, string $source, bool $tagged, array $internal): array
+    {
+        $show = $this->git->run(['show', "$sha:composer.json"]);
+        $manifest = $show['code'] === 0 ? json_decode($show['out'], true) : null;
+        if (! is_array($manifest) || ($manifest['name'] ?? null) !== $package->name) {
+            throw new SplitFailed("{$package->branch()} at ".substr($sha, 0, 10).' has no composer.json for '.$package->name.'.');
+        }
+        $entry = array_diff_key($manifest, array_flip(self::ROOT_ONLY_KEYS));
+
+        // A tagged release must be installable as a stable set: `dev-main` between packages becomes ^version.
+        if ($tagged && isset($entry['require']) && is_array($entry['require'])) {
+            foreach ($entry['require'] as $dependency => $constraint) {
+                if (in_array($dependency, $internal, true) && in_array($constraint, ['dev-main', '@dev'], true)) {
+                    $entry['require'][$dependency] = '^'.$version;
+                }
+            }
+        }
+
+        $entry['version'] = $version;
+        $entry['time'] = $this->git->out(['log', '-1', '--format=%cI', $sha]);
+        $entry['source'] = ['type' => 'git', 'url' => $source, 'reference' => $sha];
+        $dist = $this->distUrl($source, $sha);
+        if ($dist !== null) {
+            $entry['dist'] = ['type' => 'zip', 'url' => $dist, 'reference' => $sha, 'shasum' => ''];
+        }
+
+        return $entry;
+    }
+
+    /**
+     * Every internal ^X requirement of a tagged version must be satisfiable by a published version
+     * of that package; a release that tags only some packages is refused rather than shipped.
+     *
+     * @param array{packages: array<string, array<string, array<string, mixed>>>} $document
+     * @param list<string> $internal
+     */
+    private function assertConsistent(array $document, array $internal): void
+    {
+        $problems = [];
+        foreach ($document['packages'] as $name => $versions) {
+            foreach ($versions as $version => $entry) {
+                foreach ((array) ($entry['require'] ?? []) as $dependency => $constraint) {
+                    if (! in_array($dependency, $internal, true)) {
+                        continue;
+                    }
+                    if ($constraint === 'dev-main') {
+                        if (! isset($document['packages'][$dependency]['dev-main'])) {
+                            $problems[] = "$name $version requires $dependency dev-main, which has no dist branch";
+                        }
+                    } elseif (str_starts_with((string) $constraint, '^') && ! isset($document['packages'][$dependency][substr((string) $constraint, 1)])) {
+                        $problems[] = "$name $version requires $dependency $constraint, but that version is not published";
+                    }
+                }
+            }
+        }
+        if ($problems !== []) {
+            throw new SplitFailed("The metadata would not be installable:\n  ".implode("\n  ", array_unique($problems)));
+        }
+    }
+
+    /** @param array{packages: array<string, array<string, array<string, mixed>>>} $document */
+    private function encode(array $document): string
+    {
+        return json_encode($document, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
+    }
+
+    /** @param array{packages: array<string, array<string, array<string, mixed>>>} $document */
+    private function summary(array $document): void
+    {
+        $versions = array_sum(array_map('count', $document['packages']));
+        printf("Metadata: %d packages, %d versions (source %s)\n", count($document['packages']), $versions, $this->sourceUrl());
+    }
+
+    private function writeOutDir(string $json): void
+    {
+        $directory = (string) $this->options['out-dir'];
+        if (! is_dir($directory) && ! mkdir($directory, 0755, true) && ! is_dir($directory)) {
+            throw new SplitFailed("Cannot create $directory.");
+        }
+        file_put_contents($directory.'/packages.json', $json);
+        echo "Wrote $directory/packages.json\n";
+    }
+
+    /** @param array{packages: array<string, array<string, array<string, mixed>>>} $document */
+    private function writeMetadataBranch(string $json, array $document): void
+    {
+        $branch = $this->metadataBranch();
+        $readme = "# Composer repository for the Gateway packages\n\n"
+            ."Generated by `scripts/split-packages`; do not edit. `packages.json` lists every Gateway package and version published from the monorepo.\n\n"
+            ."Add it to a project's `composer.json`:\n\n```json\n{ \"repositories\": [ { \"type\": \"composer\", \"url\": \"".$this->repositoryUrlHint($branch)."\" } ] }\n```\n";
+        $tree = $this->git->out(['mktree'], sprintf(
+            "100644 blob %s\tREADME.md\n100644 blob %s\tpackages.json\n",
+            $this->git->out(['hash-object', '-w', '--stdin'], $readme),
+            $this->git->out(['hash-object', '-w', '--stdin'], $json),
+        ));
+
+        $parent = $this->git->ref('refs/heads/'.$branch);
+        if ($parent !== null && $this->git->out(['rev-parse', $parent.'^{tree}']) === $tree) {
+            echo "Metadata branch $branch is already up to date.\n";
+
+            return;
+        }
+        $message = sprintf('Update the Composer package metadata (%d packages, %d versions)', count($document['packages']), array_sum(array_map('count', $document['packages'])));
+        $commit = $this->git->out(array_merge(['commit-tree', $tree], $parent === null ? [] : ['-p', $parent], ['-m', $message]));
+        $this->git->out(['update-ref', 'refs/heads/'.$branch, $commit]);
+        echo "Metadata branch $branch updated (".substr($commit, 0, 10).").\n";
+    }
+
+    // -------------------------------------------------------------------- push
+
+    /** @param list<SplitPackage> $packages @return list<string> */
+    private function branchRefspecs(array $packages): array
+    {
+        return array_map(static fn (SplitPackage $package): string => "refs/heads/{$package->branch()}:refs/heads/{$package->branch()}", $packages);
+    }
+
+    private function metadataRefspec(): string
+    {
+        $branch = $this->metadataBranch();
+
+        return "refs/heads/$branch:refs/heads/$branch";
+    }
+
+    /** @param list<string> $refspecs */
+    private function push(array $refspecs): int
+    {
+        $remote = $this->remote();
+        if ($this->flag('dry-run')) {
+            echo "Dry run: would push ".count($refspecs)." refs to $remote.\n";
+
+            return 0;
+        }
+        $result = $this->git->run(['push', '--atomic', $remote, ...$refspecs]);
+        if ($result['code'] !== 0) {
+            throw new SplitFailed("git push to $remote failed (nothing was pushed): ".trim($result['err']));
+        }
+        echo 'Pushed '.count($refspecs)." refs to $remote.\n";
+
+        return 0;
+    }
+
+    // ----------------------------------------------------------------- helpers
+
+    private function flag(string $name): bool
+    {
+        return ($this->options[$name] ?? false) === true;
+    }
+
+    private function metadataBranch(): string
+    {
+        return (string) ($this->options['metadata-branch'] ?? 'dist/composer');
+    }
+
+    private function remote(): string
+    {
+        if (isset($this->options['remote'])) {
+            return (string) $this->options['remote'];
+        }
+        $remotes = array_filter(explode("\n", $this->git->out(['remote'])));
+        foreach (['upstream', 'origin'] as $candidate) {
+            if (in_array($candidate, $remotes, true)) {
+                return $candidate;
+            }
+        }
+        throw new SplitFailed('No remote found; pass --remote or --source-url.');
+    }
+
+    private function sourceUrl(): string
+    {
+        if (isset($this->options['source-url'])) {
+            return (string) $this->options['source-url'];
+        }
+        $url = $this->git->out(['remote', 'get-url', $this->remote()]);
+        if (preg_match('#^(?:git@|ssh://git@)([^:/]+)[:/](.+?)(?:\.git)?$#', $url, $match) === 1) {
+            return "https://{$match[1]}/{$match[2]}.git";
+        }
+
+        return $url;
+    }
+
+    private function distUrl(string $source, string $sha): ?string
+    {
+        $template = $this->options['dist-url'] ?? null;
+        if (is_string($template)) {
+            return str_replace('{sha}', $sha, $template);
+        }
+        if (preg_match('#^https://github\.com/([^/]+)/(.+?)(?:\.git)?$#', $source, $match) === 1) {
+            return "https://api.github.com/repos/{$match[1]}/{$match[2]}/zipball/$sha";
+        }
+
+        return null;
+    }
+
+    private function repositoryUrlHint(string $branch): string
+    {
+        if (preg_match('#^https://github\.com/([^/]+)/(.+?)(?:\.git)?$#', $this->sourceUrl(), $match) === 1) {
+            return "https://raw.githubusercontent.com/{$match[1]}/{$match[2]}/$branch";
+        }
+
+        return 'URL of the directory containing packages.json';
+    }
+
+    /** @return array<string, string> author identity for the metadata commit when git has none (CI) */
+    private function identityEnvironment(Git $git): array
+    {
+        $environment = [];
+        if (trim($git->run(['config', 'user.name'])['out']) === '') {
+            $environment['GIT_AUTHOR_NAME'] = $environment['GIT_COMMITTER_NAME'] = 'Gateway package split';
+        }
+        if (trim($git->run(['config', 'user.email'])['out']) === '') {
+            $environment['GIT_AUTHOR_EMAIL'] = $environment['GIT_COMMITTER_EMAIL'] = 'noreply@users.noreply.github.com';
+        }
+
+        return $environment;
+    }
+}
