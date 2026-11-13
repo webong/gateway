@@ -7,12 +7,12 @@ namespace Webong\Gateway\Tests\Fixtures;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Support\ServiceProvider;
 use ReflectionClass;
-use Webong\Gateway\Email\TxtResolver;
 use Webong\Gateway\Email\EmailServiceProvider;
-use Webong\Gateway\GatewayServiceProvider;
+use Webong\Gateway\Email\TxtResolver;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
+use Webong\Gateway\Tests\Support\TestRouter;
 use Webong\Gateway\Web\WebServiceProvider;
 use Webong\Proxy\WebProxyServiceProvider;
-use Webong\Gateway\Tests\Support\TestRouter;
 
 final class HttpRegistrySmokeServiceProvider extends ServiceProvider
 {

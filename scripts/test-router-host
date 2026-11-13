@@ -13,10 +13,12 @@ cd "$ROOT"
 touch "$DB_DATABASE"
 php app/artisan package:discover --no-ansi
 php app/artisan migrate --realpath --path="$ROOT/vendor/webong/proxy/database/migrations" --force --no-ansi
+php app/artisan gateway:migrate --no-ansi
 php app/artisan migrate --force --no-ansi
 check_host() {
     php <<'PHP'
 <?php
+try {
 $app = require 'app/bootstrap.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $check = static function (bool $condition, string $message): void {
@@ -27,7 +29,7 @@ $check(config('database.connections.sqlite.database') === getenv('DB_DATABASE'),
 $check(config('proxy.defaults.registry') === 'local', 'Proxy host configuration missing');
 $check(config('gateway') !== null, 'Planner package defaults missing');
 $check($app->providerIsLoaded(Webong\Proxy\WebProxyServiceProvider::class), 'Proxy provider not discovered');
-$check($app->providerIsLoaded(Webong\Gateway\GatewayServiceProvider::class), 'Planner provider missing');
+$check($app->providerIsLoaded(Webong\Gateway\Laravel\GatewayServiceProvider::class), 'Planner provider missing');
 $check($app->providerIsLoaded(Webong\Gateway\JavaScript\JavaScriptExtensionServiceProvider::class), 'JavaScript companion not discovered');
 $check($app->providerIsLoaded(Webong\Gateway\Lua\LuaExtensionServiceProvider::class), 'Lua companion not discovered');
 $check($app->providerIsLoaded(Webong\Gateway\HookScript\HookScriptExtensionServiceProvider::class), 'HookScript extension not discovered');
@@ -45,6 +47,10 @@ foreach (['/health' => 204, '/config.php' => 404, '/bootstrap.php' => 404] as $p
     $kernel->terminate($request, $response);
 }
 echo "Router host configuration, discovery, and routing passed.\n";
+} catch (Throwable $exception) {
+    file_put_contents('php://stderr', $exception->getMessage().PHP_EOL);
+    exit(1);
+}
 PHP
 }
 check_host

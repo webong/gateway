@@ -6,9 +6,9 @@ namespace Webong\Gateway\HookScript\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
 use ReflectionClass;
-use Webong\Gateway\GatewayServiceProvider;
-use Webong\Gateway\HookScript\Tests\Fixtures\HookScriptPlanner;
 use Webong\Gateway\HookScript\HookScriptExtensionServiceProvider;
+use Webong\Gateway\HookScript\Tests\Fixtures\HookScriptPlanner;
+use Webong\Gateway\Laravel\GatewayServiceProvider;
 
 abstract class TestCase extends Orchestra
 {

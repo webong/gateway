@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Reverb\ApplicationManager;
 use Laravel\Reverb\Exceptions\InvalidApplication;
+use Webong\Gateway\Laravel\Servers\ServerTables;
 use Webong\Gateway\Reverb\Models\ReverbApplication;
-use Webong\Gateway\Servers\ServerTables;
 
 function createReverbServer(array $overrides = []): array
 {

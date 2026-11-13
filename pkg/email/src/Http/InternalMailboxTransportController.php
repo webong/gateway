@@ -7,9 +7,9 @@ namespace Webong\Gateway\Email\Http;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Throwable;
-use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
-use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Email\MailboxConnectionStore;
+use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
 
 /** Private, short-lived credential resolution for one queued SMTP attempt. */
 final readonly class InternalMailboxTransportController

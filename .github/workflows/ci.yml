@@ -113,6 +113,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install script dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: pkg/spinner/go.mod
@@ -142,17 +145,41 @@ jobs:
   planner:
     name: Planner (Pest)
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: gateway_test
+          POSTGRES_PASSWORD: gateway_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: gateway_test
+          MYSQL_ROOT_PASSWORD: gateway_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pgateway_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      GATEWAY_TEST_POSTGRES_DATABASE: gateway_test
+      GATEWAY_TEST_POSTGRES_PASSWORD: gateway_test
+      GATEWAY_TEST_MYSQL_DATABASE: gateway_test
+      GATEWAY_TEST_MYSQL_PASSWORD: gateway_test
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install script dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_mysql, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
 
-      # A plain `composer install` on a fresh checkout moves packages past
-      # composer.lock (see scripts/composer-install), so the suite would not
-      # test the locked versions.
       - name: Install locked Planner dependencies
         env:
           COMPOSER_ROOT_VERSION: dev-main
@@ -162,6 +189,7 @@ jobs:
         run: |
           bash scripts/test-router-image-packaging
           bash scripts/test-router-container-entrypoint
+          bash scripts/test-router-start-migrations
 
       - name: Check the install left composer.lock unchanged
         run: git diff --exit-code -- composer.lock
@@ -180,5 +208,25 @@ jobs:
       - name: Install HookScript companion dependencies
         run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative
 
+      - name: Configure disposable PostgreSQL TLS coverage
+        run: |
+          bash scripts/configure-test-postgres-tls '${{ job.services.postgres.id }}' "$RUNNER_TEMP/gateway-postgres-tls"
+          echo "GATEWAY_TEST_POSTGRES_SSLROOTCERT=$RUNNER_TEMP/gateway-postgres-tls/server.crt" >> "$GITHUB_ENV"
+
       - name: Run the Planner test suite
         run: vendor/bin/pest --compact
+
+      - name: Check Laravel host configuration and migrations
+        run: bash scripts/test-router-host
+
+      - name: Check standalone Symfony consumer without Laravel
+        run: bash scripts/test-planner-package
+
+      - name: Check the Planner launcher stops Workerman gracefully
+        run: bash scripts/test-planner-workerman-shutdown
+
+      - name: Check the Composer package split and metadata
+        run: bash scripts/test-split-packages
+
+      - name: Check workspace install stability
+        run: bash scripts/test-composer-install-stability

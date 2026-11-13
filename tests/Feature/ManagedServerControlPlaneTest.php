@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\Schema;
-use Webong\Gateway\Servers\Contracts\ServerType;
-use Webong\Gateway\Servers\Models\Server;
-use Webong\Gateway\Servers\ServerTables;
-use Webong\Gateway\Servers\ServerTypeRegistry;
+use Webong\Gateway\Laravel\Servers\Contracts\ServerType;
+use Webong\Gateway\Laravel\Servers\Models\Server;
+use Webong\Gateway\Laravel\Servers\ServerTables;
+use Webong\Gateway\Laravel\Servers\ServerTypeRegistry;
 
 beforeEach(function (): void {
     app(ServerTypeRegistry::class)->register(new class implements ServerType
@@ -89,7 +89,7 @@ it('registers targets with one-time scoped worker credentials and immutable conn
         'connection' => ['context' => 'production-ssh', 'publish_host' => '10.0.0.10', 'route_host' => '10.0.0.10'],
     ])->assertCreated()->json();
     expect($target['worker_token'])->toHaveLength(64);
-    $stored = \Webong\Gateway\Servers\Models\DeploymentTarget::query()->findOrFail($target['id']);
+    $stored = \Webong\Gateway\Laravel\Servers\Models\DeploymentTarget::query()->findOrFail($target['id']);
     expect($stored->worker_token_hash)->toBe(hash('sha256', $target['worker_token']))
         ->and($stored->getRawOriginal('connection'))->not->toContain('production-ssh');
     $this->withToken('registry-secret')->getJson('/targets')->assertOk()

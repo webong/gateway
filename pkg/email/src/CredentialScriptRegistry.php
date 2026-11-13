@@ -7,7 +7,7 @@ namespace Webong\Gateway\Email;
 use RuntimeException;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
-use Webong\Gateway\Deliveries\DeliveryAdminClient;
+use Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Protocols\Delivery;
 
 final class CredentialScriptRegistry

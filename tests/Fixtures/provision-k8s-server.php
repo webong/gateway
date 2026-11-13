@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Console\Kernel;
-use Webong\Gateway\Servers\Models\Server;
+use Webong\Gateway\Laravel\Servers\Models\Server;
 
 if ($argc !== 2 || preg_match('/^[a-f0-9-]{36}$/', $argv[1]) !== 1) {
     fwrite(STDERR, "Usage: provision-k8s-server.php TARGET_ID\n");

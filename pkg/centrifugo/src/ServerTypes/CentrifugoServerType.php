@@ -8,8 +8,8 @@ use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Webong\Gateway\Servers\Contracts\ServerType;
-use Webong\Gateway\Servers\Models\Server;
+use Webong\Gateway\Laravel\Servers\Contracts\ServerType;
+use Webong\Gateway\Laravel\Servers\Models\Server;
 
 final readonly class CentrifugoServerType implements ServerType
 {

@@ -6,15 +6,18 @@
     "require": {
         "ext-mbstring": "*",
         "ext-pcntl": "*",
+        "laravel/framework": "^12.0",
         "php": "^8.3",
         "smuuf/primi": "^0.4",
         "webong/gateway": "dev-main",
-        "webong/gateway-planner": "dev-main"
+        "webong/gateway-adapter": "dev-main",
+        "webong/proxy": "^0.2.0"
     },
     "require-dev": {
         "orchestra/testbench": "^10.0",
         "pestphp/pest": "^4.0",
-        "pestphp/pest-plugin-laravel": "^4.0"
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "webong/gateway-builder": "dev-main"
     },
     "autoload": {
         "psr-4": {

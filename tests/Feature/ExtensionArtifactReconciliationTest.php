@@ -5,17 +5,17 @@ declare(strict_types=1);
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\Process\Process;
-use Webong\Gateway\Automation\ExtAutomationPackageCatalog;
-use Webong\Gateway\Companion\CompanionArtifactReconciler;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
-use Webong\Gateway\Companion\ExtensionArtifactInstaller;
-use Webong\Gateway\Companion\ExtensionArtifactReconciler;
-use Webong\Gateway\Companion\RegisteredCompanionActions;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\CompanionActionRegistry;
 use Webong\Gateway\Email\CredentialScriptRegistry;
+use Webong\Gateway\Laravel\Automation\ExtAutomationPackageCatalog;
+use Webong\Gateway\Laravel\Companion\CompanionArtifactReconciler;
+use Webong\Gateway\Laravel\Companion\ExtensionArtifactInstaller;
+use Webong\Gateway\Laravel\Companion\ExtensionArtifactReconciler;
+use Webong\Gateway\Laravel\Companion\RegisteredCompanionActions;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 
 it('installs and activates a combined HookScript package after Planner has started', function (): void {

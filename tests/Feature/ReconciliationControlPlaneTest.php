@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Servers\Models\Server;
-use Webong\Gateway\Servers\Models\ProvisioningNode;
-use Webong\Gateway\Servers\Models\Instance;
+use Webong\Gateway\Laravel\Servers\Models\Instance;
+use Webong\Gateway\Laravel\Servers\Models\ProvisioningNode;
+use Webong\Gateway\Laravel\Servers\Models\Server;
 
 it('exposes workload-neutral specifications to the reconciler', function (): void {
     Server::query()->create([

@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # A fresh checkout must install from composer.lock without changing it.
 #
-# Plain `composer install` does not hold on a fresh vendor/: the merge plugin is
-# installed mid-run and then updates every package it merged from
-# pkg/*/composer.json. scripts/composer-install avoids that. This copies only
-# the Composer manifests into a clean directory, installs with that script, and
-# verifies the lock is byte-identical while the merged extension namespaces
-# are still autoloadable. Needs network access to Packagist and GitHub.
+# Copy the workspace into a clean directory and verify the lock is byte-identical
+# while workspace extension namespaces remain autoloadable. Needs network access
+# to Packagist and GitHub.
 set -euo pipefail
+export LC_ALL=C
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-composer-install.XXXXXX")
@@ -21,10 +19,13 @@ mkdir -p "$TEST_DIR/scripts" "$TEST_DIR/mod"
 cp "$ROOT/composer.json" "$ROOT/composer.lock" "$TEST_DIR/"
 cp "$ROOT/scripts/composer-install" "$TEST_DIR/scripts/"
 cp -R "$ROOT/mod/adapter" "$TEST_DIR/mod/adapter"
+cp -R "$ROOT/mod/builder" "$TEST_DIR/mod/builder"
 for manifest in "$ROOT"/pkg/*/composer.json; do
     directory=$TEST_DIR/pkg/$(basename "$(dirname "$manifest")")
     mkdir -p "$directory"
-    cp "$manifest" "$directory/composer.json"
+    # Include working tree source files, including new files awaiting commit.
+    package_path=pkg/$(basename "$(dirname "$manifest")")
+    (cd "$ROOT" && rg --files --hidden "$package_path") | tar -C "$ROOT" -cf - -T - | tar -C "$TEST_DIR" -xf -
 done
 
 export COMPOSER_ROOT_VERSION=dev-main
@@ -43,7 +44,7 @@ php -r '
     $psr4 = require $argv[1]."/vendor/composer/autoload_psr4.php";
     foreach (["Webong\\Gateway\\Centrifugo\\", "Webong\\Gateway\\Mercure\\", "Webong\\Gateway\\Reverb\\", "Webong\\Gateway\\HookScript\\", "Webong\\Gateway\\Shell\\"] as $namespace) {
         if (! isset($psr4[$namespace])) {
-            fwrite(STDERR, "Merge plugin did not register [".$namespace."] in the autoloader.\n");
+            fwrite(STDERR, "Workspace did not register [".$namespace."] in the autoloader.\n");
             exit(1);
         }
     }

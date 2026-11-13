@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Webstream;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Operator-managed grants. The Spinner separately enforces its deployed network ceiling. */
 final class WebstreamPrivateSourceStore

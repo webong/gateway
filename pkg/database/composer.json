@@ -1,17 +1,22 @@
 {
-    "name": "webong/database",
+    "name": "webong/gateway-database",
     "description": "Managed Database extension for Gateway",
     "type": "library",
     "license": "MIT",
     "require": {
-        "php": "^8.3",
         "laravel/framework": "^12.0",
+        "php": "^8.3",
         "webong/gateway": "dev-main",
-        "webong/gateway-planner": "dev-main"
+        "webong/gateway-adapter": "dev-main",
+        "webong/proxy": "^0.2.0"
     },
     "autoload": {
-        "psr-4": {"Webong\\Gateway\\Database\\": "src/"},
-        "files": ["register.php"]
+        "psr-4": {
+            "Webong\\Gateway\\Database\\": "src/"
+        },
+        "files": [
+            "register.php"
+        ]
     },
     "minimum-stability": "dev",
     "prefer-stable": true

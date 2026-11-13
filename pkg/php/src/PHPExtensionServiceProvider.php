@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Webong\Gateway\PHP;
 
 use Illuminate\Support\ServiceProvider;
-use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\AutomationCapability;
 use Webong\Gateway\Contracts\AutomationExecutionTarget;
+use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 
 final class PHPExtensionServiceProvider extends ServiceProvider
 {

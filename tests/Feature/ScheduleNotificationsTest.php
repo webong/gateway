@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Http;
 /** @return array{0: string, 1: string, 2: string} */
 function claimNotifiedScheduleRun(mixed $case): array
 {
-    $notifications = app(\Webong\Gateway\Schedules\ScheduleNotificationConfig::class);
+    $notifications = app(\Webong\Gateway\Laravel\Schedules\ScheduleNotificationConfig::class);
     if ($notifications->find() === null) {
         $notifications->create(['url' => 'https://ops.example.test/alerts', 'token' => 'operator-secret']);
     }
@@ -141,7 +141,7 @@ it('recovers an expired notification claim and does not create alerts when disab
     $this->artisan('gateway:send-schedule-notifications')->assertSuccessful();
     expect(DB::table('schedule_notifications')->where('run_id', $run)->value('state'))->toBe('sent');
 
-    $notifications = app(\Webong\Gateway\Schedules\ScheduleNotificationConfig::class);
+    $notifications = app(\Webong\Gateway\Laravel\Schedules\ScheduleNotificationConfig::class);
     $notifications->replace(['url' => 'https://ops.example.test/alerts', 'enabled' => false],
         $notifications->find()->revision);
     [, $disabledRun, $disabledToken] = claimNotifiedScheduleRun($this);
@@ -188,7 +188,7 @@ it('uses a CMS-managed destination without exposing its token and obeys the depl
 
     $this->withToken('registry-secret')->withHeader('If-Match', '"2"')
         ->deleteJson('/schedules/notification-destination')->assertNoContent();
-    expect(app(\Webong\Gateway\Schedules\ScheduleNotificationConfig::class)->effective())->toBeNull();
+    expect(app(\Webong\Gateway\Laravel\Schedules\ScheduleNotificationConfig::class)->effective())->toBeNull();
 });
 
 it('stops CMS-managed alerts when the deployed receiver hostname is withdrawn', function (): void {

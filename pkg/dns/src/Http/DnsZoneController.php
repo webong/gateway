@@ -16,8 +16,8 @@ use Webong\Gateway\Dns\DnsProvisionerRegistry;
 use Webong\Gateway\Dns\DnsZoneProvisioningFailed;
 use Webong\Gateway\Dns\DnsZoneResources;
 use Webong\Gateway\Dns\DnsZoneStore;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Resources\ResourcePrecondition;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 
 final readonly class DnsZoneController

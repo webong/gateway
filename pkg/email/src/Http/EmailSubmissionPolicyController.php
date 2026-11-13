@@ -10,8 +10,8 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Email\EmailSubmissionPolicyStore;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Resources\ResourcePrecondition;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 
 final readonly class EmailSubmissionPolicyController

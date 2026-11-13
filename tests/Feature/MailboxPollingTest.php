@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\EmailUpstreamCatalog;
 use Webong\Gateway\Email\MailboxConnectionStore;
 use Webong\Gateway\Email\MailboxPollStore;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 
 it('configures account-owned IMAP polling on the shared scheduler without exposing its callback secret', function (): void {
     $catalog = app(EmailUpstreamCatalog::class);
@@ -73,8 +73,8 @@ it('reports account-owned poll health without exposing worker failure details', 
     $schedule = DB::table('schedules')->where('origin', 'mailbox-poll:'.$route)->first();
 
     DB::table('schedules')->where('id', $schedule->id)->update(['next_run_at' => now('UTC')->subMinute()]);
-    $failed = app(\Webong\Gateway\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
-    app(\Webong\Gateway\Schedules\ScheduleStore::class)->complete(
+    $failed = app(\Webong\Gateway\Laravel\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
+    app(\Webong\Gateway\Laravel\Schedules\ScheduleStore::class)->complete(
         $failed['id'], $failed['claim_token'], 'failed', 0, 'IMAP password and private host details',
     );
     $failure = $this->withToken($token)->getJson($endpoint)->assertOk()->json('status');
@@ -85,8 +85,8 @@ it('reports account-owned poll health without exposing worker failure details', 
         ->and(json_encode($failure))->not->toContain('password', 'private host');
 
     DB::table('schedules')->where('id', $schedule->id)->update(['next_run_at' => now('UTC')->subSeconds(30)]);
-    $succeeded = app(\Webong\Gateway\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
-    app(\Webong\Gateway\Schedules\ScheduleStore::class)->complete(
+    $succeeded = app(\Webong\Gateway\Laravel\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
+    app(\Webong\Gateway\Laravel\Schedules\ScheduleStore::class)->complete(
         $succeeded['id'], $succeeded['claim_token'], 'succeeded', 0, null,
     );
     $success = $this->withToken($token)->getJson($endpoint)->assertOk()->json('status');
@@ -175,7 +175,7 @@ it('resets a paused poll to the current mailbox position before it can be enable
         ->postJson($endpoint.'/reset-to-current')->assertAccepted()->json();
     expect($retry['run_id'])->toBe($reset['run_id']);
 
-    $run = app(\Webong\Gateway\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
+    $run = app(\Webong\Gateway\Laravel\Schedules\ScheduleStore::class)->claim(languages: ['native.imap'])[0];
     expect((array) $run['payload'])->toBe(['action' => 'baseline']);
     $claim = $this->withHeader('X-Gateway-Internal', 'internal-secret')
         ->postJson('/_internal/gateway/mailbox-polls/'.$created['route_id'].'/claim', ['action' => 'baseline'])

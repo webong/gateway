@@ -6,8 +6,8 @@ namespace Webong\Gateway\Reverb;
 
 use Illuminate\Support\ServiceProvider;
 use Laravel\Reverb\ApplicationManager;
+use Webong\Gateway\Laravel\Servers\ServerTypeRegistry;
 use Webong\Gateway\Reverb\ServerTypes\ReverbServerType;
-use Webong\Gateway\Servers\ServerTypeRegistry;
 
 final class ReverbIntegrationServiceProvider extends ServiceProvider
 {

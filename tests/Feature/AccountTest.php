@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use Illuminate\Support\Facades\DB;
 use Illuminate\Database\QueryException;
-use Webong\Gateway\Accounts\AccountStore;
-use Webong\Gateway\Resources\PlannerResourceStore;
+use Illuminate\Support\Facades\DB;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 
 it('creates a service-neutral account that can own resources from different kinds', function (): void {
     $this->withToken('registry-secret')->postJson('/accounts', ['id' => 'client-a'])->assertForbidden();

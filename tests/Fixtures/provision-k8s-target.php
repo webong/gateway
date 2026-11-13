@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Contracts\Console\Kernel;
-use Webong\Gateway\Servers\Models\DeploymentTarget;
+use Webong\Gateway\Laravel\Servers\Models\DeploymentTarget;
 
 if ($argc !== 2 || preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', $argv[1]) !== 1) {
     fwrite(STDERR, "Usage: provision-k8s-target.php NAMESPACE\n");

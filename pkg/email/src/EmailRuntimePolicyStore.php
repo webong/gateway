@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Operator-owned Email behavior; installed transports and safety ceilings stay in deployment config. */
 final readonly class EmailRuntimePolicyStore

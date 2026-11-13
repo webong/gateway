@@ -8,8 +8,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\Gateway\Deliveries\DeliveryAdminClient;
-use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 
 final readonly class ShellRunController
 {

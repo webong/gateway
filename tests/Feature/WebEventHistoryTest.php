@@ -3,15 +3,15 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Contracts\ProtocolPlanner;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\SubscribeEndpoint;
+use Webong\Gateway\Laravel\SubscriptionDefinition;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayEvent;
 use Webong\Gateway\Protocols\IngressRequest;
-use Webong\Gateway\Protocols\PathBinding;
 use Webong\Gateway\Protocols\MatchRules;
-use Webong\Gateway\SubscribeEndpoint;
-use Webong\Gateway\SubscriptionDefinition;
+use Webong\Gateway\Protocols\PathBinding;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Tests\Support\TestPathResolver;
 use Webong\Proxy\EndpointDefinition;
@@ -109,7 +109,7 @@ it('does not record ordinary HTTP routes as Webhook events', function (): void {
 
 it('captures only an opted-in bounded body and prunes old shared events', function (): void {
     app(\Webong\Gateway\Web\Events\WebEventPolicyStore::class)->create([]);
-    app(\Webong\Gateway\Events\EventRetentionPolicyStore::class)->create(['retention_days' => 7]);
+    app(\Webong\Gateway\Laravel\Events\EventRetentionPolicyStore::class)->create(['retention_days' => 7]);
     config()->set('gateway.events.max_body_bytes', 4);
     $endpointKey = webHistoryEndpoint(['_gateway' => ['capture_body' => true]]);
     app(CapabilityAwareRoutePlanner::class)->plan(webHistoryRequest('captured-1', 'top-secret'));

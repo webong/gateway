@@ -10,8 +10,8 @@ use Illuminate\Http\Request;
 use InvalidArgumentException;
 use Webong\Gateway\Email\EmailRouteRejected;
 use Webong\Gateway\Email\OutboundTransportStore;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 
 /** Operator transport registry; the account submission API has no provider vocabulary. */
 final readonly class OutboundTransportController

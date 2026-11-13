@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Companion\CompanionActionActivationStore;
+use Symfony\Component\Process\Process;
 use Webong\Gateway\Companion\CompanionExecutionPolicy;
 use Webong\Gateway\Companion\ExtCompanionPackageCatalog;
 use Webong\Gateway\Companion\ExtProcessCompanionActionProvider;
 use Webong\Gateway\Contracts\CompanionActionRegistry;
+use Webong\Gateway\Laravel\Companion\CompanionActionActivationStore;
 use Webong\Gateway\Protocols\CompanionActionCapability;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 use Webong\Gateway\Protocols\CompanionActionResult;
-use Symfony\Component\Process\Process;
 
 function extDescriptor(string $id, string $action, string $revision = 'test-r1'): array
 {

@@ -1,0 +1,216 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Webong\Gateway\Laravel\Companion;
+
+use InvalidArgumentException;
+use Webong\Gateway\Companion\CompanionActionActivation;
+use Webong\Gateway\Companion\CompanionExecutionPolicy;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
+use stdClass;
+
+/** Planner-owned desired state for selecting one companion provider per extension. */
+final readonly class CompanionActionActivationStore
+{
+    public const string KIND = 'extension';
+
+    public function __construct(private PlannerResourceStore $resources) {}
+
+    /** @return list<stdClass> */
+    public function all(): array
+    {
+        return $this->resources->all(self::KIND);
+    }
+
+    public function find(string $id): ?stdClass
+    {
+        return $this->resources->find(self::KIND, $id);
+    }
+
+    public function byExtension(string $extension): ?stdClass
+    {
+        $this->validateExtension($extension);
+
+        return $this->resources->byKey(self::KIND, $extension);
+    }
+
+    public function selection(string $extension): CompanionActionActivation
+    {
+        $row = $this->byExtension($extension);
+        if ($row === null) {
+            // Existing Composer packages remain active until an operator opts
+            // the extension into dynamic process hosting through Planner.
+            return new CompanionActionActivation($extension, true, 'static', null, null, null, 0, false);
+        }
+
+        $companion = $row->document['companion'] ?? null;
+        if ($companion === null) {
+            return new CompanionActionActivation(
+                extension: $extension,
+                enabled: $row->enabled,
+                mode: 'static',
+                version: null,
+                digest: null,
+                artifact: null,
+                generation: $row->revision,
+                configured: true,
+            );
+        }
+        if (! is_array($companion)) {
+            throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid companion configuration.");
+        }
+        $execution = $companion['execution'] ?? null;
+        if ($execution !== null && ! is_array($execution)) {
+            throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid companion execution policy.");
+        }
+
+        $package = $row->document['package'] ?? [];
+        if (! is_array($package)) {
+            throw new InvalidArgumentException("Gateway extension [{$extension}] has invalid package configuration.");
+        }
+
+        return new CompanionActionActivation(
+            extension: $extension,
+            enabled: $row->enabled,
+            mode: $companion['mode'],
+            version: $package['version'] ?? null,
+            digest: $package['digest'] ?? null,
+            artifact: $package['artifact'] ?? null,
+            generation: $row->revision,
+            configured: true,
+            execution: CompanionExecutionPolicy::fromDocument(
+                $execution,
+                $row->revision,
+            ),
+        );
+    }
+
+    /** @param array<string, mixed> $input */
+    public function create(array $input): stdClass
+    {
+        [$extension, $enabled, $document] = $this->validated($input);
+
+        return $this->resources->create(self::KIND, $extension, $document, $enabled);
+    }
+
+    /** @param array<string, mixed> $input */
+    public function replace(string $id, array $input, int $revision): ?stdClass
+    {
+        [$extension, $enabled, $document] = $this->validated($input);
+        $current = $this->find($id);
+        if ($current === null) {
+            return null;
+        }
+        if (! hash_equals($current->key, $extension)) {
+            throw new InvalidArgumentException('A Gateway extension identity cannot be changed.');
+        }
+
+        return $this->resources->replace(self::KIND, $id, $extension, $document, $enabled, $revision);
+    }
+
+    public function delete(string $id, int $revision): bool
+    {
+        return $this->resources->delete(self::KIND, $id, $revision);
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array{string, bool, array{package?: array{version?: string, digest?: string, artifact?: array{url: string, sha256: string}}, companion?: array{mode: string, execution: array<string, mixed>}, configuration?: array<string, mixed>}}
+     */
+    private function validated(array $input): array
+    {
+        if (array_diff(array_keys($input), ['extension', 'enabled', 'mode', 'version', 'digest', 'artifact', 'execution', 'configuration']) !== []) {
+            throw new InvalidArgumentException('Invalid Gateway extension activation.');
+        }
+        $extension = $input['extension'] ?? null;
+        $enabled = $input['enabled'] ?? true;
+        $mode = $input['mode'] ?? null;
+        $version = $input['version'] ?? null;
+        $digest = $input['digest'] ?? null;
+        $artifact = $input['artifact'] ?? null;
+        $execution = $input['execution'] ?? null;
+        $configuration = $input['configuration'] ?? null;
+        if (! is_string($extension) || ! is_bool($enabled)
+            || ($mode !== null && (! is_string($mode) || ! in_array($mode, ['static', 'dynamic'], true)))
+            || ($version !== null && (! is_string($version) || trim($version) === '' || strlen($version) > 64))
+            || ($digest !== null && (! is_string($digest) || preg_match('/\A[a-f0-9]{64}\z/D', $digest) !== 1))
+            || ! $this->validArtifact($artifact, $version)
+            || ($execution !== null && ! is_array($execution))
+            || ($execution !== null && $mode === null)
+            || ! $this->validConfiguration($configuration)) {
+            throw new InvalidArgumentException('Invalid Gateway extension activation.');
+        }
+        $this->validateExtension($extension);
+        $document = [];
+        $package = [];
+        if ($version !== null) {
+            $package['version'] = $version;
+        }
+        if ($digest !== null) {
+            $package['digest'] = $digest;
+        }
+        if ($artifact !== null) {
+            $package['artifact'] = ['url' => $artifact['url'], 'sha256' => $artifact['sha256']];
+        }
+        if ($package !== []) {
+            $document['package'] = $package;
+        }
+        if ($mode !== null) {
+            $policy = CompanionExecutionPolicy::fromDocument($execution);
+            if ($mode !== 'dynamic' && $policy->mode !== CompanionExecutionPolicy::ISOLATED) {
+                throw new InvalidArgumentException('Only dynamic Gateway companions may use warmed execution.');
+            }
+            $document['companion'] = ['mode' => $mode, 'execution' => $policy->toArray()];
+        }
+        if ($configuration !== null) {
+            $document['configuration'] = $configuration;
+        }
+
+        return [$extension, $enabled, $document];
+    }
+
+    private function validConfiguration(mixed $configuration): bool
+    {
+        if ($configuration === null) {
+            return true;
+        }
+        if (! is_array($configuration) || ($configuration !== [] && array_is_list($configuration))) {
+            return false;
+        }
+
+        try {
+            $encoded = json_encode($configuration, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return false;
+        }
+
+        return strlen($encoded) <= 65536;
+    }
+
+    private function validArtifact(mixed $artifact, mixed $version): bool
+    {
+        if ($artifact === null) {
+            return true;
+        }
+        if (! is_string($version) || trim($version) === ''
+            || ! is_array($artifact) || count($artifact) !== 2
+            || array_diff(array_keys($artifact), ['url', 'sha256']) !== []
+            || ! is_string($artifact['url']) || ! is_string($artifact['sha256'])
+            || preg_match('/\A[a-f0-9]{64}\z/D', $artifact['sha256']) !== 1) {
+            return false;
+        }
+        $url = parse_url($artifact['url']);
+
+        return is_array($url) && ($url['scheme'] ?? null) === 'https'
+            && is_string($url['host'] ?? null) && $url['host'] !== ''
+            && ! isset($url['user']) && ! isset($url['pass']) && ! isset($url['fragment']);
+    }
+
+    private function validateExtension(string $extension): void
+    {
+        if (preg_match('/\A[a-z0-9][a-z0-9._\/-]{0,255}\z/D', $extension) !== 1) {
+            throw new InvalidArgumentException('Invalid Gateway extension identity.');
+        }
+    }
+}

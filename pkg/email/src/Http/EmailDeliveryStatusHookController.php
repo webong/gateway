@@ -8,9 +8,9 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Email\EmailDeliveryStatusHookExists;
 use Webong\Gateway\Email\EmailDeliveryStatusHookStore;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 use Webong\Gateway\Resources\StaleResource;
 
 /** Account API for the single signed outbound-delivery status destination. */

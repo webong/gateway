@@ -7,10 +7,10 @@ namespace Webong\Gateway\Email;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
-use stdClass;
 use Throwable;
-use Webong\Gateway\Resources\PlannerResourceStore;
-use Webong\Gateway\Schedules\ScheduleStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
+use Webong\Gateway\Laravel\Schedules\ScheduleStore;
+use stdClass;
 
 /** Planner-owned poll definition; the generic checkpoint is runtime state, not desired state. */
 final readonly class MailboxPollStore

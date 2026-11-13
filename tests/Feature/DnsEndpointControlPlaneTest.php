@@ -9,7 +9,7 @@ use Webong\Gateway\Contracts\PathResolver;
 use Webong\Gateway\Contracts\ProtocolPlanner;
 use Webong\Gateway\Dns\DnsProvisioner;
 use Webong\Gateway\Dns\DnsProvisionerRegistry;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Protocols\EventKind;
 use Webong\Gateway\Protocols\GatewayAction;
 use Webong\Gateway\Protocols\GatewayEvent;

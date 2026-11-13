@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Webong\Gateway\PHP\Host;
 
 use InvalidArgumentException;
+use Webong\Gateway\Protocols\Automation;
+use Webong\Gateway\Protocols\AutomationCapability;
+use Webong\Gateway\Protocols\AutomationExecutionTarget;
 use Webong\Gateway\Protocols\Delivery;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\Response;
 use Webong\Gateway\Protocols\ScheduleCommand;
-use Webong\Gateway\Protocols\Automation;
-use Webong\Gateway\Protocols\AutomationCapability;
-use Webong\Gateway\Protocols\AutomationExecutionTarget;
 
 /**
  * Stateful, per-execution capability surface for PHP automation scripts.

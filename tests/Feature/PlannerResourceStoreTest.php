@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Facades\DB;
-use Webong\Gateway\Resources\PlannerResourceStore;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use Webong\Gateway\Resources\StaleResource;
 
 it('stores different resource kinds in one encrypted versioned collection', function (): void {
@@ -51,8 +51,8 @@ it('exposes only registered kind names and revision metadata through the authent
 });
 
 it('isolates owned resources with the same key across accounts', function (): void {
-    app(\Webong\Gateway\Accounts\AccountStore::class)->create('account-a');
-    app(\Webong\Gateway\Accounts\AccountStore::class)->create('account-b');
+    app(\Webong\Gateway\Laravel\Accounts\AccountStore::class)->create('account-a');
+    app(\Webong\Gateway\Laravel\Accounts\AccountStore::class)->create('account-b');
     $store = app(PlannerResourceStore::class);
     $alice = $store->create('email.mailbox-connection', 'support@example.test', ['imap_upstream_id' => 'imap-a'], false,
         owner: 'account-a');

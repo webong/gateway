@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Webong\Gateway\Web;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\HttpSubscriptionTargetExtension;
+use Webong\Gateway\Laravel\SubscriptionDefinition;
 use Webong\Gateway\Protocols\MatchRules;
-use Webong\Gateway\SubscriptionDefinition;
-use Webong\Gateway\HttpSubscriptionTargetExtension;
 
 /** Web DSL convenience that compiles HTTP subscriptions into Planner's generic target contract. */
 final class WebSubscriptionDefinition

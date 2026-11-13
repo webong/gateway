@@ -8,12 +8,12 @@
         "ext-pcntl": "*",
         "php": "^8.3",
         "smuuf/primi": "^0.4",
-        "webong/gateway": "dev-main"
+        "webong/gateway-adapter": "dev-main"
     },
     "repositories": [
         {
             "type": "path",
-            "url": "../../..",
+            "url": "../../../mod/adapter",
             "options": {
                 "symlink": false
             }

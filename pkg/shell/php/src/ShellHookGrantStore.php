@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Shell;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Exact endpoint/subscriber/hook grants in the shared Planner collection. */
 final readonly class ShellHookGrantStore

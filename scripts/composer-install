@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
 # Install locked Composer dependencies without rewriting composer.lock.
 #
-# wikimedia/composer-merge-plugin runs "composer update" for every package it
-# merges from pkg/*/composer.json (laravel/framework, webong/proxy, ...) when
-# it is installed during the current run, which is always the case on a fresh
-# checkout without vendor/. A plain `composer install` therefore moves those
-# packages to their newest allowed releases and rewrites the lock file.
-#
-# This installs exactly what the lock file records with plugins disabled, then
-# regenerates the autoloader with the plugin enabled so extension namespaces
-# and package discovery are merged as usual. The Router image build does the
-# same (infra/docker/Gateway.router.Dockerfile).
+# Install packages before activating workspace/build plugins. Regenerating the
+# autoloader in a fresh Composer process then loads the installed plugin version
+# and package metadata without running dependency resolution.
 #
 # Usage: scripts/composer-install [--working-dir=DIR] [composer install options]
 #   scripts/composer-install                       # repository root

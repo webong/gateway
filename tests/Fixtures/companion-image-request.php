@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Companion\CompanionActionExecutionStore;
 use Webong\Gateway\Contracts\CompanionActionRegistry;
+use Webong\Gateway\Laravel\Companion\CompanionActionExecutionStore;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 
 if ($argc < 3 || ! in_array($argv[1], ['capability', 'invoke'], true)) {

@@ -8,12 +8,12 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
-use stdClass;
 use Symfony\Component\HttpFoundation\Response;
-use Webong\Gateway\RegistryRequestAuthenticator;
-use Webong\Gateway\Resources\ResourcePrecondition;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\Resources\ResourcePrecondition;
 use Webong\Gateway\Resources\StaleResource;
 use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
+use stdClass;
 
 final readonly class WebstreamPrivateSourceController
 {

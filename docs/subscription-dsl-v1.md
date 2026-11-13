@@ -273,7 +273,7 @@ Use that exact value as `If-Match` on the next mutation. A stale value returns
 The equivalent fluent PHP API uses the same patch object:
 
 ```php
-use Webong\Gateway\PatchSubscriptionMatch;
+use Webong\Gateway\Laravel\PatchSubscriptionMatch;
 use Webong\Gateway\Protocol\MatchRulesPatch;
 
 $patch = MatchRulesPatch::make()

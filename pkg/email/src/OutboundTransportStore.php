@@ -7,8 +7,8 @@ namespace Webong\Gateway\Email;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Operator-owned outbound routing. Credential documents are separate from public transport resources. */
 final readonly class OutboundTransportStore

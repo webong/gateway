@@ -11,7 +11,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Webong\Gateway\Email\EmailRouteRejected;
 use Webong\Gateway\Email\MailHookRegistry;
 use Webong\Gateway\Email\VerificationRecordMissing;
-use Webong\Gateway\RegistryRequestAuthenticator;
+use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 use Webong\Proxy\Models\WebProxyEndpoint;
 
 final readonly class MailHookController

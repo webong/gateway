@@ -183,9 +183,12 @@ example, the arm64 Email artifact URL for `v1.2.3` is:
 https://github.com/webong/gateway/releases/download/v1.2.3/webong-email-1.2.3-linux-arm64.tar.gz
 ```
 
-The published package identities are `webong/web`, `webong/dns`,
-`webong/email`, `webong/javascript`, `webong/lua`, `webong/shell`, `webong/go`,
-`webong/php`, and `webong/hookscript`.
+Composer packages use the consistent `webong/gateway-*` family, including
+`webong/gateway-web`, `webong/gateway-dns`, `webong/gateway-email`, and
+`webong/gateway-database`. Runtime extension identities remain `webong/web`,
+`webong/dns`, `webong/email`, and `webong/database`; those stable protocol IDs
+are recorded in activations and `ext.package/v1` manifests independently of
+Composer package names.
 
 Use the checksum from the matching sidecar in the Planner `/extensions`
 activation. The same naming pattern applies to Web, DNS, Email, JavaScript, Lua,

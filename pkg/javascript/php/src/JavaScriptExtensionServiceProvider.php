@@ -24,7 +24,7 @@ final class JavaScriptExtensionServiceProvider extends ServiceProvider
         );
         $this->app->make(CredentialScriptRegistry::class)->register(
             JavaScriptLanguage::ID,
-            new SpinnerCredentialScriptExecutor($this->app->make(\Webong\Gateway\Deliveries\DeliveryAdminClient::class), JavaScriptLanguage::ID),
+            new SpinnerCredentialScriptExecutor($this->app->make(\Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient::class), JavaScriptLanguage::ID),
         );
     }
 }

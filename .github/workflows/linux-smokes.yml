@@ -20,6 +20,10 @@ jobs:
       COMPOSER_ROOT_VERSION: dev-main
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install script dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: pkg/spinner/go.mod
@@ -62,6 +66,10 @@ jobs:
       GATEWAY_REVERB_KIND_CLUSTER: kind
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install script dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: pkg/spinner/go.mod

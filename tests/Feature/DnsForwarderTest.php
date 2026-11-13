@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
-use Webong\Gateway\Events\Models\GatewayEndpointEvent;
+use Webong\Gateway\Laravel\Events\Models\GatewayEndpointEvent;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
 
 function dnsForwarderPayload(array $overrides = []): array

@@ -6,11 +6,11 @@ namespace Webong\Gateway\Dns;
 
 use InvalidArgumentException;
 use LogicException;
-use stdClass;
 use Throwable;
-use Webong\Gateway\RegistryRouteCache;
-use Webong\Gateway\Resources\PlannerResourceStore;
+use Webong\Gateway\Laravel\RegistryRouteCache;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use Webong\Proxy\Models\WebProxyEndpoint;
+use stdClass;
 
 /** Planner-owned authoritative DNS zones stored as versioned desired state. */
 final readonly class DnsZoneStore

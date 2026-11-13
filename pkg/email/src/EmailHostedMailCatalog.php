@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Email;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Hosted HTTP adapters and exact-recipient routes in the shared CMS store. */
 final readonly class EmailHostedMailCatalog

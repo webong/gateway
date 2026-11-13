@@ -24,8 +24,17 @@ export APP_CONFIG_CACHE="$DATA_DIR/cache/config.php"
 export APP_ROUTES_CACHE="$DATA_DIR/cache/routes-v7.php"
 export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
 
+migrate_gateway_schema() {
+    if [ "${GATEWAY_MIGRATIONS_ADOPT_EXISTING:-false}" = true ]; then
+        php "$APP_DIR/artisan" gateway:migrate --adopt-existing
+    else
+        php "$APP_DIR/artisan" gateway:migrate
+    fi
+}
+
 case "${1:-serve}" in
     migrate)
+        migrate_gateway_schema
         php "$APP_DIR/artisan" migrate --realpath \
             --path=/gateway/vendor/webong/proxy/database/migrations --force
         exec php "$APP_DIR/artisan" migrate --force
@@ -66,15 +75,42 @@ case "${1:-serve}" in
                     exit 1
                 fi
                 ;;
+            workerman)
+                if ! php -r "require '$COMPOSER_VENDOR_DIR/autoload.php'; exit(class_exists('Workerman\\Worker') ? 0 : 1);"; then
+                    echo 'Workerman hosting requires workerman/workerman.' >&2
+                    exit 1
+                fi
+                ;;
             *)
-                echo 'GATEWAY_PLANNER_SERVER must be fpm, frankenphp, swoole, or roadrunner.' >&2
+                echo 'GATEWAY_PLANNER_SERVER must be fpm, frankenphp, swoole, roadrunner, or workerman.' >&2
                 exit 2
                 ;;
         esac
 
+        migrate_gateway_schema
         php "$APP_DIR/artisan" migrate --realpath \
             --path=/gateway/vendor/webong/proxy/database/migrations --force
         php "$APP_DIR/artisan" migrate --force
+
+        if [ "$SERVER" = workerman ]; then
+            # Workerman stops immediately on SIGTERM and SIGINT, which is what
+            # `docker stop` and Kubernetes send, and drains in-flight requests only
+            # on SIGQUIT. Keep this script as the container's entrypoint and
+            # translate those stop signals into SIGQUIT, so a stop lets requests
+            # finish. The master's own exit status becomes ours.
+            php "$APP_DIR/workerman.php" start &
+            WORKERMAN_PID=$!
+            trap 'kill -QUIT "$WORKERMAN_PID" 2>/dev/null || true' TERM INT
+            while :; do
+                status=0
+                wait "$WORKERMAN_PID" || status=$?
+                # `wait` also returns when a trapped signal arrives; only leave
+                # once the master has really exited.
+                kill -0 "$WORKERMAN_PID" 2>/dev/null || break
+            done
+            trap - TERM INT
+            exit "$status"
+        fi
 
         if [ "$SERVER" = fpm ]; then
             export GATEWAY_PLANNER_APP_DIR="$APP_DIR"

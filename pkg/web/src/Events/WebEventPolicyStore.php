@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Web\Events;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Opt-in Web event capture policy. Shared ledger retention is Planner-owned. */
 final readonly class WebEventPolicyStore

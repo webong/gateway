@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Exercise a real consumer installation without Laravel or the monorepo vendor.
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-package.XXXXXX")
+trap 'rm -rf -- "$TEST_DIR"' EXIT
+
+php -r '
+$root = $argv[1];
+$manifest = [
+    "name" => "gateway-test/symfony-consumer",
+    "require" => ["webong/gateway" => "dev-main", "symfony/framework-bundle" => "^7.3"],
+    "repositories" => array_map(fn ($path) => [
+        "type" => "path", "url" => $root."/".$path,
+        "options" => ["symlink" => false, "versions" => ["webong/gateway" => "dev-main", "webong/gateway-adapter" => "dev-main"]],
+    ], ["pkg/planner", "mod/adapter"]),
+    "minimum-stability" => "dev", "prefer-stable" => true,
+];
+file_put_contents($argv[2]."/composer.json", json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+' "$ROOT" "$TEST_DIR"
+
+COMPOSER_ROOT_VERSION=dev-main composer update --working-dir="$TEST_DIR" \
+    --no-plugins --no-scripts --no-interaction --prefer-dist --quiet
+php "$ROOT/tests/Fixtures/planner-consumer.php" "$TEST_DIR"

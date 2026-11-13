@@ -6,8 +6,8 @@ namespace Webong\Gateway\Email;
 
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Operator-selected TXT format, snapshotted on every claimed domain. */
 final readonly class EmailVerificationProfile

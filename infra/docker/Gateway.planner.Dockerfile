@@ -78,6 +78,7 @@ WORKDIR /gateway/app
 ENV GATEWAY_ROUTER_DATA_DIR=/data/planner \
     GATEWAY_COMPANION_PLUGIN_DIR=/data/extensions \
     GATEWAY_COMPANION_GENERATION_ROOT=/data/companion-generations \
+    GATEWAY_COMPANION_PHP_BINARY=/usr/local/bin/php \
     GATEWAY_PLANNER_SERVER=frankenphp \
     GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver' \
     XDG_CONFIG_HOME=/config \

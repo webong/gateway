@@ -6,20 +6,20 @@ namespace Webong\Gateway\Email;
 
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
-use Webong\Gateway\Accounts\AccountStore;
 use Webong\Gateway\Automation\CapabilityAwareRoutePlanner;
 use Webong\Gateway\Companion\ExtensionRuntimeConfigurationRegistry;
 use Webong\Gateway\Contracts\AutomationLanguageRegistry;
 use Webong\Gateway\Contracts\CacheablePathResolver;
 use Webong\Gateway\Contracts\PathResolver;
-use Webong\Gateway\Deliveries\DeliveryAdminClient;
 use Webong\Gateway\Deliveries\DeliveryAdminReplayPolicyRegistry;
-use Webong\Gateway\GatewayRouter;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
+use Webong\Gateway\Laravel\Deliveries\DeliveryAdminClient;
+use Webong\Gateway\Laravel\GatewayRouter;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use Webong\Gateway\Planning\PathResolverRegistry;
 use Webong\Gateway\Planning\ProtocolPlannerRegistry;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
-use Webong\Gateway\Resources\PlannerResourceStore;
 use Webong\Gateway\Schedules\NativeScheduleJobRegistry;
 use Webong\Proxy\WebProxy;
 

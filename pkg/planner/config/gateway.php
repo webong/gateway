@@ -7,6 +7,8 @@ return [
     // process.
     'internal_token' => (string) env('GATEWAY_INTERNAL_TOKEN', ''),
 
+    'max_planning_body_bytes' => (int) env('GATEWAY_MAX_PLANNING_BODY_BYTES', 1048576),
+
     // Optional custom route planner. Otherwise an installed Planner Extension
     // provides the default route planner.
     'planner' => env('GATEWAY_PLANNER'),

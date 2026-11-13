@@ -1,13 +1,24 @@
 {
-    "name": "webong/gateway-planner",
-    "description": "Laravel Planner runtime for Webong Gateway",
+    "name": "webong/gateway",
+    "description": "Gateway Planner with Laravel integration and Symfony planning support",
     "type": "library",
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "laravel/framework": "^12.0",
-        "webong/gateway": "dev-main",
-        "webong/proxy": "^0.2.0"
+        "robmorgan/phinx": "^0.16",
+        "symfony/config": "^7.3 || ^8.0",
+        "symfony/console": "^7.3 || ^8.0",
+        "symfony/dependency-injection": "^7.3 || ^8.0",
+        "symfony/http-foundation": "^7.3 || ^8.0",
+        "symfony/http-kernel": "^7.3 || ^8.0",
+        "symfony/process": "^7.3 || ^8.0",
+        "symfony/routing": "^7.3 || ^8.0",
+        "webong/gateway-adapter": "dev-main"
+    },
+    "suggest": {
+        "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
+        "webong/proxy": "Required with Laravel for registry, subscriptions, and management (^0.2.0).",
+        "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0)."
     },
     "autoload": {
         "psr-4": {
@@ -17,7 +28,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Webong\\Gateway\\GatewayServiceProvider"
+                "Webong\\Gateway\\Laravel\\GatewayServiceProvider"
             ]
         }
     },

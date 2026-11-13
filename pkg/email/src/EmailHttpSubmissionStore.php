@@ -7,8 +7,8 @@ namespace Webong\Gateway\Email;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
+use Webong\Gateway\Laravel\Accounts\AccountStore;
 use stdClass;
-use Webong\Gateway\Accounts\AccountStore;
 
 /** Pins one HTTP submission key to a durable receipt and Spinner node. */
 final readonly class EmailHttpSubmissionStore

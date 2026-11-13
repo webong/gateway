@@ -1,7 +1,7 @@
 {
-    "name": "webong/gateway",
-    "description": "Framework-free contracts and protocol for the Webong Gateway transport",
-    "type": "library",
+    "name": "webong/gateway-monorepo",
+    "description": "Development workspace for Webong Gateway",
+    "type": "project",
     "license": "MIT",
     "require": {
         "php": "^8.3"
@@ -15,94 +15,54 @@
         "smuuf/primi": "^0.4",
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3",
-        "webong/database": "dev-main",
-        "webong/dns": "dev-main",
-        "webong/email": "dev-main",
-        "webong/gateway-planner": "dev-main",
-        "webong/web": "dev-main",
-        "wikimedia/composer-merge-plugin": "^2.1"
+        "symfony/framework-bundle": "^7.3",
+        "webong/composer-source-plugin": "^0.4",
+        "webong/gateway": "dev-main",
+        "webong/gateway-adapter": "dev-main",
+        "webong/gateway-builder": "dev-main",
+        "webong/gateway-centrifugo": "dev-main",
+        "webong/gateway-database": "dev-main",
+        "webong/gateway-dns": "dev-main",
+        "webong/gateway-email": "dev-main",
+        "webong/gateway-hookscript": "dev-main",
+        "webong/gateway-javascript": "dev-main",
+        "webong/gateway-lua": "dev-main",
+        "webong/gateway-mercure": "dev-main",
+        "webong/gateway-reverb": "dev-main",
+        "webong/gateway-shell": "dev-main",
+        "webong/gateway-web": "dev-main",
+        "webong/proxy": "^0.2.0",
+        "workerman/workerman": "^5.2"
     },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "pkg/planner",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "path",
-            "url": "pkg/web",
-            "options": {"symlink": true}
-        },
-        {
-            "type": "path",
-            "url": "pkg/dns",
-            "options": {"symlink": true}
-        },
-        {
-            "type": "path",
-            "url": "pkg/email",
-            "options": {"symlink": true}
-        },
-        {
-            "type": "path",
-            "url": "pkg/database",
-            "options": {"symlink": true}
-        }
-    ],
     "minimum-stability": "dev",
     "prefer-stable": true,
-    "autoload": {
-        "psr-4": {
-            "Webong\\Gateway\\Companion\\": "mod/adapter/src/Companion/",
-            "Webong\\Gateway\\Contracts\\": "mod/adapter/src/Contract/",
-            "Webong\\Gateway\\Protocols\\": "mod/adapter/src/Protocol/"
-        }
-    },
     "autoload-dev": {
         "psr-4": {
-            "Webong\\Gateway\\Tests\\": "tests/"
+            "Webong\\Gateway\\Tests\\": "tests/",
+            "Webong\\Gateway\\Centrifugo\\Tests\\": "pkg/centrifugo/tests/",
+            "Webong\\Gateway\\HookScript\\Tests\\": "pkg/hookscript/tests/",
+            "Webong\\Gateway\\Mercure\\Tests\\": "pkg/mercure/tests/",
+            "Webong\\Gateway\\Reverb\\Tests\\": "pkg/reverb/tests/"
         }
-    },
-    "archive": {
-        "exclude": [
-            "/*",
-            "/.*",
-            "!/composer.json",
-            "!/LICENSE",
-            "!/README.md",
-            "!/mod",
-            "/mod/*",
-            "!/mod/adapter",
-            "/mod/adapter/*",
-            "!/mod/adapter/src",
-            "!/mod/adapter/src/**"
-        ]
     },
     "scripts": {
         "test": "pest",
         "test-package": "bash scripts/test-core-package"
     },
     "extra": {
-        "merge-plugin": {
-            "include": [
-                "pkg/*/composer.json"
-            ],
-            "exclude": [
-                "pkg/hookscript/composer.json"
-            ],
-            "recurse": false,
-            "replace": false,
-            "merge-dev": true,
-            "merge-extra": false,
-            "merge-scripts": false
+        "source-plugin": {
+            "workspaces": [
+                "mod/adapter",
+                "mod/builder",
+                "pkg/*"
+            ]
         }
     },
     "config": {
         "allow-plugins": {
             "pestphp/pest-plugin": true,
-            "wikimedia/composer-merge-plugin": true
+            "webong/composer-source-plugin": true,
+            "webong/gateway-builder": true
         },
         "sort-packages": true
     }

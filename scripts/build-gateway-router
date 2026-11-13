@@ -35,14 +35,14 @@ cp -R "$REPO_DIR/vendor" "$STAGE/"
 # Composer's path repository is copied rather than symlinked. Refresh the
 # staged package from this checkout so Planner edits cannot ship stale vendor
 # contents from an earlier composer install.
-if [ -d "$STAGE/vendor/webong/gateway" ]; then
-    mkdir -p "$STAGE/vendor/webong/gateway/mod"
-    cp -R "$REPO_DIR/mod/adapter" "$STAGE/vendor/webong/gateway/mod/"
-    cp "$REPO_DIR/composer.json" "$STAGE/vendor/webong/gateway/composer.json"
+if [ -d "$STAGE/vendor/webong/gateway-adapter" ]; then
+    cp -R "$REPO_DIR/mod/adapter/." "$STAGE/vendor/webong/gateway-adapter/"
 fi
-for package in gateway-planner web dns email database; do
-    source=$package
-    [ "$package" = gateway-planner ] && source=planner
+for package in gateway gateway-web gateway-dns gateway-email gateway-database; do
+    case "$package" in
+        gateway) source=planner ;;
+        gateway-*) source=${package#gateway-} ;;
+    esac
     rm -rf "$STAGE/vendor/webong/$package"
     cp -R "$REPO_DIR/pkg/$source" "$STAGE/vendor/webong/$package"
 done

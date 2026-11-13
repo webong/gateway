@@ -96,30 +96,35 @@ php -r '
             exit(1);
         }
     }
+    if (! in_array("../mod/adapter", $repositories, true)) {
+        fwrite(STDERR, "Planner host is missing the local Gateway adapter repository.\n");
+        exit(1);
+    }
     $includes = $manifest["extra"]["merge-plugin"]["include"] ?? [];
     if (in_array("../pkg/*/composer.json", $includes, true) || in_array("../pkg/planner/composer.json", $includes, true)) {
         fwrite(STDERR, "Planner must be installed as a package, not merged as an extension.\n");
         exit(1);
     }
     $lock = json_decode(file_get_contents($root."/app/composer.lock"), true, flags: JSON_THROW_ON_ERROR);
-    $coreFound = false;
+    $adapterFound = false;
     $localPackages = [
-        "webong/gateway-planner" => "../pkg/planner",
-        "webong/web" => "../pkg/web",
-        "webong/dns" => "../pkg/dns",
-        "webong/email" => "../pkg/email",
-        "webong/database" => "../pkg/database",
+        "webong/gateway" => "../pkg/planner",
+        "webong/gateway-adapter" => "../mod/adapter",
+        "webong/gateway-web" => "../pkg/web",
+        "webong/gateway-dns" => "../pkg/dns",
+        "webong/gateway-email" => "../pkg/email",
+        "webong/gateway-database" => "../pkg/database",
     ];
     foreach ($lock["packages"] ?? [] as $package) {
-        if (($package["name"] ?? null) === "webong/gateway") {
+        if (($package["name"] ?? null) === "webong/gateway-adapter") {
             $autoload = $package["autoload"]["psr-4"] ?? [];
-            if (($autoload["Webong\\Gateway\\Companion\\"] ?? null) !== "mod/adapter/src/Companion/"
-                || ($autoload["Webong\\Gateway\\Contracts\\"] ?? null) !== "mod/adapter/src/Contract/"
-                || ($autoload["Webong\\Gateway\\Protocols\\"] ?? null) !== "mod/adapter/src/Protocol/") {
-                fwrite(STDERR, "Locked Gateway core autoload does not match mod/adapter.\n");
+            if (($autoload["Webong\\Gateway\\Companion\\"] ?? null) !== "src/Companion/"
+                || ($autoload["Webong\\Gateway\\Contracts\\"] ?? null) !== "src/Contract/"
+                || ($autoload["Webong\\Gateway\\Protocols\\"] ?? null) !== "src/Protocol/") {
+                fwrite(STDERR, "Locked Gateway adapter autoload does not match mod/adapter.\n");
                 exit(1);
             }
-            $coreFound = true;
+            $adapterFound = true;
         }
         $name = $package["name"] ?? null;
         if (is_string($name) && isset($localPackages[$name])) {
@@ -130,7 +135,7 @@ php -r '
             unset($localPackages[$name]);
         }
     }
-    if (! $coreFound || $localPackages !== []) {
+    if (! $adapterFound || $localPackages !== []) {
         fwrite(STDERR, "app/composer.lock is missing a required local Gateway package.\n");
         exit(1);
     }

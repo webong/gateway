@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Webong\Gateway\Dns;
 
 use InvalidArgumentException;
+use Webong\Gateway\Laravel\Resources\PlannerResourceStore;
 use stdClass;
-use Webong\Gateway\Resources\PlannerResourceStore;
 
 /** Planner-owned forwarding policies for upstream DNS resolvers. */
 final readonly class DnsForwarderStore

@@ -12,7 +12,7 @@ together in the Gateway Router distribution.
 | --- | --- | --- |
 | Gateway Router | Spinner and the bundled Planner behind one public listener, hosted by embedded RoadRunner or FrankenPHP | You want a self-contained Gateway-owned registry |
 | Spinner | Go image plus an external PHP Planner | Your Planner lives in an existing Laravel app or a separate service |
-| Planner | `webong/gateway-planner` Composer package | Your Laravel app owns route policy and registry context |
+| Planner | `webong/gateway` Composer package | Your Laravel app owns route policy and registry context |
 
 The same route-plan and protocol-event contracts connect Spinner and Planner
 in both deployment shapes. The optional `pkg/frankenphp` Go module embeds the
@@ -69,10 +69,13 @@ selected runtime adapter.
 
 The monorepo publishes separate Composer packages:
 
-- `webong/gateway` contains the framework-free contracts and protocol values in
+- `webong/gateway-adapter` contains the framework-free contracts and protocol values in
   `mod/adapter/src/`.
-- `webong/gateway-planner` contains the Laravel Planner core in `pkg/planner/`.
-- `webong/web`, `webong/dns`, `webong/email`, and `webong/database` are
+- `webong/gateway` contains the PHP Planner core in `pkg/planner/`,
+  including separate Laravel and Symfony integrations over shared planning and
+  migration code. See the [Planner package guide](pkg/planner/README.md).
+- `webong/gateway-web`, `webong/gateway-dns`, `webong/gateway-email`, and
+  `webong/gateway-database` are
   self-contained Gateway Extensions. Each owns its Planner policy entrypoint
   and Spinner transport entrypoint under one package identity and version.
 - `webong/gateway-*` extension packages own their sources, dependencies, and
@@ -80,22 +83,62 @@ The monorepo publishes separate Composer packages:
   Automation, or Companion capabilities; those capability names describe what
   the package provides, while Extension describes the installable package.
 
-The root development project and the bundled Router host use Composer Merge
-Plugin to discover `pkg/*/composer.json`, so extension autoload paths and
-providers come from the extension manifests rather than from duplicated root
-mappings. The Go Spinner, Go Arranger library, bundled Router app, tests, and
-deployment/build tooling are not part of the Composer packages.
+The root development project uses Composer Source Plugin workspaces to link
+`mod/adapter`, `mod/builder`, and the Composer packages in `pkg/*`. Each package
+owns its runtime autoload paths and discovery metadata. The bundled Router
+host still uses its own production dependency manifest. The Go
+Spinner, Go Arranger library, bundled Router app, tests, and deployment/build
+tooling are not part of the Composer packages.
 
-`.gitattributes` controls GitHub/Git source archives; `archive.exclude` in
-`composer.json` controls Composer-built archives for the core package. Verify
-the core archive with `composer test-package` from a source checkout.
+Run `composer source:workspaces` to inspect the local packages. When updating
+dependencies on a feature branch, use
+`COMPOSER_ROOT_VERSION=dev-main composer update` so sibling packages satisfy
+their development constraints. Commit the lock file; fresh checkouts can run
+`scripts/composer-install` using its recorded relative workspace paths.
+Workspaces provide local resolution. Installing the packages from this
+repository, and releasing them, is done by `scripts/split-packages`: it splits
+each package into a `dist/<package>` branch, tags releases, and publishes a
+Composer repository, so no separate repositories are needed. See
+[Installing and releasing the Composer packages](docs/composer-packages.md).
 
-This applies to releases containing these packaging rules, not existing tags
-or cached archives. `--prefer-source` (or a fallback to a Git clone) still
-downloads the full repository. Use a Git clone for Router/Spinner builds:
-the repository's generated source ZIP/tar downloads are core-only.
+The repository root is the non-published `webong/gateway-monorepo` development
+project. Verify the independently installable adapter archive with
+`composer test-package` from a source checkout.
+
+This applies to releases containing these package names, not existing tags or
+cached archives. Use a Git clone for Router/Spinner builds.
 The Arranger release script constructs its own separate release tree and is
 unaffected by these root archive rules.
+
+### Planner database migrations
+
+Planner owns one framework-neutral migration stream in `pkg/planner/migrations`
+and records it in `gateway_migrations`. Eloquent and Doctrine may both use the
+resulting PDO-backed schema; neither ORM owns its migration history.
+
+Laravel hosts run `php artisan gateway:migrate`. An existing installation that
+previously ran Planner's Laravel migrations must run
+`php artisan gateway:migrate --adopt-existing` once; adoption validates the
+existing schema and records the neutral baseline without replaying table
+creation.
+
+Symfony hosts register `MigrateGatewayCommand` with an injected
+`GatewayMigrationRunner`. Both adapters execute the same migration files and
+use the same history table. SQLite, PostgreSQL, MySQL, and MariaDB Laravel-style
+connection arrays are supported. PostgreSQL migrations preserve TLS settings
+(`sslmode`, `sslrootcert`, `sslcert`, `sslkey`) and target the first existing
+schema in `search_path`. Laravel supplies its configured write connection;
+neutral consumers open a PDO connection from the same options. MySQL migrations
+preserve PDO options (including TLS) and Unix sockets. Laravel migrations reuse
+the configured write PDO for SQLite, PostgreSQL and MySQL, including in-memory
+SQLite databases.
+
+The bundled Planner host also accepts `GATEWAY_PLANNER_SERVER=workerman`.
+Workerman owns the HTTP workers while Octane owns Laravel's application sandbox
+and per-request reset lifecycle; the adapter does not run one unreset Laravel
+container across requests. Existing deployments set
+`GATEWAY_MIGRATIONS_ADOPT_EXISTING=true` for their first startup on the neutral
+migration stream, then remove it.
 
 ## Repository layout
 
@@ -116,6 +159,9 @@ unaffected by these root archive rules.
 - `mod/adapter` is the framework-free PHP seam shared by Planner and its
   optional PHP companion packages; it contains interfaces and protocol values,
   never Planner implementations.
+- `mod/builder` publishes the `webong/gateway-builder` Composer plugin and
+  standalone CLI used to assemble deterministic `ext.package/v1` extension
+  artifacts; it is build tooling, not a runtime dependency.
 - Trusted extensions may register named [PHP companion actions](docs/companion-actions.md)
   in the Planner host and invoke them from Spinner through the Arranger
   companion interface; invocation transports data, never PHP source.
@@ -130,9 +176,11 @@ unaffected by these root archive rules.
 - `pkg/planner` is the PHP Planner core package source tree.
 - `app/` is the thin PHP host for the bundled Planner, not a conventional
   Laravel application skeleton.
-- `pkg/planner/config/` contains the Laravel Planner core configuration;
+- `pkg/planner/src/Laravel/` owns Laravel storage, management, and framework wiring;
+  `pkg/planner/src/Symfony/` owns Symfony wiring. The remaining source is shared.
+- `pkg/planner/config/` contains Laravel configuration and Symfony route imports;
   `infra/caddy/` holds Caddy examples used by integration builds.
-- `pkg/planner/src/Servers`, `pkg/planner/src/Reconciliation`, `pkg/planner/src/database/migrations`, and
+- `pkg/planner/src/Laravel/Servers`, `pkg/planner/src/Laravel/Reconciliation`, `pkg/planner/migrations`, and
   `pkg/spinner/provision` are the core managed-server control plane and
   runtime: shared storage, `/servers`, `/applications`, `/instances`, desired
   state, health, scaling, routing, reconciliation, and Local/Docker/Kubernetes
@@ -994,7 +1042,7 @@ successful writes. If application code mutates `proxy` directly, invalidate
 the affected snapshot explicitly:
 
 ```php
-use Webong\Gateway\RegistryRouteCache;
+use Webong\Gateway\Laravel\RegistryRouteCache;
 
 app(RegistryRouteCache::class)->invalidateEndpoint($endpointKey);
 app(RegistryRouteCache::class)->invalidatePaths(); // when path ownership changed
@@ -1033,7 +1081,7 @@ The PHP-facing DSL compiles to a normal `webong/proxy` destination:
 
 ```php
 use Webong\Gateway\Protocols\MatchRules;
-use Webong\Gateway\SubscribeEndpoint;
+use Webong\Gateway\Laravel\SubscribeEndpoint;
 use Webong\Gateway\Web\WebSubscriptionDefinition;
 
 $definition = WebSubscriptionDefinition::matching(
