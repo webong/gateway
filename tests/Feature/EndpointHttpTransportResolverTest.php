@@ -172,7 +172,7 @@ it('serializes a planned delivery that Spinner forwards through the profile', fu
     $root = dirname(__DIR__, 2);
     $go = trim((string) shell_exec('command -v go 2>/dev/null'));
     $needed = preg_match('/^go\s+(\S+)/m', (string) file_get_contents($root.'/pkg/spinner/go.mod'), $directive) === 1 ? $directive[1] : '0';
-    $installed = $go === '' ? '' : ltrim(trim((string) shell_exec(escapeshellarg($go).' env GOVERSION 2>/dev/null')), 'go');
+    $installed = $go === '' ? '' : ltrim(trim((string) shell_exec('GOTOOLCHAIN=local '.escapeshellarg($go).' env GOVERSION 2>/dev/null')), 'go');
     if ($installed === '' || version_compare($installed, $needed, '<') || getenv('GATEWAY_SKIP_GO_INTEGRATION') === '1') {
         $this->markTestSkipped("Needs Go {$needed} or newer on PATH to route the serialized delivery through Spinner.");
     }
