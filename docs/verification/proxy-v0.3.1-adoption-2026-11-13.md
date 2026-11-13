@@ -5,7 +5,8 @@ Gateway now consumes `webong/proxy` v0.3.1 in PHP and Go. This delivers
 v0.3.0 to v0.3.1: v0.3.1 keeps the v0.3.0 transport APIs and JSON wire
 `version: 1`, and fixes SQL registry portability. Nothing here changes
 `app/config.php`'s connection list or `scripts/planner-start`'s PostgreSQL
-requirement; Gateway does not support MySQL at runtime.
+requirement. (Written before MySQL runtime support: see
+[Planner MySQL runtime](planner-mysql-runtime-2026-11-14.md).)
 
 ## Versions
 

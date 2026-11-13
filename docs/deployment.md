@@ -149,6 +149,65 @@ The Planner must trust only its private reverse proxy so Laravel can recognize
 the original HTTPS scheme; do not trust arbitrary public `X-Forwarded-Proto`
 headers or expose the Planner listener directly.
 
+## Database support
+
+| | SQLite | PostgreSQL | MySQL 8.4 |
+| --- | --- | --- | --- |
+| Standalone Planner (`scripts/planner-start`) | no | yes | yes |
+| Bundled Router, registry on the spool path (`scripts/router-start`) | yes (default) | yes | yes |
+| Router shared deliveries (`GATEWAY_DELIVERY_DATABASE_URL`) | no | **yes** | **no** |
+| Gateway migrations (`gateway:migrate`) | yes | yes | yes (MariaDB: migrations only) |
+
+The Router's shared delivery queue and its delivery-admin discovery are Go code
+written in PostgreSQL SQL (`SKIP LOCKED` claims with `RETURNING`, `ON CONFLICT`,
+`payload->>'adapter'`), so `scripts/router-start` refuses `DB_CONNECTION=mysql`
+together with `GATEWAY_DELIVERY_DATABASE_URL`. A MySQL deployment runs the Router
+on the spool path (`GATEWAY_DELIVERY_SPOOL_PATH`, the default). MariaDB is not
+supported at runtime.
+
+**Running the Planner on MySQL.** Create the database with the exact collation,
+then point the launcher at it:
+
+```sql
+CREATE DATABASE gateway CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin;
+```
+
+```sh
+DB_CONNECTION=mysql
+DB_URL=mysql://gateway:secret@mysql.internal:3306/gateway
+```
+
+`scripts/planner-start migrate` then applies Gateway's schema, Proxy's migrations
+and the application's, as it does on PostgreSQL. What differs from PostgreSQL, and
+what Gateway does about it (`app/config.php`, the `mysql` connection):
+
+- **Exact comparisons.** MySQL's default collations ignore case, accents and
+  trailing spaces. The tables `gateway:migrate` creates are `utf8mb4_0900_bin`,
+  whatever the database default is, so keys, tokens and names compare exactly, as
+  on PostgreSQL and SQLite. Tables made by Laravel-style migrations (Proxy's, the
+  Email extension's) inherit the database default, which is why the database
+  should be created with the same collation. `DB_COLLATION` changes the
+  connection collation.
+- **Dates past 2038.** The timestamp columns `gateway:migrate` creates are
+  `DATETIME` on MySQL, not `TIMESTAMP`, which ends in 2038. Tables made by
+  Laravel-style migrations keep `TIMESTAMP`: Proxy's (audit stamps such as
+  `created_at` and `last_delivered_at`) and the Email extension's (`expires_at`,
+  `lease_until`, `next_attempt_at`, `occurred_at`, which hold short retention and
+  retry times). A date after 2038 in one of those columns is rejected.
+- **UTC and READ COMMITTED.** The connection sets its time zone to `+00:00`
+  (`DB_TIMEZONE`) and its isolation level to `READ COMMITTED` (`DB_ISOLATION_LEVEL`),
+  PostgreSQL's default, instead of MySQL's `REPEATABLE READ`.
+- **JSON text.** MySQL's `JSON` type rewrites stored text (key order, whitespace,
+  escaped slashes). Nothing Gateway stores is hashed or signed from the stored
+  text; request bodies are kept as base64 inside it.
+- **TLS.** Set `MYSQL_ATTR_SSL_CA` to a CA bundle to verify the server.
+
+`tests/Feature/PlannerMysqlRuntimeTest.php`, the MySQL cases in
+`tests/Feature/WorkermanPlannerTest.php` and `scripts/test-launcher-databases`
+cover this; they run when `GATEWAY_TEST_MYSQL_*` is set, as in CI. See the
+[MySQL runtime note](verification/planner-mysql-runtime-2026-11-14.md) for the
+measured runs and what was not run.
+
 ## Upgrading to Proxy 0.3.1 (subscription identity migration)
 
 Gateway now requires `webong/proxy` `^0.3.1`. Proxy 0.3.1 adds one additive
@@ -207,9 +266,8 @@ with the Proxy 0.3.1 migrations, and checks that every row is unchanged, hashed
 and unique, the old key is gone and a second run does nothing. It runs on SQLite
 always and on PostgreSQL when `GATEWAY_TEST_POSTGRES_*` is set. The same file
 applies the migrations to a fresh MySQL 8.4 database with the default utf8mb4
-settings when `GATEWAY_TEST_MYSQL_*` is set. That is migration evidence only:
-Gateway's own supported databases remain PostgreSQL for the standalone Planner
-and SQLite for the native Router. See the
+settings when `GATEWAY_TEST_MYSQL_*` is set. See [Database
+support](#database-support) for what runs on MySQL, and the
 [Proxy 0.3.1 adoption note](verification/proxy-v0.3.1-adoption-2026-11-13.md)
 for the measured runs.
 
