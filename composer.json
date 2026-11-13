@@ -8,7 +8,7 @@
         "php": "^8.3",
         "webong/gateway": "dev-main",
         "webong/gateway-adapter": "dev-main",
-        "webong/proxy": "^0.2.0"
+        "webong/proxy": "^0.3.1"
     },
     "autoload": {
         "psr-4": {
