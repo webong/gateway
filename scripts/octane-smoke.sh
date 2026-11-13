@@ -12,7 +12,6 @@ BASE_URL="http://127.0.0.1:$PORT"
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gateway-octane.XXXXXX")"
 CONFIG="$TEMP_DIR/config.yaml"
 LOG="$TEMP_DIR/relay.log"
-HEADERS="$TEMP_DIR/response.headers"
 BODY="$TEMP_DIR/response.body"
 RELAY_BIN="$TEMP_DIR/gateway"
 RELAY_PID=""
@@ -23,7 +22,7 @@ cleanup() {
         wait "$RELAY_PID" 2>/dev/null || true
     fi
 
-    rm -f "$CONFIG" "$LOG" "$HEADERS" "$BODY" "$RELAY_BIN"
+    rm -f "$CONFIG" "$LOG" "$BODY" "$RELAY_BIN"
     rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -52,7 +51,6 @@ server:
     APP_KEY: "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     LARAVEL_OCTANE: "1"
     GATEWAY_INTERNAL_TOKEN: "$TOKEN"
-    GATEWAY_PLANNER: 'Webong\Gateway\Tests\Fixtures\OctaneSmokePlanner'
 
 http:
   address: "127.0.0.1:$PORT"
@@ -66,7 +64,8 @@ logs:
 EOF
 
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
-go -C "$ROOT/pkg/roadrunner/cmd/router" build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
+# The repository's go.work rejects -mod=mod, so build the module on its own, as CI does.
+GOWORK=off go -C "$ROOT/pkg/roadrunner/cmd/router" build "$GO_BUILD_FLAGS" -o "$RELAY_BIN" .
 
 ROADRUNNER_CONFIG="$CONFIG" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
@@ -116,22 +115,18 @@ if [[ "$(<"$BODY")" != 'octane-pass-through:{"event":"created"}' ]]; then
     exit 1
 fi
 
-curl -sS --max-time 5 -D "$HEADERS" -o "$BODY" "$BASE_URL/octane-smoke/plan"
-plan_status="$(awk '/^HTTP\// { status = $2 } END { print status }' "$HEADERS")"
-plan_header="$(awk 'tolower($1) == "x-gateway-plan:" { sub(/\r$/, "", $2); print $2; exit }' "$HEADERS")"
-
-if [[ "$plan_status" != "202" ]]; then
-    echo "Unexpected planned response status: $plan_status" >&2
+# The RoadRunner Router does not plan public paths itself: they reach Laravel directly, as
+# the pass-through above shows. HTTP planning belongs to an installable traffic extension
+# mounted under /hooks, so with none installed that edge must fail closed instead of falling
+# through to PHP. scripts/http-smoke.sh covers a planned HTTP response.
+hooks_status="$(curl -sS --max-time 5 -o "$BODY" -w '%{http_code}' "$BASE_URL/hooks/octane-smoke/plan")"
+if [[ "$hooks_status" != "503" ]]; then
+    echo "Unexpected status from the extension edge with no extension installed: $hooks_status" >&2
     exit 1
 fi
 
-if [[ "$plan_header" != "octane" ]]; then
-    echo "Unexpected planner response header: $plan_header" >&2
-    exit 1
-fi
-
-if [[ "$(<"$BODY")" != "planned-by-octane" ]]; then
-    echo "Unexpected planner response body: $(<"$BODY")" >&2
+if [[ "$(<"$BODY")" != *"Gateway extension for this route is not installed"* ]]; then
+    echo "Unexpected extension edge body: $(<"$BODY")" >&2
     exit 1
 fi
 
