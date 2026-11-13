@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# Checks which databases the bundled launchers accept.
+#
+# * scripts/planner-start serves the standalone Planner on PostgreSQL or MySQL.
+# * scripts/router-start keeps shared deliveries (GATEWAY_DELIVERY_DATABASE_URL) on
+#   PostgreSQL, because the Go shared queue is written in PostgreSQL SQL, and still
+#   lets the bundled Router keep its registry on MySQL with the spool path.
+#
+# The MySQL boot at the end needs GATEWAY_TEST_MYSQL_DATABASE (and optionally
+# GATEWAY_TEST_MYSQL_HOST, _PORT, _USERNAME, _PASSWORD), as the Pest suite does.
+set -euo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-launcher-databases.XXXXXX")
+MYSQL_DATABASE_CREATED=
+cleanup() {
+    if [ -n "$MYSQL_DATABASE_CREATED" ]; then
+        php "$TEST_DIR/mysql-admin.php" drop "$MYSQL_DATABASE_CREATED" >/dev/null 2>&1 || true
+    fi
+    rm -rf -- "$TEST_DIR"
+}
+trap cleanup EXIT
+
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+
+# --- planner-start, with a recording php so no database is needed ---------------
+mkdir -p "$TEST_DIR/stub" "$TEST_DIR/planner-data"
+cat > "$TEST_DIR/stub/php" <<'SH'
+#!/bin/sh
+echo "$*" >> "$PHP_CALLS"
+SH
+chmod +x "$TEST_DIR/stub/php"
+PHP_CALLS="$TEST_DIR/php-calls"
+
+run_planner() {
+    local connection=$1 url=$2
+    : > "$PHP_CALLS"
+    env -u DB_CONNECTION -u DB_URL \
+        ${connection:+DB_CONNECTION="$connection"} ${url:+DB_URL="$url"} \
+        PATH="$TEST_DIR/stub:$PATH" PHP_CALLS="$PHP_CALLS" \
+        APP_KEY=base64:test GATEWAY_INTERNAL_TOKEN=internal REGISTRY_TOKEN=registry \
+        GATEWAY_ROUTER_DATA_DIR="$TEST_DIR/planner-data" \
+        GATEWAY_PLANNER_APP_DIR="$TEST_DIR/app" COMPOSER_VENDOR_DIR="$TEST_DIR/vendor" \
+        sh "$ROOT/scripts/planner-start" migrate 2>&1
+}
+
+expect_planner_rejected() {
+    local label=$1 message=$2 connection=$3 url=$4 output status=0
+    output=$(run_planner "$connection" "$url") || status=$?
+    [ "$status" -ne 0 ] || fail "planner-start accepted $label"
+    case "$output" in
+        *"$message"*) ;;
+        *) fail "planner-start rejected $label with an unexpected message: $output" ;;
+    esac
+    [ ! -s "$PHP_CALLS" ] || fail "planner-start ran PHP before rejecting $label"
+}
+
+expect_planner_accepted() {
+    local connection=$1 url=$2 output status=0
+    output=$(run_planner "$connection" "$url") || status=$?
+    [ "$status" -eq 0 ] || fail "planner-start rejected DB_CONNECTION=$connection: $output"
+    grep -q 'gateway:migrate' "$PHP_CALLS" || fail "planner-start did not run gateway:migrate for $connection"
+    grep -q 'migrate --force' "$PHP_CALLS" || fail "planner-start did not run the application migrations for $connection"
+}
+
+expect_planner_rejected 'no connection' 'DB_CONNECTION=pgsql or DB_CONNECTION=mysql' '' 'postgresql://x'
+expect_planner_rejected 'sqlite' 'DB_CONNECTION=pgsql or DB_CONNECTION=mysql' sqlite 'sqlite:///x'
+expect_planner_rejected 'mysql without DB_URL' 'requires DB_URL' mysql ''
+expect_planner_rejected 'pgsql without DB_URL' 'requires DB_URL' pgsql ''
+expect_planner_accepted pgsql 'postgresql://gateway:secret@127.0.0.1:5432/gateway'
+expect_planner_accepted mysql 'mysql://gateway:secret@127.0.0.1:3306/gateway'
+echo 'planner-start accepts PostgreSQL and MySQL, and nothing else.'
+
+# --- router-start: shared deliveries stay PostgreSQL-only ------------------------
+mkdir -p "$TEST_DIR/router-data"
+status=0
+output=$(env -u DB_URL DB_CONNECTION=mysql \
+    GATEWAY_DELIVERY_DATABASE_URL='postgresql://gateway:secret@127.0.0.1:5432/gateway' \
+    GATEWAY_ROUTER_DATA_DIR="$TEST_DIR/router-data" \
+    sh "$ROOT/scripts/router-start" library 2>&1) || status=$?
+[ "$status" -ne 0 ] || fail 'router-start accepted shared deliveries on MySQL'
+case "$output" in
+    *'Bundled Router shared deliveries require DB_CONNECTION=pgsql.'*) ;;
+    *) fail "router-start rejected shared deliveries on MySQL with an unexpected message: $output" ;;
+esac
+echo 'router-start refuses shared deliveries on MySQL.'
+
+# --- router-start with a MySQL registry and the spool path, against a real server -
+if [ -z "${GATEWAY_TEST_MYSQL_DATABASE:-}" ]; then
+    echo 'Skipped the MySQL boot: set GATEWAY_TEST_MYSQL_DATABASE to run it.'
+    exit 0
+fi
+
+export LAUNCHER_MYSQL_HOST=${GATEWAY_TEST_MYSQL_HOST:-127.0.0.1}
+export LAUNCHER_MYSQL_PORT=${GATEWAY_TEST_MYSQL_PORT:-3306}
+export LAUNCHER_MYSQL_USER=${GATEWAY_TEST_MYSQL_USERNAME:-root}
+export LAUNCHER_MYSQL_PASSWORD=${GATEWAY_TEST_MYSQL_PASSWORD:-}
+export LAUNCHER_MYSQL_ADMIN_DATABASE=$GATEWAY_TEST_MYSQL_DATABASE
+
+cat > "$TEST_DIR/mysql-admin.php" <<'PHP'
+<?php
+[, $action, $database] = $argv;
+$pdo = new PDO(
+    sprintf('mysql:host=%s;port=%d;dbname=%s', getenv('LAUNCHER_MYSQL_HOST'), (int) getenv('LAUNCHER_MYSQL_PORT'), getenv('LAUNCHER_MYSQL_ADMIN_DATABASE')),
+    getenv('LAUNCHER_MYSQL_USER'),
+    getenv('LAUNCHER_MYSQL_PASSWORD'),
+    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION],
+);
+if ($action === 'create') {
+    $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+} elseif ($action === 'drop') {
+    $pdo->exec('DROP DATABASE IF EXISTS `'.$database.'`');
+}
+PHP
+
+DATABASE="gateway_launcher_$(php -r 'echo bin2hex(random_bytes(6));')"
+php "$TEST_DIR/mysql-admin.php" create "$DATABASE"
+MYSQL_DATABASE_CREATED=$DATABASE
+export LAUNCHER_MYSQL_DATABASE=$DATABASE
+
+# A stand-in for the Router binary: by the time the launcher execs it, the Router's
+# environment must name MySQL and the Planner schema, Proxy's registry and the
+# application tables must already exist in that database.
+cat > "$TEST_DIR/router" <<'PHP'
+#!/usr/bin/env php
+<?php
+foreach (['DB_CONNECTION' => 'mysql'] as $name => $expected) {
+    if (getenv($name) !== $expected) {
+        fwrite(STDERR, "Router started with $name=".var_export(getenv($name), true).", expected $expected.\n");
+        exit(1);
+    }
+}
+if (getenv('GATEWAY_DELIVERY_DATABASE_URL') !== false) {
+    fwrite(STDERR, "Router started with shared deliveries enabled on MySQL.\n");
+    exit(1);
+}
+$pdo = new PDO(
+    sprintf('mysql:host=%s;port=%d;dbname=%s', getenv('LAUNCHER_MYSQL_HOST'), (int) getenv('LAUNCHER_MYSQL_PORT'), getenv('LAUNCHER_MYSQL_DATABASE')),
+    getenv('LAUNCHER_MYSQL_USER'),
+    getenv('LAUNCHER_MYSQL_PASSWORD'),
+);
+$count = $pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?');
+foreach (['gateway_migrations', 'configurations', 'schedules', 'subscriptions', 'deliveries'] as $table) {
+    $count->execute([$table]);
+    if ((int) $count->fetchColumn() !== 1) {
+        fwrite(STDERR, "Router started without migrating $table on MySQL.\n");
+        exit(1);
+    }
+}
+PHP
+chmod +x "$TEST_DIR/router"
+
+url=$(php -r '
+    printf("mysql://%s:%s@%s:%d/%s", rawurlencode(getenv("LAUNCHER_MYSQL_USER")), rawurlencode(getenv("LAUNCHER_MYSQL_PASSWORD")),
+        getenv("LAUNCHER_MYSQL_HOST"), (int) getenv("LAUNCHER_MYSQL_PORT"), getenv("LAUNCHER_MYSQL_DATABASE"));
+')
+export GATEWAY_ROUTER_DATA_DIR="$TEST_DIR/router-data"
+export GATEWAY_ROUTER_LIBRARY_BIN="$TEST_DIR/router"
+# Boot twice: the second start must find the schema already applied.
+for boot in first second; do
+    env -u GATEWAY_DELIVERY_DATABASE_URL DB_CONNECTION=mysql DB_URL="$url" \
+        sh "$ROOT/scripts/router-start" library || fail "router-start could not boot on MySQL ($boot start)"
+done
+echo 'router-start migrates and boots on a MySQL registry with the spool path, twice.'

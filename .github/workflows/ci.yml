@@ -234,6 +234,9 @@ jobs:
       - name: Check the Planner launcher stops Workerman gracefully
         run: bash scripts/test-planner-workerman-shutdown
 
+      - name: Check the launchers' database rules, including a MySQL boot
+        run: bash scripts/test-launcher-databases
+
       - name: Check the Composer package split and metadata
         run: bash scripts/test-split-packages
 
