@@ -149,6 +149,70 @@ The Planner must trust only its private reverse proxy so Laravel can recognize
 the original HTTPS scheme; do not trust arbitrary public `X-Forwarded-Proto`
 headers or expose the Planner listener directly.
 
+## Upgrading to Proxy 0.3.1 (subscription identity migration)
+
+Gateway now requires `webong/proxy` `^0.3.1`. Proxy 0.3.1 adds one additive
+migration, `2026_11_12_000001_use_portable_subscription_identity`, to the
+subscription table that Planner's registry stores in. It replaces the original
+seven-column unique key (which MySQL cannot index at utf8mb4, error 1071) with a
+fixed 64-character `registration_hash`, and removes the old key. Every existing
+subscription keeps its id, values, metadata and delivery state; the hash is
+computed from them during the migration. Run it on every existing PostgreSQL or
+SQLite registry, whichever way you start Gateway: the Router launcher, the
+standalone Planner image and the Kubernetes Job already run
+`artisan migrate --realpath --path=.../webong/proxy/database/migrations`, so the
+migration is applied by the same `migrate` step as before. Nothing else changes
+in how you start Gateway, and there is no new setting.
+
+Code and schema must change together. Code that predates Proxy 0.3.1 does not
+write the hash, and once the migration has run the column is `NOT NULL`, so the
+old Planner can no longer create a subscription. Do not keep an old Planner
+running against the migrated database, and do not run a new Planner before the
+migration. A short outage of subscription writes is the expected cost:
+
+1. **Back up** the registry database (for the Router, the whole data directory).
+2. **Stop subscription writers**: clients of the registry API, any queue worker
+   or script that creates, replaces or deactivates subscriptions, and the old
+   Planner. Spinner can stay up. While Planner is down it cannot plan new
+   routes, so stop Spinner too if you cannot accept failed ingress meanwhile.
+3. **Migrate** with the new image or checkout, once:
+   - Router (native): start the new Router; it migrates before it serves.
+   - Standalone Planner image: `gateway-planner-start migrate` as a one-off
+     command, or remove the completed Kubernetes `planner-migrate` Job and apply
+     it with the new image tag. Run it once before scaling Planner replicas; the
+     `serve` command also migrates at start, so do not start several new
+     replicas against an unmigrated database.
+4. **Start** the new Planner (and Spinner) and check `/ready`.
+
+The migration is safe to repeat: applied migrations are recorded, and the
+subscription change resumes after a partial failure, but it must run with the
+writers stopped. It refuses an index that carries a known name but the wrong
+columns rather than guessing; fix or drop that index and run it again. Custom
+table names under `proxy.tables` are honoured. If your host published Proxy's
+migrations with `vendor:publish` (Gateway's launchers do not), republish them
+without overwriting local changes and review your copy of the subscriptions
+creation migration before upgrading; a fresh MySQL install fails without
+Proxy's small correction to it.
+
+**Rolling back.** PostgreSQL and SQLite can roll the migration back inside a
+transaction, but the old key cannot always represent data accepted since the
+upgrade; then the rollback fails and keeps the rows and the hash. MySQL and
+MariaDB refuse to roll back at all. Treat the pre-upgrade backup as the way
+back, and never run Planner code older than 0.3.1 against the new schema.
+
+**What is covered.** `tests/Feature/ProxyRegistryUpgradeTest.php` builds a Proxy
+0.2.0 registry from its original migrations, adds subscriptions (including
+case- and whitespace-distinct, Unicode and 255-character values), upgrades it
+with the Proxy 0.3.1 migrations, and checks that every row is unchanged, hashed
+and unique, the old key is gone and a second run does nothing. It runs on SQLite
+always and on PostgreSQL when `GATEWAY_TEST_POSTGRES_*` is set. The same file
+applies the migrations to a fresh MySQL 8.4 database with the default utf8mb4
+settings when `GATEWAY_TEST_MYSQL_*` is set. That is migration evidence only:
+Gateway's own supported databases remain PostgreSQL for the standalone Planner
+and SQLite for the native Router. See the
+[Proxy 0.3.1 adoption note](verification/proxy-v0.3.1-adoption-2026-11-13.md)
+for the measured runs.
+
 ## Protocol notes
 
 - **WebSocket:** make sure the public TLS proxy supports upgrades.

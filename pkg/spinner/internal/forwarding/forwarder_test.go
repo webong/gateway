@@ -162,7 +162,9 @@ func TestForwarderHonorsPerDeliveryNoProxyHosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := client.Transport.(*http.Transport)
+	// A profile with a proxy keeps loopback targets off the proxy; the profile's own
+	// selection is the wrapped transport.
+	transport := client.Transport.(*loopbackDirect).proxied.(*http.Transport)
 	directRequest := httptest.NewRequest(http.MethodPost, "http://hooks.internal.example.test/delivery", nil)
 	selected, err := transport.Proxy(directRequest)
 	if err != nil {

@@ -30,6 +30,16 @@ address check cannot prove what that proxy will dial. Treat permission to set
 proxy profiles as permission to delegate outbound network policy to that proxy;
 do not grant it to clients who should only control subscription targets.
 
+Since Proxy 0.3.1 the forwarder builds these clients with Proxy's `httpclient`,
+given Gateway's policy-aware transport as the base. The connection to the proxy,
+for HTTP, HTTPS and SOCKS5 proxies alike, is therefore still dialed through
+`PublicEgressAddress` at the socket. Two behaviours worth knowing: `socks5://`
+now resolves the target host locally and sends the address to the proxy, while
+`socks5h://` sends the name (Go's standard library treated both as remote
+resolution), and a loopback or `localhost` target is dialed directly instead of
+through the proxy, as before, so the address policy sees it. See the
+[Proxy 0.3.1 adoption note](proxy-v0.3.1-adoption-2026-11-13.md).
+
 ## Private ceiling trust boundary
 
 The HTTP, Webstream, WebSocket, mailbox callback, SSH, and managed-route private

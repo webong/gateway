@@ -7,10 +7,27 @@ namespace Webong\Gateway\Laravel;
 use InvalidArgumentException;
 use Webong\Gateway\Protocols\HttpTransport;
 use Webong\Proxy\Endpoint;
+use Webong\Proxy\Http\HttpProfileNormalizer;
 
-/** @internal Adapts endpoint-owned Proxy profiles to Gateway's wire contract. */
+/**
+ * @internal Adapts endpoint-owned Proxy profiles to Gateway's wire contract.
+ *
+ * Proxy owns the portable connection settings (proxy URLs, no-proxy rules and
+ * timeouts): {@see HttpProfileNormalizer} validates them and defines the
+ * `options.proxy`, `no` and timeout translation. Gateway owns what Proxy
+ * deliberately leaves outside the profile: the profile lookup and its
+ * messages, the source headers carried to a Webstream and the headers that
+ * source may never set, and the Gateway wire value object.
+ */
 final class EndpointHttpTransportResolver
 {
+    private readonly HttpProfileNormalizer $profiles;
+
+    public function __construct(?HttpProfileNormalizer $profiles = null)
+    {
+        $this->profiles = $profiles ?? new HttpProfileNormalizer();
+    }
+
     public function resolve(Endpoint $endpoint, string $profileName): HttpTransport
     {
         $profile = $endpoint->profile($profileName);
@@ -26,17 +43,39 @@ final class EndpointHttpTransportResolver
         if (! is_array($options)) {
             throw new InvalidArgumentException("Proxy profile [{$profileName}] options must be an object.");
         }
+        $streamHeaders = $this->streamHeaders($options, $profileName);
 
-        [$httpProxy, $httpsProxy, $noProxy] = $this->proxy($configuration['proxy'] ?? null, $profileName);
+        $portable = $this->portable($configuration, $profileName);
 
         return new HttpTransport(
-            httpProxy: $httpProxy,
-            httpsProxy: $httpsProxy,
-            noProxy: $noProxy,
-            streamHeaders: $this->streamHeaders($options, $profileName),
-            connectTimeoutSeconds: $this->timeout($options, 'connect_timeout', $profileName),
-            requestTimeoutSeconds: $this->timeout($options, 'timeout', $profileName),
+            httpProxy: $portable['proxy']['http'] ?? null,
+            httpsProxy: $portable['proxy']['https'] ?? null,
+            noProxy: $portable['proxy']['no_proxy'] ?? [],
+            streamHeaders: $streamHeaders,
+            connectTimeoutSeconds: isset($portable['connect_timeout_seconds']) ? (float) $portable['connect_timeout_seconds'] : null,
+            requestTimeoutSeconds: isset($portable['request_timeout_seconds']) ? (float) $portable['request_timeout_seconds'] : null,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $configuration
+     * @return array{version: int, proxy?: array<string, mixed>, connect_timeout_seconds?: int|float, request_timeout_seconds?: int|float}
+     */
+    private function portable(array $configuration, string $profileName): array
+    {
+        try {
+            $data = $this->profiles->normalize($configuration)->toArray();
+        } catch (InvalidArgumentException $exception) {
+            // Proxy's messages never contain credential values; add the profile they belong to.
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] is not a valid portable HTTP profile: ".$exception->getMessage(), previous: $exception);
+        }
+        // A present but empty proxy is a configuration mistake, not "no proxy": the
+        // normalizer would turn it into a profile that silently connects directly.
+        if (array_key_exists('proxy', $data) && $data['proxy'] === []) {
+            throw new InvalidArgumentException("Proxy profile [{$profileName}] proxy must be a non-empty string or map.");
+        }
+
+        return $data;
     }
 
     /** @param array<string, mixed> $options @return array<string, list<string>> */
@@ -70,52 +109,5 @@ final class EndpointHttpTransportResolver
     private function reservedStreamHeader(string $name): bool
     {
         return in_array(strtolower($name), ['connection', 'content-length', 'host', 'last-event-id', 'transfer-encoding', 'upgrade'], true);
-    }
-
-    /** @return array{?string, ?string, list<string>} */
-    private function proxy(mixed $proxy, string $profileName): array
-    {
-        if ($proxy === null) {
-            return [null, null, []];
-        }
-        if (is_string($proxy) && $proxy !== '') {
-            return [$proxy, $proxy, []];
-        }
-        if (! is_array($proxy) || $proxy === []) {
-            throw new InvalidArgumentException("Proxy profile [{$profileName}] proxy must be a non-empty string or map.");
-        }
-
-        $unsupported = array_diff(array_keys($proxy), ['http', 'https', 'no']);
-        if ($unsupported !== []) {
-            throw new InvalidArgumentException("Proxy profile [{$profileName}] contains unsupported proxy schemes.");
-        }
-        $noProxy = $proxy['no'] ?? [];
-        if (! is_array($noProxy)) {
-            throw new InvalidArgumentException("Proxy profile [{$profileName}] no-proxy hosts must be a list.");
-        }
-        foreach (['http', 'https'] as $scheme) {
-            if (array_key_exists($scheme, $proxy) && ! is_string($proxy[$scheme])) {
-                throw new InvalidArgumentException("Proxy profile [{$profileName}] {$scheme} proxy must be a string.");
-            }
-        }
-
-        return [
-            $proxy['http'] ?? null,
-            $proxy['https'] ?? null,
-            array_values($noProxy),
-        ];
-    }
-
-    /** @param array<string, mixed> $options */
-    private function timeout(array $options, string $key, string $profileName): ?float
-    {
-        if (! array_key_exists($key, $options)) {
-            return null;
-        }
-        if (! is_int($options[$key]) && ! is_float($options[$key])) {
-            throw new InvalidArgumentException("Proxy profile [{$profileName}] {$key} must be numeric.");
-        }
-
-        return (float) $options[$key];
     }
 }
