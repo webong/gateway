@@ -11,15 +11,15 @@ export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
 cd "$ROOT"
 
 touch "$DB_DATABASE"
-php app/artisan package:discover --no-ansi
-php app/artisan migrate --realpath --path="$ROOT/vendor/webong/proxy/database/migrations" --force --no-ansi
-php app/artisan gateway:migrate --no-ansi
-php app/artisan migrate --force --no-ansi
+php app/planner/artisan package:discover --no-ansi
+php app/planner/artisan migrate --realpath --path="$ROOT/vendor/webong/proxy/database/migrations" --force --no-ansi
+php app/planner/artisan gateway:migrate --no-ansi
+php app/planner/artisan migrate --force --no-ansi
 check_host() {
     php <<'PHP'
 <?php
 try {
-$app = require 'app/bootstrap.php';
+$app = require 'app/planner/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $check = static function (bool $condition, string $message): void {
     if (! $condition) { file_put_contents('php://stderr', $message.PHP_EOL); exit(1); }
@@ -54,7 +54,7 @@ echo "Router host configuration, discovery, and routing passed.\n";
 PHP
 }
 check_host
-php app/artisan config:cache --no-ansi
+php app/planner/artisan config:cache --no-ansi
 check_host
-php app/artisan config:clear --no-ansi
+php app/planner/artisan config:clear --no-ansi
 check_host

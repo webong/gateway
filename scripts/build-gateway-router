@@ -46,10 +46,10 @@ for package in gateway gateway-web gateway-dns gateway-email gateway-database; d
     rm -rf "$STAGE/vendor/webong/$package"
     cp -R "$REPO_DIR/pkg/$source" "$STAGE/vendor/webong/$package"
 done
-cp "$APP_SOURCE/artisan" "$APP_SOURCE/Caddyfile" \
-    "$APP_SOURCE/composer.json" "$APP_SOURCE/composer.lock" \
-    "$APP_SOURCE/bootstrap.php" "$APP_SOURCE/config.php" "$APP_SOURCE/index.php" "$APP_SOURCE/commands.php" \
-    "$APP_SOURCE/routes.php" "$APP_SOURCE/EndpointPathResolver.php" "$APP_TARGET/"
+cp "$APP_SOURCE/composer.json" "$APP_SOURCE/composer.lock" "$APP_TARGET/"
+cp -R "$APP_SOURCE/planner" "$APP_SOURCE/servers" "$APP_SOURCE/helpers" "$APP_TARGET/"
+# A checkout used for development may hold local Octane state; it never ships.
+rm -rf "$APP_TARGET/planner/bootstrap/cache" "$APP_TARGET/planner/rr" "$APP_TARGET/planner/.rr.yaml"
 
 GOTELEMETRY=off go -C "$REPO_DIR/pkg/roadrunner/cmd/router" build -o "$STAGE/bin/gateway-router-roadrunner" .
 if [ -n "${GATEWAY_ROUTER_FRANKENPHP_BIN:-}" ]; then

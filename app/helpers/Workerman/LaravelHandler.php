@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gateway\Router;
+namespace Gateway\Router\Workerman;
 
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request as LaravelRequest;
@@ -18,7 +18,7 @@ use Throwable;
 use Workerman\Protocols\Http\Request as WorkermanRequest;
 use Workerman\Protocols\Http\Response as WorkermanResponse;
 
-final class WorkermanLaravelHandler implements Client
+final class LaravelHandler implements Client
 {
     private OctaneWorker $worker;
 

@@ -1,4 +1,3 @@
 /vendor/
-/bootstrap/cache/*.php
-/workerman.log
-/workerman.pid
+/planner/vendor
+/planner/bootstrap/cache/*.php

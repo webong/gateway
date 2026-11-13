@@ -46,7 +46,7 @@ it('migrates the database named by a DB_URL-only PostgreSQL connection', functio
     try {
         // Exactly how the standalone Planner is configured: a URL, with the other
         // fields left at their defaults (here an endpoint nothing listens on), as
-        // in app/config.php when only DB_URL is set.
+        // in app/planner/config.php when only DB_URL is set.
         config()->set('database.connections.gateway_url_test', [
             'driver' => 'pgsql',
             'url' => sprintf('postgresql://%s:%s@%s:%d/%s', rawurlencode($username), rawurlencode($password), $host, $port, $database),

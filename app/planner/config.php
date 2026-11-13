@@ -6,9 +6,10 @@ return [
     'octane' => [
         'server' => env('OCTANE_SERVER', 'frankenphp'),
         'roadrunner' => [
-            // The Planner host keeps Composer dependencies beside app/, not
-            // inside it as a conventional Laravel application would.
-            'command' => '../vendor/bin/roadrunner-worker',
+            // The Planner host keeps Composer dependencies in the shared vendor
+            // directory beside app/, not inside it as a conventional Laravel
+            // application would. Octane resolves this against app/planner.
+            'command' => '../../vendor/bin/roadrunner-worker',
         ],
     ],
     'cache' => [

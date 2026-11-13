@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * Shared helpers for Workerman Planner integration tests.
  *
- * These tests start a real `app/workerman.php` process against a disposable
+ * These tests start a real `app/servers/workerman/server.php` process against a disposable
  * SQLite (or, when configured, PostgreSQL) database and exercise it over HTTP.
  * They never touch an existing application database: every schema change and
  * every seeded endpoint/subscription runs against a freshly created, randomly
@@ -366,7 +366,7 @@ if (! function_exists('gatewayPlannerRunArtisanMigrations')) {
     function gatewayPlannerRunArtisanMigrations(): void
     {
         $root = gatewayPlannerRepositoryRoot();
-        $artisan = $root.'/app/artisan';
+        $artisan = $root.'/app/planner/artisan';
         $proxyMigrations = $root.'/vendor/webong/proxy/database/migrations';
         foreach ([
             "php $artisan migrate --realpath --path=$proxyMigrations --force --no-ansi",
@@ -677,7 +677,7 @@ if (! function_exists('gatewayPlannerEmergencyKill')) {
 
 if (! function_exists('gatewayPlannerStartWorkerman')) {
     /**
-     * Start `app/workerman.php` as a background process under the current
+     * Start `app/servers/workerman/server.php` as a background process under the current
      * (already isolated) environment, after verifying which database it will use.
      *
      * @param array<string, string> $extraEnv server variables (workers, max requests, test hooks).
@@ -701,7 +701,7 @@ if (! function_exists('gatewayPlannerStartWorkerman')) {
         ];
 
         $process = proc_open(
-            [PHP_BINARY, "{$root}/app/workerman.php", 'start'],
+            [PHP_BINARY, "{$root}/app/servers/workerman/server.php", 'start'],
             $descriptors,
             $pipes,
             $root,

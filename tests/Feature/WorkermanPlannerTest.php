@@ -9,7 +9,7 @@ require_once __DIR__.'/../Support/WorkermanPlannerHelper.php';
 /**
  * Real Workerman process integration tests.
  *
- * A genuine `app/workerman.php` process is launched for each scenario against a
+ * A genuine `app/servers/workerman/server.php` process is launched for each scenario against a
  * disposable SQLite database that is migrated and seeded with a real endpoint +
  * relay subscription. The process is exercised over plain HTTP: authenticated
  * planning of a database-backed route, authenticated management mutation +
@@ -641,7 +641,7 @@ function sentinelHostileConfigCache(string $directory, string $sentinel): string
         @mkdir($directory.'/storage/framework/cache/data', 0700, true);
         @mkdir($directory.'/storage/framework/views', 0700, true);
         @mkdir($directory.'/storage/logs', 0700, true);
-        exec('php '.escapeshellarg(gatewayPlannerRepositoryRoot().'/app/artisan').' config:cache --no-ansi 2>&1', $output, $exitCode);
+        exec('php '.escapeshellarg(gatewayPlannerRepositoryRoot().'/app/planner/artisan').' config:cache --no-ansi 2>&1', $output, $exitCode);
         if ($exitCode !== 0) {
             throw new RuntimeException("Unable to build the hostile config cache:\n".implode("\n", $output));
         }
