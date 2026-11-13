@@ -200,6 +200,8 @@ github.com/unrolled/secure v1.17.0 h1:Io7ifFgo99Bnh0J7+Q+qcMzWM6kaDPCA5FroFZEdbW
 github.com/unrolled/secure v1.17.0/go.mod h1:BmF5hyM6tXczk3MpQkFf1hpKSRqCyhqcbiQtiAF7+40=
 github.com/webong/ext/pkg/plugin-go/contract v0.6.0 h1:Rkgan4DRfrdv9kwiFmhROZlwsDSF4BrThSO6kE/3jQ0=
 github.com/webong/ext/pkg/plugin-go/contract v0.6.0/go.mod h1:YajPTz7utaUNrcn856mnFegEHuk8l70pK2krbVFSZoc=
+github.com/webong/proxy v0.3.1 h1:L7HbB0aPspnlCI3ZAMlw5ETYnk2kxiEr4FrdP1Ncu/w=
+github.com/webong/proxy v0.3.1/go.mod h1:89vzomkPaDUrNo5llatxFmi8frh4NkyQ5Sko/PbHKLs=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=
 github.com/yosida95/uritemplate/v3 v3.0.2/go.mod h1:ILOh0sOhIJR3+L/8afwt/kE++YT040gmv5BQTMR2HP4=
 github.com/zenazn/goji v0.9.0/go.mod h1:7S9M489iMyHBNxwZnk9/EHS098H4/F6TATF2mIxtB1Q=

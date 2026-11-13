@@ -97,6 +97,33 @@ targets reject configured proxies so they cannot bypass Spinner's destination
 network checks. Profile credentials stay encrypted in the Proxy registry and
 are not copied into subscription metadata or returned by the subscription API.
 
+#### Connection settings in a profile
+
+Planner reads a profile's connection settings through Proxy's portable HTTP
+profile (`webong/proxy` 0.3.1), so Planner and Spinner accept the same
+configuration. Gateway-specific headers are read separately.
+
+| Setting | Where | Accepted |
+| --- | --- | --- |
+| Proxy | `proxy`, or `options.proxy` when `proxy` is absent or `null` | A proxy URL, or a map of `http`, `https` and `no`. A bare URL applies to both schemes. A URL is `http`, `https`, `socks5` or `socks5h`, with optional `user:password@`, no path other than `/`, no query or fragment. SOCKS credentials need both parts. An empty string or map is rejected. |
+| Bypass list | `no` inside `proxy` | A list of host names, IPv4 addresses, leading-dot domains (`.internal.example`) and `*`. A name also matches its subdomains; matching ignores case and a trailing dot. CIDR ranges, ports, IPv6 addresses and `*.` wildcards are rejected. |
+| Timeouts | `options.connect_timeout`, `options.timeout` | Seconds, above 0 and at most 300. A timeout you omit keeps Spinner's own default. |
+| Headers | `options.headers` | Webstream source headers only. A name must be an HTTP token; `Connection`, `Content-Length`, `Host`, `Last-Event-ID`, `Transfer-Encoding` and `Upgrade` are reserved; values cannot contain line breaks. |
+
+Other Guzzle options in a profile (`verify`, `allow_redirects`, `auth`, `cookies`)
+are not sent to Spinner. A profile that breaks a rule fails the subscription
+request with a 422 naming the profile; a stored profile that no longer validates
+fails route planning rather than delivering with settings you did not intend.
+Proxy's validation messages do not repeat credentials.
+
+`socks5` resolves the target's host name in Spinner and sends the address to the
+proxy; `socks5h` sends the name, so the proxy resolves it. The address check
+Spinner applies to the connection to the proxy cannot see what a remote proxy
+then dials; see the
+[outbound egress audit](verification/outbound-egress-audit-2026-11-04.md).
+Spinner never sends a `localhost` or loopback target to a proxy, and ignores
+`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` in its own environment.
+
 ### WebSocket delivery target
 
 Set `target_kind` to `websocket` and `url` to your application's `ws://` or

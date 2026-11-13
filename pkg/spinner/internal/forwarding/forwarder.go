@@ -19,7 +19,6 @@ import (
 
 	"github.com/webong/gateway/pkg/spinner/internal/config"
 	"github.com/webong/gateway/pkg/spinner/internal/logging"
-	"golang.org/x/net/http/httpproxy"
 )
 
 const maxTransportClients = 128
@@ -276,9 +275,12 @@ func (f *Forwarder) privateCallbackClient(settings HTTPTransport) (*http.Client,
 }
 
 func (f *Forwarder) clientFor(settings HTTPTransport) (*http.Client, error) {
-	if settings.HTTPProxy == "" && settings.HTTPSProxy == "" && len(settings.NoProxy) == 0 &&
-		settings.ConnectTimeout == 0 && settings.RequestTimeout == 0 {
+	if settings.usesDefaults() {
 		return f.client, nil
+	}
+	profile := settings.profile()
+	if err := profile.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidTransport, err)
 	}
 
 	key := transportKey(settings)
@@ -288,25 +290,10 @@ func (f *Forwarder) clientFor(settings HTTPTransport) (*http.Client, error) {
 		return client, nil
 	}
 
-	transport := f.transport.Clone()
-	transport.DialContext = f.dialContext(settings.ConnectTimeout)
-	if settings.HTTPProxy != "" || settings.HTTPSProxy != "" || len(settings.NoProxy) > 0 {
-		proxyConfig := &httpproxy.Config{
-			HTTPProxy:  settings.HTTPProxy,
-			HTTPSProxy: settings.HTTPSProxy,
-			NoProxy:    strings.Join(settings.NoProxy, ","),
-		}
-		proxyFunc := proxyConfig.ProxyFunc()
-		transport.Proxy = func(request *http.Request) (*url.URL, error) {
-			return proxyFunc(request.URL)
-		}
+	client, err := f.profileClient(profile)
+	if err != nil {
+		return nil, err
 	}
-
-	timeout := f.client.Timeout
-	if settings.RequestTimeout > 0 {
-		timeout = settings.RequestTimeout
-	}
-	client := &http.Client{Transport: transport, Timeout: timeout}
 	if len(f.clients) >= maxTransportClients {
 		oldest := f.clientOrder[0]
 		f.clientOrder = f.clientOrder[1:]

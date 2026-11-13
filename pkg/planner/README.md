@@ -35,7 +35,7 @@ Architecture tests enforce the dependency direction.
 
 ## Laravel
 
-Install `webong/gateway`, `laravel/framework:^12.0`, and `webong/proxy:^0.2.0`.
+Install `webong/gateway`, `laravel/framework:^12.0`, and `webong/proxy:^0.3.1`.
 Composer discovers `Webong\Gateway\Laravel\GatewayServiceProvider`. Existing
 Laravel management APIs, registry policy, extension lifecycle, and scheduling
 remain available through this integration. Run `php artisan gateway:migrate`
@@ -70,6 +70,17 @@ discarded), and each worker is recycled after `GATEWAY_PLANNER_MAX_REQUESTS`.
   `php scripts/bench-planner-hosts.php --check-shutdown` checks a real container.
   Draining is unbounded by Workerman itself, so set the orchestrator's grace period
   (`terminationGracePeriodSeconds`, `docker stop -t`) to cover your slowest request.
+- **Recycling.** Workerman keeps a client's connection in the worker that accepted
+  it, and stopping a worker closes its connections. So a worker that reaches
+  `GATEWAY_PLANNER_MAX_REQUESTS` drains instead: it stops accepting connections,
+  answers every request it still holds with `Connection: close`, and stops once its
+  connections are gone or after a fixed 2 second window (a connection that stays
+  silent that long is closed idle, which any server's idle close can race with a
+  client's next request). Recycling therefore no longer drops a request a client
+  has already sent; see
+  `docs/verification/planner-workerman-recycle-keepalive-2026-11-13.md`. While a
+  worker drains it is not yet replaced, so a client that parks an idle connection
+  reduces capacity for up to the window.
 - **Benchmarking.** `php scripts/bench-planner-hosts.php --help` documents the
   head-to-head harness against Octane/FrankenPHP: same image, PHP settings, worker
   count, database state and client, with every response validated.

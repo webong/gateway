@@ -840,10 +840,69 @@ if (! function_exists('gatewayPlannerStopWorkerman')) {
 // HTTP
 // ---------------------------------------------------------------------------
 
+if (! function_exists('gatewayPlannerConnect')) {
+    /**
+     * Open a TCP connection to the host and return the socket.
+     *
+     * @return resource
+     */
+    function gatewayPlannerConnect(string $host, int $port, float $timeoutSeconds = 5.0)
+    {
+        $socket = @stream_socket_client('tcp://'.$host.':'.$port, $errno, $errstr, $timeoutSeconds);
+        if ($socket === false) {
+            throw new RuntimeException("Unable to connect to $host:$port: $errstr ($errno)");
+        }
+        $seconds = (int) $timeoutSeconds;
+        stream_set_timeout($socket, $seconds, (int) (($timeoutSeconds - $seconds) * 1_000_000));
+
+        return $socket;
+    }
+}
+
+if (! function_exists('gatewayPlannerSendRequest')) {
+    /**
+     * Write one raw HTTP/1.1 request to an open socket. A keep-alive request omits
+     * `Connection: close`, so the same socket can carry the next request.
+     *
+     * @param resource $socket
+     * @param array<string, string> $headers
+     */
+    function gatewayPlannerSendRequest(
+        $socket,
+        string $method,
+        string $uri,
+        array $headers = [],
+        string $body = '',
+        bool $keepAlive = false,
+    ): void {
+        $parsed = parse_url($uri);
+        $host = $parsed['host'] ?? '127.0.0.1';
+        $path = ($parsed['path'] ?? '/') ?: '/';
+        if (! empty($parsed['query'])) {
+            $path .= '?'.$parsed['query'];
+        }
+
+        $request = "$method $path HTTP/1.1\r\n";
+        $request .= "Host: $host\r\n";
+        if (! $keepAlive) {
+            $request .= "Connection: close\r\n";
+        }
+        foreach ($headers as $name => $value) {
+            $request .= "$name: $value\r\n";
+        }
+        if ($body !== '') {
+            $request .= 'Content-Length: '.strlen($body)."\r\n";
+        }
+        $request .= "\r\n".$body;
+        fwrite($socket, $request);
+    }
+}
+
 if (! function_exists('gatewayPlannerOpenRequest')) {
     /**
      * Connect, send a raw HTTP/1.1 request, and return the open socket without
      * reading the response (so a test can act while the request is in flight).
+     * Pass `$keepAlive` to leave the connection reusable for further requests.
      *
      * @param array<string, string> $headers
      * @return resource
@@ -854,35 +913,33 @@ if (! function_exists('gatewayPlannerOpenRequest')) {
         array $headers = [],
         string $body = '',
         float $timeoutSeconds = 5.0,
+        bool $keepAlive = false,
     ) {
         $parsed = parse_url($uri);
-        $host = $parsed['host'] ?? '127.0.0.1';
-        $port = $parsed['port'] ?? 80;
-        $path = ($parsed['path'] ?? '/') ?: '/';
-        if (! empty($parsed['query'])) {
-            $path .= '?'.$parsed['query'];
-        }
-
-        $socket = @stream_socket_client('tcp://'.$host.':'.$port, $errno, $errstr, $timeoutSeconds);
-        if ($socket === false) {
-            throw new RuntimeException("Unable to connect to $host:$port: $errstr ($errno)");
-        }
-        $seconds = (int) $timeoutSeconds;
-        stream_set_timeout($socket, $seconds, (int) (($timeoutSeconds - $seconds) * 1_000_000));
-
-        $request = "$method $path HTTP/1.1\r\n";
-        $request .= "Host: $host\r\n";
-        $request .= "Connection: close\r\n";
-        foreach ($headers as $name => $value) {
-            $request .= "$name: $value\r\n";
-        }
-        if ($body !== '') {
-            $request .= 'Content-Length: '.strlen($body)."\r\n";
-        }
-        $request .= "\r\n".$body;
-        fwrite($socket, $request);
+        $socket = gatewayPlannerConnect($parsed['host'] ?? '127.0.0.1', (int) ($parsed['port'] ?? 80), $timeoutSeconds);
+        gatewayPlannerSendRequest($socket, $method, $uri, $headers, $body, $keepAlive);
 
         return $socket;
+    }
+}
+
+if (! function_exists('gatewayPlannerPeerClosed')) {
+    /**
+     * Whether the server has already closed its end of an idle connection, which is
+     * what a keep-alive client (curl, for one) checks before it reuses a connection.
+     *
+     * @param resource $socket
+     */
+    function gatewayPlannerPeerClosed($socket): bool
+    {
+        $read = [$socket];
+        $write = $except = null;
+        if (stream_select($read, $write, $except, 0, 0) < 1) {
+            return false;
+        }
+        $peek = @stream_socket_recvfrom($socket, 1, STREAM_PEEK);
+
+        return $peek === '' || $peek === false;
     }
 }
 

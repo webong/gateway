@@ -109,6 +109,7 @@ Client-machine load average (1/5/15 min, start → end of the pass): pass C: 8.5
 - **Errors, pass B:** workerman: 1, frankenphp: 0, workerman-shipped: 0 failed requests out of 90000 measured.
 - **Errors, pass C:** workerman: 4, frankenphp: 0 failed requests out of 140000 measured.
 - **What the failed requests were** (samples kept by the harness, up to 5 per run): workerman-shipped: "transport: Server returned nothing (no headers, no data)" x2; workerman: "transport: Server returned nothing (no headers, no data)" x5. An empty reply on a kept-alive connection is what a client sees when the server closes the connection between its requests; Workerman closes a recycled worker's connections when it recycles (after 500 requests per worker here), whereas an Octane server recycles a worker without dropping client connections. That explanation fits the pattern but was not isolated by a separate experiment.
+- **Follow-up, 2026-11-13:** the explanation was then isolated by a test (a keep-alive client loop against a low and a very high recycling threshold, and a held-request test) and `app/workerman.php` was changed so a worker drains before it recycles. The numbers in this document were measured before that change and are unchanged; the benchmark has not been re-run with it. See `planner-workerman-recycle-keepalive-2026-11-13.md`.
 - **Run-to-run spread across all passes** (same configuration, same image): workerman at concurrency 1: 101–445 req/s; workerman at concurrency 8: 348–1257 req/s; frankenphp at concurrency 1: 94–306 req/s; frankenphp at concurrency 8: 430–1293 req/s. Differences smaller than this spread should not be read as a difference between hosts.
 
 ## Limitations
@@ -121,6 +122,27 @@ Client-machine load average (1/5/15 min, start → end of the pass): pass C: 8.5
 - FrankenPHP could not boot from the Planner image until `GATEWAY_COMPANION_PHP_BINARY` was added to `infra/docker/Gateway.planner.Dockerfile` (the Router image already sets it); that change is part of the tested tree.
 - Pass A ran before, and passes B and C after, the `app/workerman.php` change that closes connections when a worker stops (see `planner-workerman-graceful-shutdown-2026-11-12.md`). It does not change how recycling closes connections.
 - The headline pass used `--allow-stale-image`: its image was built from tree `0d97b14f32c2662c8c2fcb282b434617968b0c75` and the working tree then differed only by documentation added afterwards (fingerprint `dcbc4a5846224bf1010474b8cd2f8fa4ee87bc62`).
+
+## Addendum 2026-11-13: Swoole, RoadRunner, and Workerman after the recycle change
+
+Three further passes (D, E and F, tables in the appendix), taken after `c0879dc4` (the merge of #17) with the working-tree change to `app/workerman.php` that drains a worker before it recycles (see `planner-workerman-recycle-keepalive-2026-11-13.md`). Everything above this addendum was measured before that change and is unchanged. Same harness, workload, client and per-host limits as above, except where noted. One image, `sha256:c14bd9a8f9bca42d3d13692b3f57c5722d9fa4ca77462602449a2192a46f9949` built from tree `587a3f4d20e64c92a6ed16c501b013299f5d3e8d`, built with `--build` for pass D and reused for E and F.
+
+| Pass | Hosts | Concurrency | Repetitions | Requests | Load average at start → end (1/5/15 min) |
+|---|---|---|---|---|---|
+| D | workerman, frankenphp, swoole, roadrunner | 1, 8 | 3 | 5000 per run | 8.15 9.47 8.02 → 8.14 8.67 8.04 |
+| E | workerman | 8 | 24 | 5000 per run (120000 in all) | 7.35 8.42 7.97 → 6.18 7.58 7.70 |
+| F | swoole, roadrunner, frankenphp, workerman (reverse order of D) | 1, 8 | 3 | 5000 per run | 5.70 7.43 7.64 → 7.52 6.87 7.24 |
+
+Other applications were running on the machine throughout, as before. In pass D, FrankenPHP and Swoole each had one run at concurrency 1 about 40 to 50 percent below their other runs (150 and 170 req/s, repetition 3), which looks like disturbance, so pass F repeated the four hosts.
+
+### What these passes support
+
+- **Failures:** 0 failed requests in all 240000 requests of passes D and F (all four hosts) and 0 in the 120000 requests of pass E. Workerman served 180000 requests across D, E and F with no failure; passes A to C had 5 failures in 130000 Workerman requests (65000 of them at concurrency 8, where all five occurred). At that rate the 150000 Workerman requests at concurrency 8 here would be expected to give about 11 failures. Failure counts depend on timing and machine load, so this is a comparison with earlier passes, not a controlled one; the controlled before and after is the test in the verification note (24, 32 and 41 failed requests out of 240 before the change, 0 after).
+- **Memory** (sampled peak of serving processes, range over passes D and F; stable across passes): Workerman 177 to 194 MiB (4 processes); FrankenPHP 96 to 144 MiB (one process); Swoole 369 to 373 MiB (8 processes); RoadRunner 267 to 270 MiB (4 PHP workers). Pass E's Workerman peaks were 181 to 202 MiB, slightly above the 169 to 194 MiB of passes A to C; this was not investigated.
+- **Swoole is not the same worker count.** The harness gives every host 4 workers, but Octane's Swoole server also starts 4 task workers by default, so Swoole runs 8 PHP processes against the others' 4 (FrankenPHP: 4 threads). Its memory is therefore not comparable per worker.
+- **Concurrency 8 throughput.** RoadRunner was below FrankenPHP in 6 of the 6 repetitions of passes D and F, below Workerman in 5 of 6, and below Swoole in 5 of 6; its medians were 771 and 704 req/s against 1076 and 997 (Workerman), 1138 and 1096 (FrankenPHP) and 863 and 889 (Swoole). Both passes agree on that. They do not order Workerman, FrankenPHP and Swoole: FrankenPHP was above Workerman in 5 of 6 repetitions (as in passes A to C, with overlapping ranges), Swoole was above Workerman in only 2 of 6, and Swoole's pass D runs ranged from 554 to 1320 req/s.
+- **Concurrency 1 throughput.** No stable ordering: the medians changed order between the passes (for example Workerman 230 and then 325, RoadRunner 238 and then 194 req/s) and single runs ranged from 150 to 371 req/s.
+- No throughput winner is claimed. Pass E (Workerman alone at concurrency 8) had a median of 1229 req/s (990 to 1328), in line with the earlier Workerman passes.
 
 ## Appendix: every pass
 
@@ -246,6 +268,137 @@ Configuration: hosts workerman, frankenphp; 7 repetitions; image `sha256:12fc45c
 | workerman | 4 | 8 | 7 | 5000 | 1 | 1110 | 5.98 | 15.57 | 23.18 | 191.7 |
 | frankenphp | 4 | 8 | 7 | 5000 | 0 | 963 | 7.21 | 15.48 | 25.36 | 94.2 |
 
+
+### Pass D
+
+Configuration: hosts workerman, frankenphp, swoole, roadrunner; 3 repetitions; concurrency 1 and 8; image `sha256:c14bd9a8f9bca42d3d13692b3f57c5722d9fa4ca77462602449a2192a46f9949` built from tree `587a3f4d20e64c92a6ed16c501b013299f5d3e8d`; working tree at measurement `587a3f4d20e64c92a6ed16c501b013299f5d3e8d`. Uncommitted changes in the tested tree: `app/workerman.php`, the Workerman tests and test helper, and documentation. Swoole runs 8 serving processes (4 workers and 4 task workers).
+
+#### Median across 3 runs
+
+| Host | Runtime | Workers | Conc. | Requests/run | Errors (total) | req/s | p50 ms | p95 ms | p99 ms | Peak serving RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| workerman | Workerman v5.2.3, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 230 | 3.07 | 10.41 | 20.50 | 181.1 |
+| frankenphp | Laravel Octane v2.20.0 on FrankenPHP v1.13.5 PHP 8.4.27 Caddy v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 305 | 2.96 | 5.55 | 9.64 | 99.3 |
+| swoole | Laravel Octane v2.20.0 on Swoole, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 265 | 2.96 | 6.80 | 12.16 | 371.3 |
+| roadrunner | Laravel Octane v2.20.0 on RoadRunner, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 238 | 3.29 | 6.42 | 12.74 | 267.8 |
+| workerman | Workerman v5.2.3, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 1076 | 5.96 | 17.01 | 26.94 | 193.4 |
+| frankenphp | Laravel Octane v2.20.0 on FrankenPHP v1.13.5 PHP 8.4.27 Caddy v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 1138 | 6.01 | 13.07 | 19.90 | 96.7 |
+| swoole | Laravel Octane v2.20.0 on Swoole, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 863 | 7.67 | 15.99 | 22.85 | 370.8 |
+| roadrunner | Laravel Octane v2.20.0 on RoadRunner, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 771 | 8.18 | 19.56 | 38.55 | 267.8 |
+
+#### Per-run results
+
+| Host | Workers | Conc. | Rep | Requests | Errors | req/s | p50 ms | p95 ms | p99 ms | Peak serving RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| workerman | 4 | 1 | 1 | 5000 | 0 | 371 | 2.49 | 4.28 | 7.97 | 177.3 |
+| frankenphp | 4 | 1 | 1 | 5000 | 0 | 327 | 2.82 | 4.66 | 7.79 | 143.8 |
+| swoole | 4 | 1 | 1 | 5000 | 0 | 265 | 2.96 | 6.80 | 12.16 | 372.9 |
+| roadrunner | 4 | 1 | 1 | 5000 | 0 | 238 | 3.29 | 6.57 | 12.96 | 268.9 |
+| workerman | 4 | 8 | 1 | 5000 | 0 | 1076 | 5.96 | 17.01 | 26.94 | 193.4 |
+| frankenphp | 4 | 8 | 1 | 5000 | 0 | 1138 | 6.01 | 13.07 | 19.90 | 112.9 |
+| swoole | 4 | 8 | 1 | 5000 | 0 | 863 | 7.67 | 15.99 | 22.85 | 372.7 |
+| roadrunner | 4 | 8 | 1 | 5000 | 0 | 771 | 8.18 | 19.03 | 40.33 | 268.4 |
+| roadrunner | 4 | 1 | 2 | 5000 | 0 | 233 | 3.29 | 6.42 | 12.74 | 267.8 |
+| swoole | 4 | 1 | 2 | 5000 | 0 | 286 | 2.84 | 6.38 | 11.93 | 371.3 |
+| frankenphp | 4 | 1 | 2 | 5000 | 0 | 305 | 2.96 | 5.55 | 9.64 | 99.3 |
+| workerman | 4 | 1 | 2 | 5000 | 0 | 205 | 3.16 | 11.09 | 25.20 | 194.3 |
+| roadrunner | 4 | 8 | 2 | 5000 | 0 | 593 | 11.22 | 24.40 | 38.55 | 267.8 |
+| swoole | 4 | 8 | 2 | 5000 | 0 | 554 | 10.76 | 29.25 | 74.16 | 370.8 |
+| frankenphp | 4 | 8 | 2 | 5000 | 0 | 733 | 9.67 | 19.68 | 28.50 | 96.7 |
+| workerman | 4 | 8 | 2 | 5000 | 0 | 891 | 7.02 | 20.78 | 32.69 | 194.4 |
+| workerman | 4 | 1 | 3 | 5000 | 0 | 230 | 3.07 | 10.41 | 20.50 | 181.1 |
+| frankenphp | 4 | 1 | 3 | 5000 | 0 | 150 | 4.37 | 16.17 | 34.00 | 96.1 |
+| swoole | 4 | 1 | 3 | 5000 | 0 | 170 | 3.73 | 13.82 | 27.74 | 369.3 |
+| roadrunner | 4 | 1 | 3 | 5000 | 0 | 250 | 3.32 | 5.91 | 9.63 | 267.8 |
+| workerman | 4 | 8 | 3 | 5000 | 0 | 1144 | 5.76 | 15.73 | 23.20 | 193.3 |
+| frankenphp | 4 | 8 | 3 | 5000 | 0 | 1195 | 5.98 | 11.37 | 18.77 | 96.4 |
+| swoole | 4 | 8 | 3 | 5000 | 0 | 1320 | 5.12 | 9.36 | 13.61 | 370.4 |
+| roadrunner | 4 | 8 | 3 | 5000 | 0 | 812 | 7.79 | 19.56 | 30.48 | 267.2 |
+
+### Pass E
+
+Configuration: host workerman; concurrency 8 only; 24 repetitions; image `sha256:c14bd9a8f9bca42d3d13692b3f57c5722d9fa4ca77462602449a2192a46f9949` built from tree `587a3f4d20e64c92a6ed16c501b013299f5d3e8d`; same working tree as pass D.
+
+#### Median across 24 runs
+
+| Host | Runtime | Workers | Conc. | Requests/run | Errors (total) | req/s | p50 ms | p95 ms | p99 ms | Peak serving RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| workerman | Workerman v5.2.3, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 1229 | 5.40 | 14.83 | 21.95 | 192.5 |
+
+#### Per-run results
+
+| Host | Workers | Conc. | Rep | Requests | Errors | req/s | p50 ms | p95 ms | p99 ms | Peak serving RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| workerman | 4 | 8 | 1 | 5000 | 0 | 1151 | 5.79 | 15.49 | 22.52 | 202.2 |
+| workerman | 4 | 8 | 2 | 5000 | 0 | 1074 | 5.77 | 18.41 | 29.92 | 192.5 |
+| workerman | 4 | 8 | 3 | 5000 | 0 | 990 | 6.64 | 18.58 | 25.42 | 193.0 |
+| workerman | 4 | 8 | 4 | 5000 | 0 | 1241 | 5.52 | 13.95 | 19.13 | 192.5 |
+| workerman | 4 | 8 | 5 | 5000 | 0 | 1275 | 5.16 | 14.19 | 20.56 | 193.0 |
+| workerman | 4 | 8 | 6 | 5000 | 0 | 1164 | 4.94 | 16.74 | 26.32 | 192.5 |
+| workerman | 4 | 8 | 7 | 5000 | 0 | 1216 | 5.34 | 15.68 | 22.71 | 193.0 |
+| workerman | 4 | 8 | 8 | 5000 | 0 | 1076 | 5.50 | 18.65 | 28.12 | 192.5 |
+| workerman | 4 | 8 | 9 | 5000 | 0 | 1247 | 5.30 | 14.13 | 22.05 | 192.5 |
+| workerman | 4 | 8 | 10 | 5000 | 0 | 1155 | 5.72 | 15.99 | 25.11 | 194.5 |
+| workerman | 4 | 8 | 11 | 5000 | 0 | 1251 | 5.46 | 13.67 | 23.97 | 180.9 |
+| workerman | 4 | 8 | 12 | 5000 | 0 | 1327 | 4.66 | 14.00 | 21.06 | 192.6 |
+| workerman | 4 | 8 | 13 | 5000 | 0 | 1223 | 5.45 | 14.89 | 19.86 | 180.8 |
+| workerman | 4 | 8 | 14 | 5000 | 0 | 1272 | 5.43 | 13.25 | 18.59 | 192.5 |
+| workerman | 4 | 8 | 15 | 5000 | 0 | 1204 | 4.71 | 16.21 | 26.27 | 192.5 |
+| workerman | 4 | 8 | 16 | 5000 | 0 | 1105 | 5.63 | 17.61 | 29.17 | 192.5 |
+| workerman | 4 | 8 | 17 | 5000 | 0 | 1319 | 5.31 | 13.64 | 17.69 | 192.5 |
+| workerman | 4 | 8 | 18 | 5000 | 0 | 1328 | 5.21 | 12.65 | 18.08 | 192.6 |
+| workerman | 4 | 8 | 19 | 5000 | 0 | 1248 | 5.37 | 14.76 | 20.45 | 192.5 |
+| workerman | 4 | 8 | 20 | 5000 | 0 | 1204 | 5.51 | 15.03 | 23.74 | 192.5 |
+| workerman | 4 | 8 | 21 | 5000 | 0 | 1295 | 5.27 | 13.64 | 17.90 | 192.5 |
+| workerman | 4 | 8 | 22 | 5000 | 0 | 1236 | 5.33 | 14.60 | 20.67 | 192.5 |
+| workerman | 4 | 8 | 23 | 5000 | 0 | 1190 | 5.58 | 15.78 | 21.85 | 182.3 |
+| workerman | 4 | 8 | 24 | 5000 | 0 | 1328 | 5.37 | 12.99 | 16.49 | 181.3 |
+
+### Pass F
+
+Configuration: hosts swoole, roadrunner, frankenphp, workerman (reverse of pass D's order); 3 repetitions; concurrency 1 and 8; same image and working tree as pass D.
+
+#### Median across 3 runs
+
+| Host | Runtime | Workers | Conc. | Requests/run | Errors (total) | req/s | p50 ms | p95 ms | p99 ms | Peak serving RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| swoole | Laravel Octane v2.20.0 on Swoole, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 257 | 3.17 | 6.47 | 11.01 | 370.7 |
+| roadrunner | Laravel Octane v2.20.0 on RoadRunner, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 194 | 3.91 | 7.87 | 13.85 | 269.0 |
+| frankenphp | Laravel Octane v2.20.0 on FrankenPHP v1.13.5 PHP 8.4.27 Caddy v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 287 | 3.17 | 5.64 | 8.56 | 99.3 |
+| workerman | Workerman v5.2.3, PHP 8.4.27 | 4 | 1 | 5000 | 0 | 325 | 2.82 | 5.10 | 9.07 | 182.3 |
+| swoole | Laravel Octane v2.20.0 on Swoole, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 889 | 7.64 | 14.46 | 20.81 | 371.5 |
+| roadrunner | Laravel Octane v2.20.0 on RoadRunner, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 704 | 9.75 | 17.96 | 33.32 | 269.8 |
+| frankenphp | Laravel Octane v2.20.0 on FrankenPHP v1.13.5 PHP 8.4.27 Caddy v2.11.9 h1:bhZtcRKQOq0fuLvEgCdPYvUxXyGn9kzjG4lh2332DTE=, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 1096 | 6.30 | 11.34 | 14.91 | 99.8 |
+| workerman | Workerman v5.2.3, PHP 8.4.27 | 4 | 8 | 5000 | 0 | 997 | 6.20 | 19.01 | 29.09 | 193.3 |
+
+#### Per-run results
+
+| Host | Workers | Conc. | Rep | Requests | Errors | req/s | p50 ms | p95 ms | p99 ms | Peak serving RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|
+| swoole | 4 | 1 | 1 | 5000 | 0 | 252 | 3.21 | 6.73 | 12.15 | 372.2 |
+| roadrunner | 4 | 1 | 1 | 5000 | 0 | 190 | 4.05 | 7.87 | 13.85 | 268.4 |
+| frankenphp | 4 | 1 | 1 | 5000 | 0 | 262 | 3.27 | 6.73 | 13.35 | 142.1 |
+| workerman | 4 | 1 | 1 | 5000 | 0 | 325 | 2.82 | 4.78 | 7.36 | 179.1 |
+| swoole | 4 | 8 | 1 | 5000 | 0 | 889 | 7.64 | 14.46 | 20.81 | 372.2 |
+| roadrunner | 4 | 8 | 1 | 5000 | 0 | 724 | 9.53 | 16.28 | 33.32 | 269.8 |
+| frankenphp | 4 | 8 | 1 | 5000 | 0 | 1044 | 6.30 | 11.34 | 25.64 | 140.3 |
+| workerman | 4 | 8 | 1 | 5000 | 0 | 997 | 6.20 | 19.01 | 29.09 | 193.3 |
+| workerman | 4 | 1 | 2 | 5000 | 0 | 306 | 2.89 | 5.66 | 9.07 | 192.6 |
+| frankenphp | 4 | 1 | 2 | 5000 | 0 | 293 | 3.12 | 5.37 | 8.56 | 99.3 |
+| roadrunner | 4 | 1 | 2 | 5000 | 0 | 207 | 3.90 | 6.83 | 11.26 | 269.6 |
+| swoole | 4 | 1 | 2 | 5000 | 0 | 257 | 3.17 | 6.47 | 11.01 | 370.7 |
+| workerman | 4 | 8 | 2 | 5000 | 0 | 1043 | 5.87 | 17.67 | 26.30 | 193.0 |
+| frankenphp | 4 | 8 | 2 | 5000 | 0 | 1205 | 6.04 | 10.87 | 14.71 | 99.8 |
+| roadrunner | 4 | 8 | 2 | 5000 | 0 | 651 | 9.85 | 21.80 | 35.92 | 269.8 |
+| swoole | 4 | 8 | 2 | 5000 | 0 | 914 | 7.55 | 13.92 | 18.70 | 371.5 |
+| swoole | 4 | 1 | 3 | 5000 | 0 | 279 | 3.11 | 5.56 | 8.53 | 370.7 |
+| roadrunner | 4 | 1 | 3 | 5000 | 0 | 194 | 3.91 | 8.71 | 16.55 | 269.0 |
+| frankenphp | 4 | 1 | 3 | 5000 | 0 | 287 | 3.17 | 5.64 | 8.43 | 98.3 |
+| workerman | 4 | 1 | 3 | 5000 | 0 | 326 | 2.73 | 5.10 | 10.43 | 182.3 |
+| swoole | 4 | 8 | 3 | 5000 | 0 | 796 | 8.69 | 16.75 | 24.18 | 371.5 |
+| roadrunner | 4 | 8 | 3 | 5000 | 0 | 704 | 9.75 | 17.96 | 28.37 | 269.7 |
+| frankenphp | 4 | 8 | 3 | 5000 | 0 | 1096 | 6.86 | 11.48 | 14.91 | 98.8 |
+| workerman | 4 | 8 | 3 | 5000 | 0 | 696 | 7.99 | 28.34 | 66.57 | 193.5 |
 
 ## Docker commands executed in the headline pass
 

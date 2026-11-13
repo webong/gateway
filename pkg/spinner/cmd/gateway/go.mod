@@ -17,6 +17,7 @@ require (
 	github.com/jackc/pgx/v4 v4.18.3 // indirect
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
+	github.com/webong/proxy v0.3.1 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect

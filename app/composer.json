@@ -17,7 +17,7 @@
         "webong/gateway-mercure": "dev-main",
         "webong/gateway-reverb": "dev-main",
         "webong/gateway-web": "dev-main",
-        "webong/proxy": "^0.2.0",
+        "webong/proxy": "^0.3.1",
         "workerman/workerman": "^5.2"
     },
     "repositories": [

@@ -54,6 +54,9 @@ handles registration and desired state. The Planner image serves Laravel on
 port 8080; it does not include the Go router. Run its migration Job against a
 backed-up PostgreSQL database before starting or upgrading Planner. The Job is
 intentionally separate from the Deployment so replicas never race migrations.
+When the upgrade crosses Proxy 0.3.1, stop subscription writers and scale Planner
+down first; see
+[Upgrading to Proxy 0.3.1](deployment.md#upgrading-to-proxy-031-subscription-identity-migration).
 
 Create three Secrets/ConfigMaps in the Gateway namespace:
 

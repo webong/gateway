@@ -11,7 +11,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
-	golang.org/x/net v0.60.0
+	github.com/webong/proxy v0.3.1
 	golang.org/x/sys v0.48.0
 )
 

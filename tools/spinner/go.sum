@@ -20,6 +20,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/webong/ext/pkg/plugin-go/contract v0.6.0 h1:Rkgan4DRfrdv9kwiFmhROZlwsDSF4BrThSO6kE/3jQ0=
 github.com/webong/ext/pkg/plugin-go/contract v0.6.0/go.mod h1:YajPTz7utaUNrcn856mnFegEHuk8l70pK2krbVFSZoc=
+github.com/webong/proxy v0.3.1 h1:L7HbB0aPspnlCI3ZAMlw5ETYnk2kxiEr4FrdP1Ncu/w=
+github.com/webong/proxy v0.3.1/go.mod h1:89vzomkPaDUrNo5llatxFmi8frh4NkyQ5Sko/PbHKLs=
 github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=
 github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
 golang.org/x/crypto v0.58.0 h1:COkYLr4k7nDI4r6QtMML2AfzeIswWHAJthLS6K/M/54=

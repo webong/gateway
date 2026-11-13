@@ -40,6 +40,8 @@ That is not specific to this runtime. Any client that keeps an idle keep-alive c
 
 `app/workerman.php`: the worker's `onWorkerStop` now closes the worker's connections. No request is being handled when a stop is processed (the signal is handled between events, after a response has been written), so everything still open is idle or finished; a connection with a response still buffered is closed once it is flushed. Workerman's non-graceful stop (including recycling after `GATEWAY_PLANNER_MAX_REQUESTS`) already closed these connections, so that path is unchanged in effect.
 
+Update 2026-11-13: that recycling behaviour turned out to give keep-alive clients empty replies. Recycling now drains the worker first instead of calling `Worker::stopAll()` at once; `onWorkerStop` and the `SIGQUIT` behaviour described here are unchanged. See `planner-workerman-recycle-keepalive-2026-11-13.md`.
+
 ## Regression tests
 
 - `tests/Feature/WorkermanPlannerTest.php`: "exits on SIGQUIT even while clients keep idle keep-alive connections open". Six clients each complete a request and keep the connection open; the host must exit on `SIGQUIT` within 10 s with status 0. It fails on the previous `app/workerman.php` (the host does not exit within 10 s) and passes with the fix.
