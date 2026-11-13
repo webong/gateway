@@ -2,15 +2,18 @@
 
 declare(strict_types=1);
 
-use Gateway\Router\WorkermanLaravelHandler;
+use Gateway\Router\Workerman\LaravelHandler;
 use Workerman\Connection\TcpConnection;
 use Workerman\Protocols\Http\Request;
 use Workerman\Timer;
 use Workerman\Worker;
 
-$vendorDirectory = dirname(__DIR__).'/vendor';
+// app/servers/workerman/server.php: the Planner host is app/planner and the
+// shared Composer vendor directory sits beside app/.
+$appDirectory = dirname(__DIR__, 2);
+$vendorDirectory = dirname($appDirectory).'/vendor';
 $loader = require $vendorDirectory.'/autoload.php';
-$loader->addPsr4('Gateway\\Router\\', __DIR__);
+$loader->addPsr4('Gateway\\Router\\', $appDirectory.'/helpers');
 
 // The Workerman master starts from CLI, but each child is an HTTP worker.
 putenv('APP_RUNNING_IN_CONSOLE=false');
@@ -21,7 +24,7 @@ $workers = getenv('GATEWAY_PLANNER_WORKERS');
 $workerCount = is_string($workers) && ctype_digit($workers) ? max(1, (int) $workers) : 4;
 $requests = getenv('GATEWAY_PLANNER_MAX_REQUESTS');
 $maxRequests = is_string($requests) && ctype_digit($requests) ? max(1, (int) $requests) : 500;
-$dataDirectory = getenv('GATEWAY_ROUTER_DATA_DIR') ?: dirname(__DIR__).'/.gateway-router-data';
+$dataDirectory = getenv('GATEWAY_ROUTER_DATA_DIR') ?: dirname($appDirectory).'/.gateway-router-data';
 
 Worker::$logFile = rtrim($dataDirectory, '/').'/storage/logs/workerman.log';
 Worker::$pidFile = rtrim($dataDirectory, '/').'/workerman.pid';
@@ -36,8 +39,8 @@ $stopping = false;
 $http = new Worker("http://{$host}:{$port}");
 $http->name = 'gateway-planner';
 $http->count = $workerCount;
-$http->onWorkerStart = static function () use (&$handler, &$handledRequests): void {
-    $handler = new WorkermanLaravelHandler(__DIR__);
+$http->onWorkerStart = static function () use (&$handler, &$handledRequests, $appDirectory): void {
+    $handler = new LaravelHandler($appDirectory.'/planner');
     $handledRequests = 0;
 };
 // Recycling a worker must not cost a client a request. Workerman keeps a client's connection in
@@ -69,7 +72,7 @@ $startDraining = static function () use (&$draining, &$stopping, $http, $drainSe
     });
 };
 $http->onMessage = static function (TcpConnection $connection, Request $request) use (&$handler, &$handledRequests, &$draining, $maxRequests, $startDraining): void {
-    if (! $handler instanceof WorkermanLaravelHandler) {
+    if (! $handler instanceof LaravelHandler) {
         $connection->send(new Workerman\Protocols\Http\Response(503, ['Content-Type' => 'text/plain'], 'Service Unavailable'));
 
         return;

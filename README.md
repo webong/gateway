@@ -176,8 +176,11 @@ migration stream, then remove it.
 - `pkg/spinner/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `pkg/planner` is the PHP Planner core package source tree.
-- `app/` is the thin PHP host for the bundled Planner, not a conventional
-  Laravel application skeleton.
+- `app/` is the PHP host for the bundled Planner, not a conventional Laravel
+  application skeleton. `app/planner/` is the thin Laravel host, `app/servers/`
+  holds one directory per way of serving it (FrankenPHP, PHP-FPM, Workerman;
+  Octane runs Swoole and RoadRunner itself, so they need no files), and
+  `app/helpers/` holds the `Gateway\Router\` classes.
 - `pkg/planner/src/Laravel/` owns Laravel storage, management, and framework wiring;
   `pkg/planner/src/Symfony/` owns Symfony wiring. The remaining source is shared.
 - `pkg/planner/config/` contains Laravel configuration and Symfony route imports;

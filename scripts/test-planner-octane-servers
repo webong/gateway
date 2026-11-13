@@ -6,9 +6,9 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gateway-planner-octane.XXXXXX")
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
-mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/app"
-touch "$TEMP_DIR/app/artisan" "$TEMP_DIR/app/rr"
-chmod +x "$TEMP_DIR/app/rr"
+mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/app/planner"
+touch "$TEMP_DIR/app/planner/artisan" "$TEMP_DIR/app/planner/rr"
+chmod +x "$TEMP_DIR/app/planner/rr"
 
 cat > "$TEMP_DIR/bin/php" <<'SH'
 #!/bin/sh
@@ -98,7 +98,7 @@ GATEWAY_PLANNER_APP_DIR="$TEMP_DIR/app" \
 GATEWAY_PLANNER_SERVER=workerman GATEWAY_TEST_COMMAND_LOG="$workerman_log" \
     sh "$ROOT/scripts/planner-start" serve
 
-if ! grep -Fq 'workerman.php start' "$workerman_log"; then
+if ! grep -Fq 'servers/workerman/server.php start' "$workerman_log"; then
     echo 'Planner did not launch Workerman.' >&2
     exit 1
 fi

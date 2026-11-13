@@ -11,7 +11,7 @@ if ($argc < 3 || ! in_array($argv[1], ['capability', 'invoke'], true)) {
     exit(2);
 }
 
-$app = require '/gateway/app/bootstrap.php';
+$app = require '/gateway/app/planner/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $registry = $app->make(CompanionActionRegistry::class);
 

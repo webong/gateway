@@ -16,7 +16,7 @@ func TestRuntimeServesFrontControllerWithoutASecondPHPListener(t *testing.T) {
 	t.Setenv(plannerWorkerCountEnv, "1")
 	t.Setenv(legacyPlannerWorkerCountEnv, "")
 	appDir := writeWorkerApp(t, false)
-	if err := os.WriteFile(filepath.Join(appDir, "config.php"), []byte("<?php echo 'private configuration';"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "planner", "public", "config.php"), []byte("<?php echo 'private configuration';"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -190,11 +190,14 @@ func BenchmarkRuntimeWorkerPool(b *testing.B) {
 func writeWorkerApp(t testing.TB, slow bool) string {
 	t.Helper()
 	appDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(appDir, "index.php"), []byte("<?php"), 0o644); err != nil {
-		t.Fatal(err)
+	publicDir := filepath.Join(appDir, "planner", "public")
+	workerDir := filepath.Join(appDir, "servers", "frankenphp")
+	for _, dir := range []string{publicDir, workerDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
-	publicDir := filepath.Join(appDir, "public")
-	if err := os.MkdirAll(publicDir, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(publicDir, "index.php"), []byte("<?php"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	delay := ""
@@ -211,7 +214,7 @@ do {
     });
 } while ($ok);
 `
-	if err := os.WriteFile(filepath.Join(publicDir, "frankenphp-worker.php"), []byte(worker), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workerDir, "worker.php"), []byte(worker), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return appDir
