@@ -55,7 +55,7 @@ The SQL files under `app/schema` create RPC routing reservations; QueueScheduler
 - Prerequisite: merged and post-merge CI verified.
 - Inventory: completed against the exact source above.
 - Runtime decision: ADR 0012 proposes a bundled Linux runtime, pending feasibility evidence.
-- Runtime proof: in progress under `tools/workflow-runtime-gate`; not a production extension.
+- Runtime proof: native amd64/arm64 Ext scratch-runtime checks passed under `tools/workflow-runtime-gate` ([CI](https://github.com/webong/gateway/actions/runs/43512343763)); production host/deployment matrix remains open.
 - Extraction, Planner resources/permissions/secrets, host/delivery matrix, copied-data migration/rollback and release/deprecation: not started.
 
 Do not advance extraction until architecture-specific runtime/PDO, private routing, worker readiness, shutdown and lease-recovery evidence exists. A local image build alone is insufficient. The queue remains authoritative; no automatic authority conversion is planned.

@@ -38,9 +38,18 @@ The Ext consumer harness re-verifies all manifest artifacts, launches the real J
 
 Go race tests exercise terminal-child failure stopping sibling processes, rejecting new work after closure, missing bundled runtime, and rejecting client-selected executable/bootstrap settings. `actionlint:1.7.7` passes the new native runtime workflow.
 
+## Native architecture CI
+
+The same probe code at `d1663992d0a89741071023bdb9a7aa4356a9c57d` passed on both native GitHub runners:
+
+- [Linux amd64](https://github.com/webong/gateway/actions/runs/43512343763/job/132185475648): supervision/race tests, independent contract imports, pinned source/runtime closure build and the complete Ext/RPC/recovery smoke passed.
+- [Linux arm64](https://github.com/webong/gateway/actions/runs/43512343763/job/132185474786): the same checks passed.
+
+Draft implementation PR: https://github.com/webong/gateway/pull/24 . These are native runner results, not a cross-compile-only or emulated-runtime claim. No images or archives were published.
+
 ## Gates not yet satisfied
 
-- Native amd64 and repeat native arm64 CI are pending; a local amd64 source-image download is not a passing architecture test.
+- The architecture proof passes, but it is an independent Ext consumer harness rather than the production host/deployment matrix.
 - This is a disposable SQLite workload. PDO driver presence is not a PostgreSQL/MySQL integration claim; the prerequisite WorkFlow SQL matrix remains separate evidence.
 - Standalone Spinner and both Router host acceptance, live capability-loss handling and real deployment replacement are not verified by the independent Ext consumer harness.
 - Production definition/grant resources, credentials, provider effects, durable delivery binding and external released-core consumption are not implemented here.
