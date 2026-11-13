@@ -45,6 +45,13 @@ if ($report['driver'] === 'sqlite') {
         'port' => $row->port === null ? null : (int) $row->port,
         'started' => (string) $row->started,
     ];
+} elseif ($report['driver'] === 'mysql') {
+    $row = $connection->selectOne('SELECT DATABASE() AS name, @@port AS port, @@server_uuid AS uuid');
+    $report['identity'] = [
+        'database' => (string) $row->name,
+        'port' => (int) $row->port,
+        'server_uuid' => (string) $row->uuid,
+    ];
 }
 
 echo json_encode($report, JSON_THROW_ON_ERROR), PHP_EOL;

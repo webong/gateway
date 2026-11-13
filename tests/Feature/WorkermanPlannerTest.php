@@ -995,3 +995,292 @@ it('reconnects to PostgreSQL on the same worker after its backend is terminated'
         });
     });
 });
+
+// ---------------------------------------------------------------------------
+// MySQL (the Planner's MySQL 8.4 runtime; see docs/deployment.md#database-support)
+// ---------------------------------------------------------------------------
+
+/** @return array{tables: list<string>, counts: array<string, int>} */
+function sentinelMysqlFingerprint(array $connection, string $database): array
+{
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s', $connection['host'], $connection['port'], $database),
+        $connection['username'],
+        $connection['password'],
+    );
+    $tables = $pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name')
+        ->fetchAll(PDO::FETCH_COLUMN);
+    $counts = [];
+    foreach ($tables as $table) {
+        $counts[$table] = (int) $pdo->query('SELECT COUNT(*) FROM `'.$table.'`')->fetchColumn();
+    }
+
+    return ['tables' => $tables, 'counts' => $counts];
+}
+
+/**
+ * Create a disposable MySQL database next to the configured test one, with the
+ * server's own default collation, run the body with its connection, and drop it.
+ *
+ * @param array{host: string, port: int, database: string, username: string, password: string} $server
+ */
+function withDisposableMysqlDatabase(array $server, string $prefix, callable $body): mixed
+{
+    $name = $prefix.bin2hex(random_bytes(8));
+    $admin = fn (): PDO => new PDO(
+        sprintf('mysql:host=%s;port=%d;dbname=%s', $server['host'], $server['port'], $server['database']),
+        $server['username'],
+        $server['password'],
+    );
+    $admin()->exec('CREATE DATABASE `'.$name.'`');
+
+    try {
+        return $body([
+            'host' => $server['host'],
+            'port' => $server['port'],
+            'database' => $name,
+            'username' => $server['username'],
+            'password' => $server['password'],
+        ]);
+    } finally {
+        try {
+            $admin()->exec('DROP DATABASE IF EXISTS `'.$name.'`');
+        } catch (Throwable) {
+            // Best-effort cleanup of the disposable database.
+        }
+    }
+}
+
+/**
+ * Like workermanScenario(), against a disposable MySQL database: migrated the way
+ * scripts/planner-start migrates, seeded, served by a real Workerman process, and
+ * stopped through its owned handle.
+ *
+ * @param array<string, string> $extraEnv
+ * @param callable(GatewayPlannerHostHandle, int, string, array<string, mixed>): void $body receives the handle,
+ *        port, data directory and the disposable database's connection
+ */
+function workermanMysqlScenario(array $server, array $extraEnv, callable $body): void
+{
+    withDisposableMysqlDatabase($server, 'gateway_workerman_', function (array $disposable) use ($extraEnv, $body): void {
+        workermanMysqlScenarioIn($disposable, $extraEnv, $body);
+    });
+}
+
+it('serves planning and management requests from a Workerman host on MySQL', function (): void {
+    $server = gatewayPlannerMysqlConnection();
+    if ($server === null) {
+        $this->markTestSkipped('Set GATEWAY_TEST_MYSQL_DATABASE to run the MySQL Workerman tests.');
+    }
+
+    workermanMysqlScenario($server, [], function (GatewayPlannerHostHandle $handle, int $port, string $dataDirectory, array $database): void {
+        expect(gatewayPlannerRequest('GET', "http://127.0.0.1:$port/health")['status'])->toBe(204);
+        workermanExpectRelayPlan(workermanPlan($port));
+        expect(json_decode(workermanPlan($port, '/unbound/path')['body'], true, 512, JSON_THROW_ON_ERROR)['action'])->toBe('pass_through');
+
+        $base = "http://127.0.0.1:$port/targets";
+        $authorized = ['Content-Type' => 'application/json', 'Authorization' => 'Bearer '.WORKERMAN_REGISTRY_TOKEN];
+        $targetBody = json_encode(['name' => 'workerman-mysql-target', 'driver' => 'local'], JSON_THROW_ON_ERROR);
+        expect(gatewayPlannerRequest('POST', $base, ['Content-Type' => 'application/json'], $targetBody)['status'])->toBe(401);
+        expect(gatewayPlannerRequest('POST', $base, $authorized, $targetBody)['status'])->toBe(201);
+        // Names are exact on MySQL, as on PostgreSQL and SQLite.
+        expect(gatewayPlannerRequest('POST', $base, $authorized, json_encode(['name' => 'Workerman-MySQL-Target', 'driver' => 'local']))['status'])->toBe(201);
+        expect(gatewayPlannerRequest('GET', $base, ['Authorization' => 'Bearer '.WORKERMAN_REGISTRY_TOKEN])['body'])->toContain('workerman-mysql-target');
+
+        // The rows are in the disposable MySQL database the host resolved.
+        $fingerprint = sentinelMysqlFingerprint($database, $database['database']);
+        expect($fingerprint['counts']['targets'])->toBe(2)
+            ->and($fingerprint['counts']['subscriptions'])->toBeGreaterThan(0);
+    });
+});
+
+it('leaves a sentinel MySQL database untouched when DB_URL points at it', function (): void {
+    $server = gatewayPlannerMysqlConnection();
+    if ($server === null) {
+        $this->markTestSkipped('Set GATEWAY_TEST_MYSQL_DATABASE to run the MySQL sentinel test.');
+    }
+
+    withDisposableMysqlDatabase($server, 'gateway_sentinel_', function (array $sentinel) use ($server): void {
+        $pdo = new PDO(
+            sprintf('mysql:host=%s;port=%d;dbname=%s', $sentinel['host'], $sentinel['port'], $sentinel['database']),
+            $sentinel['username'],
+            $sentinel['password'],
+        );
+        $pdo->exec('CREATE TABLE sentinel_marker (id INT AUTO_INCREMENT PRIMARY KEY, note TEXT)');
+        $pdo->exec("INSERT INTO sentinel_marker (note) VALUES ('do not touch')");
+        $pdo = null;
+        $before = sentinelMysqlFingerprint($sentinel, $sentinel['database']);
+
+        $url = sprintf(
+            'mysql://%s:%s@%s:%d/%s',
+            rawurlencode($sentinel['username']),
+            rawurlencode($sentinel['password']),
+            $sentinel['host'],
+            $sentinel['port'],
+            $sentinel['database'],
+        );
+        $hostile = ['DB_URL' => $url, 'DATABASE_URL' => $url];
+
+        // Positive control: DB_URL really redirects the resolved database to the
+        // sentinel when nothing neutralises it.
+        gatewayPlannerWithDisposableDirectory(function (string $directory) use ($hostile, $sentinel): void {
+            gatewayPlannerWithEnvironment(array_merge($hostile, [
+                'DB_CONNECTION' => 'mysql',
+                'GATEWAY_ROUTER_DATA_DIR' => $directory,
+                'LARAVEL_STORAGE_PATH' => $directory.'/storage',
+                'APP_KEY' => 'base64:'.base64_encode(random_bytes(32)),
+            ]), function () use ($sentinel): void {
+                expect(gatewayPlannerResolveDatabase()['database'])->toBe($sentinel['database']);
+            });
+        });
+
+        // With DB_URL inherited, a disposable MySQL scenario must still use its own
+        // database: migrate, seed, serve, and leave the sentinel alone.
+        withDisposableMysqlDatabase($server, 'gateway_sentinel_run_', function (array $own) use ($hostile, $server): void {
+            gatewayPlannerWithEnvironment($hostile, function () use ($own, $server): void {
+                workermanMysqlScenarioIn($own, [], function (GatewayPlannerHostHandle $handle, int $port): void {
+                    workermanExpectRelayPlan(workermanPlan($port));
+                });
+            });
+
+            expect(sentinelMysqlFingerprint($server, $own['database'])['tables'])->toContain('gateway_migrations', 'configurations');
+        });
+
+        expect(sentinelMysqlFingerprint($server, $sentinel['database']))->toBe($before);
+    });
+});
+
+/**
+ * Migrate, seed and serve a database that already exists (the disposable one
+ * workermanMysqlScenario() creates), then run the body and stop the host.
+ *
+ * @param array{host: string, port: int, database: string, username: string, password: string} $disposable
+ * @param array<string, string> $extraEnv
+ */
+function workermanMysqlScenarioIn(array $disposable, array $extraEnv, callable $body): void
+{
+    gatewayPlannerWithDisposableDirectory(function (string $dataDirectory) use ($disposable, $extraEnv, $body): void {
+        $baseEnv = gatewayPlannerBaseEnvMysql($dataDirectory, $disposable);
+
+        gatewayPlannerWithEnvironment(
+            array_merge($baseEnv, $extraEnv),
+            function () use ($dataDirectory, $disposable, $baseEnv, $body): void {
+                gatewayPlannerRunMigrationsMysql($disposable);
+                gatewayPlannerSeedEndpoint($baseEnv, WORKERMAN_ENDPOINT_KEY, 'application', 'app-123', WORKERMAN_RELAY_URL, WORKERMAN_SUBSCRIBER_ID);
+
+                $port = gatewayPlannerFindFreePort();
+                $handle = gatewayPlannerStartWorkerman($dataDirectory, $port);
+                try {
+                    gatewayPlannerWaitForPort($port);
+                    $body($handle, $port, $dataDirectory, $disposable);
+                } finally {
+                    $stop = gatewayPlannerStopWorkerman($handle);
+                }
+
+                if ($stop['forced']) {
+                    throw new RuntimeException('The host did not exit on SIGQUIT and had to be force-killed.');
+                }
+            },
+        );
+    });
+}
+
+it('reconnects to MySQL on the same worker after its connection is killed', function (): void {
+    $server = gatewayPlannerMysqlConnection();
+    if ($server === null) {
+        $this->markTestSkipped('Set GATEWAY_TEST_MYSQL_DATABASE to run the MySQL reconnection test.');
+    }
+
+    workermanMysqlScenario(
+        $server,
+        ['GATEWAY_PLANNER_WORKERS' => '1', 'GATEWAY_PLANNER_MAX_REQUESTS' => '1000'],
+        function (GatewayPlannerHostHandle $handle, int $port, string $dataDirectory, array $database) use ($server): void {
+            $admin = new PDO(
+                sprintf('mysql:host=%s;port=%d;dbname=%s', $server['host'], $server['port'], $server['database']),
+                $server['username'],
+                $server['password'],
+            );
+
+            // Before: the worker serves a plan and reports the MySQL thread its own
+            // connection is bound to.
+            workermanExpectRelayPlan(workermanPlan($port, '/http-smoke/probe/before'));
+            $before = gatewayPlannerReadProbe($dataDirectory, 'before');
+            expect($before['worker_pid'])->toBeInt()->and($before['backend_pid'])->toBeInt();
+            expect(gatewayPlannerWorkerPids($handle->masterPid))->toContain($before['worker_pid']);
+
+            // Kill exactly that thread from a separate connection, and wait until the
+            // server no longer lists it, so the next request cannot run on the old session.
+            $admin->exec('KILL CONNECTION '.(int) $before['backend_pid']);
+            $listed = $admin->prepare('SELECT COUNT(*) FROM information_schema.processlist WHERE id = ?');
+            $deadline = microtime(true) + 10.0;
+            do {
+                $listed->execute([(int) $before['backend_pid']]);
+                $alive = (int) $listed->fetchColumn();
+                if ($alive === 0) {
+                    break;
+                }
+                usleep(25_000);
+            } while (microtime(true) < $deadline);
+            expect($alive)->toBe(0);
+
+            // The first request after the kill: no retry loop, so a user-visible error
+            // cannot be hidden. The same Workerman child performs an uncached read on a
+            // new MySQL thread.
+            $firstAfterKill = workermanPlan($port, '/http-smoke/probe/after');
+            $this->assertSame(200, $firstAfterKill['status'], 'the first request after the kill failed: '.$firstAfterKill['body']);
+            workermanExpectRelayPlan($firstAfterKill);
+
+            $after = gatewayPlannerReadProbe($dataDirectory, 'after');
+            expect($after['worker_pid'])->toBe($before['worker_pid'])
+                ->and($after['backend_pid'])->toBeInt()->not->toBe($before['backend_pid']);
+            $listed->execute([(int) $after['backend_pid']]);
+            expect((int) $listed->fetchColumn())->toBe(1);
+        },
+    );
+});
+
+it('rolls back a write left in an open transaction on MySQL and keeps serving from the same worker', function (): void {
+    $server = gatewayPlannerMysqlConnection();
+    if ($server === null) {
+        $this->markTestSkipped('Set GATEWAY_TEST_MYSQL_DATABASE to run the MySQL rollback test.');
+    }
+
+    workermanMysqlScenario(
+        $server,
+        ['GATEWAY_PLANNER_WORKERS' => '1', 'GATEWAY_PLANNER_MAX_REQUESTS' => '1000'],
+        function (GatewayPlannerHostHandle $handle, int $port, string $dataDirectory, array $database) use ($server): void {
+            $token = 'open-'.bin2hex(random_bytes(4));
+
+            // The request opens a transaction, inserts a row, and ends without committing it.
+            workermanExpectRelayPlan(workermanPlan($port, '/http-smoke/write-leave-open/'.$token));
+            expect(gatewayPlannerReadProbe($dataDirectory, $token))->toBe(['transaction_level_at_exit' => 1]);
+
+            // The same worker then serves a database-backed request on a clean connection.
+            workermanExpectRelayPlan(workermanPlan($port, '/http-smoke/probe/after-open'));
+            $after = gatewayPlannerReadProbe($dataDirectory, 'after-open');
+            expect($after['transaction_level'])->toBe(0)
+                ->and(count(gatewayPlannerWorkerPids($handle->masterPid)))->toBe(1)
+                ->and(gatewayPlannerWorkerPids($handle->masterPid))->toContain($after['worker_pid']);
+
+            // The failed write is gone, and MySQL itself holds no open transaction for the
+            // worker's thread (an unrolled-back write would still hold its row locks).
+            $pdo = new PDO(
+                sprintf('mysql:host=%s;port=%d;dbname=%s', $database['host'], $database['port'], $database['database']),
+                $database['username'],
+                $database['password'],
+            );
+            $count = $pdo->prepare('SELECT COUNT(*) FROM targets WHERE name = ?');
+            $count->execute(['failed-write-'.$token]);
+            expect((int) $count->fetchColumn())->toBe(0);
+
+            $open = new PDO(
+                sprintf('mysql:host=%s;port=%d;dbname=%s', $server['host'], $server['port'], $server['database']),
+                $server['username'],
+                $server['password'],
+            );
+            $transactions = $open->prepare('SELECT COUNT(*) FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ?');
+            $transactions->execute([(int) $after['backend_pid']]);
+            expect((int) $transactions->fetchColumn())->toBe(0);
+        },
+    );
+});
