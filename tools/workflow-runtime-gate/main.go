@@ -17,7 +17,9 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,15 +36,16 @@ type child struct {
 	done chan struct{}
 }
 type service struct {
-	root     string
-	ini      string
-	iniDir   string
-	mu       sync.Mutex
-	children []*child
-	server   *http.Server
-	once     sync.Once
-	closed   bool
-	stopped  chan struct{}
+	root        string
+	ini         string
+	iniDir      string
+	mu          sync.Mutex
+	children    []*child
+	server      *http.Server
+	once        sync.Once
+	closed      bool
+	cooperative bool
+	stopped     chan struct{}
 }
 
 func (s *service) php(args ...string) *exec.Cmd {
@@ -57,12 +60,32 @@ func (s *service) launch(cmd *exec.Cmd) (*child, error) {
 	if s.closed {
 		return nil, errors.New("runtime is closed")
 	}
-	if err := cmd.Start(); err != nil {
+	started := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		configureChild(cmd)
+		err := cmd.Start()
+		started <- err
+		if err != nil {
+			return
+		}
+		_ = cmd.Wait()
+		close(c.done)
+		s.close()
+	}()
+	if err := <-started; err != nil {
 		return nil, errors.New("bundled runtime child failed to start")
 	}
 	s.children = append(s.children, c)
-	go func() { _ = cmd.Wait(); close(c.done); s.close() }()
 	return c, nil
+}
+func (s *service) Stop(context.Context) error {
+	s.mu.Lock()
+	s.cooperative = true
+	s.mu.Unlock()
+	s.close()
+	return nil
 }
 func (s *service) close() {
 	s.once.Do(func() {
@@ -239,6 +262,10 @@ func (s *service) Start(ctx context.Context, request arranger.RuntimeStartReques
 			http.NotFound(w, r)
 			return
 		}
+		if r.Header.Get("X-Gateway-Internal") != "" || r.Header.Get("X-Gateway-Target") != "" || r.Header.Get(arranger.PrivateHTTPAuthorizationHeader) != "" {
+			http.Error(w, "Invalid private credential handoff", http.StatusBadRequest)
+			return
+		}
 		r.URL.Path = "/rpc"
 		proxy.ServeHTTP(w, r)
 	})
@@ -263,6 +290,24 @@ func (s *service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	go func() {
 		if e := server.Serve(listener); e != nil && !errors.Is(e, http.ErrServerClosed) {
 			s.close()
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-s.stopped:
+				return
+			case <-ticker.C:
+				checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				current, e := arranger.NewRuntimeHost(caller, nil).Secrets().Resolve(checkCtx, "workflow-runtime")
+				cancel()
+				if e != nil || current.Version != secret.Version || !bytes.Equal(current.Value, secret.Value) {
+					s.close()
+					return
+				}
+			}
 		}
 	}()
 	return arranger.RuntimeStartResponse{PrivateHTTP: []arranger.HTTPMount{{Prefix: "/workflow/rpc", Address: "http://" + listener.Addr().String()}}}, nil
@@ -302,6 +347,33 @@ func main() {
 	if e != nil || manifest.VerifyArtifacts(root) != nil {
 		fmt.Fprintln(os.Stderr, "runtime artifact verification failed")
 		os.Exit(1)
+	}
+	if len(os.Args) == 2 && os.Args[1] == "--kill-runtime-guest" {
+		entries, _ := os.ReadDir("/proc")
+		killed := 0
+		for _, entry := range entries {
+			pid, e := strconv.Atoi(entry.Name())
+			if e != nil || pid == os.Getpid() {
+				continue
+			}
+			raw, e := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+			if e != nil {
+				continue
+			}
+			args := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
+			if len(args) == 1 && args[0] == filepath.Join(root, "bin/spinner") {
+				process, _ := os.FindProcess(pid)
+				if process.Kill() == nil {
+					killed++
+				}
+			}
+		}
+		if killed != 1 {
+			fmt.Fprintln(os.Stderr, "expected exactly one runtime guest")
+			os.Exit(1)
+		}
+		fmt.Println("Terminated the disposable runtime guest for parent-death acceptance.")
+		return
 	}
 	if len(os.Args) == 2 && (os.Args[1] == "--session-probe" || os.Args[1] == "--session-no-secret") {
 		deny := os.Args[1] == "--session-no-secret"
@@ -352,6 +424,12 @@ func main() {
 	go func() {
 		select {
 		case <-s.stopped:
+			s.mu.Lock()
+			cooperative := s.cooperative
+			s.mu.Unlock()
+			if cooperative {
+				return
+			}
 			stop()
 			_ = os.Stdin.Close()
 		case <-ctx.Done():

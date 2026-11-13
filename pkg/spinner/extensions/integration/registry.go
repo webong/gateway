@@ -42,6 +42,28 @@ type extensionProcess interface {
 	Close() error
 }
 
+// runtimeProcess gives declared runtimes a bounded cooperative stop before Ext's
+// process backend kills the guest. Older packages retain their existing close.
+type runtimeProcess struct {
+	extensionProcess
+	once     sync.Once
+	closeErr error
+}
+
+func (p *runtimeProcess) Close() error {
+	p.once.Do(func() { p.closeErr = stopRuntimeProcess(p.extensionProcess) })
+	return p.closeErr
+}
+func stopRuntimeProcess(p extensionProcess) error {
+	if _, err := p.Descriptor().Lookup(integrationcontract.RuntimeContract, integrationcontract.OperationStop); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		var result struct{}
+		_ = p.Call(ctx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStop), struct{}{}, &result)
+		cancel()
+	}
+	return p.Close()
+}
+
 type httpMount struct {
 	prefix string
 	proxy  http.Handler
@@ -138,7 +160,7 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 	err = proc.Call(callCtx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStart), DefaultHost.StartRequest(inst.Manifest.Descriptor.Identity, configuration), &advertisement)
 	cancel()
 	if err != nil {
-		_ = proc.Close()
+		_ = stopRuntimeProcess(proc)
 		if diagnostic := strings.TrimSpace(proc.Stderr()); diagnostic != "" {
 			return mounted{}, fmt.Errorf("start Spinner integration: %w (guest: %s)", err, diagnostic)
 		}
@@ -167,22 +189,22 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 		return nil
 	}
 	if err := buildMounts(advertisement.HTTP, &mounts); err != nil {
-		_ = proc.Close()
+		_ = stopRuntimeProcess(proc)
 		return mounted{}, err
 	}
 	seenPrefixes = make(map[string]bool, len(advertisement.PrivateHTTP))
 	if err := buildMounts(advertisement.PrivateHTTP, &privateMounts); err != nil {
-		_ = proc.Close()
+		_ = stopRuntimeProcess(proc)
 		return mounted{}, err
 	}
 	adapters := make(map[string]struct{}, len(advertisement.DeliveryAdapters))
 	for _, name := range advertisement.DeliveryAdapters {
 		if !integrationcontract.ValidAdapterName(name) || strings.HasPrefix(name, "gateway.") {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised an invalid delivery adapter")
 		}
 		if _, duplicate := adapters[name]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate delivery adapter")
 		}
 		adapters[name] = struct{}{}
@@ -193,15 +215,15 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 		language := string(job.Language)
 		if !integrationcontract.ValidAdapterName(job.Name) || strings.HasPrefix(job.Name, "gateway.") ||
 			language != "native."+job.Name {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised an invalid native job")
 		}
 		if _, duplicate := jobs[language]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate native job language")
 		}
 		if _, duplicate := seenJobNames[job.Name]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate native job name")
 		}
 		jobs[language] = job
@@ -210,24 +232,24 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 	failures := make(map[string]struct{}, len(advertisement.DeliveryFailureHandlers))
 	if len(advertisement.DeliveryFailureHandlers) > 0 {
 		if _, err := proc.Descriptor().Lookup(integrationcontract.DeliveryFailureContract, integrationcontract.OperationDeliveryFailure); err != nil {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a failure handler without implementing its contract")
 		}
 	}
 	for _, name := range advertisement.DeliveryFailureHandlers {
 		if !integrationcontract.ValidAdapterName(name) || strings.HasPrefix(name, "gateway.") {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised an invalid delivery failure handler")
 		}
 		if _, duplicate := failures[name]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate delivery failure handler")
 		}
 		failures[name] = struct{}{}
 	}
 	return mounted{
 		identity: inst.Manifest.Descriptor.Identity,
-		process:  proc,
+		process:  &runtimeProcess{extensionProcess: proc},
 		http:     mounts,
 		private:  privateMounts,
 		adapters: adapters,

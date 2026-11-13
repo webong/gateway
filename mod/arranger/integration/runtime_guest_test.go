@@ -127,3 +127,38 @@ func TestPrivatePlannerPassThroughAcceptsBodylessGET(t *testing.T) {
 		t.Fatalf("forwarded private Planner request = %+v", forwarded)
 	}
 }
+
+type stoppedRuntime struct{ stops int }
+
+func (s *stoppedRuntime) Start(context.Context, RuntimeStartRequest, plugin.ReverseCaller) (RuntimeStartResponse, error) {
+	return RuntimeStartResponse{}, nil
+}
+func (s *stoppedRuntime) Stop(context.Context) error { s.stops++; return nil }
+func TestRuntimeStopIsDeclaredIdempotentAndPreventsRestart(t *testing.T) {
+	descriptor := plugin.Descriptor{APIVersion: plugin.APIVersion, Identity: plugin.Identity{ID: "example/worker", Revision: "r1"}, Contracts: []plugin.Contract{{ContractRef: RuntimeContract, Operations: []plugin.Operation{{Name: OperationStart, Surface: "spinner"}, {Name: OperationStop, Surface: "spinner"}}}}}
+	starter := &stoppedRuntime{}
+	guest, err := RuntimeGuest(descriptor, starter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := plugin.Request{APIVersion: plugin.APIVersion, ID: "stop-1", Plugin: descriptor.Identity, Contract: RuntimeContract, Operation: OperationStop, Surface: "spinner", Deadline: time.Now().Add(time.Second), Payload: json.RawMessage(`{}`)}
+	for i := 0; i < 2; i++ {
+		response, err := guest.Invoke(context.Background(), request)
+		if err != nil || response.Error != nil {
+			t.Fatalf("stop failed: %+v %v", response, err)
+		}
+	}
+	if starter.stops != 1 {
+		t.Fatalf("stop called %d times", starter.stops)
+	}
+	request.Operation = OperationStart
+	response, err := guest.Invoke(context.Background(), request)
+	if err != nil || response.Error == nil {
+		t.Fatalf("stopped runtime restarted: %+v %v", response, err)
+	}
+	if _, err := RuntimeGuest(descriptor, RuntimeStarterFunc(func(context.Context, RuntimeStartRequest, plugin.ReverseCaller) (RuntimeStartResponse, error) {
+		return RuntimeStartResponse{}, nil
+	})); err == nil {
+		t.Fatal("declared stop without implementation accepted")
+	}
+}

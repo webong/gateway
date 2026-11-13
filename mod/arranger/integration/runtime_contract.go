@@ -12,6 +12,7 @@ import (
 
 const (
 	OperationStart = "start"
+	OperationStop  = "stop"
 
 	OperationPlanHTTP           = "plan-http"
 	OperationPlanEvent          = "plan-event"
@@ -65,6 +66,12 @@ const (
 	HTTPMatchWebSocketUpgrade = "websocket-upgrade"
 	HTTPMatchEventStream      = "event-stream"
 )
+
+// PrivateHTTPAuthorizationHeader carries the Extension's own HTTP credential
+// through the authenticated private admin listener. The host consumes its own
+// Authorization header, removes internal credentials and this handoff header,
+// then supplies this value as Authorization to the mounted Extension.
+const PrivateHTTPAuthorizationHeader = "X-Gateway-Extension-Authorization"
 
 // HTTPMount advertises one private HTTP endpoint and a public path prefix.
 // Address must be an http loopback URL; it is never exposed directly.
@@ -207,6 +214,11 @@ type DeliveryAdapterSupportResponse struct {
 type DurableResponse struct {
 	Enabled bool `json:"enabled"`
 }
+
+// RuntimeStopper optionally drains an Extension's listeners and owned children
+// before the host closes the process. Only descriptors declaring stop opt in.
+// Hosts bound the call; abrupt termination still requires local recovery/fencing.
+type RuntimeStopper interface{ Stop(context.Context) error }
 
 // RuntimeStarter opens extension-owned listeners after the host has verified and
 // launched the selected package revision.

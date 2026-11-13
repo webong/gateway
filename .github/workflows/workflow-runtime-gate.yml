@@ -5,6 +5,13 @@ on:
     paths:
       - 'tools/workflow-runtime-gate/**'
       - 'mod/arranger/**'
+      - 'pkg/spinner/**'
+      - 'pkg/roadrunner/**'
+      - 'pkg/frankenphp/**'
+      - 'infra/docker/Gateway*.Dockerfile'
+      - 'scripts/router-start'
+      - 'app/**'
+      - 'composer.*'
       - '.github/workflows/workflow-runtime-gate.yml'
   workflow_dispatch:
 
@@ -23,7 +30,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       GOWORK: off
       GOTELEMETRY: off
@@ -50,3 +57,13 @@ jobs:
         run: tools/workflow-runtime-gate/build.sh "$PWD/.workflow-gate-source" '${{ matrix.arch }}'
       - name: Exercise verified Ext activation and queue recovery
         run: python3 tools/workflow-runtime-gate/smoke.py 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
+      - name: Build actual Gateway hosts
+        run: |
+          tools/workflow-runtime-gate/host-build.sh spinner
+          tools/workflow-runtime-gate/host-build.sh roadrunner
+          tools/workflow-runtime-gate/host-build.sh frankenphp
+      - name: Exercise actual host matrix with the same verified package
+        run: |
+          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-workflow-runtime-gate:${{ matrix.arch }}'

@@ -2,7 +2,9 @@
 $base=$argv[1];$phase=$argv[2]??'start';$id=['flow_key'=>'gate_order','run_id'=>'gate-logical-run','subject'=>['type'=>'order','id'=>'gate-subject']];
 function rpc(string $method,array $params,string $token='disposable-runtime-gate-token'):array{
  global $base;
- $context=stream_context_create(['http'=>['method'=>'POST','timeout'=>5,'ignore_errors'=>true,'header'=>"Content-Type: application/json\r\nAuthorization: Bearer $token\r\n",'content'=>json_encode(['jsonrpc'=>'2.0','id'=>37,'method'=>$method,'params'=>$params])]]);
+ $hostToken=getenv('WORKFLOW_GATE_HOST_TOKEN');
+ $auth=is_string($hostToken)&&$hostToken!==''?"Authorization: Bearer $hostToken\r\nX-Gateway-Extension-Authorization: Bearer $token\r\nX-Gateway-Internal: $hostToken\r\n":"Authorization: Bearer $token\r\n";
+ $context=stream_context_create(['http'=>['method'=>'POST','timeout'=>5,'ignore_errors'=>true,'header'=>"Content-Type: application/json\r\n".$auth,'content'=>json_encode(['jsonrpc'=>'2.0','id'=>37,'method'=>$method,'params'=>$params])]]);
  $body=file_get_contents($base.'/workflow/rpc',false,$context);
  $code=(int)explode(' ',$http_response_header[0])[1];
  if($token==='wrong'){if($code!==401)throw new RuntimeException('Authentication failed open');return [];}

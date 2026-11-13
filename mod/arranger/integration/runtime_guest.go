@@ -65,9 +65,31 @@ func RuntimeGuestWithHandler(descriptor plugin.Descriptor, starter RuntimeStarte
 	if _, err := descriptor.Lookup(RuntimeContract, OperationStart); err != nil {
 		return nil, errors.New("extension descriptor does not declare the Spinner runtime contract")
 	}
+	if _, err := descriptor.Lookup(RuntimeContract, OperationStop); err == nil {
+		if _, ok := starter.(RuntimeStopper); !ok {
+			return nil, errors.New("runtime stop is declared without a stopper")
+		}
+	}
 	var mu sync.Mutex
 	started := false
+	stopped := false
 	return plugin.NewGuest(descriptor, plugin.GuestOptions{Handler: func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+		if request.Contract == RuntimeContract && request.Operation == OperationStop {
+			mu.Lock()
+			defer mu.Unlock()
+			if stopped {
+				return marshal(struct{}{})
+			}
+			stopper, ok := starter.(RuntimeStopper)
+			if !ok {
+				return nil, plugin.ErrUnsupported
+			}
+			if err := stopper.Stop(ctx); err != nil {
+				return nil, err
+			}
+			stopped = true
+			return marshal(struct{}{})
+		}
 		if request.Contract != RuntimeContract || request.Operation != OperationStart {
 			if handler != nil {
 				return handler.HandleRuntimeOperation(ctx, request)
@@ -76,7 +98,7 @@ func RuntimeGuestWithHandler(descriptor plugin.Descriptor, starter RuntimeStarte
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if started {
+		if started || stopped {
 			return nil, errors.New("runtime is already started")
 		}
 		var input RuntimeStartRequest
