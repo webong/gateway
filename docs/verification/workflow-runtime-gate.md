@@ -1,4 +1,4 @@
-# WorkFlow runtime gate — initial evidence
+# WorkFlow runtime and host evidence
 
 Issue: https://github.com/webong/gateway/issues/18
 Gateway base: `c0879dc48192af8ec47213647bae242c033b784a`.
@@ -47,13 +47,55 @@ The same probe code at `d1663992d0a89741071023bdb9a7aa4356a9c57d` passed on both
 
 Draft implementation PR: https://github.com/webong/gateway/pull/24 . These are native runner results, not a cross-compile-only or emulated-runtime claim. No images or archives were published.
 
-## Gates not yet satisfied
+## Actual production host matrix
 
-- The architecture proof passes, but it is an independent Ext consumer harness rather than the production host/deployment matrix.
-- This is a disposable SQLite workload. PDO driver presence is not a PostgreSQL/MySQL integration claim; the prerequisite WorkFlow SQL matrix remains separate evidence.
-- Standalone Spinner and both Router host acceptance, live capability-loss handling and real deployment replacement are not verified by the independent Ext consumer harness.
-- Production definition/grant resources, credentials, provider effects, durable delivery binding and external released-core consumption are not implemented here.
-- WorkFlow's only release, `v0.1.0-rc.1`, predates required queue contracts. Gate 3 needs a compatible independent core release before extraction can satisfy external-consumer acceptance.
-- Copied-data migration/rollback, artifact release, installation and deprecation are not done. No old app source was removed, no production data was migrated, and no artifacts were published.
+Implementation: `9fed9b07da838c0143d5ba136a2fd151a5815b74`, including Gateway
+main `534239279ba4a21229e34ce580312d100f2e3146`.
+[Native host-matrix run](https://github.com/webong/gateway/actions/runs/43525384629):
+[amd64](https://github.com/webong/gateway/actions/runs/43525384629/job/132229729468),
+[arm64](https://github.com/webong/gateway/actions/runs/43525384629/job/132229729897).
+The linked run records the result for each architecture; source changes after this
+implementation commit must rerun the matrix before relying on that evidence.
 
-ADR 0012 remains proposed. Gate 2 stays open until its complete architecture/runtime and host requirements have evidence; later gates must not be checked off from this prototype.
+`host-build.sh` builds the production Spinner, RoadRunner Router and FrankenPHP
+Router Dockerfiles. `host-matrix.py` installs the package exported from the same
+architecture-specific runtime image into each host's verified artifact cache.
+Standalone Spinner uses a separate production Planner application; both Routers
+use their actual production entrypoints and privilege drop. Setup uses production
+activation/secret stores through trusted disposable CLI fixtures, not testbench
+providers or a public setup route.
+
+Each host exercises independent host/Extension credentials, private-only routing,
+authenticated queue start, subject-scoped identities, deferred callback replay,
+dependent completion, cancellation, host restart, expired-claim recovery, stale
+claim fencing and non-idempotent crash reconciliation. It also kills the guest
+without killing the host, then asserts its PHP children stop; disable/reactivate
+and scoped-secret loss must close the runtime and stop claims. Local arm64
+Spinner and RoadRunner acceptance passed; the native matrix is the authoritative
+cross-architecture record.
+
+The shared host fixes are regression-tested: private fallback strips host and
+internal credentials before forwarding the separate Extension credential;
+optional `gateway.runtime/v1.stop` runs with a ten-second bound before closing
+Ext. Existing packages without `stop` keep their prior close behavior. The
+prototype additionally uses Linux parent-death signalling for abrupt termination
+and monitors its scoped secret. These changes do not implement a production
+WorkFlow configuration/resource model.
+
+## Remaining boundaries
+
+- The installed-host fixture uses disposable SQLite state and seeded verified
+  caches. It does not test fresh HTTPS artifact acquisition or publisher trust.
+- PDO presence is not PostgreSQL/MySQL application integration. The extracted
+  PHP 8.3 package must pass SQLite, PostgreSQL and MySQL queue/RPC acceptance with
+  real services and no service-related skips.
+- No production `pkg/workflow`, Planner definition/grant resources, provider
+  effects or durable-delivery binding are implemented by this feasibility tool.
+- The published WorkFlow `v0.1.0-rc.1` predates required queue contracts. Gate 3
+  requires a compatible independent core release and clean external consumption.
+- Copied-data migration/rollback, artifact publication, fresh installation and
+  deprecation remain open. No old app source was removed or production data moved.
+
+See [the complete remaining-work checklist](workflow-migration-remaining.md) for
+gates 3–7 and the runtime ADR review. ADR 0012 remains proposed until reviewed with
+the host evidence; later gates cannot be checked off from the runtime proof.
