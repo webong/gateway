@@ -107,6 +107,11 @@ run `app/artisan migrate --realpath` against
 `vendor/webong/proxy/database/legacy-migrations` once. The normal startup then
 applies the renamed Proxy migrations and creates the `profiles` table.
 
+An existing Router database from before Proxy 0.3.1 also needs Proxy's additive
+subscription-identity migration. Startup applies it, but only after you stop
+whatever creates subscriptions and take a backup; follow
+[Upgrading to Proxy 0.3.1](deployment.md#upgrading-to-proxy-031-subscription-identity-migration).
+
 For the FrankenPHP Go-library extension, build and run the Router directly.
 Spinner owns the listener, and the bundled Planner executes in the same process
 without a second PHP listener or Caddy module:
