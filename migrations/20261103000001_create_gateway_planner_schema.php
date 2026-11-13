@@ -104,9 +104,9 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('state', 'string')
             ->addColumn('revision', 'biginteger', ['signed' => false])
             ->addColumn('error', 'text', ['null' => true])
-            ->addColumn('started_at', 'timestamp', ['null' => true])
-            ->addColumn('heartbeat_at', 'timestamp', ['null' => true])
-            ->addColumn('stopped_at', 'timestamp', ['null' => true])
+            ->addColumn('started_at', $this->timestampType(), ['null' => true])
+            ->addColumn('heartbeat_at', $this->timestampType(), ['null' => true])
+            ->addColumn('stopped_at', $this->timestampType(), ['null' => true])
             ->addIndex(['server_id', 'state'])
             ->addIndex(['node_id', 'state'])
             ->addForeignKey('server_id', $servers, 'id', ['delete' => 'CASCADE']);
@@ -119,7 +119,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('id', 'string', ['null' => false])
             ->addColumn('drivers', 'json')
             ->addColumn('session_id', 'string', ['limit' => 32, 'null' => true])
-            ->addColumn('heartbeat_at', 'timestamp')
+            ->addColumn('heartbeat_at', $this->timestampType())
             ->addColumn('target_id', 'uuid', ['null' => true])
             ->addIndex(['heartbeat_at'])
             ->addForeignKey('target_id', $targets, 'id', ['delete' => 'RESTRICT']);
@@ -143,7 +143,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('error', 'text', ['null' => true])
             ->addColumn('attributes', 'json', ['null' => true])
             ->addColumn('payload', 'json', ['null' => true])
-            ->addColumn('received_at', 'timestamp')
+            ->addColumn('received_at', $this->timestampType())
             ->addIndex(['event_id'], ['unique' => true])
             ->addIndex(['endpoint_id', 'received_at'])
             ->addIndex(['endpoint_id', 'protocol', 'kind', 'received_at'])
@@ -170,7 +170,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('source', 'text')
             ->addColumn('payload', 'json')
             ->addColumn('enabled', 'boolean', ['default' => true])
-            ->addColumn('next_run_at', 'timestamp', ['null' => true])
+            ->addColumn('next_run_at', $this->timestampType(), ['null' => true])
             ->addIndex(['next_run_at'])
             ->addIndex(['origin', 'key'], ['unique' => true]);
         $this->timestamps($schedules)->create();
@@ -178,18 +178,18 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
         $runs = $this->table('schedule_runs', ['id' => false, 'primary_key' => ['id']])
             ->addColumn('id', 'uuid', ['null' => false])
             ->addColumn('schedule_id', 'uuid')
-            ->addColumn('scheduled_for', 'timestamp')
+            ->addColumn('scheduled_for', $this->timestampType())
             ->addColumn('kind', 'string', ['default' => 'cron'])
             ->addColumn('occurrence_key', 'string', ['null' => true])
             ->addColumn('status', 'string')
             ->addColumn('claim_token', 'uuid')
-            ->addColumn('lease_until', 'timestamp')
+            ->addColumn('lease_until', $this->timestampType())
             ->addColumn('language', 'string')
             ->addColumn('source', 'text')
             ->addColumn('payload', 'json')
             ->addColumn('deliveries_queued', 'integer', ['signed' => false, 'default' => 0])
             ->addColumn('error', 'text', ['null' => true])
-            ->addColumn('completed_at', 'timestamp', ['null' => true])
+            ->addColumn('completed_at', $this->timestampType(), ['null' => true])
             ->addIndex(['schedule_id', 'occurrence_key'], ['unique' => true])
             ->addIndex(['status', 'lease_until'])
             ->addForeignKey('schedule_id', 'schedules', 'id', ['delete' => 'CASCADE']);
@@ -199,11 +199,11 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('run_id', 'uuid', ['null' => false])
             ->addColumn('state', 'string')
             ->addColumn('attempts', 'integer', ['signed' => false, 'default' => 0])
-            ->addColumn('next_attempt_at', 'timestamp')
-            ->addColumn('lease_until', 'timestamp', ['null' => true])
+            ->addColumn('next_attempt_at', $this->timestampType())
+            ->addColumn('lease_until', $this->timestampType(), ['null' => true])
             ->addColumn('claim_token', 'uuid', ['null' => true])
             ->addColumn('last_outcome', 'string', ['null' => true])
-            ->addColumn('notified_at', 'timestamp', ['null' => true])
+            ->addColumn('notified_at', $this->timestampType(), ['null' => true])
             ->addIndex(['next_attempt_at'])
             ->addIndex(['state', 'next_attempt_at'])
             ->addForeignKey('run_id', 'schedule_runs', 'id', ['delete' => 'CASCADE']);
@@ -226,12 +226,12 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('payload', 'json')
             ->addColumn('state', 'string', ['limit' => 16])
             ->addColumn('event_id', 'string', ['null' => true])
-            ->addColumn('next_attempt_at', 'timestamp', ['timezone' => true])
+            ->addColumn('next_attempt_at', $this->timestampType(), ['timezone' => true])
             ->addColumn('lease_owner', 'char', ['limit' => 32, 'null' => true])
             ->addColumn('lease_token', 'biginteger', ['signed' => false, 'default' => 0])
-            ->addColumn('lease_until', 'timestamp', ['timezone' => true, 'null' => true])
+            ->addColumn('lease_until', $this->timestampType(), ['timezone' => true, 'null' => true])
             ->addColumn('idempotency_fingerprint', 'char', ['limit' => 64, 'null' => true])
-            ->addColumn('idempotency_expires_at', 'timestamp', ['timezone' => true, 'null' => true])
+            ->addColumn('idempotency_expires_at', $this->timestampType(), ['timezone' => true, 'null' => true])
             ->addIndex(['state', 'next_attempt_at', 'lease_until'])
             ->addIndex(['event_id', 'updated_at']);
         $this->timestamps($deliveries, true)->create();
@@ -276,7 +276,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('operation', 'string', ['limit' => 16])
             ->addColumn('document', 'text')
             ->addColumn('enabled', 'boolean')
-            ->addColumn('created_at', 'timestamp')
+            ->addColumn('created_at', $this->timestampType())
             ->addIndex(['resource_id', 'revision'], ['unique' => true])
             ->addIndex(['kind', 'key_hash'])->create();
 
@@ -284,7 +284,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('resource_id', 'uuid', ['null' => false])
             ->addColumn('state', 'string', ['limit' => 32, 'default' => 'untested'])
             ->addColumn('observed_revision', 'biginteger', ['signed' => false, 'null' => true])
-            ->addColumn('observed_at', 'timestamp', ['null' => true])
+            ->addColumn('observed_at', $this->timestampType(), ['null' => true])
             ->addForeignKey('resource_id', 'configurations', 'id', ['delete' => 'CASCADE']);
         $this->timestamps($observations)->create();
 
@@ -299,7 +299,7 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('resource_id', 'uuid', ['null' => false])
             ->addColumn('cursor', 'json')
             ->addColumn('lease_token', 'uuid', ['null' => true])
-            ->addColumn('lease_until', 'timestamp', ['null' => true])
+            ->addColumn('lease_until', $this->timestampType(), ['null' => true])
             ->addIndex(['lease_until'])
             ->addForeignKey('resource_id', 'configurations', 'id', ['delete' => 'CASCADE']);
         $this->timestamps($checkpoints)->create();
@@ -317,20 +317,52 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
             ->addColumn('status', 'string', ['limit' => 16])
             ->addColumn('attempts', 'integer', ['signed' => false, 'default' => 1])
             ->addColumn('claim_token', 'char', ['limit' => 32, 'null' => true])
-            ->addColumn('lease_expires_at', 'timestamp', ['timezone' => true, 'null' => true])
+            ->addColumn('lease_expires_at', $this->timestampType(), ['timezone' => true, 'null' => true])
             ->addColumn('result', 'text', ['null' => true])
-            ->addColumn('started_at', 'timestamp', ['timezone' => true])
-            ->addColumn('completed_at', 'timestamp', ['timezone' => true, 'null' => true])
+            ->addColumn('started_at', $this->timestampType(), ['timezone' => true])
+            ->addColumn('completed_at', $this->timestampType(), ['timezone' => true, 'null' => true])
             ->addIndex(['action', 'idempotency_hash'], ['unique' => true])
             ->addIndex(['action', 'status', 'started_at'])
             ->addIndex(['status', 'lease_expires_at']);
         $this->timestamps($table, true)->create();
     }
 
+    /**
+     * Phinx creates every MySQL table as utf8mb4_unicode_ci, which compares case- and
+     * accent-insensitively and ignores trailing spaces. SQLite and PostgreSQL compare
+     * exactly, and Gateway's keys, tokens and names rely on that, so MySQL tables use
+     * the exact (NO PAD) binary collation instead. Other adapters are unaffected.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function table(string $tableName, array $options = []): Table
+    {
+        if ($this->isMysql()) {
+            $options += ['collation' => 'utf8mb4_0900_bin'];
+        }
+
+        return parent::table($tableName, $options);
+    }
+
+    private function isMysql(): bool
+    {
+        return $this->getAdapter()->getAdapterType() === 'mysql';
+    }
+
+    /**
+     * MySQL's TIMESTAMP stops at 2038-01-19 and converts through the session time zone;
+     * DATETIME has neither limit. PostgreSQL and SQLite keep TIMESTAMP (with time zone
+     * where the column asks for it).
+     */
+    private function timestampType(): string
+    {
+        return $this->isMysql() ? 'datetime' : 'timestamp';
+    }
+
     private function timestamps(Table $table, bool $withTimezone = false): Table
     {
         return $table
-            ->addColumn('created_at', 'timestamp', ['timezone' => $withTimezone, 'null' => true])
-            ->addColumn('updated_at', 'timestamp', ['timezone' => $withTimezone, 'null' => true]);
+            ->addColumn('created_at', $this->timestampType(), ['timezone' => $withTimezone, 'null' => true])
+            ->addColumn('updated_at', $this->timestampType(), ['timezone' => $withTimezone, 'null' => true]);
     }
 }
