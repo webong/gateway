@@ -180,6 +180,15 @@ jobs:
           php-version: '8.4'
           extensions: bcmath, curl, intl, mbstring, pcntl, pdo_mysql, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
 
+      # Pest routes a serialized Planner delivery through Spinner's Go forwarder. That
+      # test skips unless the Go on PATH is at least the version in pkg/spinner/go.mod,
+      # and the runner's preinstalled Go is older.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache: true
+          cache-dependency-path: pkg/spinner/go.sum
+
       - name: Install locked Planner dependencies
         env:
           COMPOSER_ROOT_VERSION: dev-main
