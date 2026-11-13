@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Gateway\Router\WorkermanLaravelHandler;
 use Workerman\Connection\TcpConnection;
 use Workerman\Protocols\Http\Request;
+use Workerman\Timer;
 use Workerman\Worker;
 
 $vendorDirectory = dirname(__DIR__).'/vendor';
@@ -25,8 +26,13 @@ $dataDirectory = getenv('GATEWAY_ROUTER_DATA_DIR') ?: dirname(__DIR__).'/.gatewa
 Worker::$logFile = rtrim($dataDirectory, '/').'/storage/logs/workerman.log';
 Worker::$pidFile = rtrim($dataDirectory, '/').'/workerman.pid';
 
+// How long a worker that reached its request limit keeps serving the connections it already holds.
+$drainSeconds = 2.0;
+
 $handler = null;
 $handledRequests = 0;
+$draining = false;
+$stopping = false;
 $http = new Worker("http://{$host}:{$port}");
 $http->name = 'gateway-planner';
 $http->count = $workerCount;
@@ -34,18 +40,55 @@ $http->onWorkerStart = static function () use (&$handler, &$handledRequests): vo
     $handler = new WorkermanLaravelHandler(__DIR__);
     $handledRequests = 0;
 };
-$http->onMessage = static function (TcpConnection $connection, Request $request) use (&$handler, &$handledRequests, $maxRequests, $http): void {
+// Recycling a worker must not cost a client a request. Workerman keeps a client's connection in
+// the worker that accepted it, and stopping a worker closes every connection it holds: a client
+// that reuses one of them, or whose next request was already sent, gets an empty reply.
+//
+// So a worker that reached its limit drains first, the way nginx retires a connection after
+// `keepalive_requests`: it stops accepting (the master keeps the listening socket, so other
+// workers or the replacement take new connections), answers each remaining request with
+// `Connection: close`, and stops once its connections are gone. Only a connection that stays
+// silent for the whole drain window, whose client never learned to leave, is closed idle.
+$startDraining = static function () use (&$draining, &$stopping, $http, $drainSeconds): void {
+    if ($draining) {
+        return;
+    }
+    $draining = true;
+    $http->unlisten();
+
+    $deadline = microtime(true) + $drainSeconds;
+    $timer = 0;
+    $timer = Timer::add(0.01, static function () use (&$timer, &$stopping, $http, $deadline): void {
+        if (! $stopping && $http->connections !== [] && microtime(true) < $deadline) {
+            return;
+        }
+        Timer::del($timer);
+        if (! $stopping) {
+            Worker::stopAll();
+        }
+    });
+};
+$http->onMessage = static function (TcpConnection $connection, Request $request) use (&$handler, &$handledRequests, &$draining, $maxRequests, $startDraining): void {
     if (! $handler instanceof WorkermanLaravelHandler) {
         $connection->send(new Workerman\Protocols\Http\Response(503, ['Content-Type' => 'text/plain'], 'Service Unavailable'));
 
         return;
     }
-    $connection->send($handler->handle($request));
+    $response = $handler->handle($request);
     if (++$handledRequests >= $maxRequests) {
-        Worker::stopAll();
+        $startDraining();
     }
+    if ($draining) {
+        // end() flushes the reply, then half-closes and drains what the client still sends, so the
+        // reply is not lost to a reset when a pipelined request arrives behind it.
+        $connection->end($response->withHeader('Connection', 'close'));
+
+        return;
+    }
+    $connection->send($response);
 };
-$http->onWorkerStop = static function (Worker $worker) use (&$handler): void {
+$http->onWorkerStop = static function (Worker $worker) use (&$handler, &$stopping): void {
+    $stopping = true;
     $handler?->terminate();
     $handler = null;
 

@@ -80,14 +80,16 @@ function workermanExpectRelayPlan(array $response): array
  * through its owned handle, and the scenario fails if the host had to be
  * force-killed rather than exiting on SIGQUIT.
  *
- * @param array<string, string> $extraEnv additional server variables (workers, max requests).
+ * @param array<string, string>|callable(string): array<string, string> $extraEnv additional server variables
+ *        (workers, max requests); a callable receives the data directory, for variables that name files in it.
  * @param callable(GatewayPlannerHostHandle, int, string): void $body receives the handle, port and data directory
  */
-function workermanScenario(array $extraEnv, callable $body): void
+function workermanScenario(array|callable $extraEnv, callable $body): void
 {
     gatewayPlannerWithDisposableDirectory(function (string $dataDirectory) use ($extraEnv, $body): void {
         $database = $dataDirectory.'/gateway.sqlite';
         touch($database);
+        $extraEnv = is_callable($extraEnv) ? $extraEnv($dataDirectory) : $extraEnv;
 
         // Build the environment exactly once so every operation (migration, seeding,
         // and the Workerman server) shares the same APP_KEY; the file cache encrypts
@@ -232,6 +234,178 @@ it('recycles the worker after GATEWAY_PLANNER_MAX_REQUESTS with the master alive
             usleep(50_000);
         }
         workermanExpectRelayPlan($after);
+    });
+});
+
+/**
+ * Drive keep-alive clients in lock step: every round, each client sends its next request
+ * at the same moment, then reads its reply. A client behaves like curl: before reusing a
+ * connection it drops one the server has already closed, and it honours `Connection: close`.
+ * A request that gets no complete reply is a failure. None is retried.
+ *
+ * @return array{ok: int, empty: int, other: int, samples: list<string>}
+ */
+function workermanKeepAliveRounds(int $port, int $clients, int $rounds): array
+{
+    $url = "http://127.0.0.1:$port/_internal/gateway/plan";
+    $sockets = array_fill(0, $clients, null);
+    $result = ['ok' => 0, 'empty' => 0, 'other' => 0, 'samples' => []];
+
+    for ($round = 0; $round < $rounds; $round++) {
+        foreach ($sockets as $client => $socket) {
+            if ($socket !== null && gatewayPlannerPeerClosed($socket)) {
+                fclose($socket);
+                $socket = null;
+            }
+            $socket ??= gatewayPlannerConnect('127.0.0.1', $port, 20.0);
+            gatewayPlannerSendRequest($socket, 'POST', $url, workermanPlanHeaders(), workermanPlanBody(), true);
+            $sockets[$client] = $socket;
+        }
+
+        foreach ($sockets as $client => $socket) {
+            $response = gatewayPlannerReadResponse($socket, false);
+            if (! $response['complete']) {
+                $result['empty']++;
+                $result['samples'][] = "round $round client $client: connection closed without a complete reply";
+                fclose($socket);
+                $sockets[$client] = null;
+
+                continue;
+            }
+            if ($response['status'] !== 200) {
+                $result['other']++;
+                $result['samples'][] = "round $round client $client: HTTP {$response['status']}";
+            } else {
+                $result['ok']++;
+            }
+            if (strtolower($response['headers']['connection'] ?? '') === 'close') {
+                fclose($socket);
+                $sockets[$client] = null;
+            }
+        }
+    }
+
+    foreach ($sockets as $socket) {
+        if ($socket !== null) {
+            fclose($socket);
+        }
+    }
+
+    return $result;
+}
+
+it('serves every keep-alive request when no worker recycles (control)', function (): void {
+    workermanScenario([
+        'GATEWAY_PLANNER_WORKERS' => '2',
+        'GATEWAY_PLANNER_MAX_REQUESTS' => '1000000',
+    ], function (GatewayPlannerHostHandle $handle, int $port): void {
+        $result = workermanKeepAliveRounds($port, 8, 30);
+
+        expect($result['samples'])->toBe([])
+            ->and($result['ok'])->toBe(240);
+    });
+});
+
+it('serves every keep-alive request while workers keep recycling', function (): void {
+    // 8 clients over 2 workers and a threshold of 12 requests per worker: each worker recycles
+    // about ten times. The old behaviour closed every connection a worker held the moment it
+    // recycled, including connections whose next request was already sent.
+    workermanScenario([
+        'GATEWAY_PLANNER_WORKERS' => '2',
+        'GATEWAY_PLANNER_MAX_REQUESTS' => '12',
+    ], function (GatewayPlannerHostHandle $handle, int $port): void {
+        $result = workermanKeepAliveRounds($port, 8, 30);
+
+        expect($result['samples'])->toBe([])
+            ->and($result['ok'])->toBe(240);
+    });
+});
+
+it('answers a request already pending on another connection when its worker recycles', function (): void {
+    // One worker, recycling on its third request. While the third request is held in the
+    // handler, a second client sends its next request: the worker has accepted that connection
+    // but cannot read the request yet. When the worker recycles, that request must still be
+    // answered rather than dropped with the connection.
+    workermanScenario(
+        fn (string $directory): array => [
+            'GATEWAY_PLANNER_WORKERS' => '1',
+            'GATEWAY_PLANNER_MAX_REQUESTS' => '3',
+            'GATEWAY_TEST_HOLD_ENTERED_FILE' => $directory.'/hold-entered',
+            'GATEWAY_TEST_HOLD_RELEASE_FILE' => $directory.'/hold-release',
+        ],
+        function (GatewayPlannerHostHandle $handle, int $port, string $directory): void {
+            $url = "http://127.0.0.1:$port/_internal/gateway/plan";
+
+            $idle = gatewayPlannerOpenRequest('POST', $url, workermanPlanHeaders(), workermanPlanBody(), 10.0, true);
+            workermanExpectRelayPlan(gatewayPlannerReadResponse($idle, false));
+            $waiting = gatewayPlannerOpenRequest('POST', $url, workermanPlanHeaders(), workermanPlanBody(), 10.0, true);
+            workermanExpectRelayPlan(gatewayPlannerReadResponse($waiting, false));
+
+            $last = gatewayPlannerOpenRequest('POST', $url, workermanPlanHeaders(), workermanPlanBody('/http-smoke/hold'), 20.0, true);
+            $deadline = microtime(true) + 15.0;
+            while (! is_file($directory.'/hold-entered') && microtime(true) < $deadline) {
+                usleep(10_000);
+            }
+            $this->assertTrue(is_file($directory.'/hold-entered'), 'the third request never entered the handler');
+
+            gatewayPlannerSendRequest($waiting, 'POST', $url, workermanPlanHeaders(), workermanPlanBody(), true);
+            usleep(200_000);
+            touch($directory.'/hold-release');
+
+            // The held request is the one that reaches the threshold.
+            workermanExpectRelayPlan(gatewayPlannerReadResponse($last));
+
+            $pending = gatewayPlannerReadResponse($waiting, false);
+            $this->assertTrue($pending['complete'], 'the request pending on the second connection was dropped when the worker recycled');
+            workermanExpectRelayPlan($pending);
+
+            // A connection whose client went quiet does not hold the draining worker for ever: the
+            // server closes it once the drain window ends, and the replacement worker serves again.
+            $deadline = microtime(true) + 8.0;
+            while (! gatewayPlannerPeerClosed($idle) && microtime(true) < $deadline) {
+                usleep(50_000);
+            }
+            $this->assertTrue(gatewayPlannerPeerClosed($idle), 'the idle connection was still open after the drain window');
+            fclose($waiting);
+            fclose($idle);
+
+            $after = null;
+            $deadline = microtime(true) + 10.0;
+            while (microtime(true) < $deadline) {
+                $after = workermanPlan($port);
+                if ($after['status'] === 200) {
+                    break;
+                }
+                usleep(50_000);
+            }
+            workermanExpectRelayPlan($after);
+        },
+    );
+});
+
+it('exits on SIGQUIT while a recycled worker is still draining an idle connection', function (): void {
+    workermanScenario([
+        'GATEWAY_PLANNER_WORKERS' => '1',
+        'GATEWAY_PLANNER_MAX_REQUESTS' => '2',
+    ], function (GatewayPlannerHostHandle $handle, int $port): void {
+        $url = "http://127.0.0.1:$port/_internal/gateway/plan";
+
+        // The first client keeps its connection open and quiet. The second request reaches the
+        // threshold, so the worker starts draining and cannot finish while the first is open.
+        $idle = gatewayPlannerOpenRequest('POST', $url, workermanPlanHeaders(), workermanPlanBody(), 10.0, true);
+        workermanExpectRelayPlan(gatewayPlannerReadResponse($idle, false));
+        $last = gatewayPlannerOpenRequest('POST', $url, workermanPlanHeaders(), workermanPlanBody(), 10.0, true);
+        $reply = gatewayPlannerReadResponse($last);
+        workermanExpectRelayPlan($reply);
+        expect($reply['headers']['connection'] ?? null)->toBe('close');
+        $this->assertFalse(gatewayPlannerPeerClosed($idle), 'the draining worker closed the idle connection at once');
+
+        expect(gatewayPlannerSignalHost($handle, SIGQUIT))->toBeTrue();
+        $exited = gatewayPlannerWaitForExit($handle, 10.0);
+        fclose($idle);
+
+        $this->assertTrue($exited, 'the host did not exit on SIGQUIT while a recycled worker was draining');
+        expect($handle->exit)->toBe(['exitCode' => 0, 'signaled' => false, 'termsig' => 0]);
     });
 });
 
