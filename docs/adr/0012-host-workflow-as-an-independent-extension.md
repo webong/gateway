@@ -1,0 +1,13 @@
+---
+status: proposed
+---
+
+# Host WorkFlow application behavior in an independent Gateway Extension
+
+Issue #18 assigns application hosting to `pkg/workflow`, using Composer and Ext identity `webong/gateway-workflow` and namespace `Webong\Gateway\Workflow`; the independently released `webong/workflow` retains definitions, transitions and executor contracts. Planner owns immutable approved definitions and explicit grants; extension operational storage owns routing reservations, queue state, attempts, callbacks and outbox records. Spinner exposes only an authenticated private `/workflow/rpc` mount. Reservation state selects authority and immutable context; queue rows remain live truth, and missing queue rows fail closed.
+
+The runtime candidate bundles an architecture-specific PHP 8.3 CLI, PDO SQLite/PostgreSQL/MySQL modules, pcntl, the current embedded FrankenPHP bridge and their dynamic-loader/library closure inside the verified Ext artifact. A small Arranger executable supervises the bridge and one bounded queue worker. This avoids relying on a PHP executable/compiler installed on a Spinner host, a second workflow engine, or an undeclared arbitrary-process capability in PHP Automation. Package verification must cover every runtime file before launch, and startup must validate bundled runtime version/drivers before advertising a private mount. Artifact size and a restricted Linux ABI are accepted prototype trade-offs, not a release commitment.
+
+Readiness requires both a working RPC/PDO bootstrap and a live queue worker, not a TCP listener alone. Terminal child failure closes ingress and stops sibling claims; shutdown drains bounded in-flight work, then leaves recovery to existing fenced leases/provider idempotency. No host Planner credential or host process handle is passed to the guest. Release configuration will resolve identity-scoped database/provider secrets through Arranger; the feasibility fixture uses only disposable test credentials, never Planner desired state.
+
+A host-supplied PHP runtime was considered but the current Arranger contracts do not identify or validate such a runtime. Rewriting the engine in Go would discard established semantics and is excluded. A bundled OCI image by itself does not prove that a process artifact is portable: the prototype must run the runtime closure in a minimal container lacking PHP and toolchains, for Linux amd64 and arm64, then through standalone Spinner and both Router hosts. Until those tests pass this ADR remains proposed and extraction is gated. Old WorkFlow application files remain intact, and no production migration or automatic run-authority change is authorized.

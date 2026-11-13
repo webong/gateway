@@ -1,0 +1,52 @@
+name: WorkFlow runtime feasibility
+
+on:
+  pull_request:
+    paths:
+      - 'tools/workflow-runtime-gate/**'
+      - 'mod/arranger/**'
+      - '.github/workflows/workflow-runtime-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: Runtime proof (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      GOWORK: off
+      GOTELEMETRY: off
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: webong/workflow
+          ref: 00e0bbcdd61c2c6ed96af55865d0ef2e77557adb
+          path: .workflow-gate-source
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/workflow-runtime-gate/go.mod
+          cache-dependency-path: tools/workflow-runtime-gate/go.sum
+      - name: Test runtime supervision and independent contracts
+        run: |
+          go -C tools/workflow-runtime-gate test -race ./...
+          go -C tools/workflow-runtime-gate list -deps ./... > "$RUNNER_TEMP/workflow-gate-deps"
+          if grep -E '^github.com/webong/gateway/pkg/(spinner|roadrunner|frankenphp)(/|$)' "$RUNNER_TEMP/workflow-gate-deps"; then
+            echo 'Runtime prototype imports a Gateway host implementation.' >&2
+            exit 1
+          fi
+      - name: Build pinned runtime closure
+        run: tools/workflow-runtime-gate/build.sh "$PWD/.workflow-gate-source" '${{ matrix.arch }}'
+      - name: Exercise verified Ext activation and queue recovery
+        run: python3 tools/workflow-runtime-gate/smoke.py 'gateway-workflow-runtime-gate:${{ matrix.arch }}'

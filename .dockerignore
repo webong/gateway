@@ -10,3 +10,5 @@ bin
 node_modules
 app/vendor
 /pkg/roadrunner/cmd/router/router
+
+.workflow-gate-source
