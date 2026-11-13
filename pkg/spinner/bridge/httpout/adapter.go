@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"github.com/webong/gateway/pkg/spinner/internal/forwarding"
@@ -72,15 +71,7 @@ func (adapter *Adapter) DeliverGatewayResult(ctx context.Context, delivery bridg
 		Headers:     http.Header(delivery.Headers).Clone(),
 		Context:     ctx,
 	}
-	if transport := delivery.Transport; transport != nil {
-		request.Transport.ConnectTimeout = seconds(transport.ConnectTimeoutSeconds)
-		request.Transport.RequestTimeout = seconds(transport.RequestTimeoutSeconds)
-		if transport.Proxy != nil {
-			request.Transport.HTTPProxy = transport.Proxy.HTTP
-			request.Transport.HTTPSProxy = transport.Proxy.HTTPS
-			request.Transport.NoProxy = append([]string(nil), transport.Proxy.NoProxy...)
-		}
-	}
+	request.Transport = forwarding.TransportFromWire(delivery.Transport)
 	request.Transport.PrivateCallbackCIDRs = delivery.Attributes["private_callback_cidrs"]
 	var status int
 	var body []byte
@@ -95,6 +86,9 @@ func (adapter *Adapter) DeliverGatewayResult(ctx context.Context, delivery bridg
 	if err != nil {
 		if errors.Is(err, forwarding.ErrResponseTooLarge) {
 			return bridge.GatewayDeliveryResult{}, fmt.Errorf("%w: bounded HTTP response body exceeded the limit", bridge.ErrPermanentDelivery)
+		}
+		if errors.Is(err, forwarding.ErrInvalidTransport) {
+			return bridge.GatewayDeliveryResult{}, fmt.Errorf("%w: %v", bridge.ErrPermanentDelivery, err)
 		}
 		return bridge.GatewayDeliveryResult{}, err
 	}
@@ -119,8 +113,6 @@ func (adapter *Adapter) DeliverGatewayResult(ctx context.Context, delivery bridg
 	}
 	return result, nil
 }
-
-func seconds(value float64) time.Duration { return time.Duration(value * float64(time.Second)) }
 
 var _ bridge.GatewayDeliveryAdapter = (*Adapter)(nil)
 var _ bridge.GatewayDeliveryResultAdapter = (*Adapter)(nil)

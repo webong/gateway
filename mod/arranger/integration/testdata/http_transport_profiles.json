@@ -1,0 +1,178 @@
+{
+  "description": "Endpoint-owned Proxy profiles, the Gateway wire transport the Planner serializes from them, and how Spinner must route requests with it. tests/Feature/EndpointHttpTransportResolverTest.php (PHP) and pkg/spinner/internal/forwarding/profile_fixture_test.go (Go) both read this file, so the two languages cannot drift apart. Proxy v0.3.1 defines the portable profile; Gateway adds stream_headers.",
+  "profiles": [
+    {
+      "name": "default_profile",
+      "configuration": {},
+      "wire": {},
+      "requests": []
+    },
+    {
+      "name": "one_proxy_for_both_schemes",
+      "configuration": {"proxy": "http://proxy.example.test:8080"},
+      "wire": {"proxy": {"http": "http://proxy.example.test:8080", "https": "http://proxy.example.test:8080"}},
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": "http://proxy.example.test:8080"},
+        {"url": "https://hooks.example.test/delivery", "proxy": "http://proxy.example.test:8080"}
+      ]
+    },
+    {
+      "name": "proxy_per_scheme_with_bypass_rules",
+      "configuration": {
+        "proxy": {
+          "http": "http://proxy.example.test:8080",
+          "https": "socks5h://proxy.example.test:1080",
+          "no": [".internal.example.test", "metadata.example.test", "10.0.0.5"]
+        },
+        "options": {"connect_timeout": 5, "timeout": 15}
+      },
+      "wire": {
+        "proxy": {
+          "http": "http://proxy.example.test:8080",
+          "https": "socks5h://proxy.example.test:1080",
+          "no_proxy": [".internal.example.test", "metadata.example.test", "10.0.0.5"]
+        },
+        "connect_timeout_seconds": 5.0,
+        "request_timeout_seconds": 15.0
+      },
+      "connect_timeout_ms": 5000,
+      "request_timeout_ms": 15000,
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": "http://proxy.example.test:8080"},
+        {"url": "http://hooks.internal.example.test/delivery", "proxy": null},
+        {"url": "http://HOOKS.Internal.Example.Test./delivery", "proxy": null},
+        {"url": "http://internal.example.test/delivery", "proxy": "http://proxy.example.test:8080"},
+        {"url": "http://metadata.example.test/latest", "proxy": null},
+        {"url": "http://api.metadata.example.test/latest", "proxy": null},
+        {"url": "http://notmetadata.example.test/latest", "proxy": "http://proxy.example.test:8080"},
+        {"url": "http://10.0.0.5/latest", "proxy": null},
+        {"url": "http://10.0.0.6/latest", "proxy": "http://proxy.example.test:8080"}
+      ]
+    },
+    {
+      "name": "proxy_for_https_only",
+      "configuration": {"proxy": {"https": "http://proxy.example.test:3128"}},
+      "wire": {"proxy": {"https": "http://proxy.example.test:3128"}},
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": null},
+        {"url": "https://hooks.example.test/delivery", "proxy": "http://proxy.example.test:3128"}
+      ]
+    },
+    {
+      "name": "options_proxy_without_top_level_proxy",
+      "configuration": {"options": {"proxy": {"https": "http://options.example.test:3128", "no": ["bypass.example.test"]}}},
+      "wire": {"proxy": {"https": "http://options.example.test:3128", "no_proxy": ["bypass.example.test"]}},
+      "requests": [
+        {"url": "https://hooks.example.test/delivery", "proxy": "http://options.example.test:3128"},
+        {"url": "https://bypass.example.test/delivery", "proxy": null}
+      ]
+    },
+    {
+      "name": "top_level_proxy_wins_over_options_proxy",
+      "configuration": {"proxy": "http://top.example.test:1", "options": {"proxy": "http://options.example.test:2"}},
+      "wire": {"proxy": {"http": "http://top.example.test:1", "https": "http://top.example.test:1"}},
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": "http://top.example.test:1"}
+      ]
+    },
+    {
+      "name": "omitted_timeouts_keep_the_deployment_default",
+      "configuration": {"proxy": "http://proxy.example.test:8080"},
+      "wire": {"proxy": {"http": "http://proxy.example.test:8080", "https": "http://proxy.example.test:8080"}},
+      "connect_timeout_ms": 0,
+      "request_timeout_ms": 0,
+      "requests": []
+    },
+    {
+      "name": "fractional_timeouts",
+      "configuration": {"options": {"connect_timeout": 0.25, "timeout": 1.5}},
+      "wire": {"connect_timeout_seconds": 0.25, "request_timeout_seconds": 1.5},
+      "connect_timeout_ms": 250,
+      "request_timeout_ms": 1500,
+      "requests": []
+    },
+    {
+      "name": "proxy_authentication",
+      "configuration": {"proxy": {"http": "http://user:p%40ss@proxy.example.test:8080", "https": "socks5h://user:secret@proxy.example.test:1080"}},
+      "wire": {"proxy": {"http": "http://user:p%40ss@proxy.example.test:8080", "https": "socks5h://user:secret@proxy.example.test:1080"}},
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": "http://user:p%40ss@proxy.example.test:8080"}
+      ]
+    },
+    {
+      "name": "bypass_everything",
+      "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "https": "http://proxy.example.test:8080", "no": ["*"]}},
+      "wire": {"proxy": {"http": "http://proxy.example.test:8080", "https": "http://proxy.example.test:8080", "no_proxy": ["*"]}},
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": null},
+        {"url": "https://hooks.example.test/delivery", "proxy": null}
+      ]
+    },
+    {
+      "name": "bypass_rules_without_a_proxy",
+      "configuration": {"proxy": {"no": [".internal.example.test"]}},
+      "wire": {"proxy": {"no_proxy": [".internal.example.test"]}},
+      "requests": [
+        {"url": "http://hooks.example.test/delivery", "proxy": null},
+        {"url": "http://hooks.internal.example.test/delivery", "proxy": null}
+      ]
+    },
+    {
+      "name": "gateway_headers_stay_beside_the_profile",
+      "configuration": {
+        "proxy": "http://proxy.example.test:8080",
+        "options": {
+          "headers": {"X-Source-Scope": ["orders", "events"], "Authorization": "Bearer source-secret"},
+          "verify": false,
+          "allow_redirects": false,
+          "auth": ["user", "password"],
+          "cookies": true,
+          "http_errors": false
+        }
+      },
+      "wire": {
+        "proxy": {"http": "http://proxy.example.test:8080", "https": "http://proxy.example.test:8080"},
+        "stream_headers": {"X-Source-Scope": ["orders", "events"], "Authorization": ["Bearer source-secret"]}
+      },
+      "requests": []
+    }
+  ],
+  "invalid_profiles": [
+    {"name": "proxy_scheme_is_not_http_or_socks", "configuration": {"proxy": "ftp://proxy.example.test"}},
+    {"name": "proxy_is_an_empty_string", "configuration": {"proxy": ""}},
+    {"name": "proxy_is_an_empty_map", "configuration": {"proxy": {}}},
+    {"name": "proxy_has_an_unknown_scheme_key", "configuration": {"proxy": {"ftp": "http://proxy.example.test:8080"}}},
+    {"name": "proxy_uses_the_wire_name_for_bypass_rules", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no_proxy": ["a.example.test"]}}},
+    {"name": "proxy_url_has_a_query", "configuration": {"proxy": "http://proxy.example.test:8080/?token=1"}},
+    {"name": "proxy_url_has_a_path", "configuration": {"proxy": "http://proxy.example.test:8080/relay"}},
+    {"name": "proxy_url_is_not_a_string", "configuration": {"proxy": {"http": 8080}}},
+    {"name": "socks_credentials_need_a_password", "configuration": {"proxy": {"https": "socks5://user@proxy.example.test:1080"}}},
+    {"name": "bypass_cidr", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no": ["10.0.0.0/8"]}}},
+    {"name": "bypass_wildcard_prefix", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no": ["*.example.test"]}}},
+    {"name": "bypass_with_port", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no": ["example.test:8080"]}}},
+    {"name": "bypass_ipv6", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no": ["::1"]}}},
+    {"name": "bypass_is_not_a_list", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no": "a.example.test"}}},
+    {"name": "bypass_entry_is_empty", "configuration": {"proxy": {"http": "http://proxy.example.test:8080", "no": [""]}}},
+    {"name": "timeout_is_zero", "configuration": {"options": {"timeout": 0}}},
+    {"name": "timeout_is_negative", "configuration": {"options": {"connect_timeout": -1}}},
+    {"name": "timeout_exceeds_five_minutes", "configuration": {"options": {"timeout": 301}}},
+    {"name": "timeout_is_a_string", "configuration": {"options": {"connect_timeout": "10"}}},
+    {"name": "options_is_not_an_object", "configuration": {"options": "fast"}},
+    {"name": "header_is_reserved_host", "configuration": {"options": {"headers": {"Host": "other.example.test"}}}},
+    {"name": "header_is_reserved_last_event_id", "configuration": {"options": {"headers": {"last-event-id": "42"}}}},
+    {"name": "header_is_reserved_upgrade", "configuration": {"options": {"headers": {"Upgrade": "websocket"}}}},
+    {"name": "header_name_is_invalid", "configuration": {"options": {"headers": {"Bad Name": "x"}}}},
+    {"name": "header_value_has_a_line_break", "configuration": {"options": {"headers": {"X-Source": "a\r\nX-Injected: 1"}}}},
+    {"name": "header_value_is_not_text", "configuration": {"options": {"headers": {"X-Source": 7}}}}
+  ],
+  "invalid_wire": [
+    {"name": "proxy_scheme_is_not_http_or_socks", "wire": {"proxy": {"https": "ftp://proxy.example.test"}}},
+    {"name": "proxy_url_has_a_query", "wire": {"proxy": {"http": "http://proxy.example.test:8080/?token=1"}}},
+    {"name": "socks_credentials_need_a_password", "wire": {"proxy": {"https": "socks5://user@proxy.example.test:1080"}}},
+    {"name": "bypass_cidr", "wire": {"proxy": {"http": "http://proxy.example.test:8080", "no_proxy": ["10.0.0.0/8"]}}},
+    {"name": "bypass_wildcard_prefix", "wire": {"proxy": {"http": "http://proxy.example.test:8080", "no_proxy": ["*.example.test"]}}},
+    {"name": "bypass_with_port", "wire": {"proxy": {"http": "http://proxy.example.test:8080", "no_proxy": ["example.test:8080"]}}},
+    {"name": "bypass_ipv6", "wire": {"proxy": {"http": "http://proxy.example.test:8080", "no_proxy": ["::1"]}}},
+    {"name": "timeout_exceeds_five_minutes", "wire": {"request_timeout_seconds": 301}}
+  ]
+}

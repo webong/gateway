@@ -127,3 +127,17 @@ func TestAdapterAssertsResponseBodyDigestWithoutExposingBody(t *testing.T) {
 		t.Fatalf("oversized body should fail permanently: %v", err)
 	}
 }
+
+func TestAdapterTreatsAnInvalidProfileTransportAsPermanent(t *testing.T) {
+	adapter, err := NewAdapter(&fakeForwarder{err: forwarding.ErrInvalidTransport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = adapter.DeliverGateway(context.Background(), bridge.GatewayDelivery{
+		Protocol: bridge.ProtocolHTTP, Target: "https://example.test/hook", Payload: []byte("payload"),
+		Transport: &bridge.HTTPTransport{Proxy: &bridge.HTTPProxy{HTTP: "http://proxy.example.test:8080", NoProxy: []string{"10.0.0.0/8"}}},
+	})
+	if !errors.Is(err, bridge.ErrPermanentDelivery) {
+		t.Fatalf("an unusable transport profile must not be retried, got %v", err)
+	}
+}
