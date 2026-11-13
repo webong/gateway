@@ -35,7 +35,7 @@ Architecture tests enforce the dependency direction.
 
 ## Laravel
 
-Install `webong/gateway`, `laravel/framework:^12.0`, and `webong/proxy:^0.2.0`.
+Install `webong/gateway`, `laravel/framework:^12.0`, and `webong/proxy:^0.3.1`.
 Composer discovers `Webong\Gateway\Laravel\GatewayServiceProvider`. Existing
 Laravel management APIs, registry policy, extension lifecycle, and scheduling
 remain available through this integration. Run `php artisan gateway:migrate`

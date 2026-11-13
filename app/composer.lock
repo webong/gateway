@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8263931ac92403a8952766f054b0c987",
+    "content-hash": "98c0a0a3235f1d3129bd3e85662bd44e",
     "packages": [
         {
             "name": "brick/math",
@@ -8505,7 +8505,7 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/planner",
-                "reference": "ab10a27a2801284d9729fb2fe610e020f4d2a671"
+                "reference": "bbba8b8b0beae382c5ab419cab171668da951b77"
             },
             "require": {
                 "php": "^8.3",
@@ -8522,7 +8522,7 @@
             "suggest": {
                 "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
                 "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0).",
-                "webong/proxy": "Required with Laravel for registry, subscriptions, and management (^0.2.0)."
+                "webong/proxy": "Required with Laravel for registry, subscriptions, management, and portable HTTP profiles (^0.3.1)."
             },
             "type": "library",
             "extra": {
@@ -8580,7 +8580,7 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/centrifugo",
-                "reference": "fc5c7a84bc3d3ea5b3d95f8ec57782bb669fe542"
+                "reference": "d71c2ae7a47f74c79944da4a6bb558eb350c7058"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -8588,7 +8588,7 @@
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "type": "library",
             "extra": {
@@ -8626,14 +8626,14 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/database",
-                "reference": "a885ab708956da86a3fe14dd7db8aed604720b4c"
+                "reference": "b7c66d5fbdd1587ca7ae376886f36d647c9d9991"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "type": "library",
             "autoload": {
@@ -8659,14 +8659,14 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/dns",
-                "reference": "9c49106057bfa8304ab0a554b1ce23f25e4e712f"
+                "reference": "e1b2576a81e39138741b420e102a02ef5d7a3fc6"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "type": "library",
             "autoload": {
@@ -8692,14 +8692,14 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/email",
-                "reference": "dc07ad225a6734a3449b59e1145950e0eff9f0d6"
+                "reference": "42445bbd29ede0d8469f1539f13e510e0e553eee"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "type": "library",
             "autoload": {
@@ -8725,7 +8725,7 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/mercure",
-                "reference": "fa1a1b6be97c192b9bb8185ba17041d3007b531b"
+                "reference": "1b87eef39eebf5c721f13593a830d2a55644ce65"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -8733,7 +8733,7 @@
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "type": "library",
             "extra": {
@@ -8771,7 +8771,7 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/reverb",
-                "reference": "374bdc3cec3adfffca919fc707af6c6236108af0"
+                "reference": "17c144dd226d15c08c7b144435635766423ad966"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -8780,7 +8780,7 @@
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "require-dev": {
                 "orchestra/testbench": "^10.0",
@@ -8828,14 +8828,14 @@
             "dist": {
                 "type": "path",
                 "url": "../pkg/web",
-                "reference": "5412422a7e60b4bb94467724da462ad0e602a6ff"
+                "reference": "fe165644512293c179e2afd3cc3a52204d8e87b5"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.2.0"
+                "webong/proxy": "^0.3.1"
             },
             "type": "library",
             "autoload": {
@@ -8858,28 +8858,28 @@
         },
         {
             "name": "webong/proxy",
-            "version": "v0.2.0",
+            "version": "v0.3.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/proxy.git",
-                "reference": "8fa2e84fd6a9bb3090997d22076963b5c08184cd"
+                "reference": "8362bbe98fcff9c549c062cd0088d38da9a32bbd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/proxy/zipball/8fa2e84fd6a9bb3090997d22076963b5c08184cd",
-                "reference": "8fa2e84fd6a9bb3090997d22076963b5c08184cd",
+                "url": "https://api.github.com/repos/webong/proxy/zipball/8362bbe98fcff9c549c062cd0088d38da9a32bbd",
+                "reference": "8362bbe98fcff9c549c062cd0088d38da9a32bbd",
                 "shasum": ""
             },
             "require": {
                 "guzzlehttp/guzzle": "^7.10",
-                "illuminate/contracts": "^12.0",
-                "illuminate/support": "^12.0",
+                "illuminate/contracts": "^12.0 || ^13.0",
+                "illuminate/support": "^12.0 || ^13.0",
                 "php": "^8.3 || ^8.4",
                 "spatie/laravel-webhook-client": "^3.5",
                 "spatie/laravel-webhook-server": "^3.10"
             },
             "require-dev": {
-                "orchestra/testbench": "^10.0",
+                "orchestra/testbench": "^10.0 || ^11.0",
                 "pestphp/pest": "^4.0",
                 "pestphp/pest-plugin-laravel": "^4.0"
             },
@@ -8903,9 +8903,9 @@
             "description": "Webhook proxy system for scoped webhook routing and delivery",
             "support": {
                 "issues": "https://github.com/webong/proxy/issues",
-                "source": "https://github.com/webong/proxy/tree/v0.2.0"
+                "source": "https://github.com/webong/proxy/tree/v0.3.1"
             },
-            "time": "2026-10-22T10:42:07+00:00"
+            "time": "2026-11-13T20:05:20+00:00"
         },
         {
             "name": "workerman/coroutine",
