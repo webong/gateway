@@ -511,6 +511,32 @@ it('exits on SIGQUIT even while clients keep idle keep-alive connections open', 
     });
 });
 
+it('exits on SIGQUIT after a request made the application throw', function (): void {
+    // A request that throws is logged with its exception, and the exception's trace arguments hold
+    // the request and so its connection. Nothing in the production host keeps the exception, so the
+    // connection object is freed and a graceful stop (which waits for every connection object to be
+    // freed) completes. The host under test must therefore run as production: under APP_ENV=testing
+    // Laravel keeps every logged exception for the life of the process and the stop never completes.
+    // See gatewayPlannerStartWorkerman().
+    workermanScenario(['GATEWAY_PLANNER_WORKERS' => '1', 'GATEWAY_PLANNER_MAX_REQUESTS' => '1000'], function (GatewayPlannerHostHandle $handle, int $port, string $dataDirectory): void {
+        workermanExpectRelayPlan(workermanPlan($port, '/http-smoke/probe/environment'));
+        $probe = gatewayPlannerReadProbe($dataDirectory, 'environment');
+        expect($probe['environment'])->toBe('production')
+            ->and($probe['running_unit_tests'])->toBeFalse();
+
+        $failed = workermanPlan($port, '/http-smoke/write-then-throw/stop-after-throw');
+        expect($failed['status'])->toBe(500);
+        // The same worker keeps serving after the failure.
+        workermanExpectRelayPlan(workermanPlan($port));
+
+        expect(gatewayPlannerSignalHost($handle, SIGQUIT))->toBeTrue();
+        $exited = gatewayPlannerWaitForExit($handle, 10.0);
+
+        $this->assertTrue($exited, 'the host did not exit on SIGQUIT after a request that threw');
+        expect($handle->exit)->toBe(['exitCode' => 0, 'signaled' => false, 'termsig' => 0]);
+    });
+});
+
 it('stops an owned host idempotently and never signals a saved PID once the handle is closed', function (): void {
     // An independent process stands in for "an unrelated process that now owns
     // the PID we saved".

@@ -691,6 +691,13 @@ if (! function_exists('gatewayPlannerStartWorkerman')) {
             'GATEWAY_PLANNER_PORT' => (string) $port,
             'GATEWAY_PLANNER_HOST' => '127.0.0.1',
             'APP_RUNNING_IN_CONSOLE' => 'false',
+            // The host is a separate process that inherits this one's environment, and phpunit.xml
+            // sets APP_ENV=testing. Under that value Laravel registers an exception collector meant
+            // for unit tests (Illuminate\Testing\LoggedExceptionCollection) that keeps every logged
+            // exception, and with it the trace arguments, for the life of the process. A request that
+            // throws then pins its Workerman connection, so a graceful stop never completes. The
+            // launchers and the Planner image run the host as production, so test it as production.
+            'APP_ENV' => 'production',
         ]);
 
         $logFile = $dataDirectory.'/storage/logs/gateway-planner-test.log';
