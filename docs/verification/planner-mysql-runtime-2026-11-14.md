@@ -106,10 +106,14 @@ same Laravel connection), and the `docker-smoke` and Kubernetes scripts.
 - **A MySQL TLS connection** (`MYSQL_ATTR_SSL_CA` is wired in, not exercised).
 - **Symfony hosts on MySQL** beyond the migrations the existing tests cover.
 
-## A separate bug found on the way
+## A test-harness hazard found on the way
 
-A request that makes the application throw leaves the Workerman worker holding a
-reference to its connection, so a graceful stop (SIGQUIT) never completes and the host
-is force-killed after the timeout. It reproduces on SQLite on `main`, so it is not
-MySQL-specific and is not fixed here; the MySQL rollback test uses a request that
-ends with an open transaction instead of one that throws.
+A request that makes the application throw left the Workerman test host unable to stop
+on SIGQUIT. It is not a production defect: the harness started the host with the
+`APP_ENV=testing` it inherits from Pest, and under that value Laravel keeps every logged
+exception, and through its stack-trace arguments the request's connection, for the life of
+the process. [PR #27](https://github.com/webong/gateway/pull/27) starts the host as
+production and adds a regression test; see
+[Workerman stop after a request that throws](planner-workerman-exception-stop-2026-11-14.md)
+once it merges. The MySQL rollback test here ends a request with an open transaction
+instead of one that throws, which avoids the hazard and exercises the same cleanup.
