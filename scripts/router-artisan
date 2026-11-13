@@ -52,4 +52,4 @@ export APP_ROUTES_CACHE="$DATA_DIR/cache/routes-v7.php"
 export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
 export GATEWAY_PATH_RESOLVER='Gateway\Router\EndpointPathResolver'
 
-exec php "$APP_DIR/artisan" "$@"
+exec php "$APP_DIR/planner/artisan" "$@"

@@ -25,8 +25,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/app"
-touch "$TEMP_DIR/app/artisan"
+mkdir -p "$TEMP_DIR/bin" "$TEMP_DIR/app/planner"
+touch "$TEMP_DIR/app/planner/artisan"
 
 # The launcher starts the server as a background job, and a non-interactive shell
 # starts those with SIGINT and SIGQUIT ignored. Like PHP's pcntl_signal, Perl can
@@ -34,7 +34,7 @@ touch "$TEMP_DIR/app/artisan"
 cat > "$TEMP_DIR/bin/php" <<'SH'
 #!/bin/sh
 case "$*" in
-    *workerman.php\ start*)
+    *servers/workerman/server.php\ start*)
         exec perl -e '
             my $log = $ENV{GATEWAY_TEST_SIGNAL_LOG};
             sub note { open(my $fh, ">>", $log) or die; print $fh "$_[0]\n"; close $fh }

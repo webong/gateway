@@ -18,7 +18,7 @@ $root = dirname(__DIR__, 2);
 
 require $root.'/vendor/autoload.php';
 
-$app = require $root.'/app/bootstrap.php';
+$app = require $root.'/app/planner/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 $connection = $app->make('db')->connection();

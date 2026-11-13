@@ -7,11 +7,14 @@ use Illuminate\Foundation\Bootstrap\LoadConfiguration;
 use Illuminate\Foundation\PackageManifest;
 use Webong\Gateway\Laravel\GatewayServiceProvider;
 
-$vendorDirectory = dirname(__DIR__).'/vendor';
+// app/planner/bootstrap/app.php: Composer's shared vendor directory sits beside app/.
+$plannerDirectory = dirname(__DIR__);
+$appDirectory = dirname($plannerDirectory);
+$vendorDirectory = dirname($appDirectory).'/vendor';
 $loader = require $vendorDirectory.'/autoload.php';
-$loader->addPsr4('Gateway\\Router\\', __DIR__);
+$loader->addPsr4('Gateway\\Router\\', $appDirectory.'/helpers');
 
-$dataDirectory = getenv('GATEWAY_ROUTER_DATA_DIR') ?: dirname(__DIR__).'/.gateway-router-data';
+$dataDirectory = getenv('GATEWAY_ROUTER_DATA_DIR') ?: dirname($appDirectory).'/.gateway-router-data';
 $cacheDirectory = rtrim($dataDirectory, '/').'/cache';
 if (! is_dir($cacheDirectory) && ! mkdir($cacheDirectory, 0700, true) && ! is_dir($cacheDirectory)) {
     throw new RuntimeException("Unable to create Router cache directory: {$cacheDirectory}");
@@ -29,17 +32,17 @@ foreach ([
     }
 }
 
-$app = Application::configure(basePath: __DIR__)
+$app = Application::configure(basePath: $plannerDirectory)
     ->withRouting(
-        web: __DIR__.'/routes.php',
-        commands: __DIR__.'/commands.php',
+        web: $plannerDirectory.'/routes/web.php',
+        commands: $plannerDirectory.'/routes/console.php',
     )
     ->withMiddleware()
     ->withExceptions()
     ->create();
 
-$app->useAppPath(__DIR__);
-$app->usePublicPath(__DIR__.'/public');
+$app->useAppPath($appDirectory.'/helpers');
+$app->usePublicPath($plannerDirectory.'/public');
 $app->useStoragePath(rtrim($dataDirectory, '/').'/storage');
 
 // Laravel's cache commands reload bootstrap/app.php. Keep that compatibility
@@ -56,15 +59,19 @@ if (@file_get_contents($bootstrapDirectory.'/app.php') !== $bootstrapSource) {
 }
 $app->useBootstrapPath($bootstrapDirectory);
 
-// Discovery uses the shared vendor directory, not a conventional app/vendor.
-$app->make(PackageManifest::class)->vendorPath = $vendorDirectory;
+// Discovery reads the dont-discover list from app/composer.json and the packages
+// from the shared vendor directory, not from a conventional planner/ skeleton.
+$packageManifest = $app->make(PackageManifest::class);
+$packageManifest->basePath = $appDirectory;
+$packageManifest->vendorPath = $vendorDirectory;
 
-$app->afterBootstrapping(LoadConfiguration::class, static function (Application $app) use ($vendorDirectory): void {
+$app->afterBootstrapping(LoadConfiguration::class, static function (Application $app) use ($vendorDirectory, $plannerDirectory): void {
     if ($app->configurationIsCached()) {
         return;
     }
 
-    foreach (require __DIR__.'/config.php' as $namespace => $values) {
+    // Not planner/config/: Laravel would load every file there as its own config namespace.
+    foreach (require $plannerDirectory.'/config.php' as $namespace => $values) {
         $defaults = $app['config']->get($namespace, []);
         $app['config']->set($namespace, is_array($values) && is_array($defaults)
             ? array_replace_recursive($defaults, $values)

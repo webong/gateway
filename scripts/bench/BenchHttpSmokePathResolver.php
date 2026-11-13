@@ -15,7 +15,7 @@ use Webong\Gateway\Protocols\PathBinding;
  * `/http-smoke/registry-ingress`, which the test suite's HttpSmokePathResolver
  * binds to the seeded `http-smoke-endpoint`; this class repeats that binding so the
  * same request works against the image. The harness bind-mounts it read-only into
- * `/gateway/app/BenchHttpSmokePathResolver.php` (the `Gateway\Router\` PSR-4 root),
+ * `/gateway/app/helpers/BenchHttpSmokePathResolver.php` (the `Gateway\Router\` PSR-4 root),
  * so the image itself is unchanged.
  *
  * `/http-smoke/hold` additionally holds the request open for

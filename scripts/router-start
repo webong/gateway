@@ -178,13 +178,13 @@ if [ "$DB_CONNECTION" = sqlite ] && [ ! -f "$DB_DATABASE" ]; then
     touch "$DB_DATABASE"
 fi
 
-php "$APP_DIR/artisan" migrate --realpath --path="$APP_DIR/../vendor/webong/proxy/database/migrations" --force
+php "$APP_DIR/planner/artisan" migrate --realpath --path="$APP_DIR/../vendor/webong/proxy/database/migrations" --force
 if [ "${GATEWAY_MIGRATIONS_ADOPT_EXISTING:-false}" = true ]; then
-    php "$APP_DIR/artisan" gateway:migrate --adopt-existing
+    php "$APP_DIR/planner/artisan" gateway:migrate --adopt-existing
 else
-    php "$APP_DIR/artisan" gateway:migrate
+    php "$APP_DIR/planner/artisan" gateway:migrate
 fi
-php "$APP_DIR/artisan" migrate --force
+php "$APP_DIR/planner/artisan" migrate --force
 
 if [ "$RUNTIME" = library ]; then
     LIBRARY_BIN=${GATEWAY_ROUTER_LIBRARY_BIN:-}
@@ -201,9 +201,9 @@ if [ "$RUNTIME" = frankenphp ]; then
         echo 'A FrankenPHP binary containing the Gateway Caddy module is required.' >&2
         exit 1
     fi
-    CADDYFILE="$APP_DIR/Caddyfile"
+    CADDYFILE="$APP_DIR/servers/frankenphp/Caddyfile"
     if [ -n "${GATEWAY_DELIVERY_DATABASE_URL:-}" ]; then
-        CADDYFILE="$APP_DIR/Caddyfile.postgres"
+        CADDYFILE="$APP_DIR/servers/frankenphp/Caddyfile.postgres"
     fi
     exec "$FRANKENPHP_BIN" run --config "$CADDYFILE"
 fi
@@ -223,7 +223,7 @@ php -r '
         exit(1);
     }
     file_put_contents($argv[2], "<?php\n\nreturn require ".var_export($bootstrap, true).";\n");
-' "$APP_DIR/bootstrap.php" "$OCTANE_BASE_DIR/.laravel/app.php"
+' "$APP_DIR/planner/bootstrap/app.php" "$OCTANE_BASE_DIR/.laravel/app.php"
 
 CONFIG_PATH="$DATA_DIR/router.rr.yaml"
 php -r '

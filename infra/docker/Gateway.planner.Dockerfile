@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/tmp/composer-cache \
 FROM php-base
 
 COPY --from=planner-builder /gateway /gateway
-COPY --from=roadrunner /usr/bin/rr /gateway/app/rr
+COPY --from=roadrunner /usr/bin/rr /gateway/app/planner/rr
 COPY --from=fpm /usr/local/sbin/php-fpm /usr/local/sbin/php-fpm
 COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
 COPY --from=frankenphp /usr/local/bin/frankenphp /usr/local/bin/frankenphp-real
@@ -48,8 +48,8 @@ COPY --from=frankenphp /usr/local/lib/libphp.so /usr/local/lib/libphp.so
 COPY --from=frankenphp /usr/local/lib/libwatcher-c.so.0 /usr/local/lib/libwatcher-c.so.0
 COPY --from=frankenphp /usr/local/lib/php/extensions /opt/frankenphp/extensions
 COPY --from=frankenphp /usr/local/etc/php/conf.d /opt/frankenphp/conf.d
-COPY app/Caddyfile.planner /etc/caddy/Caddyfile
-COPY app/Caddyfile.fpm /etc/caddy/Caddyfile.fpm
+COPY app/servers/frankenphp/Caddyfile.planner /etc/caddy/Caddyfile
+COPY app/servers/fpm/Caddyfile /etc/caddy/Caddyfile.fpm
 COPY infra/docker/php-fpm.gateway.conf /etc/php-fpm.d/gateway.conf
 COPY infra/docker/frankenphp /usr/local/bin/frankenphp
 COPY infra/docker/php-frankenphp.ini /opt/frankenphp/php.ini
@@ -61,10 +61,10 @@ RUN apt-get update \
         libreadline8 librtmp1 libsasl2-2 libsqlite3-0 libssh2-1 libstdc++6 \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig \
-    && mkdir -p /data /config /tmp /gateway/app/bootstrap/cache \
-    && chown -R www-data:www-data /data /config /tmp /gateway/app/bootstrap/cache \
-    && ln -s ../vendor /gateway/app/vendor \
-    && test -x /gateway/app/rr \
+    && mkdir -p /data /config /tmp /gateway/app/planner/bootstrap/cache \
+    && chown -R www-data:www-data /data /config /tmp /gateway/app/planner/bootstrap/cache \
+    && ln -s ../../vendor /gateway/app/planner/vendor \
+    && test -x /gateway/app/planner/rr \
     && test -x /usr/local/bin/caddy \
     && php-fpm -t --fpm-config /etc/php-fpm.d/gateway.conf \
     && ldd /usr/local/bin/frankenphp-real > /tmp/frankenphp-ldd \

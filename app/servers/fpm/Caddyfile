@@ -4,7 +4,7 @@
 }
 
 :8080 {
-    root * {$GATEWAY_PLANNER_APP_DIR:/gateway/app}
+    root * {$GATEWAY_PLANNER_APP_DIR:/gateway/app}/planner/public
 
     # Keep FPM private; Caddy is the Planner container's only HTTP listener.
     route {

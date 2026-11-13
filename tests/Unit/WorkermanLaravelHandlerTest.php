@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Gateway\Router\WorkermanLaravelHandler;
+use Gateway\Router\Workerman\LaravelHandler;
 use Workerman\Protocols\Http\Request;
 
 it('handles sustained Workerman requests with isolated Laravel applications and bounded memory', function (): void {
@@ -15,11 +15,11 @@ it('handles sustained Workerman requests with isolated Laravel applications and 
     putenv('SESSION_DRIVER=array');
     putenv('DB_DATABASE='.$dataDirectory.'/gateway.sqlite');
     putenv('APP_RUNNING_IN_CONSOLE=false');
-    require_once dirname(__DIR__, 2).'/app/WorkermanLaravelHandler.php';
+    require_once dirname(__DIR__, 2).'/app/helpers/Workerman/LaravelHandler.php';
 
     $handler = null;
     try {
-        $handler = new WorkermanLaravelHandler(dirname(__DIR__, 2).'/app');
+        $handler = new LaravelHandler(dirname(__DIR__, 2).'/app/planner');
         $request = new Request("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
 
         $first = (string) $handler->handle($request);
