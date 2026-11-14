@@ -1,7 +1,7 @@
 <?php
 // Trusted disposable setup through production stores; not a public setup route.
 use Webong\Gateway\Laravel\Companion\{CompanionActionActivationStore,ExtensionSecretStore};
-$app=require '/gateway/app/bootstrap.php';
+$app=require '/gateway/app/planner/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $store=$app->make(CompanionActionActivationStore::class);
 $identity='webong/gateway-weaver';
