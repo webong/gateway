@@ -50,6 +50,14 @@ type runtimeProcess struct {
 	closeErr error
 }
 
+// Done preserves Ext's terminal session signal through the lifecycle wrapper.
+func (p *runtimeProcess) Done() <-chan struct{} {
+	if lifecycle, ok := p.extensionProcess.(interface{ Done() <-chan struct{} }); ok {
+		return lifecycle.Done()
+	}
+	return nil
+}
+
 func (p *runtimeProcess) Close() error {
 	p.once.Do(func() { p.closeErr = stopRuntimeProcess(p.extensionProcess) })
 	return p.closeErr

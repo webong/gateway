@@ -57,3 +57,38 @@ func TestRuntimeCloseStopsDeclaredChildrenBeforeKillingGuest(t *testing.T) {
 		t.Fatalf("legacy runtime gained a stop call: %v", probe.calls)
 	}
 }
+
+type terminalStopProbe struct {
+	stopProbe
+	done <-chan struct{}
+	err  error
+}
+
+func (p *terminalStopProbe) Done() <-chan struct{}                        { return p.done }
+func (p *terminalStopProbe) Call(context.Context, string, any, any) error { return p.err }
+
+func TestRuntimeWrapperPreservesTerminalLifecycleForImmediateRestart(t *testing.T) {
+	for _, failure := range []error{context.DeadlineExceeded, errors.New("invalid protocol frame")} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			done := make(chan struct{})
+			close(done)
+			raw := &terminalStopProbe{done: done, err: failure}
+			failed := &runtimeProcess{extensionProcess: raw}
+			replacement := &stopProbe{}
+			registry := NewRegistry()
+			identity := raw.Descriptor().Identity
+			restarts := 0
+			registry.register(identity.ID, mounted{identity: identity, process: failed, restart: func(context.Context) (mounted, error) {
+				restarts++
+				return mounted{identity: identity, process: replacement}, nil
+			}})
+			err := registry.invoke(context.Background(), identity.ID, failed, "example.operation", nil, nil)
+			if !errors.Is(err, failure) {
+				t.Fatalf("original failure changed: %v", err)
+			}
+			if restarts != 1 || registry.mounted[identity.ID].process != replacement {
+				t.Fatalf("terminal runtime was not replaced before the next invocation: restarts=%d", restarts)
+			}
+		})
+	}
+}
