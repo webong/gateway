@@ -114,6 +114,8 @@ final class InstrumentedHttpSmokePathResolver implements PathResolver
             'backend_pid' => $backendPid,
             'transaction_level' => $connection->transactionLevel(),
             'sandbox' => spl_object_id(app()),
+            'environment' => app()->environment(),
+            'running_unit_tests' => app()->runningUnitTests(),
         ]);
     }
 
