@@ -6,11 +6,12 @@ import (
 )
 
 type HTTPTransport struct {
-	HTTPProxy      string
-	HTTPSProxy     string
-	NoProxy        []string
-	ConnectTimeout time.Duration
-	RequestTimeout time.Duration
+	DisableRedirects bool
+	HTTPProxy        string
+	HTTPSProxy       string
+	NoProxy          []string
+	ConnectTimeout   time.Duration
+	RequestTimeout   time.Duration
 	// PrivateCallbackCIDRs is a separate mail callback grant, bounded by a separate deployment ceiling.
 	PrivateCallbackCIDRs string
 }

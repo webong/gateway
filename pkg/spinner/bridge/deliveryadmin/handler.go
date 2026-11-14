@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/webong/gateway/arranger/automation"
+	"github.com/webong/gateway/arranger/integration"
 	"github.com/webong/gateway/pkg/spinner/bridge/deliveryqueue"
 )
 
@@ -67,7 +68,9 @@ func WithPrivateRoute(path string, route http.Handler) HandlerOption {
 
 // WithPrivateFallback delegates otherwise-unclaimed private paths to a
 // dynamic, protocol-neutral Extension registry. Authentication is always
-// completed by this handler before delegation.
+// completed by this handler before delegation. Host credentials are stripped;
+// a separate Extension credential can be supplied through Arranger's private
+// HTTP authorization handoff header.
 func WithPrivateFallback(fallback http.Handler) HandlerOption {
 	return func(handler *Handler) error {
 		if fallback == nil {
@@ -115,7 +118,17 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if handler.fallback != nil && !privatePathUnder(path, "/deliveries") && !privatePathUnder(path, "/automation") {
-		handler.fallback.ServeHTTP(writer, request)
+		forwarded := request.Clone(request.Context())
+		credential := forwarded.Header.Get(integration.PrivateHTTPAuthorizationHeader)
+		forwarded.Header.Del("Authorization")
+		forwarded.Header.Del(integration.PrivateHTTPAuthorizationHeader)
+		forwarded.Header.Del("X-Gateway-Internal")
+		forwarded.Header.Del("X-Gateway-Target")
+		forwarded.Header.Del("Proxy-Authorization")
+		if credential != "" {
+			forwarded.Header.Set("Authorization", credential)
+		}
+		handler.fallback.ServeHTTP(writer, forwarded)
 		return
 	}
 	if handler.queue == nil {

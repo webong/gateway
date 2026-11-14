@@ -738,3 +738,22 @@ func TestPlannerSerializedDeliveryIsForwardedThroughItsProfile(t *testing.T) {
 		t.Fatalf("proxy authentication = %v", proxyAuth.Load())
 	}
 }
+
+func TestPinnedHTTPDoesNotFollowRedirectsOrMutateSharedClientPolicy(t *testing.T) {
+	var effects atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { effects.Add(1); w.WriteHeader(204) }))
+	defer destination.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+	forwarder := newTestForwarder(t)
+	response, err := forwarder.ForwardSync(ForwardRequest{TargetURL: origin.URL, Method: "POST", RequestBody: []byte(`{}`), Transport: HTTPTransport{DisableRedirects: true}})
+	if err != nil || response.StatusCode != 307 || effects.Load() != 0 {
+		t.Fatalf("pinned destination redirected: status=%d effects=%d err=%v", response.StatusCode, effects.Load(), err)
+	}
+	response, err = forwarder.ForwardSync(ForwardRequest{TargetURL: origin.URL, Method: "POST", RequestBody: []byte(`{}`)})
+	if err != nil || response.StatusCode != 204 || effects.Load() != 1 {
+		t.Fatalf("shared client policy changed: status=%d effects=%d err=%v", response.StatusCode, effects.Load(), err)
+	}
+}

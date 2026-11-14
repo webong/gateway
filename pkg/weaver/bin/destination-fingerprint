@@ -1,0 +1,16 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Webong\Gateway\Weaver\GatewayHttpDelivery;
+require __DIR__.'/bootstrap.php';
+try {
+    $path=getenv('GATEWAY_WEAVER_HTTP_DESTINATION');
+    if(!is_string($path) || !is_file($path) || (fileperms($path)&0077)!==0){throw new RuntimeException('Private destination file required.');}
+    $secret=json_decode(file_get_contents($path),true,32,JSON_THROW_ON_ERROR);
+    $method=$secret['method']??'POST';$scope=$secret['effect_scope']??null;$url=$secret['url']??null;
+    $header=$secret['idempotency_header']??(($secret['idempotent']??false)?'Idempotency-Key':'X-Weaver-Effect-Key');
+    if(!is_string($url) || !is_string($scope) || $scope==='' || !is_string($method) || !is_string($header)){throw new RuntimeException('Invalid destination.');}
+    echo GatewayHttpDelivery::fingerprint($url,$scope,$method,$header)."\n";
+}catch(Throwable){fwrite(STDERR,"Unable to fingerprint private HTTP destination.\n");exit(1);}

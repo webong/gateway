@@ -62,9 +62,17 @@ func NewRelayExecutor(forwarder *forwarding.Forwarder, workerPool *workers.Worke
 }
 
 func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Response, error) {
+	return e.deliverHTTP(ctx, delivery, false)
+}
+func (e *RelayExecutor) DeliverPinnedHTTP(ctx context.Context, delivery Delivery) (Response, error) {
+	return e.deliverHTTP(ctx, delivery, true)
+}
+func (e *RelayExecutor) deliverHTTP(ctx context.Context, delivery Delivery, pinned bool) (Response, error) {
 	if delivery.EgressProtocol() != ProtocolHTTP || delivery.AdapterName() != string(ProtocolHTTP) {
 		return Response{}, errors.New("synchronous reply delivery supports HTTP targets only")
 	}
+	transport := forwardTransport(delivery.Transport)
+	transport.DisableRedirects = pinned
 	response, err := e.forwarder.ForwardSync(forwarding.ForwardRequest{
 		TargetURL:   delivery.URL,
 		RequestBody: append([]byte(nil), delivery.Body...),
@@ -72,7 +80,7 @@ func (e *RelayExecutor) Deliver(ctx context.Context, delivery Delivery) (Respons
 		RawQuery:    delivery.RawQuery,
 		Headers:     cloneRelayHeaders(delivery.Headers),
 		Context:     ctx,
-		Transport:   forwardTransport(delivery.Transport),
+		Transport:   transport,
 	})
 	if err != nil {
 		return Response{}, err
@@ -237,6 +245,14 @@ func (e *RelayExecutor) EnqueueGatewayBatch(eventID string, deliveries []Gateway
 		Payload: append([]byte(nil), payload...), Batch: children,
 		Attributes: map[string]string{"event_id": eventID}}
 	return e.queue.EnqueueGateway(batch) == nil
+}
+
+func (e *RelayExecutor) IdempotentGatewayDeliveries() bool {
+	if e == nil || e.queue == nil {
+		return false
+	}
+	_, ok := e.queue.(IdempotentGatewayExecutor)
+	return ok
 }
 
 func (e *RelayExecutor) DurableGatewayDeliveries() bool {

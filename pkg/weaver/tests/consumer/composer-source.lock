@@ -1,0 +1,39 @@
+{
+    "version": 1,
+    "mirrors": [],
+    "projections": {
+        "webong/workflow": {
+            "format": 1,
+            "reference": "278861082e00537fe7e759eb7c8bee3e7a3f0bf4",
+            "version": "v0.1.0-rc.2",
+            "surfaces": [
+                "core",
+                "open-workflow",
+                "temporal"
+            ],
+            "patterns": [
+                "CHANGELOG.md",
+                "CONTEXT.md",
+                "LICENSE",
+                "README.md",
+                "app/src/FlowAuthoringCli.php",
+                "bin/workflow",
+                "composer.json",
+                "docs/authoring.md",
+                "docs/composer-surfaces.md",
+                "docs/open-workflow-ctk-matrix.md",
+                "docs/open-workflow-specification.md",
+                "docs/php-library.md",
+                "docs/run-lifecycle.md",
+                "docs/temporal.md",
+                "ext/Laravel/WorkFlowServiceProvider.php",
+                "ext/OpenWorkflow/**",
+                "ext/Temporal/**",
+                "src/**",
+                "types/**"
+            ],
+            "patterns_digest": "ff88c58817554d7a6b3d07b0ae7b189ae3014e272ca0ff397a83a1e6b30a5e84",
+            "definition_digest": "59f7f524d3591503e9d9929ffd5904ada3ca8f168494af84d57af794e5252f47"
+        }
+    }
+}

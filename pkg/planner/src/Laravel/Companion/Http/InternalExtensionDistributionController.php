@@ -13,6 +13,7 @@ use Webong\Gateway\Laravel\Reconciliation\InternalRequestAuthenticator;
 /** Private desired state consumed independently by Planner and Spinner hosts. */
 final readonly class InternalExtensionDistributionController
 {
+    private const ENCODING=JSON_THROW_ON_ERROR|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT;
     public function __construct(
         private InternalRequestAuthenticator $auth,
         private CompanionActionActivationStore $activations,
@@ -32,7 +33,7 @@ final readonly class InternalExtensionDistributionController
             $base = $row->document['configuration'] ?? [];
             $projected = $this->configuration->project($row->key, is_array($base) ? $base : []);
             $serialized = $projected === [] ? new \stdClass : $projected;
-            $encoded = json_encode($serialized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            $encoded = json_encode($serialized, self::ENCODING);
             $resources[] = [
                 'extension' => $row->key,
                 'version' => $package['version'],
@@ -46,6 +47,6 @@ final readonly class InternalExtensionDistributionController
 
         usort($resources, static fn (array $left, array $right): int => $left['extension'] <=> $right['extension']);
 
-        return response()->json(['data' => $resources])->header('Cache-Control', 'no-store');
+        return response()->json(['data' => $resources],options:self::ENCODING)->header('Cache-Control', 'no-store');
     }
 }

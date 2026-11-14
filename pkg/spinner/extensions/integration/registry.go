@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
@@ -40,6 +41,36 @@ type extensionProcess interface {
 	Descriptor() plugin.Descriptor
 	Call(context.Context, string, any, any) error
 	Close() error
+}
+
+// runtimeProcess gives declared runtimes a bounded cooperative stop before Ext's
+// process backend kills the guest. Older packages retain their existing close.
+type runtimeProcess struct {
+	extensionProcess
+	once     sync.Once
+	closeErr error
+}
+
+// Done preserves Ext's terminal session signal through the lifecycle wrapper.
+func (p *runtimeProcess) Done() <-chan struct{} {
+	if lifecycle, ok := p.extensionProcess.(interface{ Done() <-chan struct{} }); ok {
+		return lifecycle.Done()
+	}
+	return nil
+}
+
+func (p *runtimeProcess) Close() error {
+	p.once.Do(func() { p.closeErr = stopRuntimeProcess(p.extensionProcess) })
+	return p.closeErr
+}
+func stopRuntimeProcess(p extensionProcess) error {
+	if _, err := p.Descriptor().Lookup(integrationcontract.RuntimeContract, integrationcontract.OperationStop); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		var result struct{}
+		_ = p.Call(ctx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStop), struct{}{}, &result)
+		cancel()
+	}
+	return p.Close()
 }
 
 type httpMount struct {
@@ -122,23 +153,28 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 	if err != nil {
 		return mounted{}, fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
-	proc, err := host.Open(ctx, inst, host.Options{
-		Reverse: registry.DependencyReverseOptions(
-			inst.Manifest.Descriptor.Identity,
-			bindings,
-			DefaultHost.ReverseOptionsFor(inst.Manifest.Descriptor.Identity, companionextensions.DefaultHost.ReverseOptions()),
-		),
-		Launch: launch,
-	})
+	var proc *host.Process
+	var active atomic.Pointer[host.Process]
+	reverse := registry.runtimeReverseOptions(inst.Manifest.Descriptor.Identity, bindings,
+		DefaultHost.ReverseOptionsFor(inst.Manifest.Descriptor.Identity, companionextensions.DefaultHost.ReverseOptions()),
+		func() extensionProcess {
+			current := active.Load()
+			if current == nil {
+				return nil
+			}
+			return current
+		})
+	proc, err = host.Open(ctx, inst, host.Options{Reverse: reverse, Launch: launch})
 	if err != nil {
 		return mounted{}, err
 	}
+	active.Store(proc)
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	var advertisement integrationcontract.RuntimeStartResponse
 	err = proc.Call(callCtx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStart), DefaultHost.StartRequest(inst.Manifest.Descriptor.Identity, configuration), &advertisement)
 	cancel()
 	if err != nil {
-		_ = proc.Close()
+		_ = stopRuntimeProcess(proc)
 		if diagnostic := strings.TrimSpace(proc.Stderr()); diagnostic != "" {
 			return mounted{}, fmt.Errorf("start Spinner integration: %w (guest: %s)", err, diagnostic)
 		}
@@ -167,22 +203,22 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 		return nil
 	}
 	if err := buildMounts(advertisement.HTTP, &mounts); err != nil {
-		_ = proc.Close()
+		_ = stopRuntimeProcess(proc)
 		return mounted{}, err
 	}
 	seenPrefixes = make(map[string]bool, len(advertisement.PrivateHTTP))
 	if err := buildMounts(advertisement.PrivateHTTP, &privateMounts); err != nil {
-		_ = proc.Close()
+		_ = stopRuntimeProcess(proc)
 		return mounted{}, err
 	}
 	adapters := make(map[string]struct{}, len(advertisement.DeliveryAdapters))
 	for _, name := range advertisement.DeliveryAdapters {
 		if !integrationcontract.ValidAdapterName(name) || strings.HasPrefix(name, "gateway.") {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised an invalid delivery adapter")
 		}
 		if _, duplicate := adapters[name]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate delivery adapter")
 		}
 		adapters[name] = struct{}{}
@@ -193,15 +229,15 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 		language := string(job.Language)
 		if !integrationcontract.ValidAdapterName(job.Name) || strings.HasPrefix(job.Name, "gateway.") ||
 			language != "native."+job.Name {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised an invalid native job")
 		}
 		if _, duplicate := jobs[language]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate native job language")
 		}
 		if _, duplicate := seenJobNames[job.Name]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate native job name")
 		}
 		jobs[language] = job
@@ -210,24 +246,24 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 	failures := make(map[string]struct{}, len(advertisement.DeliveryFailureHandlers))
 	if len(advertisement.DeliveryFailureHandlers) > 0 {
 		if _, err := proc.Descriptor().Lookup(integrationcontract.DeliveryFailureContract, integrationcontract.OperationDeliveryFailure); err != nil {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a failure handler without implementing its contract")
 		}
 	}
 	for _, name := range advertisement.DeliveryFailureHandlers {
 		if !integrationcontract.ValidAdapterName(name) || strings.HasPrefix(name, "gateway.") {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised an invalid delivery failure handler")
 		}
 		if _, duplicate := failures[name]; duplicate {
-			_ = proc.Close()
+			_ = stopRuntimeProcess(proc)
 			return mounted{}, errors.New("Spinner integration advertised a duplicate delivery failure handler")
 		}
 		failures[name] = struct{}{}
 	}
 	return mounted{
 		identity: inst.Manifest.Descriptor.Identity,
-		process:  proc,
+		process:  &runtimeProcess{extensionProcess: proc},
 		http:     mounts,
 		private:  privateMounts,
 		adapters: adapters,
@@ -708,4 +744,46 @@ func httpMatch(request *http.Request, match string) bool {
 
 func pathMatches(requestPath, prefix string) bool {
 	return prefix == "/" || requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/")
+}
+
+// runtimeReverseOptions confirms the current mounted process, not merely a
+// package identity shared by old and replacement configuration instances.
+func (r *Registry) runtimeReverseOptions(consumer plugin.Identity, bindings []packagekit.Resolution, fallback *plugin.ReverseOptions, source func() extensionProcess) *plugin.ReverseOptions {
+	options := r.DependencyReverseOptions(consumer, bindings, fallback)
+	handle := options.Handle
+	options.Handle = func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+		raw, err := handle(ctx, request)
+		if err != nil || request.Contract != integrationcontract.DeliveryContract || request.Operation != integrationcontract.OperationOwnAdapterReady {
+			return raw, err
+		}
+		var input integrationcontract.DeliveryAdapterSupportRequest
+		var result integrationcontract.DurableResponse
+		if plugin.Decode(request.Payload, &input) != nil || plugin.Decode(raw, &result) != nil {
+			return nil, plugin.ErrInvalid
+		}
+		result.Enabled = result.Enabled && r.ownsDeliveryAdapter(consumer, source(), input.Adapter)
+		return json.Marshal(result)
+	}
+	return options
+}
+func (r *Registry) ownsDeliveryAdapter(consumer plugin.Identity, source extensionProcess, name string) bool {
+	if source == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	matches := 0
+	owned := false
+	for _, entry := range r.mounted {
+		if _, ok := entry.adapters[name]; !ok {
+			continue
+		}
+		matches++
+		process := entry.process
+		if wrapped, ok := process.(*runtimeProcess); ok {
+			process = wrapped.extensionProcess
+		}
+		owned = entry.identity == consumer && process == source
+	}
+	return matches == 1 && owned
 }

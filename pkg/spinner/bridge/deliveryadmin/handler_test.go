@@ -292,3 +292,39 @@ func serve(handler http.Handler, method, path, token string) *httptest.ResponseR
 	handler.ServeHTTP(response, request)
 	return response
 }
+
+func TestPrivateFallbackSeparatesHostAndExtensionCredentials(t *testing.T) {
+	for _, credential := range []string{"Bearer workflow-private-token", ""} {
+		t.Run(credential, func(t *testing.T) {
+			handler, err := NewHandler(nil, "host-private-token", WithPrivateFallback(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got := r.Header.Get("Authorization"); got != credential {
+					t.Errorf("guest authorization = %q; want extension credential %q", got, credential)
+				}
+				for _, header := range []string{"X-Gateway-Extension-Authorization", "X-Gateway-Internal", "X-Gateway-Target"} {
+					if r.Header.Get(header) != "" {
+						t.Errorf("host/private credential header reached guest: %s", header)
+					}
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodPost, "/workflow/rpc", nil)
+			request.Header.Set("Authorization", "Bearer host-private-token")
+			request.Header.Set("X-Gateway-Internal", "host-private-token")
+			request.Header.Set("X-Gateway-Target", "host-target")
+			if credential != "" {
+				request.Header.Set("X-Gateway-Extension-Authorization", credential)
+			}
+			result := httptest.NewRecorder()
+			handler.ServeHTTP(result, request)
+			if result.Code != http.StatusNoContent {
+				t.Fatalf("private fallback returned %d", result.Code)
+			}
+			if request.Header.Get("Authorization") != "Bearer host-private-token" {
+				t.Fatal("caller request headers were mutated")
+			}
+		})
+	}
+}

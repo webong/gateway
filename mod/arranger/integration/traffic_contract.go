@@ -178,6 +178,12 @@ type IdempotentGatewayExecutor interface {
 	EnqueueGatewayIdempotent(GatewayDelivery, string, string, time.Time) (bool, error)
 }
 
+// IdempotentGatewayDeliverySupport advertises reserved-receipt persistence.
+// It is separate from durable so older strict v1 decoders keep their response.
+type IdempotentGatewayDeliverySupport interface {
+	IdempotentGatewayDeliveries() bool
+}
+
 // GatewayDeliveryAdapterSupport lets an Extension fail closed before it
 // accepts work for an adapter that is not currently installed.
 type GatewayDeliveryAdapterSupport interface {
@@ -196,6 +202,12 @@ type DurableGatewayBatchExecutor interface {
 // queue persistence.
 type GatewayDeliveryAdapter interface {
 	DeliverGateway(context.Context, GatewayDelivery) error
+}
+
+// PinnedHTTPExecutor returns redirects to the caller rather than selecting a
+// different effect destination. Hosts opt in explicitly; legacy Deliver is unchanged.
+type PinnedHTTPExecutor interface {
+	DeliverPinnedHTTP(context.Context, Delivery) (Response, error)
 }
 
 // GatewayDeliveryResult records non-sensitive outcome metadata from one attempt.

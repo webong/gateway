@@ -70,6 +70,7 @@ permissions:
 
 jobs:
   guest-tests:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     name: Test first-party Spinner guests on linux/${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -116,6 +117,7 @@ jobs:
           done
 
   planner-artifact-tests:
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     name: Test Planner artifact downloads
     runs-on: ubuntu-24.04
     steps:

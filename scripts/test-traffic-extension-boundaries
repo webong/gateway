@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 GO_BUILD_FLAGS=${GOFLAGS:--mod=mod}
 
-products=(web dns email database hookscript javascript lua shell golang php mercure reverb centrifugo)
+products=(web dns email database hookscript javascript lua shell golang php mercure reverb centrifugo weaver)
 go_hosts=(
     "$ROOT/mod/arranger"
     "$ROOT/pkg/spinner"
@@ -31,7 +31,7 @@ for host in "${go_hosts[@]}"; do
     done
 done
 
-if rg -n 'github\.com/webong/gateway/pkg/(web|dns|email|database|hookscript|javascript|lua|shell|golang|php|mercure|reverb|centrifugo)' \
+if rg -n 'github\.com/webong/gateway/pkg/(web|dns|email|database|hookscript|javascript|lua|shell|golang|php|mercure|reverb|centrifugo|weaver)' \
     "$ROOT/mod/arranger" "$ROOT/pkg/spinner" "$ROOT/pkg/caddy" "$ROOT/pkg/frankenphp" "$ROOT/pkg/roadrunner" \
     -g'*.go' -g'!**/*_test.go' >/dev/null; then
     echo 'A generic Gateway module imports a concrete product Extension.' >&2
@@ -57,7 +57,7 @@ if [[ ! -f "$ROOT/pkg/hookscript/cmd/spinner/main.go" || ! -f "$ROOT/pkg/hookscr
     exit 1
 fi
 
-if rg -n 'Webong\\Gateway\\(Web|Webstream|Dns|Email|Database)\\' "$ROOT/pkg/planner/src" -g'*.php' >/dev/null; then
+if rg -n 'Webong\\Gateway\\(Web|Webstream|Dns|Email|Database|Weaver)\\' "$ROOT/pkg/planner/src" -g'*.php' >/dev/null; then
     echo 'Planner core imports a concrete product Extension namespace.' >&2
     exit 1
 fi

@@ -1,0 +1,107 @@
+name: WorkFlow runtime feasibility
+
+on:
+  pull_request:
+    paths:
+      - 'tools/workflow-runtime-gate/**'
+      - 'pkg/weaver/**'
+      - 'pkg/planner/**'
+      - 'go.work'
+      - 'mod/arranger/**'
+      - 'pkg/spinner/**'
+      - 'pkg/roadrunner/**'
+      - 'pkg/frankenphp/**'
+      - 'infra/docker/Gateway*.Dockerfile'
+      - 'scripts/router-start'
+      - 'app/**'
+      - 'composer.*'
+      - '.github/workflows/workflow-runtime-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: Runtime proof (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      GOWORK: off
+      GOTELEMETRY: off
+      WEAVER_VERSION: 0.1.0-rc.1
+      WEAVER_RELEASE_BASE: https://github.com/${{ github.repository }}/releases/download/weaver-runtime%2Fv0.1.0-rc.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: webong/workflow
+          ref: 00e0bbcdd61c2c6ed96af55865d0ef2e77557adb
+          path: .workflow-gate-source
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/workflow-runtime-gate/go.mod
+          cache-dependency-path: tools/workflow-runtime-gate/go.sum
+      - name: Test runtime supervision and independent contracts
+        run: |
+          go -C tools/workflow-runtime-gate test -race ./...
+          go -C tools/workflow-runtime-gate list -deps ./... > "$RUNNER_TEMP/workflow-gate-deps"
+          if grep -E '^github.com/webong/gateway/pkg/(spinner|roadrunner|frankenphp)(/|$)' "$RUNNER_TEMP/workflow-gate-deps"; then
+            echo 'Runtime prototype imports a Gateway host implementation.' >&2
+            exit 1
+          fi
+      - name: Build pinned runtime closure
+        run: tools/workflow-runtime-gate/build.sh "$PWD/.workflow-gate-source" '${{ matrix.arch }}'
+      - name: Test Weaver runtime and independent contracts
+        run: |
+          go -C pkg/weaver test -race ./...
+          go -C pkg/weaver list -deps ./... > "$RUNNER_TEMP/weaver-deps"
+          if grep -E '^github.com/webong/gateway/pkg/(spinner|roadrunner|frankenphp)(/|$)' "$RUNNER_TEMP/weaver-deps"; then
+            echo 'Weaver imports a Gateway host implementation.' >&2
+            exit 1
+          fi
+      - name: Build Weaver release candidate
+        run: pkg/weaver/build.sh '${{ matrix.arch }}'
+      - name: Test extracted PHP 8.3 package on SQLite, PostgreSQL and MySQL
+        env:
+          WORKFLOW_TEST_BASE: gateway-workflow-runtime-gate:source-${{ matrix.arch }}
+        run: pkg/weaver/test.sh
+      - name: Exercise verified Ext activation and queue recovery
+        run: python3 tools/workflow-runtime-gate/smoke.py 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
+      - name: Build actual Gateway hosts
+        run: |
+          tools/workflow-runtime-gate/host-build.sh spinner
+          tools/workflow-runtime-gate/host-build.sh roadrunner
+          tools/workflow-runtime-gate/host-build.sh frankenphp
+      - name: Test installed Weaver Planner provider and resource boundaries
+        run: |
+          docker build --build-arg GATEWAY_PLANNER_IMAGE=gateway-workflow-base:roadrunner --target test -f pkg/weaver/planner-test.Dockerfile -t gateway-weaver-planner-test .
+          docker run --rm --user www-data gateway-weaver-planner-test
+      - name: Verify deterministic Weaver archive and Composer source dist
+        run: |
+          python3 pkg/weaver/package.py 'gateway-weaver:${{ matrix.arch }}' "$RUNNER_TEMP/weaver-candidate" --release --asset-base "$WEAVER_RELEASE_BASE"
+          docker run --rm --mount "type=bind,source=$RUNNER_TEMP/weaver-candidate,target=/release,readonly" --mount "type=bind,source=$PWD/pkg/weaver/tests/composer-dist-smoke.php,target=/composer-dist-smoke.php,readonly" --entrypoint php gateway-weaver-planner-test /composer-dist-smoke.php '${{ matrix.arch }}'
+      - name: Exercise actual host matrix with the same verified package
+        run: |
+          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-weaver:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-weaver:${{ matrix.arch }}'
+      # No candidate bytes are uploaded until this exact source has explicit
+      # publication approval. The repository variable is unset by default.
+      - uses: actions/upload-artifact@v4
+        if: vars.WEAVER_APPROVED_SOURCE_SHA == (github.event.pull_request.head.sha || github.sha)
+        with:
+          name: weaver-${{ matrix.arch }}-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/weaver-candidate/
+          retention-days: 7
+          if-no-files-found: error

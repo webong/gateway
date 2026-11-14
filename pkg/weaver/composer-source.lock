@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "mirrors": [],
+    "projections": {
+        "webong/workflow": {
+            "format": 1,
+            "reference": "278861082e00537fe7e759eb7c8bee3e7a3f0bf4",
+            "version": "v0.1.0-rc.2",
+            "surfaces": [
+                "core"
+            ],
+            "patterns": [
+                "CHANGELOG.md",
+                "CONTEXT.md",
+                "LICENSE",
+                "README.md",
+                "app/src/FlowAuthoringCli.php",
+                "bin/workflow",
+                "composer.json",
+                "docs/authoring.md",
+                "docs/composer-surfaces.md",
+                "docs/php-library.md",
+                "docs/run-lifecycle.md",
+                "ext/Laravel/WorkFlowServiceProvider.php",
+                "src/**",
+                "types/**"
+            ],
+            "patterns_digest": "53733b18d05f93d139a21f65091878fd8c7dc651d495c03c906f91a276cbe620",
+            "definition_digest": "59f7f524d3591503e9d9929ffd5904ada3ca8f168494af84d57af794e5252f47"
+        }
+    }
+}

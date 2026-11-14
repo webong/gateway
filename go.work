@@ -22,6 +22,7 @@ use (
 	./pkg/spinner
 	./pkg/spinner/cmd/gateway
 	./pkg/web
+	./pkg/weaver
 	./tools
 	./tools/spinner
 )

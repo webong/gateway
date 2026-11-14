@@ -133,13 +133,21 @@ func (h *Host) authorize(identity plugin.Identity, request plugin.Request) error
 	case integration.DeliveryContract:
 		if services.Executor != nil && (request.Operation == integration.OperationDeliver ||
 			request.Operation == integration.OperationEnqueue || request.Operation == integration.OperationEnqueueGateway ||
-			request.Operation == integration.OperationDurable) {
+			request.Operation == integration.OperationDurable || request.Operation == integration.OperationSupportsPinnedHTTP) {
 			return nil
+		}
+		if _, ok := services.Executor.(integration.PinnedHTTPExecutor); ok && request.Operation == integration.OperationDeliverPinnedHTTP {
+			return nil
+		}
+		if _, ok := services.Executor.(integration.IdempotentGatewayDeliverySupport); ok && request.Operation == integration.OperationDurableIdempotent {
+			if _, reserved := services.Executor.(integration.IdempotentGatewayExecutor); reserved {
+				return nil
+			}
 		}
 		if _, ok := services.Executor.(integration.IdempotentGatewayExecutor); ok && request.Operation == integration.OperationEnqueueGatewayIdempotent {
 			return nil
 		}
-		if _, ok := services.Executor.(integration.GatewayDeliveryAdapterSupport); ok && request.Operation == integration.OperationSupportsDeliveryAdapter {
+		if _, ok := services.Executor.(integration.GatewayDeliveryAdapterSupport); ok && (request.Operation == integration.OperationSupportsDeliveryAdapter || request.Operation == integration.OperationOwnAdapterReady) {
 			return nil
 		}
 	case integration.AutomationContract:
@@ -272,12 +280,25 @@ func handlePlanner(ctx context.Context, services Services, identity plugin.Ident
 
 func handleDelivery(ctx context.Context, services Services, request plugin.Request) (json.RawMessage, error) {
 	switch request.Operation {
-	case integration.OperationDeliver:
+	case integration.OperationSupportsPinnedHTTP:
+		_, enabled := services.Executor.(integration.PinnedHTTPExecutor)
+		return json.Marshal(integration.DurableResponse{Enabled: enabled})
+	case integration.OperationDeliver, integration.OperationDeliverPinnedHTTP:
 		var input integration.Delivery
 		if err := decode(request.Payload, &input); err != nil || input.Validate() != nil {
 			return nil, plugin.ErrInvalid
 		}
-		response, err := services.Executor.Deliver(ctx, input)
+		var response integration.Response
+		var err error
+		if request.Operation == integration.OperationDeliverPinnedHTTP {
+			executor, ok := services.Executor.(integration.PinnedHTTPExecutor)
+			if !ok {
+				return nil, plugin.ErrDenied
+			}
+			response, err = executor.DeliverPinnedHTTP(ctx, input)
+		} else {
+			response, err = services.Executor.Deliver(ctx, input)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -311,6 +332,13 @@ func handleDelivery(ctx context.Context, services Services, request plugin.Reque
 			return nil, err
 		}
 		return json.Marshal(integration.IdempotentEnqueueResponse{Replayed: replayed})
+	case integration.OperationOwnAdapterReady:
+		var input integration.DeliveryAdapterSupportRequest
+		if err := decode(request.Payload, &input); err != nil || !integration.ValidAdapterName(input.Adapter) {
+			return nil, plugin.ErrInvalid
+		}
+		support, ok := services.Executor.(integration.GatewayDeliveryAdapterSupport)
+		return json.Marshal(integration.DurableResponse{Enabled: ok && support.SupportsAdapter(input.Adapter)})
 	case integration.OperationSupportsDeliveryAdapter:
 		var input integration.DeliveryAdapterSupportRequest
 		if err := decode(request.Payload, &input); err != nil || !integration.ValidAdapterName(input.Adapter) {
@@ -321,6 +349,10 @@ func handleDelivery(ctx context.Context, services Services, request plugin.Reque
 			return nil, plugin.ErrDenied
 		}
 		return json.Marshal(integration.DeliveryAdapterSupportResponse{Supported: executor.SupportsAdapter(input.Adapter)})
+	case integration.OperationDurableIdempotent:
+		support, ok := services.Executor.(integration.IdempotentGatewayDeliverySupport)
+		_, reserved := services.Executor.(integration.IdempotentGatewayExecutor)
+		return json.Marshal(integration.DurableResponse{Enabled: ok && reserved && support.IdempotentGatewayDeliveries()})
 	case integration.OperationDurable:
 		durable, ok := services.Executor.(integration.DurableGatewayExecutor)
 		return json.Marshal(integration.DurableResponse{Enabled: ok && durable.DurableGatewayDeliveries()})

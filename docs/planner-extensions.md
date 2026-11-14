@@ -161,6 +161,20 @@ optional delivery-status follow-ups, the public submission prefix, and the
 private durable-submission handler. Missing, inactive, duplicate, incompatible,
 or unavailable private providers fail closed.
 
+Private HTTP callers authenticate to the host with `Authorization: Bearer <host-token>`.
+If a mounted Extension requires its own HTTP credential, send it separately in
+`X-Gateway-Extension-Authorization` (for example `Bearer <extension-token>`).
+The private listener consumes the host credential, removes internal routing and
+proxy credentials, and forwards only the Extension credential as `Authorization`.
+Host authentication alone does not grant access to the Extension's operations.
+
+A runtime may optionally declare `gateway.runtime/v1` operation `stop` and
+implement Arranger's `RuntimeStopper`. The host gives it up to ten seconds to
+drain listeners and stop owned children before closing the Ext process. Legacy
+runtimes retain their existing close behavior. Guests must also handle abrupt
+termination through process containment and fenced lease recovery; a cooperative
+stop callback cannot run after a hard kill.
+
 The same package can be built locally with:
 
 ```sh
