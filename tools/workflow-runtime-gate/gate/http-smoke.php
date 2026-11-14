@@ -1,6 +1,6 @@
 <?php
 $base=$argv[1];$phase=$argv[2]??'start';$id=['flow_key'=>'gate_order','run_id'=>'gate-logical-run','subject'=>['type'=>'order','id'=>'gate-subject']];
-function rpc(string $method,array $params,string $token='disposable-runtime-gate-token'):array{
+function rpc(string $method,array $params,string $token='disposable-weaver-runtime-gate-token'):array{
  global $base;
  $hostToken=getenv('WORKFLOW_GATE_HOST_TOKEN');
  $auth=is_string($hostToken)&&$hostToken!==''?"Authorization: Bearer $hostToken\r\nX-Gateway-Extension-Authorization: Bearer $token\r\nX-Gateway-Internal: $hostToken\r\n":"Authorization: Bearer $token\r\n";

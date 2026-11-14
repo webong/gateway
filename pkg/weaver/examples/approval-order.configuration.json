@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "database_ref": "workflow-database",
+  "authentication_ref": "workflow-auth",
+  "operations": [
+    "gateway.approval",
+    "gateway.complete"
+  ],
+  "accounts": [
+    {
+      "id": "example-account",
+      "definitions": [
+        {
+          "key": "order-approval",
+          "version": 1,
+          "steps": [
+            {
+              "id": "approve",
+              "label": "Approve order",
+              "metadata": {
+                "operation": "gateway.approval"
+              }
+            },
+            {
+              "id": "fulfil",
+              "label": "Fulfil approved order",
+              "depends_on": [
+                "approve"
+              ],
+              "metadata": {
+                "operation": "gateway.complete"
+              }
+            }
+          ]
+        }
+      ],
+      "grants": [
+        {
+          "account": "example-account",
+          "flow_key": "order-approval",
+          "subject": {
+            "type": "order",
+            "id": "42"
+          },
+          "actions": [
+            "flow.definition",
+            "flow.get",
+            "flow.start",
+            "flow.complete",
+            "flow.resume",
+            "flow.cancel",
+            "flow.operations"
+          ]
+        }
+      ]
+    }
+  ]
+}

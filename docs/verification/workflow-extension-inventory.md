@@ -6,7 +6,7 @@ Post-merge prerequisite CI: https://github.com/webong/workflow/actions/runs/4350
 The source checkout is clean and pinned; unrelated Composer projection work is excluded.
 
 Every tracked `app/` file is accounted for below. Short hashes identify the inspected source, not release checksums.
-No file has been removed or moved from WorkFlow. This inventory assigns eventual ownership; it does not claim extraction is complete.
+Application runtime/store code, bridge and regression tests have been copied into `pkg/weaver` under `Webong\Gateway\Weaver`. No old WorkFlow source was removed. Released-core consumption and the full extension setup remain gated. The user selected the name **Weaver** on 2026-11-14; it uses `webong/gateway-weaver` while the engine remains `webong/workflow`.
 
 | Source file | Intended owner / treatment | SHA-256 prefix |
 | --- | --- | --- |
@@ -46,20 +46,19 @@ No file has been removed or moved from WorkFlow. This inventory assigns eventual
 
 ## Boundaries retained
 
-`src/`, `ext/Laravel`, `ext/Temporal`, `ext/OpenWorkflow`, native compiler builds and the independent Composer package remain in WorkFlow. The migration must not make those consumers depend on Gateway. Existing `Webong\WorkFlow\App` consumers remain supported until a replacement is separately released; moved production classes will use `Webong\Gateway\Workflow`.
+`src/`, `ext/Laravel`, `ext/Temporal`, `ext/OpenWorkflow`, native compiler builds and the independent Composer package remain in WorkFlow. The migration must not make those consumers depend on Gateway. Existing `Webong\WorkFlow\App` consumers remain supported until a replacement is separately released; moved production classes will use `Webong\Gateway\Weaver`.
 
 The SQL files under `app/schema` create RPC routing reservations; QueueScheduler::install creates queue runs/claims/outbox tables separately. Preserve both, plus scoped RPC identity and pinned authority. `mysql-queue-rpc-upgrade.sql` is an explicit maintenance operation, never an activation hook.
 
 ## Gate status
 
 - Prerequisite: merged and post-merge CI verified.
-- Inventory: completed against the exact source above.
-- Runtime decision: ADR 0012 proposes a bundled Linux runtime, pending feasibility evidence.
-- Runtime proof: native amd64/arm64 Ext scratch-runtime checks passed under `tools/workflow-runtime-gate` ([CI](https://github.com/webong/gateway/actions/runs/43512343763)); production host/deployment matrix remains open.
-- Extraction, Planner resources/permissions/secrets, host/delivery matrix, copied-data migration/rollback and release/deprecation: not started.
-
-Do not advance extraction until architecture-specific runtime/PDO, private routing, worker readiness, shutdown and lease-recovery evidence exists. A local image build alone is insufficient. The queue remains authoritative; no automatic authority conversion is planned.
+- Inventory: completed against the exact source above; legacy authoring CLI remains core-owned.
+- Runtime proof: native amd64/arm64 scratch and all three production host checks passed in [PR #24](https://github.com/webong/gateway/pull/24).
+- Weaver extraction: application/runtime stores and Go/PHP bridge now live in `pkg/weaver`; the core remains an external Composer dependency pinned to the clean merged commit for development. SQL/HTTP/host acceptance is being rerun against this artifact.
+- Planner provider/resources/permissions projection, durable delivery, copied-data cutover/rollback and release/deprecation remain open. The pure runtime grant/configuration model does not implement the Planner management entrypoint.
+- Keep PR #24 unmerged until the full extension setup is complete, as requested by the user.
 
 ## Released-core prerequisite
 
-At inventory time the only GitHub release is WorkFlow `v0.1.0-rc.1`. Comparing it to the merged prerequisite shows changes to `FlowQueueScheduler`, `FlowStepClaim`, `FlowDeferredCompletion`, `FlowReadySet`, `FlowStateTransition` and related execution types. A production `webong/gateway-workflow` dependency cannot honestly target that older release while requiring the new contracts. Gate 3 therefore also requires a compatible separately published WorkFlow core release; the feasibility probe may consume the exact merged source, but that is not external released-package acceptance.
+At inventory time the only GitHub release is WorkFlow `v0.1.0-rc.1`. Comparing it to the merged prerequisite shows changes to `FlowQueueScheduler`, `FlowStepClaim`, `FlowDeferredCompletion`, `FlowReadySet`, `FlowStateTransition` and related execution types. A production `webong/gateway-weaver` dependency cannot honestly target that older release while requiring the new contracts. Gate 3 therefore also requires a compatible separately published WorkFlow core release; the feasibility probe may consume the exact merged source, but that is not external released-package acceptance.

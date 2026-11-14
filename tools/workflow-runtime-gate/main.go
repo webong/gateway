@@ -102,7 +102,9 @@ func (s *service) close() {
 		s.mu.Unlock()
 		if server != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_ = server.Shutdown(ctx)
+			if server.Shutdown(ctx) != nil {
+				_ = server.Close()
+			}
 			cancel()
 		}
 		for _, c := range children {
@@ -329,7 +331,7 @@ func (fixtureSecrets) Call(_ context.Context, ref plugin.ContractRef, op string,
 	if json.Unmarshal(payload, &req) != nil || req.Reference != "workflow-runtime" {
 		return nil, plugin.ErrInvalid
 	}
-	return json.Marshal(arranger.SecretValue{Reference: req.Reference, Version: 1, Value: json.RawMessage(`{"rpcToken":"disposable-runtime-gate-token"}`)})
+	return json.Marshal(arranger.SecretValue{Reference: req.Reference, Version: 1, Value: json.RawMessage(`{"rpcToken":"disposable-weaver-runtime-gate-token"}`)})
 }
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

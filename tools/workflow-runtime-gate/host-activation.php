@@ -4,7 +4,7 @@ use Webong\Gateway\Laravel\Companion\{CompanionActionActivationStore,ExtensionSe
 $app=require '/gateway/app/bootstrap.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $store=$app->make(CompanionActionActivationStore::class);
-$identity='webong/gateway-workflow';
+$identity='webong/gateway-weaver';
 $row=$store->byExtension($identity);
 $mode=$argv[1]??'activate';
 if($mode==='activate'){
@@ -13,7 +13,7 @@ if($mode==='activate'){
  else $row=$store->replace($row->id,$input,$row->revision);
  $secrets=$app->make(ExtensionSecretStore::class);
  $old=$secrets->metadata($row->id,'workflow-runtime');
- $secrets->put($row->id,'workflow-runtime',['rpcToken'=>'disposable-runtime-gate-token'],$old['version']??null);
+ $secrets->put($row->id,'workflow-runtime',['rpcToken'=>'disposable-weaver-runtime-gate-token'],$old['version']??null);
 }elseif($mode==='disable'){
  if($row===null)throw new RuntimeException('Activation missing');
  $store->replace($row->id,['extension'=>$identity,'enabled'=>false,'version'=>'0.0.0-gate','artifact'=>['url'=>'https://extensions.invalid/gateway-workflow.tar.gz','sha256'=>getenv('WORKFLOW_GATE_ARTIFACT_SHA')]],$row->revision);

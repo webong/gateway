@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: workflow_test
+      POSTGRES_USER: workflow
+      POSTGRES_PASSWORD: disposable-workflow-test
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U workflow -d workflow_test]
+      interval: 1s
+      timeout: 3s
+      retries: 90
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: workflow_test
+      MYSQL_USER: workflow
+      MYSQL_PASSWORD: disposable-workflow-test
+      MYSQL_ROOT_PASSWORD: disposable-workflow-root
+    healthcheck:
+      test: [CMD, mysqladmin, ping, --protocol=tcp, -h, 127.0.0.1, -pdisposable-workflow-root]
+      interval: 2s
+      timeout: 3s
+      retries: 90
+  test:
+    image: ${WORKFLOW_TEST_IMAGE:-gateway-workflow-package:test}
+    build:
+      context: ../..
+      dockerfile: pkg/weaver/test.Dockerfile
+      args:
+        WORKFLOW_TEST_BASE: ${WORKFLOW_TEST_BASE:-gateway-workflow-runtime-gate:source}
+    environment:
+      WORK_FLOW_POSTGRES_DSN: pgsql:host=postgres;port=5432;dbname=workflow_test
+      WORK_FLOW_POSTGRES_USER: workflow
+      WORK_FLOW_POSTGRES_PASSWORD: disposable-workflow-test
+      WORK_FLOW_MYSQL_DSN: mysql:host=mysql;port=3306;dbname=workflow_test;charset=utf8mb4
+      WORK_FLOW_MYSQL_USER: workflow
+      WORK_FLOW_MYSQL_PASSWORD: disposable-workflow-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy

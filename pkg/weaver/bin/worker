@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Webong\Gateway\Weaver\{RuntimeConfiguration,RuntimeFactory};
+require dirname(__DIR__).'/vendor/autoload.php';
+$mode=$argv[1] ?? '--work';
+if (!in_array($mode,['--work','--once'],true)) {throw new InvalidArgumentException('Expected --work or --once.');}
+$path=getenv('GATEWAY_WEAVER_CONTEXT');
+if (!is_string($path) || $path==='') {throw new RuntimeException('Private runtime context is required.');}
+$context=json_decode(file_get_contents($path),true,128,JSON_THROW_ON_ERROR);
+$configuration=new RuntimeConfiguration($context['configuration']);
+$configuration->assertAuthentication($context['authentication']);
+$runtime=new RuntimeFactory($configuration,$context['database']);
+$worker=$runtime->worker();
+$running=true;
+pcntl_async_signals(true);
+pcntl_signal(SIGTERM,static function()use(&$running):void{$running=false;});
+pcntl_signal(SIGINT,static function()use(&$running):void{$running=false;});
+fwrite(STDOUT,"READY\n");fflush(STDOUT);
+do {
+    $worked=$worker->tick($configuration->leaseSeconds);
+    if ($mode==='--once' || !$running) {break;}
+    if (!$worked) {usleep(100000);}
+} while($running);

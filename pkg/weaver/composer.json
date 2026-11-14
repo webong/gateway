@@ -1,0 +1,40 @@
+{
+    "name": "webong/gateway-weaver",
+    "description": "Queue-authoritative WorkFlow runtime and Planner extension for Gateway",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "ext-pdo": "*",
+        "webong/workflow": "dev-main#00e0bbcdd61c2c6ed96af55865d0ef2e77557adb"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.0",
+        "symfony/yaml": "^7.4",
+        "justinrainbow/json-schema": "^5.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Webong\\Gateway\\Weaver\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Webong\\Gateway\\Weaver\\Tests\\": "tests/"
+        }
+    },
+    "repositories": [
+        {
+            "type": "git",
+            "url": "https://github.com/webong/workflow.git"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "test": "phpunit --fail-on-skipped"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

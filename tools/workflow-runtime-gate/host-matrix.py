@@ -2,7 +2,7 @@
 Uses disposable containers, volumes and Planner state. HTTPS artifact download is
 seeded through verified caches, as in Gateway's existing container smoke tests.
 """
-import hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, tempfile, time, uuid
+import gzip, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, tempfile, time, uuid
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -15,7 +15,7 @@ name='gw-workflow-host-'+mode+'-'+uuid.uuid4().hex[:8]
 network=name+'-net';host=name;planner=name+'-planner' if mode=='spinner' else host
 internal='disposable-host-matrix-internal-token'
 registry='disposable-host-matrix-registry-token'
-guest='disposable-runtime-gate-token'
+guest='disposable-weaver-runtime-gate-token'
 containers=[];volumes=[]
 
 def docker(*args,check=True):
@@ -49,16 +49,19 @@ def mapped(container,port):
 
 def process_count():
     top=docker('top',host,'-eo','pid,args',check=False).stdout
-    return sum('/gate/worker.php' in line or '/runtime/bin/workflowd' in line for line in top.splitlines())
+    return sum('/gate/worker.php' in line or '/bin/worker' in line or '/runtime/bin/workflowd' in line for line in top.splitlines())
 
 def fixture(phase):
-    docker('exec','--user','www-data',planner,'php','/gate/host-activation.php',phase)
+    script='/gate/host-weaver-activation.php' if production else '/gate/host-activation.php'
+    docker('exec','--user','www-data',planner,'php',script,phase)
 
-def php(phase):
+def php(phase,script=None):
+    if script is None:script='/gate/weaver-http-smoke.php' if production else installed+'/gate/http-smoke.php'
     result=docker('exec','-e','PHP_INI_SCAN_DIR='+installed+'/runtime/php.d',
       '-e','LD_LIBRARY_PATH='+installed+'/runtime/lib','-e','WORKFLOW_GATE_HOST_TOKEN='+internal,
+      '-e','WEAVER_PACKAGE_ROOT='+installed,
       host,installed+'/runtime/loader','--library-path',installed+'/runtime/lib',installed+'/runtime/bin/php',
-      '-c',installed+'/php.ini','-d','extension_dir='+installed+'/runtime/lib',installed+'/gate/http-smoke.php',
+      '-c',installed+'/php.ini','-d','extension_dir='+installed+'/runtime/lib',script,
       'http://127.0.0.1:5052',phase)
     print(mode+': '+result.stdout.strip())
 
@@ -70,21 +73,29 @@ def volume(suffix,host_image):
 
 try:
   with tempfile.TemporaryDirectory(prefix='gateway-workflow-host-') as tmp:
-    tmp=pathlib.Path(tmp);package=tmp/'webong%2fgateway-workflow'
+    tmp=pathlib.Path(tmp);package=tmp/'webong%2fgateway-weaver'
     export=name+'-export';docker('create','--name',export,image);containers.append(export)
     docker('cp',export+':/package',package);docker('rm',export);containers.remove(export)
     manifest=json.loads((package/'plugin.json').read_text())
-    assert manifest['descriptor']['identity']['id']=='webong/gateway-workflow'
+    assert manifest['descriptor']['identity']['id']=='webong/gateway-weaver'
+    production='gateway.weaver/v1' in manifest.get('metadata',{})
+    version=manifest['descriptor']['identity']['version']
     archive=tmp/'workflow.tar.gz'
-    with tarfile.open(archive,'w:gz',format=tarfile.USTAR_FORMAT) as tar:tar.add(package,arcname=package.name)
+    def normalized(info):
+        info.uid=info.gid=0;info.uname=info.gname='';info.mtime=0
+        return info
+    with archive.open('wb') as output:
+      with gzip.GzipFile(filename='',mode='wb',fileobj=output,mtime=0) as compressed:
+        with tarfile.open(fileobj=compressed,mode='w',format=tarfile.USTAR_FORMAT) as tar:
+          tar.add(package,arcname=package.name,filter=normalized)
     sha=hashlib.sha256(archive.read_bytes()).hexdigest()
     spinner_cache=tmp/'spinner-cache';planner_cache=tmp/'planner-cache'
     for cache in (spinner_cache,planner_cache):
         cache.mkdir();(cache/'.desired').mkdir();shutil.copytree(package,cache/package.name)
         for directory,dirs,files in os.walk(cache):os.chmod(directory,0o755)
         os.chmod(cache,0o777);os.chmod(cache/'.desired',0o777)
-    receipt=hashlib.sha256(b'webong/gateway-workflow').hexdigest()+'.json'
-    (spinner_cache/'.desired'/receipt).write_text(json.dumps({'extension':'webong/gateway-workflow','version':'0.0.0-gate','revision':1,'artifact_sha256':sha,'package_revision':manifest['descriptor']['identity']['revision']}))
+    receipt=hashlib.sha256(b'webong/gateway-weaver').hexdigest()+'.json'
+    (spinner_cache/'.desired'/receipt).write_text(json.dumps({'extension':'webong/gateway-weaver','version':version,'revision':1,'artifact_sha256':sha,'package_revision':manifest['descriptor']['identity']['revision']}))
     (planner_cache/'.desired'/receipt).write_text(json.dumps({'revision':1,'sha256':sha}))
     os.chmod(spinner_cache/'.desired'/receipt,0o666)
     installed='/extensions/'+package.name
@@ -92,6 +103,12 @@ try:
     planner_image='gateway-workflow-host:roadrunner'
     docker('network','create',network)
     state=volume('state',host_image);data=volume('data',host_image)
+    if production:
+      docker('run','--rm','--mount','type=volume,source='+state+',target=/state',
+        '-e','PHP_INI_SCAN_DIR=/package/runtime/php.d','-e','LD_LIBRARY_PATH=/package/runtime/lib',
+        '--entrypoint','/package/runtime/loader',image,'--library-path','/package/runtime/lib',
+        '/package/runtime/bin/php','-c','/package/php.ini','-r',
+        r"require '/package/vendor/autoload.php'; \Webong\Gateway\Weaver\OperationalSchema::install(new PDO('sqlite:/state/workflow.sqlite')); chmod('/state/workflow.sqlite',0666);")
     common=['-e','APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       '-e','GATEWAY_INTERNAL_TOKEN='+internal,'-e','REGISTRY_TOKEN='+registry,
       '-e','GATEWAY_ROUTER_DATA_DIR=/data','-e','GATEWAY_ROUTER_CREDENTIALS_FILE=/gate/host.env','-e','DB_CONNECTION=sqlite','-e','DB_DATABASE=/data/gateway.sqlite',
@@ -144,7 +161,8 @@ try:
     admin=mapped(host,5052)
     wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover for non-idempotent reconciliation')
     php('nonidempotent-fenced')
-    docker('exec','--workdir',installed,host,installed+'/bin/spinner','--kill-runtime-guest')
+    if production:php('kill','/gate/kill-weaver.php')
+    else:docker('exec','--workdir',installed,host,installed+'/bin/spinner','--kill-runtime-guest')
     wait(lambda:process_count()==0,'abruptly terminated guest left live PHP children',timeout=15)
     fixture('activate')
     wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after guest termination')

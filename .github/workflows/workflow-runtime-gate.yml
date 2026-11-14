@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'tools/workflow-runtime-gate/**'
+      - 'pkg/weaver/**'
+      - 'go.work'
       - 'mod/arranger/**'
       - 'pkg/spinner/**'
       - 'pkg/roadrunner/**'
@@ -55,6 +57,20 @@ jobs:
           fi
       - name: Build pinned runtime closure
         run: tools/workflow-runtime-gate/build.sh "$PWD/.workflow-gate-source" '${{ matrix.arch }}'
+      - name: Test Weaver runtime and independent contracts
+        run: |
+          go -C pkg/weaver test -race ./...
+          go -C pkg/weaver list -deps ./... > "$RUNNER_TEMP/weaver-deps"
+          if grep -E '^github.com/webong/gateway/pkg/(spinner|roadrunner|frankenphp)(/|$)' "$RUNNER_TEMP/weaver-deps"; then
+            echo 'Weaver imports a Gateway host implementation.' >&2
+            exit 1
+          fi
+      - name: Build Weaver development extension
+        run: pkg/weaver/build.sh '${{ matrix.arch }}'
+      - name: Test extracted PHP 8.3 package on SQLite, PostgreSQL and MySQL
+        env:
+          WORKFLOW_TEST_BASE: gateway-workflow-runtime-gate:source-${{ matrix.arch }}
+        run: pkg/weaver/test.sh
       - name: Exercise verified Ext activation and queue recovery
         run: python3 tools/workflow-runtime-gate/smoke.py 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
       - name: Build actual Gateway hosts
@@ -64,6 +80,6 @@ jobs:
           tools/workflow-runtime-gate/host-build.sh frankenphp
       - name: Exercise actual host matrix with the same verified package
         run: |
-          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
-          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
-          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-workflow-runtime-gate:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-weaver:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-weaver:${{ matrix.arch }}'

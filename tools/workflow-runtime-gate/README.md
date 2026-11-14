@@ -1,6 +1,6 @@
 # WorkFlow runtime feasibility gate
 
-This is an issue #18 prototype, not `pkg/workflow` and not a published extension.
+This is an issue #18 prototype, not `pkg/weaver` and not a published extension.
 It consumes only merged WorkFlow commit `00e0bbcdd61c2c6ed96af55865d0ef2e77557adb`.
 The inventory and proposed runtime decision are in `docs/verification/workflow-extension-inventory.md` and ADR 0012.
 

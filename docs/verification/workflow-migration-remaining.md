@@ -3,16 +3,21 @@
 Tracking issue: [#18](https://github.com/webong/gateway/issues/18).
 Runtime prototype and host acceptance: [PR #24](https://github.com/webong/gateway/pull/24).
 
-The runtime proof is intentionally under `tools/workflow-runtime-gate`, not the
-production `pkg/workflow` package. Passing it establishes that the packaged PHP
-bridge and queue worker can be hosted; it does not complete extraction,
-authorization, delivery integration or cutover.
+The original feasibility tool remains under `tools/workflow-runtime-gate`; the
+actual extension is now **Weaver**, under `pkg/weaver`, with identity
+`webong/gateway-weaver` and namespace `Webong\Gateway\Weaver`. The user chose the
+name on 2026-11-14. The engine stays `webong/workflow`.
+
+The production Spinner entrypoint, bridge, worker, application stores, explicit
+schema installer and account-scoped runtime authorization have been extracted.
+The dependency is temporarily pinned to the merged prerequisite commit for
+development. This is not completed released-core or Planner-entrypoint acceptance.
 
 ## Runtime decision (gates 1–2)
 
-Review and land the proposed runtime/ownership ADR and PR #24 with the linked
-native host evidence. This settles the bundled PHP runtime support boundary; it
-does not make the feasibility fixture a production package.
+Review the runtime/ownership ADR and PR #24 with their native host evidence.
+**Do not merge PR #24 until the full extension setup is complete.** There is no
+separate early merge gate before extraction.
 
 ## Dependency and extraction (gate 3)
 
@@ -20,10 +25,11 @@ does not make the feasibility fixture a production package.
   queue contracts. The only published release checked on 2026-11-14 was
   `v0.1.0-rc.1`, which predates them. Consume a released version through Composer,
   not a path repository or copied vendor tree.
-- Create `pkg/workflow` as `webong/gateway-workflow`, with the
-  `Webong\Gateway\Workflow` namespace and one shared Planner/Spinner identity and
-  version. Move the application RPC facade, scoped identity/routing adapter,
-  PDO stores, worker/bootstrap code and their tests according to the inventory.
+- Finish the extracted `pkg/weaver` package as `webong/gateway-weaver`, with the
+  `Webong\Gateway\Weaver` namespace and one shared Planner/Spinner identity and
+  version. The application RPC facade, scoped identity/routing adapter,
+  PDO stores, worker/bootstrap code and their tests are extracted; complete
+  external released-package acceptance according to the inventory.
 - Build and install it from a clean external consumer. Verify Composer-only core,
   optional adapters and native builds remain independent of Gateway. Preserve the
   old application until the replacement has been released.
@@ -33,10 +39,10 @@ does not make the feasibility fixture a production package.
 - Implement the actual Planner entrypoint: immutable definition versions, approved
   operation catalog and configuration, management routes and explicit grants for
   each resource/run-control action in its account/subject scope.
-- Replace fixed trusted test definitions and `/state` bootstrap with supported
-  operational configuration, independently installable migrations and scoped
-  database/provider secret references. Keep credentials outside revisioned
-  resources and queue state outside Planner desired state.
+- Wire the implemented versioned runtime configuration, explicit operational
+  migrations and scoped database/authentication references into Planner-owned
+  resources. Add provider references with the delivery integration. Keep
+  credentials outside revisioned resources and queue state outside desired state.
 - Exercise the installed Planner entrypoint with a separately deployed Planner,
   including denied scopes, invalid configuration, secret rotation/revocation and
   unavailable storage. The host-matrix CLI only seeds disposable production stores;
@@ -52,7 +58,7 @@ does not make the feasibility fixture a production package.
   cancellation races and authenticated callback correlation across replacement.
   Retain explicit idempotency policies and reconciliation for uncertain
   non-idempotent attempts.
-- Run the extracted PHP 8.3 queue/RPC integration suite on SQLite, PostgreSQL and
+- Maintain the extracted PHP 8.3 queue/RPC integration suite on SQLite, PostgreSQL and
   MySQL with real services and no service-related skips. Bundled PDO presence and
   the SQLite host fixture do not establish PostgreSQL/MySQL application acceptance.
   The upstream SQL prerequisite is evidence to preserve, not a substitute for

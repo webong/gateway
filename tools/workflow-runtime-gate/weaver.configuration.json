@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "database_ref": "weaver-database",
+  "authentication_ref": "weaver-authentication",
+  "lease_seconds": 2,
+  "operations": [
+    "gateway.approval",
+    "gateway.complete"
+  ],
+  "accounts": [
+    {
+      "id": "gate-account",
+      "definitions": [
+        {
+          "key": "gate_order",
+          "version": 1,
+          "steps": [
+            {
+              "id": "approve",
+              "label": "Approve",
+              "retriable": true,
+              "retry_policy": {
+                "enabled": true,
+                "max_attempts": 2,
+                "backoff_seconds": 0,
+                "idempotent": true
+              },
+              "metadata": {
+                "operation": "gateway.approval"
+              }
+            },
+            {
+              "id": "fulfil",
+              "label": "Fulfil",
+              "depends_on": [
+                "approve"
+              ],
+              "metadata": {
+                "operation": "gateway.complete"
+              }
+            }
+          ]
+        },
+        {
+          "key": "gate_no_replay",
+          "version": 1,
+          "steps": [
+            {
+              "id": "approve",
+              "label": "Approve",
+              "retriable": true,
+              "retry_policy": {
+                "enabled": true,
+                "max_attempts": 2,
+                "backoff_seconds": 0,
+                "idempotent": false
+              },
+              "metadata": {
+                "operation": "gateway.approval"
+              }
+            },
+            {
+              "id": "fulfil",
+              "label": "Fulfil",
+              "depends_on": [
+                "approve"
+              ],
+              "metadata": {
+                "operation": "gateway.complete"
+              }
+            }
+          ]
+        }
+      ],
+      "grants": [
+        {
+          "account": "gate-account",
+          "flow_key": "gate_order",
+          "subject": {
+            "type": "order",
+            "id": "gate-subject"
+          },
+          "actions": [
+            "flow.definition",
+            "flow.get",
+            "flow.start",
+            "flow.complete",
+            "flow.resume",
+            "flow.cancel",
+            "flow.operations"
+          ]
+        },
+        {
+          "account": "gate-account",
+          "flow_key": "gate_order",
+          "subject": {
+            "type": "order",
+            "id": "other-subject"
+          },
+          "actions": [
+            "flow.definition",
+            "flow.get",
+            "flow.start",
+            "flow.complete",
+            "flow.resume",
+            "flow.cancel",
+            "flow.operations"
+          ]
+        },
+        {
+          "account": "gate-account",
+          "flow_key": "gate_no_replay",
+          "subject": {
+            "type": "order",
+            "id": "gate-subject"
+          },
+          "actions": [
+            "flow.definition",
+            "flow.get",
+            "flow.start",
+            "flow.complete",
+            "flow.resume",
+            "flow.cancel",
+            "flow.operations"
+          ]
+        },
+        {
+          "account": "gate-account",
+          "flow_key": "gate_no_replay",
+          "subject": {
+            "type": "order",
+            "id": "other-subject"
+          },
+          "actions": [
+            "flow.definition",
+            "flow.get",
+            "flow.start",
+            "flow.complete",
+            "flow.resume",
+            "flow.cancel",
+            "flow.operations"
+          ]
+        }
+      ]
+    }
+  ]
+}

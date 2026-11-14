@@ -1,0 +1,15 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Webong\Gateway\Weaver\{ConnectionFactory,OperationalSchema};
+require dirname(__DIR__).'/vendor/autoload.php';
+if (($argv[1] ?? null)!=='--install' || count($argv)!==2) {
+    fwrite(STDERR,"Usage: GATEWAY_WEAVER_CONTEXT=/private/context.json bin/migrate --install\n");exit(2);
+}
+$path=getenv('GATEWAY_WEAVER_CONTEXT');
+if (!is_string($path) || $path==='') {throw new RuntimeException('Private runtime context is required.');}
+$context=json_decode(file_get_contents($path),true,128,JSON_THROW_ON_ERROR);
+OperationalSchema::install(ConnectionFactory::fromSecret($context['database']));
+fwrite(STDOUT,"WorkFlow operational schema is ready.\n");

@@ -89,8 +89,7 @@ WorkFlow configuration/resource model.
 - PDO presence is not PostgreSQL/MySQL application integration. The extracted
   PHP 8.3 package must pass SQLite, PostgreSQL and MySQL queue/RPC acceptance with
   real services and no service-related skips.
-- No production `pkg/workflow`, Planner definition/grant resources, provider
-  effects or durable-delivery binding are implemented by this feasibility tool.
+- Weaver application/runtime extraction now lives in `pkg/weaver`; Planner definition/grant resources, provider effects and durable-delivery binding remain open.
 - The published WorkFlow `v0.1.0-rc.1` predates required queue contracts. Gate 3
   requires a compatible independent core release and clean external consumption.
 - Copied-data migration/rollback, artifact publication, fresh installation and
@@ -99,3 +98,34 @@ WorkFlow configuration/resource model.
 See [the complete remaining-work checklist](workflow-migration-remaining.md) for
 gates 3–7 and the runtime ADR review. ADR 0012 remains proposed until reviewed with
 the host evidence; later gates cannot be checked off from the runtime proof.
+
+## Weaver extraction (2026-11-14)
+
+The user selected **Weaver**, identity `webong/gateway-weaver`, namespace
+`Webong\Gateway\Weaver`, under `pkg/weaver`. The independent engine remains
+`webong/workflow`. Private `/workflow/rpc` and public logical run IDs are retained.
+
+The actual package now owns its bridge, supervised worker, PDO stores, queue/RPC
+adapter and explicit schema installer. Its development build consumes the pinned
+external core through Composer, not copied source or a path dependency. Local
+PHP 8.3 SQLite/PostgreSQL/MySQL acceptance passed 126 tests / 691 assertions with
+no skips including the startup-credential regression; the expanded
+native workflow records the final source results.
+
+New runtime policy includes transport-derived account principals, exact
+account/flow/subject/action grants, account-scoped storage identities, approved
+operation selection and versioned definitions. Credentials are resolved separately
+and validated before any worker claims. Installation never adopts legacy data
+or changes authority automatically. Slow HTTP acknowledgements drain before PHP
+teardown, within the supervisor's bounded shutdown deadline.
+
+The actual development artifact has passed local Spinner, RoadRunner and
+FrankenPHP host acceptance. CI now
+builds Weaver and tests its SQL, real bridge/worker and all three host cases on
+both native architectures. Earlier linked runtime jobs are historical prototype
+evidence, not evidence for new uncommitted Weaver source.
+
+**PR #24 must remain unmerged until the full extension setup is complete.**
+Compatible released-core consumption, the actual Planner management entrypoint,
+durable-delivery binding, copied-data migration/rollback and release/install
+acceptance remain open; see `pkg/weaver/README.md` and the remaining-work list.
