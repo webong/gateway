@@ -18,7 +18,7 @@ $root = dirname(__DIR__, 2);
 
 require $root.'/vendor/autoload.php';
 
-$app = require $root.'/app/bootstrap.php';
+$app = require $root.'/app/planner/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 $connection = $app->make('db')->connection();
@@ -44,6 +44,13 @@ if ($report['driver'] === 'sqlite') {
         'database' => (string) $row->database,
         'port' => $row->port === null ? null : (int) $row->port,
         'started' => (string) $row->started,
+    ];
+} elseif ($report['driver'] === 'mysql') {
+    $row = $connection->selectOne('SELECT DATABASE() AS name, @@port AS port, @@server_uuid AS uuid');
+    $report['identity'] = [
+        'database' => (string) $row->name,
+        'port' => (int) $row->port,
+        'server_uuid' => (string) $row->uuid,
     ];
 }
 

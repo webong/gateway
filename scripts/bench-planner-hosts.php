@@ -11,7 +11,7 @@ declare(strict_types=1);
  * project's own launcher, `gateway-planner-start serve`, with
  * GATEWAY_PLANNER_SERVER selecting the runtime:
  *
- *   workerman   Workerman (app/workerman.php), shared PHP settings
+ *   workerman   Workerman (app/servers/workerman/server.php), shared PHP settings
  *   frankenphp  Laravel Octane on FrankenPHP, shared PHP settings
  *   workerman-shipped, frankenphp-shipped
  *               The same hosts with the image's own PHP settings (no shared ini; for
@@ -368,7 +368,7 @@ function benchEnvironmentFlags(array $environment): array
 
 function benchResolverMount(): array
 {
-    return ['-v', $GLOBALS['bench']['root'].'/scripts/bench/BenchHttpSmokePathResolver.php:/gateway/app/BenchHttpSmokePathResolver.php:ro'];
+    return ['-v', $GLOBALS['bench']['root'].'/scripts/bench/BenchHttpSmokePathResolver.php:/gateway/app/helpers/BenchHttpSmokePathResolver.php:ro'];
 }
 
 /**

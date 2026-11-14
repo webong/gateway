@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Gateway\Router\WorkermanLaravelHandler;
+use Gateway\Router\Workerman\LaravelHandler;
 use Illuminate\Container\Container;
 use Illuminate\Database\SQLiteConnection;
 use Illuminate\Support\Facades\Facade;
@@ -12,12 +12,12 @@ use Workerman\Protocols\Http\Request;
 use Workerman\Protocols\Http\Response as WorkermanResponse;
 
 require_once __DIR__.'/../Support/WorkermanPlannerHelper.php';
-require_once dirname(__DIR__, 2).'/app/WorkermanLaravelHandler.php';
+require_once dirname(__DIR__, 2).'/app/helpers/Workerman/LaravelHandler.php';
 
 /**
  * Persistent-worker isolation tests.
  *
- * A single `WorkermanLaravelHandler` instance boots one Octane worker, so every
+ * A single `LaravelHandler` instance boots one Octane worker, so every
  * `handle()` call is served by that same persistent worker. These tests prove
  * the worker keeps request-scoped state isolated (a fresh application sandbox
  * per request, sharing the same base application), rolls back any transaction a
@@ -75,7 +75,7 @@ $healthRequest = new Request("GET /health HTTP/1.1\r\nHost: localhost\r\nConnect
  * then terminate the worker and restore the environment + framework globals even
  * when setup, the scenario, or handler construction throws.
  *
- * @param callable(WorkermanLaravelHandler, string): void $scenario receives the handler and data directory
+ * @param callable(LaravelHandler, string): void $scenario receives the handler and data directory
  */
 function withIsolatedHandler(callable $scenario): void
 {
@@ -95,7 +95,7 @@ function withIsolatedHandler(callable $scenario): void
                 gatewayPlannerRunMigrations($database);
                 gatewayPlannerSeedEndpoint($baseEnv, 'http-smoke-endpoint', 'application', 'app-123', 'https://subscriber.example.test/hook', 'workspace-42');
 
-                $handler = new WorkermanLaravelHandler(gatewayPlannerRepositoryRoot().'/app');
+                $handler = new LaravelHandler(gatewayPlannerRepositoryRoot().'/app/planner');
                 $scenario($handler, $dataDirectory);
             });
         } finally {
@@ -111,16 +111,16 @@ function withIsolatedHandler(callable $scenario): void
 }
 
 /** @return Laravel\Octane\Worker */
-function octaneWorkerOf(WorkermanLaravelHandler $handler): Laravel\Octane\Worker
+function octaneWorkerOf(LaravelHandler $handler): Laravel\Octane\Worker
 {
-    $property = new ReflectionProperty(WorkermanLaravelHandler::class, 'worker');
+    $property = new ReflectionProperty(LaravelHandler::class, 'worker');
     $property->setAccessible(true);
 
     return $property->getValue($handler);
 }
 
 it('serves every request through one persistent worker with a fresh request sandbox', function () use ($planRequest, $statusOf): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler) use ($planRequest, $statusOf): void {
+    withIsolatedHandler(function (LaravelHandler $handler) use ($planRequest, $statusOf): void {
         $octaneWorker = octaneWorkerOf($handler);
         $baseApp = $octaneWorker->application();
 
@@ -141,7 +141,7 @@ it('serves every request through one persistent worker with a fresh request sand
 });
 
 it('keeps authentication request-scoped across successive requests', function () use ($planRequest, $statusOf): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler) use ($planRequest, $statusOf): void {
+    withIsolatedHandler(function (LaravelHandler $handler) use ($planRequest, $statusOf): void {
         expect($statusOf($handler->handle($planRequest(ISOLATION_INTERNAL_TOKEN))))->toBe(200);
         expect($statusOf($handler->handle($planRequest(''))))->toBe(404);
         expect($statusOf($handler->handle($planRequest('wrong-token'))))->toBe(404);
@@ -150,7 +150,7 @@ it('keeps authentication request-scoped across successive requests', function ()
 });
 
 it('does not let a value set during request A be seen by request B on the same worker', function () use ($planRequest, $statusOf): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler, string $dataDirectory) use ($planRequest, $statusOf): void {
+    withIsolatedHandler(function (LaravelHandler $handler, string $dataDirectory) use ($planRequest, $statusOf): void {
         $baseApp = octaneWorkerOf($handler)->application();
 
         // Request A sets request-scoped state (a container instance and a config
@@ -174,7 +174,7 @@ it('does not let a value set during request A be seen by request B on the same w
 });
 
 it('rolls back an unfinished transaction and its write between requests', function () use ($statusOf, $healthRequest): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler) use ($statusOf, $healthRequest): void {
+    withIsolatedHandler(function (LaravelHandler $handler) use ($statusOf, $healthRequest): void {
         $octaneWorker = octaneWorkerOf($handler);
         $app = $octaneWorker->application();
         $db = $app->make('db');
@@ -202,7 +202,7 @@ it('rolls back an unfinished transaction and its write between requests', functi
 });
 
 it('recovers on the same worker after a request writes inside an open transaction and throws', function () use ($planRequest, $statusOf): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler, string $dataDirectory) use ($planRequest, $statusOf): void {
+    withIsolatedHandler(function (LaravelHandler $handler, string $dataDirectory) use ($planRequest, $statusOf): void {
         $octaneWorker = octaneWorkerOf($handler);
         $baseApp = $octaneWorker->application();
         $connection = $baseApp->make('db')->connection();
@@ -231,7 +231,7 @@ it('recovers on the same worker after a request writes inside an open transactio
 });
 
 it('keeps cleaning other connections when one connection fails to roll back', function () use ($statusOf, $healthRequest): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler, string $dataDirectory) use ($statusOf, $healthRequest): void {
+    withIsolatedHandler(function (LaravelHandler $handler, string $dataDirectory) use ($statusOf, $healthRequest): void {
         $app = octaneWorkerOf($handler)->application();
         $db = $app->make('db');
 
@@ -273,8 +273,50 @@ it('keeps cleaning other connections when one connection fails to roll back', fu
     });
 });
 
+it('gives the application the connection peer address, port and scheme', function (): void {
+    withIsolatedHandler(function (LaravelHandler $handler): void {
+        $seen = [];
+        octaneWorkerOf($handler)->onRequestHandled(function ($request) use (&$seen): void {
+            $seen[] = [
+                'ip' => $request->ip(),
+                'peerPort' => $request->server('REMOTE_PORT'),
+                'serverPort' => $request->server('SERVER_PORT'),
+                'secure' => $request->isSecure(),
+            ];
+        });
+
+        $connect = static function (string $transport, string $extraHeaders = ''): Request {
+            $connection = Mockery::mock(Workerman\Connection\TcpConnection::class);
+            $connection->shouldReceive('getRemoteIp')->andReturn('203.0.113.7');
+            $connection->shouldReceive('getRemotePort')->andReturn(51234);
+            $connection->shouldReceive('getLocalIp')->andReturn('10.0.0.5');
+            $connection->shouldReceive('getLocalPort')->andReturn(8080);
+            $connection->transport = $transport;
+
+            $request = new Request("GET /health HTTP/1.1\r\nHost: planner.internal\r\n{$extraHeaders}Connection: close\r\n\r\n");
+            $request->connection = $connection;
+
+            return $request;
+        };
+
+        $handler->handle($connect('tcp'));
+        $handler->handle($connect('ssl'));
+        // Only the socket decides the address: a client cannot supply its own with headers.
+        $handler->handle($connect('tcp', "X-Forwarded-For: 198.51.100.9\r\nRemote-Addr: 198.51.100.9\r\n"));
+        // Without a connection (as in the other tests) Laravel's defaults apply.
+        $handler->handle(new Request("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+
+        expect($seen)->toBe([
+            ['ip' => '203.0.113.7', 'peerPort' => 51234, 'serverPort' => 8080, 'secure' => false],
+            ['ip' => '203.0.113.7', 'peerPort' => 51234, 'serverPort' => 8080, 'secure' => true],
+            ['ip' => '203.0.113.7', 'peerPort' => 51234, 'serverPort' => 8080, 'secure' => false],
+            ['ip' => '127.0.0.1', 'peerPort' => null, 'serverPort' => 80, 'secure' => false],
+        ]);
+    });
+});
+
 it('keeps memory bounded under repeated database-backed planning requests', function () use ($planRequest, $statusOf): void {
-    withIsolatedHandler(function (WorkermanLaravelHandler $handler) use ($planRequest, $statusOf): void {
+    withIsolatedHandler(function (LaravelHandler $handler) use ($planRequest, $statusOf): void {
         $statusOf($handler->handle($planRequest(ISOLATION_INTERNAL_TOKEN, '/http-smoke/registry-ingress')));
         $baselineMemory = memory_get_usage(true);
 

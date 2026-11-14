@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gateway\Router;
+namespace Gateway\Router\Workerman;
 
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request as LaravelRequest;
@@ -18,7 +18,7 @@ use Throwable;
 use Workerman\Protocols\Http\Request as WorkermanRequest;
 use Workerman\Protocols\Http\Response as WorkermanResponse;
 
-final class WorkermanLaravelHandler implements Client
+final class LaravelHandler implements Client
 {
     private OctaneWorker $worker;
 
@@ -147,6 +147,19 @@ final class WorkermanLaravelHandler implements Client
             'SERVER_PROTOCOL' => 'HTTP/'.$request->protocolVersion(),
             'HTTP_HOST' => $request->host() ?? 'localhost',
         ];
+
+        // Without these, Laravel reports 127.0.0.1 as every client's address.
+        // They come from the socket, so a client cannot set them with a header.
+        $connection = $request->connection;
+        if ($connection !== null) {
+            $server['REMOTE_ADDR'] = $connection->getRemoteIp();
+            $server['REMOTE_PORT'] = $connection->getRemotePort();
+            $server['SERVER_ADDR'] = $connection->getLocalIp();
+            $server['SERVER_PORT'] = $connection->getLocalPort();
+            if ($connection->transport === 'ssl') {
+                $server['HTTPS'] = 'on';
+            }
+        }
 
         foreach ($headers as $name => $value) {
             $key = strtoupper(str_replace('-', '_', (string) $name));

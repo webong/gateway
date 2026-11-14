@@ -22,6 +22,8 @@ use Webong\Gateway\Protocols\PathBinding;
  *   /http-smoke/probe/{token}              record worker PID, database backend PID and
  *                                          transaction level (an uncached read), then plan
  *   /http-smoke/write-then-throw/{token}   write inside an open transaction, then throw
+ *   /http-smoke/write-leave-open/{token}   write inside an open transaction, then plan normally
+ *                                          without committing it
  *   /http-smoke/scope/set/{value}          set request-scoped state
  *   /http-smoke/scope/read/{token}         record whether earlier request-scoped state is visible
  *
@@ -49,6 +51,11 @@ final class InstrumentedHttpSmokePathResolver implements PathResolver
         }
         if (preg_match('#^/http-smoke/write-then-throw/([a-z0-9-]+)$#', $path, $match) === 1) {
             self::writeThenThrow($match[1]);
+        }
+        if (preg_match('#^/http-smoke/write-leave-open/([a-z0-9-]+)$#', $path, $match) === 1) {
+            self::writeLeaveOpen($match[1]);
+
+            return self::binding();
         }
         if (preg_match('#^/http-smoke/scope/(set|read)/([a-z0-9-]+)$#', $path, $match) === 1) {
             self::scope($match[1], $match[2]);
@@ -95,6 +102,9 @@ final class InstrumentedHttpSmokePathResolver implements PathResolver
         if ($connection->getDriverName() === 'pgsql') {
             // An uncached read straight through the connection this worker holds.
             $backendPid = (int) $connection->selectOne('SELECT pg_backend_pid() AS pid')->pid;
+        } elseif ($connection->getDriverName() === 'mysql') {
+            // The MySQL thread id of the connection this worker holds.
+            $backendPid = (int) $connection->selectOne('SELECT CONNECTION_ID() AS pid')->pid;
         } else {
             $connection->selectOne('SELECT 1 AS ok');
         }
@@ -104,10 +114,27 @@ final class InstrumentedHttpSmokePathResolver implements PathResolver
             'backend_pid' => $backendPid,
             'transaction_level' => $connection->transactionLevel(),
             'sandbox' => spl_object_id(app()),
+            'environment' => app()->environment(),
+            'running_unit_tests' => app()->runningUnitTests(),
         ]);
     }
 
     private static function writeThenThrow(string $token): never
+    {
+        $connection = self::writeInOpenTransaction($token);
+        self::record($token, ['transaction_level_at_throw' => $connection->transactionLevel()]);
+
+        throw new RuntimeException('intentional failure inside an open transaction');
+    }
+
+    private static function writeLeaveOpen(string $token): void
+    {
+        $connection = self::writeInOpenTransaction($token);
+        self::record($token, ['transaction_level_at_exit' => $connection->transactionLevel()]);
+    }
+
+    /** Open a transaction, insert a row named for the token, and leave the transaction open. */
+    private static function writeInOpenTransaction(string $token): \Illuminate\Database\ConnectionInterface
     {
         $connection = app('db')->connection();
         $connection->beginTransaction();
@@ -120,9 +147,8 @@ final class InstrumentedHttpSmokePathResolver implements PathResolver
             'created_at' => now()->toDateTimeString(),
             'updated_at' => now()->toDateTimeString(),
         ]);
-        self::record($token, ['transaction_level_at_throw' => $connection->transactionLevel()]);
 
-        throw new RuntimeException('intentional failure inside an open transaction');
+        return $connection;
     }
 
     private static function scope(string $mode, string $value): void

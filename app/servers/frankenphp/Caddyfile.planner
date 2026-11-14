@@ -5,7 +5,7 @@
 }
 
 :8080 {
-    root * /gateway/app
+    root * /gateway/app/planner/public
 
     # The Laravel front controller is the only executable web entrypoint.
     # The private Planner Service must not be exposed directly to the internet.

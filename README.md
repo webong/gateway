@@ -125,7 +125,9 @@ creation.
 Symfony hosts register `MigrateGatewayCommand` with an injected
 `GatewayMigrationRunner`. Both adapters execute the same migration files and
 use the same history table. SQLite, PostgreSQL, MySQL, and MariaDB Laravel-style
-connection arrays are supported. PostgreSQL migrations preserve TLS settings
+connection arrays are supported by the migrations. The standalone Planner runs on
+PostgreSQL or MySQL 8.4; the Router's shared delivery queue needs PostgreSQL (see
+[Database support](docs/deployment.md#database-support)). PostgreSQL migrations preserve TLS settings
 (`sslmode`, `sslrootcert`, `sslcert`, `sslkey`) and target the first existing
 schema in `search_path`. Laravel supplies its configured write connection;
 neutral consumers open a PDO connection from the same options. MySQL migrations
@@ -174,8 +176,11 @@ migration stream, then remove it.
 - `pkg/spinner/internal` contains Go configuration, forwarding, worker, and logging
   implementation details.
 - `pkg/planner` is the PHP Planner core package source tree.
-- `app/` is the thin PHP host for the bundled Planner, not a conventional
-  Laravel application skeleton.
+- `app/` is the PHP host for the bundled Planner, not a conventional Laravel
+  application skeleton. `app/planner/` is the thin Laravel host, `app/servers/`
+  holds one directory per way of serving it (FrankenPHP, PHP-FPM, Workerman;
+  Octane runs Swoole and RoadRunner itself, so they need no files), and
+  `app/helpers/` holds the `Gateway\Router\` classes.
 - `pkg/planner/src/Laravel/` owns Laravel storage, management, and framework wiring;
   `pkg/planner/src/Symfony/` owns Symfony wiring. The remaining source is shared.
 - `pkg/planner/config/` contains Laravel configuration and Symfony route imports;

@@ -21,7 +21,7 @@ RUN apk add --no-cache \
         bash curl libpq oniguruma openssl sqlite-libs su-exec \
     && apk add --no-cache --virtual .gateway-build-deps \
         $PHPIZE_DEPS linux-headers oniguruma-dev postgresql-dev sqlite-dev \
-    && docker-php-ext-install -j4 bcmath mbstring pcntl pdo_pgsql pdo_sqlite sockets opcache \
+    && docker-php-ext-install -j4 bcmath mbstring pcntl pdo_mysql pdo_pgsql pdo_sqlite sockets opcache \
     && apk del .gateway-build-deps \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && printf 'opcache.enable_cli=1\n' > "$PHP_INI_DIR/conf.d/router.ini"

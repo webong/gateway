@@ -89,12 +89,12 @@
     "prefer-stable": true,
     "autoload": {
         "psr-4": {
-            "Gateway\\Router\\": ""
+            "Gateway\\Router\\": "helpers/"
         }
     },
     "scripts": {
         "post-autoload-dump": [
-            "@php artisan package:discover --ansi"
+            "@php planner/artisan package:discover --ansi"
         ]
     },
     "extra": {

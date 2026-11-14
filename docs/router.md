@@ -36,8 +36,12 @@ the deployment's maximum PHP concurrency. `GATEWAY_PLANNER_MAX_REQUESTS`
 defaults to `500` and recycles each long-lived worker after bounded reuse. The
 older `GATEWAY_ROUTER_PHP_WORKERS` name remains a compatibility fallback.
 
-The host uses `app/index.php`, `app/bootstrap.php`, and one `app/config.php`
-array instead of Laravel's public/config/bootstrap directory skeleton.
+The host lives in `app/planner`. It uses `public/index.php`,
+`bootstrap/app.php`, and one `config.php` array instead of Laravel's `config/`
+directory (Laravel would load every file there as its own config namespace).
+Web servers use `app/planner/public` as their document root; the per-server
+entrypoints and Caddyfiles live under `app/servers`, and the `Gateway\Router\`
+classes under `app/helpers`.
 Host configuration overrides framework defaults before providers register;
 installed Composer packages are discovered normally and merge their own defaults.
 The monorepo host also uses Composer Merge Plugin to load
@@ -103,7 +107,7 @@ credential, and a registry credential, then applies migrations.
 An existing Router database created with `webong/web-proxy` needs the opt-in
 Proxy legacy migration before its first start with this version. Back up the
 Router data directory, load its usual database and app-key environment, and
-run `app/artisan migrate --realpath` against
+run `app/planner/artisan migrate --realpath` against
 `vendor/webong/proxy/database/legacy-migrations` once. The normal startup then
 applies the renamed Proxy migrations and creates the `profiles` table.
 
@@ -198,7 +202,7 @@ defaults to `roadrunner`.
 The image ships the Router code, PHP dependencies, and empty writable cache
 and storage directories under `/data`. It does not bake generated credentials,
 the SQLite database, or Laravel cache files into the image; those are created
-in the persistent volume on first start. `app/bootstrap.php` remains packaged
+in the persistent volume on first start. `app/planner/bootstrap/app.php` remains packaged
 code, while the RoadRunner compatibility bootstrap is generated under the
 data directory when that runtime is selected.
 
@@ -250,7 +254,7 @@ provisioning worker, the FrankenPHP-library and RoadRunner Router images can
 set `GATEWAY_PROVISIONING_ROUTE_PROXY_ENABLED=true` and a comma-separated
 `GATEWAY_PROVISIONING_ROUTE_CIDRS` of reachable workload networks. The legacy
 Caddy Gateway handler instead uses `managed_route_cidrs` in its `gateway`
-block, as shown commented in `app/Caddyfile`. All three ask their bundled
+block, as shown commented in `app/servers/frankenphp/Caddyfile`. All three ask their bundled
 Planner in-process for a current route and proxy matched HTTP/WebSocket
 traffic to the reported instance. Keep the worker and Router on networks where
 those instance IPs are reachable, and give workloads dedicated hostnames.

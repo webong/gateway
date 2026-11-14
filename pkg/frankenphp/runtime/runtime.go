@@ -33,16 +33,20 @@ type Runtime struct {
 	closed            atomic.Bool
 }
 
+// Start runs the Planner host found under appDir (the repository's app
+// directory): planner/public holds the front controller and servers/frankenphp
+// holds the worker script.
 func Start(appDir string) (*Runtime, error) {
-	publicDir, err := filepath.Abs(appDir)
+	appDir, err := filepath.Abs(appDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Planner public directory: %w", err)
+		return nil, fmt.Errorf("resolve Planner app directory: %w", err)
 	}
+	publicDir := filepath.Join(appDir, "planner", "public")
 	index := filepath.Join(publicDir, "index.php")
 	if info, err := os.Stat(index); err != nil || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("Planner front controller is missing: %s", index)
 	}
-	workerScript := filepath.Join(publicDir, "public", "frankenphp-worker.php")
+	workerScript := filepath.Join(appDir, "servers", "frankenphp", "worker.php")
 	if info, err := os.Stat(workerScript); err != nil || !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("Planner FrankenPHP worker is missing: %s", workerScript)
 	}

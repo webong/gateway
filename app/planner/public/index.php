@@ -4,6 +4,6 @@ declare(strict_types=1);
 
 use Illuminate\Http\Request;
 
-$app = require __DIR__.'/bootstrap.php';
+$app = require dirname(__DIR__).'/bootstrap/app.php';
 
 $app->handleRequest(Request::capture());

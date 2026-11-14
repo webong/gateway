@@ -5,8 +5,15 @@ if [ -z "${APP_KEY:-}" ] || [ -z "${GATEWAY_INTERNAL_TOKEN:-}" ] || [ -z "${REGI
     echo 'APP_KEY, GATEWAY_INTERNAL_TOKEN, and REGISTRY_TOKEN are required.' >&2
     exit 1
 fi
-if [ "${DB_CONNECTION:-}" != pgsql ] || [ -z "${DB_URL:-}" ]; then
-    echo 'Standalone Planner requires DB_CONNECTION=pgsql and DB_URL.' >&2
+case "${DB_CONNECTION:-}" in
+    pgsql|mysql) ;;
+    *)
+        echo 'Standalone Planner requires DB_CONNECTION=pgsql or DB_CONNECTION=mysql, and DB_URL.' >&2
+        exit 1
+        ;;
+esac
+if [ -z "${DB_URL:-}" ]; then
+    echo 'Standalone Planner requires DB_URL.' >&2
     exit 1
 fi
 
@@ -26,18 +33,18 @@ export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
 
 migrate_gateway_schema() {
     if [ "${GATEWAY_MIGRATIONS_ADOPT_EXISTING:-false}" = true ]; then
-        php "$APP_DIR/artisan" gateway:migrate --adopt-existing
+        php "$APP_DIR/planner/artisan" gateway:migrate --adopt-existing
     else
-        php "$APP_DIR/artisan" gateway:migrate
+        php "$APP_DIR/planner/artisan" gateway:migrate
     fi
 }
 
 case "${1:-serve}" in
     migrate)
         migrate_gateway_schema
-        php "$APP_DIR/artisan" migrate --realpath \
+        php "$APP_DIR/planner/artisan" migrate --realpath \
             --path=/gateway/vendor/webong/proxy/database/migrations --force
-        exec php "$APP_DIR/artisan" migrate --force
+        exec php "$APP_DIR/planner/artisan" migrate --force
         ;;
     serve)
         SERVER=${GATEWAY_PLANNER_SERVER:-frankenphp}
@@ -70,7 +77,7 @@ case "${1:-serve}" in
                 fi
                 ;;
             roadrunner)
-                if [ ! -x "$APP_DIR/rr" ] && ! command -v rr >/dev/null 2>&1; then
+                if [ ! -x "$APP_DIR/planner/rr" ] && ! command -v rr >/dev/null 2>&1; then
                     echo 'Octane/RoadRunner requires the rr executable.' >&2
                     exit 1
                 fi
@@ -88,9 +95,9 @@ case "${1:-serve}" in
         esac
 
         migrate_gateway_schema
-        php "$APP_DIR/artisan" migrate --realpath \
+        php "$APP_DIR/planner/artisan" migrate --realpath \
             --path=/gateway/vendor/webong/proxy/database/migrations --force
-        php "$APP_DIR/artisan" migrate --force
+        php "$APP_DIR/planner/artisan" migrate --force
 
         if [ "$SERVER" = workerman ]; then
             # Workerman stops immediately on SIGTERM and SIGINT, which is what
@@ -98,7 +105,7 @@ case "${1:-serve}" in
             # on SIGQUIT. Keep this script as the container's entrypoint and
             # translate those stop signals into SIGQUIT, so a stop lets requests
             # finish. The master's own exit status becomes ours.
-            php "$APP_DIR/workerman.php" start &
+            php "$APP_DIR/servers/workerman/server.php" start &
             WORKERMAN_PID=$!
             trap 'kill -QUIT "$WORKERMAN_PID" 2>/dev/null || true' TERM INT
             while :; do
@@ -174,7 +181,7 @@ case "${1:-serve}" in
             exit "$status"
         fi
 
-        set -- php "$APP_DIR/artisan" octane:start \
+        set -- php "$APP_DIR/planner/artisan" octane:start \
             "--server=$SERVER" "--host=$HOST" "--port=$PORT" \
             "--workers=$WORKERS" "--max-requests=$MAX_REQUESTS"
         case "$SERVER" in

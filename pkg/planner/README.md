@@ -47,13 +47,13 @@ in host applications and extensions, regenerate Composer autoload metadata,
 and clear/rebuild Laravel's package, service, configuration, and Proxy discovery caches when
 upgrading. Shared contracts retain their existing namespaces.
 
-Octane and Workerman are host runtime choices in `app/`; they do not change
-which code belongs in the shared Planner.
+Octane and Workerman are host runtime choices in `app/servers/`; they do not
+change which code belongs in the shared Planner.
 
 ### Running the Workerman host
 
 `GATEWAY_PLANNER_SERVER=workerman gateway-planner-start serve` runs
-`app/workerman.php`, which keeps Octane's per-request isolation: every request is
+`app/servers/workerman/server.php`, which keeps Octane's per-request isolation: every request is
 served from a fresh sandbox of one persistent application, a transaction a request
 leaves open is rolled back (per connection; a connection whose rollback fails is
 discarded), and each worker is recycled after `GATEWAY_PLANNER_MAX_REQUESTS`.
@@ -63,7 +63,7 @@ discarded), and each worker is recycled after `GATEWAY_PLANNER_MAX_REQUESTS`.
   `gateway-planner-start` therefore stays the container's entrypoint and turns
   `SIGTERM`/`SIGINT` into `SIGQUIT`, then exits with Workerman's own status.
   A graceful Workerman worker also waits until every connection has closed and
-  never closes one itself, so `app/workerman.php` closes the worker's connections
+  never closes one itself, so `app/servers/workerman/server.php` closes the worker's connections
   as it stops; without that, a client holding an idle keep-alive connection would
   keep the container up until the orchestrator's `SIGKILL`.
   `scripts/test-planner-workerman-shutdown` checks that translation, and

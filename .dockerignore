@@ -9,6 +9,7 @@ vendor
 bin
 node_modules
 app/vendor
+app/planner/vendor
 /pkg/roadrunner/cmd/router/router
 
 .workflow-gate-source

@@ -17,7 +17,7 @@ FROM php:8.4-cli-alpine
 
 RUN apk add --no-cache sqlite-libs libpq \
     && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS sqlite-dev postgresql-dev \
-    && docker-php-ext-install pcntl pdo_sqlite pdo_pgsql \
+    && docker-php-ext-install pcntl pdo_mysql pdo_sqlite pdo_pgsql \
     && apk del .build-deps
 
 WORKDIR /app

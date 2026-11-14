@@ -540,7 +540,7 @@ if [[ "$WITH_EMAIL" == true ]]; then
     # covers TXT verification and this is not a public-domain proof.
     EMAIL_SEED_RESULT=$(kubectl -n "$NAMESPACE" exec deployment/planner -- \
         env "EMAIL_DOMAIN_ID=$EMAIL_DOMAIN_ID" php -r '
-            $app = require "/gateway/app/bootstrap/app.php";
+            $app = require "/gateway/app/planner/bootstrap/app.php";
             $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
             $store = $app->make(\Webong\Gateway\Laravel\Resources\PlannerResourceStore::class);
             $resource = $store->find("email.domain", getenv("EMAIL_DOMAIN_ID"));
