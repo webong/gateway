@@ -24,6 +24,8 @@ final readonly class PublishedDefinitions implements FlowDefinitionProvider
                 throw new \InvalidArgumentException('Published WorkFlow definitions require a valid explicit version and approved operations.');
             }
             $definition=FlowDefinition::fromArray($document);
+            if(strlen($definition->key)>191){throw new \InvalidArgumentException('Published flow keys are limited to 191 bytes.');}
+            foreach($definition->steps as $step){if(strlen($step->id)>191){throw new \InvalidArgumentException('Published step IDs are limited to 191 bytes.');}}
             if (isset($definitions[$definition->key])) {throw new \InvalidArgumentException('A runtime must select exactly one version of each flow.');}
             $definitions[$definition->key]=$definition;
         }

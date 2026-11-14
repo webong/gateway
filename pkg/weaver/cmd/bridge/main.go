@@ -25,11 +25,21 @@ type phpInvoker struct {
 }
 
 func (p phpInvoker) Invoke(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *rpc.Error) {
+	return p.invoke(ctx, method, params, false)
+}
+
+type controlInvoker struct{ phpInvoker }
+
+func (p controlInvoker) Invoke(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *rpc.Error) {
+	return p.invoke(ctx, method, params, true)
+}
+func (p phpInvoker) invoke(ctx context.Context, method string, params json.RawMessage, internal bool) (json.RawMessage, *rpc.Error) {
 	body, err := json.Marshal(struct {
 		Principal string          `json:"principal"`
+		Internal  bool            `json:"internal"`
 		Method    string          `json:"method"`
 		Params    json.RawMessage `json:"params"`
-	}{Principal: rpc.Principal(ctx), Method: method, Params: params})
+	}{Principal: rpc.Principal(ctx), Internal: internal, Method: method, Params: params})
 	if err != nil {
 		return nil, &rpc.Error{Code: -32603, Message: "Internal error"}
 	}
@@ -75,8 +85,10 @@ func run() error {
 	}
 	var config struct {
 		Authentication map[string]string `json:"authentication"`
+		ControlToken   string            `json:"control_token"`
 		Configuration  struct {
-			Accounts []struct {
+			WorkerMode string `json:"worker_mode"`
+			Accounts   []struct {
 				ID string `json:"id"`
 			} `json:"accounts"`
 		} `json:"configuration"`
@@ -119,6 +131,16 @@ func run() error {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/rpc", handler)
+	if config.Configuration.WorkerMode != "poll" {
+		if len(config.ControlToken) < 32 {
+			return errors.New("private Weaver control credential unavailable")
+		}
+		control, err := rpc.NewHandler(controlInvoker{invoker}, config.ControlToken)
+		if err != nil {
+			return err
+		}
+		mux.Handle("/internal", control)
+	}
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -140,6 +162,12 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if config.Configuration.WorkerMode != "poll" {
+		host, _, err := net.SplitHostPort(listen)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("Weaver control plane requires a loopback listener")
+		}
+	}
 	listener, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err

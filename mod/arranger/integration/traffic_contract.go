@@ -178,6 +178,12 @@ type IdempotentGatewayExecutor interface {
 	EnqueueGatewayIdempotent(GatewayDelivery, string, string, time.Time) (bool, error)
 }
 
+// IdempotentGatewayDeliverySupport advertises reserved-receipt persistence.
+// It is separate from durable so older strict v1 decoders keep their response.
+type IdempotentGatewayDeliverySupport interface {
+	IdempotentGatewayDeliveries() bool
+}
+
 // GatewayDeliveryAdapterSupport lets an Extension fail closed before it
 // accepts work for an adapter that is not currently installed.
 type GatewayDeliveryAdapterSupport interface {

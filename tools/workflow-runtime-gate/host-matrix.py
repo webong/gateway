@@ -63,7 +63,7 @@ def php(phase,script=None):
       host,installed+'/runtime/loader','--library-path',installed+'/runtime/lib',installed+'/runtime/bin/php',
       '-c',installed+'/php.ini','-d','extension_dir='+installed+'/runtime/lib',script,
       'http://127.0.0.1:5052',phase)
-    print(mode+': '+result.stdout.strip())
+    print(mode+': '+result.stdout.strip(),flush=True)
 
 def volume(suffix,host_image):
     v=name+'-'+suffix;docker('volume','create',v);volumes.append(v)

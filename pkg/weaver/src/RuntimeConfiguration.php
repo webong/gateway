@@ -10,6 +10,7 @@ final readonly class RuntimeConfiguration
     public string $databaseReference;
     public string $authenticationReference;
     public int $leaseSeconds;
+    public string $workerMode;
     public ApprovedOperations $operations;
     /** @var array<string, PublishedDefinitions> */
     public array $definitions;
@@ -18,7 +19,7 @@ final readonly class RuntimeConfiguration
 
     public function __construct(array $document)
     {
-        if (array_diff(array_keys($document),['schema_version','database_ref','authentication_ref','lease_seconds','operations','accounts']) !== []
+        if (array_diff(array_keys($document),['schema_version','database_ref','authentication_ref','lease_seconds','operations','accounts','worker_mode']) !== []
             || ($document['schema_version'] ?? null)!==1) {
             throw new \InvalidArgumentException('Unsupported WorkFlow runtime configuration.');
         }
@@ -32,6 +33,9 @@ final readonly class RuntimeConfiguration
         $lease=$document['lease_seconds'] ?? 300;
         if (!is_int($lease) || $lease<1 || $lease>3600) {throw new \InvalidArgumentException('Invalid worker lease duration.');}
         $this->leaseSeconds=$lease;
+        $mode=$document['worker_mode']??'gateway';
+        if(!in_array($mode,['gateway','poll'],true)){throw new \InvalidArgumentException('Invalid worker delivery mode.');}
+        $this->workerMode=$mode;
         if (!is_array($document['operations'] ?? null)) {throw new \InvalidArgumentException('Approved operations are required.');}
         $this->operations=new ApprovedOperations($document['operations']);
         $accounts=$document['accounts'] ?? null;

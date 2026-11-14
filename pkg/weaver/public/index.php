@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Webong\Gateway\Weaver\{RuntimeConfiguration,RuntimeFactory,RpcFailure};
+use Webong\Gateway\Weaver\{RuntimeConfiguration,RuntimeFactory,RuntimeControl,RpcFailure};
 
 require_once dirname(__DIR__).'/vendor/autoload.php';
 header('Content-Type: application/json');
@@ -20,6 +20,8 @@ try {
     $runtime=new RuntimeFactory($configuration,$context['database']);
     if ($request['method']==='workflow.ready') {
         $response=['result'=>['ready'=>true]];
+    } elseif (($request['internal'] ?? false) === true) {
+        $response=['result'=>(new RuntimeControl($runtime))->invoke($request['method'],$request['params'])];
     } else {
         $principal=$request['principal'] ?? null;
         if (!is_string($principal) || $principal==='') {throw new RpcFailure(-32003,'Forbidden');}

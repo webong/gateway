@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
@@ -152,17 +153,22 @@ func startExternalInstalled(ctx context.Context, registry *Registry, inst store.
 	if err != nil {
 		return mounted{}, fmt.Errorf("spinner entrypoint is invalid: %w", err)
 	}
-	proc, err := host.Open(ctx, inst, host.Options{
-		Reverse: registry.DependencyReverseOptions(
-			inst.Manifest.Descriptor.Identity,
-			bindings,
-			DefaultHost.ReverseOptionsFor(inst.Manifest.Descriptor.Identity, companionextensions.DefaultHost.ReverseOptions()),
-		),
-		Launch: launch,
-	})
+	var proc *host.Process
+	var active atomic.Pointer[host.Process]
+	reverse := registry.runtimeReverseOptions(inst.Manifest.Descriptor.Identity, bindings,
+		DefaultHost.ReverseOptionsFor(inst.Manifest.Descriptor.Identity, companionextensions.DefaultHost.ReverseOptions()),
+		func() extensionProcess {
+			current := active.Load()
+			if current == nil {
+				return nil
+			}
+			return current
+		})
+	proc, err = host.Open(ctx, inst, host.Options{Reverse: reverse, Launch: launch})
 	if err != nil {
 		return mounted{}, err
 	}
+	active.Store(proc)
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	var advertisement integrationcontract.RuntimeStartResponse
 	err = proc.Call(callCtx, plugin.Method(integrationcontract.RuntimeContract, integrationcontract.OperationStart), DefaultHost.StartRequest(inst.Manifest.Descriptor.Identity, configuration), &advertisement)
@@ -738,4 +744,46 @@ func httpMatch(request *http.Request, match string) bool {
 
 func pathMatches(requestPath, prefix string) bool {
 	return prefix == "/" || requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/")
+}
+
+// runtimeReverseOptions confirms the current mounted process, not merely a
+// package identity shared by old and replacement configuration instances.
+func (r *Registry) runtimeReverseOptions(consumer plugin.Identity, bindings []packagekit.Resolution, fallback *plugin.ReverseOptions, source func() extensionProcess) *plugin.ReverseOptions {
+	options := r.DependencyReverseOptions(consumer, bindings, fallback)
+	handle := options.Handle
+	options.Handle = func(ctx context.Context, request plugin.Request) (json.RawMessage, error) {
+		raw, err := handle(ctx, request)
+		if err != nil || request.Contract != integrationcontract.DeliveryContract || request.Operation != integrationcontract.OperationOwnAdapterReady {
+			return raw, err
+		}
+		var input integrationcontract.DeliveryAdapterSupportRequest
+		var result integrationcontract.DurableResponse
+		if plugin.Decode(request.Payload, &input) != nil || plugin.Decode(raw, &result) != nil {
+			return nil, plugin.ErrInvalid
+		}
+		result.Enabled = result.Enabled && r.ownsDeliveryAdapter(consumer, source(), input.Adapter)
+		return json.Marshal(result)
+	}
+	return options
+}
+func (r *Registry) ownsDeliveryAdapter(consumer plugin.Identity, source extensionProcess, name string) bool {
+	if source == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	matches := 0
+	owned := false
+	for _, entry := range r.mounted {
+		if _, ok := entry.adapters[name]; !ok {
+			continue
+		}
+		matches++
+		process := entry.process
+		if wrapped, ok := process.(*runtimeProcess); ok {
+			process = wrapped.extensionProcess
+		}
+		owned = entry.identity == consumer && process == source
+	}
+	return matches == 1 && owned
 }

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c760610e5de6360ba43bb9f6788d78a9",
+    "content-hash": "ef86643a56c1e8be9e3b3866832d9f80",
     "packages": [
         {
             "name": "psr/http-client",
@@ -170,12 +170,74 @@
             "published-time": "2023-04-04T09:55:35+00:00"
         },
         {
-            "name": "webong/workflow",
-            "version": "dev-main",
+            "name": "webong/composer-source-plugin",
+            "version": "v0.4.0",
             "source": {
                 "type": "git",
-                "url": "https://github.com/webong/workflow.git",
-                "reference": "00e0bbcdd61c2c6ed96af55865d0ef2e77557adb"
+                "url": "https://github.com/webong/composer-source-plugin.git",
+                "reference": "e415df9e0cf087a72b9a72802040a80cd5a49d9f"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/webong/composer-source-plugin/zipball/e415df9e0cf087a72b9a72802040a80cd5a49d9f",
+                "reference": "e415df9e0cf087a72b9a72802040a80cd5a49d9f",
+                "shasum": ""
+            },
+            "require": {
+                "composer-plugin-api": ">=2.3",
+                "php": ">=8.1"
+            },
+            "require-dev": {
+                "composer/semver": "^3.0",
+                "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0",
+                "symfony/dependency-injection": "^6.4 || ^7.0"
+            },
+            "suggest": {
+                "symfony/dependency-injection": "Register the compiler pass that exposes compatibility names as Symfony service aliases.",
+                "wikimedia/composer-merge-plugin": "Merge a local package manifest before the source selector chooses the winning implementation."
+            },
+            "type": "composer-plugin",
+            "extra": {
+                "class": "Webong\\ComposerSource\\ComposerSourcePlugin",
+                "laravel": {
+                    "providers": [
+                        "Webong\\ComposerSource\\Illuminate\\ComposerSourceServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "files": [
+                    "src/bootstrap.php"
+                ],
+                "psr-4": {
+                    "Webong\\ComposerSource\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "Select one Composer package source and generate optional namespace compatibility aliases.",
+            "support": {
+                "issues": "https://github.com/webong/composer-source-plugin/issues",
+                "source": "https://github.com/webong/composer-source-plugin/tree/v0.4.0"
+            },
+            "time": "2026-11-03T21:37:15+00:00",
+            "published-time": "2026-11-04T07:55:12+00:00"
+        },
+        {
+            "name": "webong/workflow",
+            "version": "v0.1.0-rc.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/webong/workflow",
+                "reference": "278861082e00537fe7e759eb7c8bee3e7a3f0bf4"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/webong/workflow/zipball/278861082e00537fe7e759eb7c8bee3e7a3f0bf4",
+                "reference": "278861082e00537fe7e759eb7c8bee3e7a3f0bf4",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.3 || ^8.4 || ^8.5",
@@ -208,7 +270,6 @@
                 "symfony/yaml": "Required when Open Workflow Specification definitions are supplied as YAML instead of JSON.",
                 "temporal/sdk": "Required to use the optional Temporal WorkFlow adapter."
             },
-            "default-branch": true,
             "bin": [
                 "bin/workflow"
             ],
@@ -2510,9 +2571,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "webong/workflow": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

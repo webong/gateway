@@ -10,8 +10,10 @@ name on 2026-11-14. The engine stays `webong/workflow`.
 
 The production Spinner entrypoint, bridge, worker, application stores, explicit
 schema installer and account-scoped runtime authorization have been extracted.
-The dependency is temporarily pinned to the merged prerequisite commit for
-development. This is not completed released-core or Planner-entrypoint acceptance.
+The dependency now uses released WorkFlow v0.1.0-rc.2 at
+`278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, installed as a dist with a root-owned
+core projection. The installed Planner provider and resource tests pass locally.
+The full extension setup remains incomplete.
 
 ## Runtime decision (gates 1–2)
 
@@ -21,38 +23,37 @@ separate early merge gate before extraction.
 
 ## Dependency and extraction (gate 3)
 
-- Release a compatible independent `webong/workflow` core containing the required
-  queue contracts. The only published release checked on 2026-11-14 was
-  `v0.1.0-rc.1`, which predates them. Consume a released version through Composer,
-  not a path repository or copied vendor tree.
-- Finish the extracted `pkg/weaver` package as `webong/gateway-weaver`, with the
-  `Webong\Gateway\Weaver` namespace and one shared Planner/Spinner identity and
-  version. The application RPC facade, scoped identity/routing adapter,
-  PDO stores, worker/bootstrap code and their tests are extracted; complete
-  external released-package acceptance according to the inventory.
+- Completed: compatible independent core v0.1.0-rc.2, tagged dist consumption,
+  production `core` projection and separate compatibility-test surface union.
+  Both consumer lockfiles and projection locks are committed with the consumer.
+- Completed: extracted application RPC facade, account/subject identity, PDO stores,
+  worker, bridge and tests live under Weaver, separate from the engine.
 - Build and install it from a clean external consumer. Verify Composer-only core,
   optional adapters and native builds remain independent of Gateway. Preserve the
   old application until the replacement has been released.
 
 ## Planner resources, permissions and operational storage (gate 4)
 
-- Implement the actual Planner entrypoint: immutable definition versions, approved
-  operation catalog and configuration, management routes and explicit grants for
-  each resource/run-control action in its account/subject scope.
-- Wire the implemented versioned runtime configuration, explicit operational
-  migrations and scoped database/authentication references into Planner-owned
-  resources. Add provider references with the delivery integration. Keep
-  credentials outside revisioned resources and queue state outside desired state.
+- Implemented: Composer provider discovery, immutable account-owned definition
+  versions, approved operation catalog, management routes, conditional grant
+  revisions and explicit account/flow/subject/action permissions.
+- Implemented: Planner resource projection into runtime snapshots, explicit
+  operational installation, scoped database/authentication secret references and
+  rejection of invalid/cross-account selections. Credentials and queue state stay
+  outside desired resource documents.
 - Exercise the installed Planner entrypoint with a separately deployed Planner,
   including denied scopes, invalid configuration, secret rotation/revocation and
-  unavailable storage. The host-matrix CLI only seeds disposable production stores;
-  it is not this production management/authorization implementation.
+  unavailable storage. The installed host matrix seeds through WeaverResources and consumes the
+  real provider projection. Operator HTTP boundaries have separate installed-app
+  tests. Production-secret and unavailable-storage rehearsals remain required.
 
 ## Delivery, failure coverage and SQL acceptance (gate 5)
 
-- Bind durable delivery through an exact Arranger capability: persistent outbox
-  event ID → opaque claim ID → queue execution gate → provider effect. Preserve
-  independent Gateway delivery leases and WorkFlow attempt leases.
+- Implemented: exact durable-idempotent and own-process adapter-readiness
+  capabilities, stable outbox receipt IDs, fenced acknowledgement after durable
+  acceptance, opaque-claim delivery and the atomic execution gate. Transient
+  enqueue/control/ack failures retry without activation changes. Real business
+  provider operations remain to be deployed and accepted.
 - Test absent, inactive, ambiguous and incompatible bindings; publication crashes,
   uncertain provider effects, stale completion/heartbeat fencing, backoff/deadlines,
   cancellation races and authenticated callback correlation across replacement.
@@ -86,8 +87,10 @@ separate early merge gate before extraction.
   checksums through the reviewed release process; validate publisher/artifact trust.
 - Smoke-test fresh installation from published artifacts and ship approval/order
   examples plus installation, authentication, upgrade, operation and rollback docs.
-- Deprecate WorkFlow `app/` with versioned compatibility guidance. Remove it only in
-  a documented later release once the replacement is available.
+- Once replacement acceptance passes, move WorkFlow `app/` into examples for
+  testing/reference, or deprecate it with versioned compatibility guidance. It
+  should not remain a second supported production host. Keep the engine and
+  authoring CLI independent; do not remove legacy source before replacement.
 
 No production migration, artifact publication, old-app deletion or automatic
 run-authority conversion is part of the runtime/host proof.

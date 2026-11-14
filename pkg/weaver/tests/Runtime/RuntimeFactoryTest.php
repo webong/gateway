@@ -45,6 +45,37 @@ final class RuntimeFactoryTest extends TestCase
         self::assertSame('completed',$state['steps']['fulfil-v1']['status']);
         self::assertArrayNotHasKey('fulfil-v2',$state['steps']);
     }
+    public function testBrokerReservationKeepsOtherEventsAndFencesDuplicateExecution(): void
+    {
+        $secret=['dsn'=>'sqlite:'.$this->path];
+        $pdo=new PDO($secret['dsn']);
+        OperationalSchema::install($pdo);
+        $runtime=new RuntimeFactory($this->configuration(1),$secret);
+        $params=['flow_key'=>'order','run_id'=>'broker','subject'=>['type'=>'order','id'=>'42']];
+        $application=$runtime->application('account');
+        $application->invoke('account','flow.start',$params);
+        $claims=$runtime->queue->claim(1,30);
+        self::assertCount(1,$claims);
+        $control=new \Webong\Gateway\Weaver\RuntimeControl($runtime);
+        $events=$control->invoke('work.reserve',[])['events'];
+        self::assertCount(1,$events);
+        self::assertSame('work.ready',$events[0]['type']);
+        self::assertSame($claims[0]->claimId,$events[0]['payload']['claim_id']);
+        self::assertSame(['handled'=>true],$control->invoke('work.handle',['claim_id'=>$claims[0]->claimId]));
+        self::assertSame(['handled'=>false],$control->invoke('work.handle',['claim_id'=>$claims[0]->claimId]));
+        $event=$events[0];
+        try {
+            $control->invoke('work.ack',['id'=>$event['id'],'token'=>str_repeat('0',32)]);
+            self::fail('Stale outbox token acknowledged.');
+        } catch (\RuntimeException $error) {
+            self::assertSame('Outbox delivery lease lost.',$error->getMessage());
+        }
+        self::assertSame('delivering',$pdo->query("SELECT status FROM workflow_queue_outbox WHERE type='work.ready'")->fetchColumn());
+        $control->invoke('work.ack',['id'=>$event['id'],'token'=>$event['token']]);
+        self::assertSame('delivered',$pdo->query("SELECT status FROM workflow_queue_outbox WHERE type='work.ready'")->fetchColumn());
+        self::assertSame([],$control->invoke('work.reserve',[])['events']);
+        self::assertGreaterThan(0,(int)$pdo->query("SELECT COUNT(*) FROM workflow_queue_outbox WHERE type!='work.ready' AND status='pending'")->fetchColumn());
+    }
     public function testActivationNeverInstallsAnEmptyDatabase(): void
     {
         $this->expectException(\RuntimeException::class);

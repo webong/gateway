@@ -15,7 +15,9 @@ function rpc(string $method,array $params,string $token='disposable-weaver-runti
 function waitState(array $id,callable $predicate):array{
  $until=microtime(true)+20;
  do{$state=rpc('flow.get',$id);if($predicate($state))return $state;usleep(100000);}while(microtime(true)<$until);
- throw new RuntimeException('Queue did not reach expected state');
+ $runtime=require __DIR__.'/weaver-runtime.php';
+ $outbox=$runtime['connection']->query('SELECT type,status,COUNT(*) AS count FROM workflow_queue_outbox GROUP BY type,status')->fetchAll(PDO::FETCH_ASSOC);
+ throw new RuntimeException('Queue did not reach expected state: '.json_encode(['status'=>$state['status'],'steps'=>$state['steps'],'outbox'=>$outbox]));
 }
 if(in_array($phase,['abandon','abandon-nonidempotent'],true)){
  $runtime=require __DIR__.'/weaver-runtime.php';
@@ -38,6 +40,20 @@ if(in_array($phase,['abandon','abandon-nonidempotent'],true)){
  }finally{$pdo->exec('COMMIT');}
  $recovery=[...$id,'run_id'=>'lease-recovery','flow_key'=>$phase==='abandon'?'gate_order':'gate_no_replay'];
  rpc('flow.start',[...$recovery,'driver'=>'queue']);
+ // Pause the supervisor's outbox publisher before creating the abandoned
+ // claim. The HTTP request has completed, so this cannot freeze its reply.
+ $supervisor=null;
+ foreach(glob('/proc/[0-9]*/cmdline') as $path){
+  $args=explode("\0",file_get_contents($path));
+  if(($args[0]??null)===$root.'/bin/spinner'){
+   if($supervisor!==null)throw new RuntimeException('Ambiguous supervisor');
+   $supervisor=(int)basename(dirname($path));
+  }
+ }
+ if($supervisor===null || !posix_kill($supervisor,SIGSTOP))throw new RuntimeException('Cannot pause publisher');
+ $until=microtime(true)+5;
+ do{$status=file_get_contents('/proc/'.$supervisor.'/status');if(preg_match('/^State:.*T/m',$status))break;usleep(1000);}while(microtime(true)<$until);
+ if(!preg_match('/^State:.*T/m',$status))throw new RuntimeException('Publisher pause not acknowledged');
  $runtime=require __DIR__.'/weaver-runtime.php';
  $claims=$runtime['queue']->claim(1,1);
  if(count($claims)!==1)throw new RuntimeException('Expected one abandoned claim');
@@ -77,4 +93,7 @@ rpc('flow.complete',$completion);rpc('flow.complete',$completion);
 $finished=waitState($id,fn($s)=>$s['status']==='completed');
 if($finished['steps']['fulfil']['status']!=='completed')throw new RuntimeException('Dependent step did not complete');
 if(rpc('flow.cancel',$other)['status']!=='cancelled')throw new RuntimeException('Cancellation failed');
-echo "PASS: authenticated queue start, scoped IDs, deferred callback/deduplication, dependent completion, cancellation\n";
+$runtime=require __DIR__.'/weaver-runtime.php';
+$delivered=(int)$runtime['connection']->query("SELECT COUNT(*) FROM workflow_queue_outbox WHERE type='work.ready' AND status='delivered'")->fetchColumn();
+if($delivered<1)throw new RuntimeException('No durable Gateway handoff acknowledged');
+echo "PASS: authenticated queue start, scoped IDs, durable Gateway handoff, deferred callback/deduplication, dependent completion, cancellation\n";

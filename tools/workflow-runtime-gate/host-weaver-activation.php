@@ -6,6 +6,18 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $store=$app->make(CompanionActionActivationStore::class);
 $identity='webong/gateway-weaver';
 $configuration=json_decode(file_get_contents('/gate/weaver.configuration.json'),true,128,JSON_THROW_ON_ERROR);
+// Seed only desired resources through the installed Composer provider; the
+// runtime snapshot must expand owned published IDs and current grants.
+$accounts=$app->make(Webong\Gateway\Laravel\Accounts\AccountStore::class);
+$resources=$app->make(Webong\Gateway\Weaver\Planner\WeaverResources::class);
+foreach($configuration['accounts'] as &$account){
+ if(!$accounts->exists($account['id']))$accounts->create($account['id']);
+ $ids=[];
+ foreach($account['definitions'] as $definition)$ids[]=$resources->publish($account['id'],$definition)->id;
+ foreach($account['grants'] as $grant){unset($grant['account']);$resources->createGrant($account['id'],$grant);}
+ $account=['id'=>$account['id'],'definitions'=>$ids];
+}
+unset($account);
 $row=$store->byExtension($identity);
 $mode=$argv[1]??'activate';
 if($mode==='activate'){

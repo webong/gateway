@@ -20,7 +20,10 @@ pcntl_signal(SIGTERM,static function()use(&$running):void{$running=false;});
 pcntl_signal(SIGINT,static function()use(&$running):void{$running=false;});
 fwrite(STDOUT,"READY\n");fflush(STDOUT);
 do {
-    $worked=$worker->tick($configuration->leaseSeconds);
+    if($configuration->workerMode==='gateway') {
+        $armed=$path.'.armed';clearstatcache(true,$armed);
+        $worked=is_file($armed) && $runtime->queue->claim(1,$configuration->leaseSeconds)!==[];
+    }else{$worked=$worker->tick($configuration->leaseSeconds);}
     if ($mode==='--once' || !$running) {break;}
     if (!$worked) {usleep(100000);}
 } while($running);

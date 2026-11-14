@@ -5,6 +5,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	plugin "github.com/webong/ext/pkg/plugin-go/contract"
@@ -27,7 +29,9 @@ import (
 
 var secretReference = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
 
-func New(root string) *Service { return &Service{root: root, stopped: make(chan struct{})} }
+func New(root string) *Service {
+	return &Service{root: root, stopped: make(chan struct{}), halt: make(chan struct{})}
+}
 
 // Serve retains cooperative stop responses until the host closes the session.
 func (s *Service) Serve(ctx context.Context) error {
@@ -47,7 +51,7 @@ func (s *Service) Serve(ctx context.Context) error {
 		case <-ctx.Done():
 		}
 	}()
-	return arranger.ServeRuntime(ctx, s)
+	return arranger.ServeRuntimeWithHandler(ctx, s, s)
 }
 
 type child struct {
@@ -55,17 +59,22 @@ type child struct {
 	done chan struct{}
 }
 type Service struct {
-	root        string
-	ini         string
-	iniDir      string
-	contextFile string
-	mu          sync.Mutex
-	children    []*child
-	server      *http.Server
-	once        sync.Once
-	closed      bool
-	cooperative bool
-	stopped     chan struct{}
+	halt         chan struct{}
+	worker       *child
+	backend      string
+	controlToken string
+	broker       bool
+	root         string
+	ini          string
+	iniDir       string
+	contextFile  string
+	mu           sync.Mutex
+	children     []*child
+	server       *http.Server
+	once         sync.Once
+	closed       bool
+	cooperative  bool
+	stopped      chan struct{}
 }
 
 func (s *Service) php(args ...string) *exec.Cmd {
@@ -111,6 +120,13 @@ func (s *Service) close() {
 	s.once.Do(func() {
 		s.mu.Lock()
 		s.closed = true
+		if s.halt != nil {
+			close(s.halt)
+		}
+		_ = os.Remove(s.contextFile + ".armed")
+		if s.worker != nil {
+			_ = s.worker.cmd.Process.Signal(syscall.SIGTERM)
+		}
 		if s.iniDir != "" {
 			defer os.RemoveAll(s.iniDir)
 		}
@@ -154,12 +170,25 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 		SchemaVersion           int    `json:"schema_version"`
 		DatabaseReference       string `json:"database_ref"`
 		AuthenticationReference string `json:"authentication_ref"`
+		WorkerMode              string `json:"worker_mode"`
 	}
 	if json.Unmarshal(request.Configuration, &settings) != nil || settings.SchemaVersion != 1 ||
 		!secretReference.MatchString(settings.DatabaseReference) || !secretReference.MatchString(settings.AuthenticationReference) {
 		return result, errors.New("invalid Weaver runtime configuration or secret references")
 	}
-	s.iniDir, err = os.MkdirTemp("", "workflow-runtime-")
+	if settings.WorkerMode == "" {
+		settings.WorkerMode = "gateway"
+	}
+	if settings.WorkerMode != "gateway" && settings.WorkerMode != "poll" {
+		return result, errors.New("invalid Weaver worker mode")
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return result, errors.New("runtime is closed")
+	}
+	s.iniDir, err = os.MkdirTemp("", "weaver-runtime-")
+	s.mu.Unlock()
 	if err != nil {
 		return result, errors.New("runtime settings directory unavailable")
 	}
@@ -202,16 +231,29 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	if !json.Valid(database.Value) || !json.Valid(authentication.Value) {
 		return result, errors.New("invalid Weaver scoped secret value")
 	}
+	controlBytes := make([]byte, 32)
+	if _, e = rand.Read(controlBytes); e != nil {
+		return result, errors.New("private work credential unavailable")
+	}
+	controlToken := hex.EncodeToString(controlBytes)
 	contextDocument, e := json.Marshal(struct {
 		Configuration  json.RawMessage `json:"configuration"`
 		Database       json.RawMessage `json:"database"`
 		Authentication json.RawMessage `json:"authentication"`
-	}{request.Configuration, database.Value, authentication.Value})
+		ControlToken   string          `json:"control_token"`
+	}{request.Configuration, database.Value, authentication.Value, controlToken})
 	if e != nil {
 		return result, errors.New("invalid Weaver runtime context")
 	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return result, errors.New("runtime is closed")
+	}
 	s.contextFile = filepath.Join(s.iniDir, "context.json")
-	if e = os.WriteFile(s.contextFile, contextDocument, 0600); e != nil {
+	e = os.WriteFile(s.contextFile, contextDocument, 0600)
+	s.mu.Unlock()
+	if e != nil {
 		return result, errors.New("private Weaver runtime context unavailable")
 	}
 	// Full configuration/storage/authentication validation precedes any worker.
@@ -227,12 +269,25 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	if checkErr != nil {
 		return result, errors.New("Weaver configuration, scoped credentials or operational storage is not ready")
 	}
+	if settings.WorkerMode == "gateway" {
+		probeCtx, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+		capabilityErr := durableReady(probeCtx, caller)
+		probeCancel()
+		if capabilityErr != nil {
+			return result, errors.New("Weaver requires durable idempotent Gateway delivery")
+		}
+	}
 	// Operational schema installation is an explicit operator action, never activation.
 	backendListener, e := net.Listen("tcp", "127.0.0.1:0")
 	if e != nil {
 		return result, e
 	}
 	backend := backendListener.Addr().String()
+	s.mu.Lock()
+	s.backend = backend
+	s.controlToken = controlToken
+	s.broker = settings.WorkerMode == "gateway"
+	s.mu.Unlock()
 	_ = backendListener.Close()
 	rpc := exec.Command(filepath.Join(s.root, "runtime/loader"), "--library-path", filepath.Join(s.root, "runtime/lib"), filepath.Join(s.root, "runtime/bin/workflowd"))
 	rpc.Env = append(s.environment(), "GATEWAY_WEAVER_RPC_LISTEN="+backend)
@@ -281,6 +336,13 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	workerChild, e := s.launch(worker)
 	if e != nil {
 		return result, e
+	}
+	s.mu.Lock()
+	s.worker = workerChild
+	alreadyClosed := s.closed
+	s.mu.Unlock()
+	if alreadyClosed {
+		return result, errors.New("runtime closed during worker startup")
 	}
 	ready := make(chan bool, 1)
 	go func() {
@@ -359,7 +421,12 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 			}
 		}
 	}()
-	return arranger.RuntimeStartResponse{PrivateHTTP: []arranger.HTTPMount{{Prefix: "/workflow/rpc", Address: "http://" + listener.Addr().String()}}}, nil
+	response := arranger.RuntimeStartResponse{PrivateHTTP: []arranger.HTTPMount{{Prefix: "/workflow/rpc", Address: "http://" + listener.Addr().String()}}}
+	if settings.WorkerMode == "gateway" {
+		response.DeliveryAdapters = []string{workAdapter}
+		go s.publishLoop(caller)
+	}
+	return response, nil
 }
 func (s *Service) environment() []string {
 	return []string{

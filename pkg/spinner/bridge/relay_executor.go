@@ -239,6 +239,14 @@ func (e *RelayExecutor) EnqueueGatewayBatch(eventID string, deliveries []Gateway
 	return e.queue.EnqueueGateway(batch) == nil
 }
 
+func (e *RelayExecutor) IdempotentGatewayDeliveries() bool {
+	if e == nil || e.queue == nil {
+		return false
+	}
+	_, ok := e.queue.(IdempotentGatewayExecutor)
+	return ok
+}
+
 func (e *RelayExecutor) DurableGatewayDeliveries() bool {
 	return e != nil && e.queue != nil
 }

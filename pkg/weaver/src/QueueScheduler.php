@@ -337,15 +337,18 @@ final class QueueScheduler implements FlowQueueScheduler
     }
 
     /** @return list<array{id: string, type: string, payload: array<string, mixed>, token: string}> */
-    public function reserveEvents(int $limit = 100, int $leaseSeconds = 30): array
+    public function reserveEvents(int $limit = 100, int $leaseSeconds = 30, ?string $type = null): array
     {
         $this->positive($leaseSeconds);
         if ($limit < 1) {
             return [];
         }
-        return $this->transaction(function () use ($limit, $leaseSeconds): array {
-            $stmt = $this->pdo->prepare("SELECT * FROM workflow_queue_outbox WHERE (status = 'pending' AND available_at <= ?) OR (status = 'delivering' AND expires_at <= ?) ORDER BY available_at, id LIMIT " . (int) $limit);
-            $stmt->execute([$this->now(), $this->now()]);
+        return $this->transaction(function () use ($limit, $leaseSeconds, $type): array {
+            $filter=$type===null?'':' AND type = ?';
+            $stmt = $this->pdo->prepare("SELECT * FROM workflow_queue_outbox WHERE ((status = 'pending' AND available_at <= ?) OR (status = 'delivering' AND expires_at <= ?))".$filter." ORDER BY available_at, id LIMIT " . (int) $limit);
+            $arguments=[$this->now(),$this->now()];
+            if($type!==null){$arguments[]=$type;}
+            $stmt->execute($arguments);
             $events = [];
             foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
                 $token = bin2hex(random_bytes(16));

@@ -25,6 +25,9 @@ const (
 	OperationEnqueueGatewayIdempotent = "enqueue-gateway-idempotent"
 	OperationSupportsDeliveryAdapter  = "supports-delivery-adapter"
 	OperationDurable                  = "durable"
+	OperationDurableIdempotent        = "durable-idempotent"
+
+	OperationOwnAdapterReady = "own-adapter-ready"
 
 	OperationExecuteAutomation = "execute"
 	OperationRegisterSchedules = "register"

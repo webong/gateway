@@ -35,6 +35,7 @@ def worker():
 
 try:
     configuration=json.loads((root/'examples/approval-order.configuration.json').read_text())
+    configuration['worker_mode']='poll'
     second=copy.deepcopy(configuration['accounts'][0]);second['id']='other-account'
     for grant in second['grants']:grant['account']='other-account'
     configuration['accounts'].append(second)
@@ -67,6 +68,8 @@ try:
         time.sleep(.1)
     params={'flow_key':'order-approval','run_id':'same-logical-run','subject':{'type':'order','id':'42'}}
     assert request('/rpc','wrong','flow.start',params)[0]==401
+    status,denied=request('/rpc',tokens['example-account'],'work.reserve',{})
+    assert status==200 and denied['error']['code']==-32601
     status,denied=request('/rpc',tokens['example-account'],'flow.start',{**params,'subject':{'type':'order','id':'other'}})
     assert status==200 and denied['error']['code']==-32003
     status,denied=request('/rpc',tokens['example-account'],'flow.start',{**params,'account':'other-account'})

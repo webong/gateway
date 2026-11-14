@@ -6,7 +6,7 @@ Post-merge prerequisite CI: https://github.com/webong/workflow/actions/runs/4350
 The source checkout is clean and pinned; unrelated Composer projection work is excluded.
 
 Every tracked `app/` file is accounted for below. Short hashes identify the inspected source, not release checksums.
-Application runtime/store code, bridge and regression tests have been copied into `pkg/weaver` under `Webong\Gateway\Weaver`. No old WorkFlow source was removed. Released-core consumption and the full extension setup remain gated. The user selected the name **Weaver** on 2026-11-14; it uses `webong/gateway-weaver` while the engine remains `webong/workflow`.
+Application runtime/store code, bridge and regression tests have been copied into `pkg/weaver` under `Webong\Gateway\Weaver`. No old WorkFlow source was removed. The runtime now consumes released core v0.1.0-rc.2; the full extension setup remains gated. The user selected the name **Weaver** on 2026-11-14; it uses `webong/gateway-weaver` while the engine remains `webong/workflow`.
 
 | Source file | Intended owner / treatment | SHA-256 prefix |
 | --- | --- | --- |
@@ -55,10 +55,12 @@ The SQL files under `app/schema` create RPC routing reservations; QueueScheduler
 - Prerequisite: merged and post-merge CI verified.
 - Inventory: completed against the exact source above; legacy authoring CLI remains core-owned.
 - Runtime proof: native amd64/arm64 scratch and all three production host checks passed in [PR #24](https://github.com/webong/gateway/pull/24).
-- Weaver extraction: application/runtime stores and Go/PHP bridge now live in `pkg/weaver`; the core remains an external Composer dependency pinned to the clean merged commit for development. SQL/HTTP/host acceptance is being rerun against this artifact.
-- Planner provider/resources/permissions projection, durable delivery, copied-data cutover/rollback and release/deprecation remain open. The pure runtime grant/configuration model does not implement the Planner management entrypoint.
+- Weaver extraction: application/runtime stores and Go/PHP bridge now live in `pkg/weaver`; the core is an external Composer dependency pinned to released v0.1.0-rc.2 with consumer-root core projection. SQL/HTTP/host acceptance is being rerun against this artifact.
+- Planner provider/resources/grant projection and durable Gateway delivery are implemented, with installed-host acceptance in progress. Copied-data cutover/rollback and release/deprecation remain open. The old app is intended to become an example/test host after replacement acceptance.
 - Keep PR #24 unmerged until the full extension setup is complete, as requested by the user.
 
 ## Released-core prerequisite
 
 At inventory time the only GitHub release is WorkFlow `v0.1.0-rc.1`. Comparing it to the merged prerequisite shows changes to `FlowQueueScheduler`, `FlowStepClaim`, `FlowDeferredCompletion`, `FlowReadySet`, `FlowStateTransition` and related execution types. A production `webong/gateway-weaver` dependency cannot honestly target that older release while requiring the new contracts. Gate 3 therefore also requires a compatible separately published WorkFlow core release; the feasibility probe may consume the exact merged source, but that is not external released-package acceptance.
+
+WorkFlow `v0.1.0-rc.2` was subsequently released at `278861082e00537fe7e759eb7c8bee3e7a3f0bf4`. Weaver now installs its tagged dist with the root-owned source projection plugin. The original source feasibility probe remains pinned to its inventoried commit.

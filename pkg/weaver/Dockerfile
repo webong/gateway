@@ -16,16 +16,24 @@ ARG WEAVER_REVISION=development
 COPY --from=bridge /gateway-workflow-bridge /usr/local/bin/workflowd
 COPY tools/workflow-runtime-gate/bundle.php /bundle.php
 RUN php /bundle.php
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git unzip && rm -rf /var/lib/apt/lists/*
 WORKDIR /extension
-COPY pkg/weaver/composer.json pkg/weaver/composer.lock ./
-RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts \
+COPY pkg/weaver/composer.json pkg/weaver/composer.lock pkg/weaver/composer-source.lock pkg/weaver/register.php ./
+ENV COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_ROOT_VERSION=0.1.0-dev
+RUN composer install --no-plugins --no-dev --no-interaction --prefer-dist --no-scripts \
+    && composer install --no-dev --no-interaction --prefer-dist --no-scripts
+COPY pkg/weaver/src /extension/src
+COPY pkg/weaver/scripts/assert-projection.php /extension/scripts/assert-projection.php
+RUN composer dump-autoload --no-dev --classmap-authoritative --no-scripts \
+    && php scripts/assert-projection.php && vendor/bin/workflow help \
     && find vendor -type d -name .git -prune -exec rm -rf {} +
 COPY pkg/weaver/src /package/src
 COPY pkg/weaver/schema /package/schema
 COPY pkg/weaver/bin /package/bin
+COPY pkg/weaver/routes /package/routes
+COPY pkg/weaver/register.php /package/register.php
 COPY pkg/weaver/public /package/public
-COPY pkg/weaver/LICENSE pkg/weaver/composer.json pkg/weaver/composer.lock /package/
+COPY pkg/weaver/LICENSE pkg/weaver/composer.json pkg/weaver/composer.lock pkg/weaver/composer-source.lock /package/
 COPY pkg/weaver/build/spinner /package/bin/spinner
 RUN cp -a vendor /package/vendor && mkdir -p /package/empty-tmp && chmod 1777 /package/empty-tmp
 COPY pkg/weaver/manifest.php /manifest.php

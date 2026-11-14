@@ -78,6 +78,10 @@ jobs:
           tools/workflow-runtime-gate/host-build.sh spinner
           tools/workflow-runtime-gate/host-build.sh roadrunner
           tools/workflow-runtime-gate/host-build.sh frankenphp
+      - name: Test installed Weaver Planner provider and resource boundaries
+        run: |
+          docker build --build-arg GATEWAY_PLANNER_IMAGE=gateway-workflow-base:roadrunner --target test -f pkg/weaver/planner-test.Dockerfile -t gateway-weaver-planner-test .
+          docker run --rm --user www-data gateway-weaver-planner-test
       - name: Exercise actual host matrix with the same verified package
         run: |
           python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}'
