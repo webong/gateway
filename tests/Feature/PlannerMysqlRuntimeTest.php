@@ -14,7 +14,7 @@ use Webong\Proxy\EnsureEndpoint;
 use Webong\Proxy\ProfileDefinition;
 
 /*
- * The Planner runs on MySQL 8.4 with the `mysql` connection in app/config.php, the
+ * The Planner runs on MySQL 8.4 with the `mysql` connection in app/planner/config.php, the
  * same configuration scripts/planner-start and scripts/router-start use. These tests
  * migrate a disposable database the way those launchers do (`gateway:migrate`, then
  * Proxy's migrations) and prove what differs from PostgreSQL and SQLite:
@@ -41,7 +41,7 @@ function plannerMysqlProxyMigrations(): string
 
 /**
  * Create a disposable database, point Laravel's default connection at it through the
- * real app/config.php `mysql` connection (read from DB_URL, as the launchers do), and
+ * real app/planner/config.php `mysql` connection (read from DB_URL, as the launchers do), and
  * migrate it. Returns the connection name and a teardown.
  *
  * @return array{string, Closure(): void}
@@ -69,7 +69,7 @@ function plannerMysqlRuntime(object $test, string $databaseCollation = 'utf8mb4_
 
     $previousUrl = getenv('DB_URL');
     putenv('DB_URL='.sprintf('mysql://%s:%s@%s:%d/%s', rawurlencode($username), rawurlencode($password), $host, $port, $database));
-    $connection = (require dirname(__DIR__, 2).'/app/config.php')['database']['connections']['mysql'];
+    $connection = (require dirname(__DIR__, 2).'/app/planner/config.php')['database']['connections']['mysql'];
 
     $name = 'planner_mysql';
     $previousDefault = config('database.default');

@@ -179,7 +179,7 @@ DB_URL=mysql://gateway:secret@mysql.internal:3306/gateway
 
 `scripts/planner-start migrate` then applies Gateway's schema, Proxy's migrations
 and the application's, as it does on PostgreSQL. What differs from PostgreSQL, and
-what Gateway does about it (`app/config.php`, the `mysql` connection):
+what Gateway does about it (`app/planner/config.php`, the `mysql` connection):
 
 - **Exact comparisons.** MySQL's default collations ignore case, accents and
   trailing spaces. The tables `gateway:migrate` creates are `utf8mb4_0900_bin`,

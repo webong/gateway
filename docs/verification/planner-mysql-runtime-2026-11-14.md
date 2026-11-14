@@ -13,7 +13,7 @@ the Planner's own runtime.
 
 | Area | Change |
 | --- | --- |
-| `app/config.php` | A `mysql` connection (URL, host, port, socket, utf8mb4, strict mode, `READ COMMITTED`, UTC, optional TLS CA). |
+| `app/planner/config.php` | A `mysql` connection (URL, host, port, socket, utf8mb4, strict mode, `READ COMMITTED`, UTC, optional TLS CA). |
 | `scripts/planner-start` | Accepts `DB_CONNECTION=pgsql` or `mysql` (still requires `DB_URL`). |
 | `scripts/router-start` | Unchanged: shared deliveries still require PostgreSQL and are refused with MySQL; the spool path works with a MySQL registry. |
 | Images | `pdo_mysql` added to the Planner, Router and Planner fixture images. |
@@ -47,7 +47,7 @@ All run when `GATEWAY_TEST_MYSQL_DATABASE` is set (CI's Planner job already has 
 
 | Test | What it proves |
 | --- | --- |
-| `PlannerMysqlRuntimeTest` serves a subscription and plans a delivery | The real `app/config.php` connection from `DB_URL`; `gateway:migrate` plus Proxy's migrations; a registry subscription through the HTTP API with a proxy profile; a planned and serialized relay; the connection is `READ-COMMITTED`, `+00:00` and `utf8mb4_0900_bin`; a second `gateway:migrate` is a no-op. |
+| `PlannerMysqlRuntimeTest` serves a subscription and plans a delivery | The real `app/planner/config.php` connection from `DB_URL`; `gateway:migrate` plus Proxy's migrations; a registry subscription through the HTTP API with a proxy profile; a planned and serialized relay; the connection is `READ-COMMITTED`, `+00:00` and `utf8mb4_0900_bin`; a second `gateway:migrate` is a no-op. |
 | `…` compares keys exactly | In a database whose default is the case-insensitive collation: every Gateway table is `utf8mb4_0900_bin`; `Alpha`, `alpha` and `alpha ` coexist as target names; two tokens differing only by case coexist. |
 | `…` stores dates after 2038 and JSON that keeps its meaning | All lease, schedule and heartbeat columns are `datetime`; a schedule at 2090-06-15 round-trips; JSON keeps its meaning and an embedded body survives byte for byte. |
 | `…` takes and releases database cache locks | The `database` cache store's value, lock contention, release and takeover of an expired lock. |

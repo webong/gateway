@@ -563,7 +563,7 @@ if (! function_exists('gatewayPlannerRunMigrationsMysql')) {
     /**
      * Run every Planner + proxy + application migration against a disposable
      * MySQL database, the way scripts/planner-start does: `gateway:migrate` through
-     * the real `mysql` connection in app/config.php, then Proxy's and the
+     * the real `mysql` connection in app/planner/config.php, then Proxy's and the
      * application's migrations.
      *
      * @param array{host: string, port: int, database: string, username: string, password: string} $connection
@@ -579,7 +579,7 @@ if (! function_exists('gatewayPlannerRunMigrationsMysql')) {
         }
         gatewayPlannerAssertResolvedDatabase();
 
-        $artisan = gatewayPlannerRepositoryRoot().'/app/artisan';
+        $artisan = gatewayPlannerRepositoryRoot().'/app/planner/artisan';
         $exitCode = null;
         $output = null;
         // The host environment says it is not a console; `gateway:migrate` is only registered in one.
