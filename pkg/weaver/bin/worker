@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Weaver\{RuntimeConfiguration,RuntimeFactory};
-require dirname(__DIR__).'/vendor/autoload.php';
+require __DIR__.'/bootstrap.php';
 $mode=$argv[1] ?? '--work';
 if (!in_array($mode,['--work','--once'],true)) {throw new InvalidArgumentException('Expected --work or --once.');}
 $path=getenv('GATEWAY_WEAVER_CONTEXT');
@@ -12,7 +12,7 @@ if (!is_string($path) || $path==='') {throw new RuntimeException('Private runtim
 $context=json_decode(file_get_contents($path),true,128,JSON_THROW_ON_ERROR);
 $configuration=new RuntimeConfiguration($context['configuration']);
 $configuration->assertAuthentication($context['authentication']);
-$runtime=new RuntimeFactory($configuration,$context['database']);
+$runtime=new RuntimeFactory($configuration,$context['database'],$context);
 $worker=$runtime->worker();
 $running=true;
 pcntl_async_signals(true);

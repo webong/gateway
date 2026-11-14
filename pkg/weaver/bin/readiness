@@ -4,13 +4,13 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Weaver\{RuntimeConfiguration,RuntimeFactory};
-require dirname(__DIR__).'/vendor/autoload.php';
+require __DIR__.'/bootstrap.php';
 try {
     $path=getenv('GATEWAY_WEAVER_CONTEXT');
     if (!is_string($path) || $path==='') {exit(1);}
     $context=json_decode(file_get_contents($path),true,128,JSON_THROW_ON_ERROR);
     $configuration=new RuntimeConfiguration($context['configuration']);
     $configuration->assertAuthentication($context['authentication']);
-    new RuntimeFactory($configuration,$context['database']);
+    new RuntimeFactory($configuration,$context['database'],$context);
     echo "READY\n";
 } catch(Throwable) {exit(1);}

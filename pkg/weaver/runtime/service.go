@@ -59,6 +59,7 @@ type child struct {
 	done chan struct{}
 }
 type Service struct {
+	destinations map[string]httpDestination
 	halt         chan struct{}
 	worker       *child
 	backend      string
@@ -167,14 +168,18 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 		}
 	}()
 	var settings struct {
-		SchemaVersion           int    `json:"schema_version"`
-		DatabaseReference       string `json:"database_ref"`
-		AuthenticationReference string `json:"authentication_ref"`
-		WorkerMode              string `json:"worker_mode"`
+		SchemaVersion           int               `json:"schema_version"`
+		DatabaseReference       string            `json:"database_ref"`
+		AuthenticationReference string            `json:"authentication_ref"`
+		WorkerMode              string            `json:"worker_mode"`
+		HTTPDestinations        map[string]string `json:"http_destinations"`
 	}
 	if json.Unmarshal(request.Configuration, &settings) != nil || settings.SchemaVersion != 1 ||
 		!secretReference.MatchString(settings.DatabaseReference) || !secretReference.MatchString(settings.AuthenticationReference) {
 		return result, errors.New("invalid Weaver runtime configuration or secret references")
+	}
+	if len(settings.HTTPDestinations) > 16 {
+		return result, errors.New("too many HTTP destination bindings")
 	}
 	if settings.WorkerMode == "" {
 		settings.WorkerMode = "gateway"
@@ -231,17 +236,55 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	if !json.Valid(database.Value) || !json.Valid(authentication.Value) {
 		return result, errors.New("invalid Weaver scoped secret value")
 	}
+	listener, e := net.Listen("tcp", "127.0.0.1:0")
+	if e != nil {
+		return result, e
+	}
+	defer func() {
+		if err != nil {
+			_ = listener.Close()
+		}
+	}()
+	destinationValues := map[string]arranger.SecretValue{}
+	destinations := map[string]httpDestination{}
+	for name, reference := range settings.HTTPDestinations {
+		if !secretReference.MatchString(name) || !secretReference.MatchString(reference) {
+			return result, errors.New("invalid HTTP destination reference")
+		}
+		secret, resolveErr := host.Secrets().Resolve(ctx, reference)
+		if resolveErr != nil {
+			return result, errors.New("scoped HTTP destination secret unavailable")
+		}
+		destination, parseErr := parseHTTPDestination(secret.Value)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		destinationValues[name] = secret
+		destinations[name] = destination
+	}
+	if len(destinations) > 0 {
+		var support arranger.DurableResponse
+		if reverse(ctx, caller, arranger.OperationSupportsPinnedHTTP, struct{}{}, &support) != nil || !support.Enabled {
+			return result, errors.New("Gateway HTTP delivery capability unavailable")
+		}
+	}
 	controlBytes := make([]byte, 32)
 	if _, e = rand.Read(controlBytes); e != nil {
 		return result, errors.New("private work credential unavailable")
 	}
 	controlToken := hex.EncodeToString(controlBytes)
+	httpBindings := map[string]map[string]any{}
+	for name, destination := range destinations {
+		httpBindings[name] = map[string]any{"fingerprint": destination.fingerprint(), "idempotent": destination.Idempotent}
+	}
 	contextDocument, e := json.Marshal(struct {
-		Configuration  json.RawMessage `json:"configuration"`
-		Database       json.RawMessage `json:"database"`
-		Authentication json.RawMessage `json:"authentication"`
-		ControlToken   string          `json:"control_token"`
-	}{request.Configuration, database.Value, authentication.Value, controlToken})
+		Configuration  json.RawMessage           `json:"configuration"`
+		Database       json.RawMessage           `json:"database"`
+		Authentication json.RawMessage           `json:"authentication"`
+		ControlToken   string                    `json:"control_token"`
+		DeliveryURL    string                    `json:"delivery_url"`
+		HTTPBindings   map[string]map[string]any `json:"http_bindings"`
+	}{request.Configuration, database.Value, authentication.Value, controlToken, "http://" + listener.Addr().String() + "/internal/deliver", httpBindings})
 	if e != nil {
 		return result, errors.New("invalid Weaver runtime context")
 	}
@@ -286,6 +329,7 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	s.mu.Lock()
 	s.backend = backend
 	s.controlToken = controlToken
+	s.destinations = destinations
 	s.broker = settings.WorkerMode == "gateway"
 	s.mu.Unlock()
 	_ = backendListener.Close()
@@ -320,10 +364,21 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+	// Revalidate provider secret versions before claims, and on every monitor tick.
+	providersCurrent := func(checkCtx context.Context) bool {
+		for name, reference := range settings.HTTPDestinations {
+			value, secretErr := host.Secrets().Resolve(checkCtx, reference)
+			expected := destinationValues[name]
+			if secretErr != nil || value.Version != expected.Version || !bytes.Equal(value.Value, expected.Value) {
+				return false
+			}
+		}
+		return true
+	}
 	// Revalidate capabilities after bootstrap, before the first worker claim.
 	freshDatabase, dbErr := host.Secrets().Resolve(ctx, settings.DatabaseReference)
 	freshAuthentication, authErr := host.Secrets().Resolve(ctx, settings.AuthenticationReference)
-	if dbErr != nil || authErr != nil || freshDatabase.Version != database.Version || freshAuthentication.Version != authentication.Version ||
+	if !providersCurrent(ctx) || dbErr != nil || authErr != nil || freshDatabase.Version != database.Version || freshAuthentication.Version != authentication.Version ||
 		!bytes.Equal(freshDatabase.Value, database.Value) || !bytes.Equal(freshAuthentication.Value, authentication.Value) {
 		return result, errors.New("Weaver scoped secrets changed during activation")
 	}
@@ -360,13 +415,14 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 	case <-ctx.Done():
 		return result, ctx.Err()
 	}
-	listener, e := net.Listen("tcp", "127.0.0.1:0")
-	if e != nil {
-		return result, e
-	}
 	target, _ := url.Parse("http://" + backend)
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	effectHandler := s.effectHandler(caller)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/internal/deliver" {
+			effectHandler.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path != "/workflow/rpc" {
 			http.NotFound(w, r)
 			return
@@ -412,8 +468,9 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 				checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				currentDatabase, dbErr := host.Secrets().Resolve(checkCtx, settings.DatabaseReference)
 				currentAuthentication, authErr := host.Secrets().Resolve(checkCtx, settings.AuthenticationReference)
+				providersReady := providersCurrent(checkCtx)
 				cancel()
-				if dbErr != nil || authErr != nil || currentDatabase.Version != database.Version || currentAuthentication.Version != authentication.Version ||
+				if !providersReady || dbErr != nil || authErr != nil || currentDatabase.Version != database.Version || currentAuthentication.Version != authentication.Version ||
 					!bytes.Equal(currentDatabase.Value, database.Value) || !bytes.Equal(currentAuthentication.Value, authentication.Value) {
 					s.close()
 					return

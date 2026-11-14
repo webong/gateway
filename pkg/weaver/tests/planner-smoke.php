@@ -88,3 +88,15 @@ check($registry->project('webong/gateway-weaver',$base)['accounts'][0]['grants']
 $kinds=$app->make(Webong\Gateway\Resources\ConfigurationKindRegistry::class)->all();
 check(in_array('weaver.definition',$kinds,true) && in_array('weaver.grant',$kinds,true),'Resource kinds were not registered');
 echo "PASS Planner entrypoint: real application/provider registry, immutable versions, explicit grants, account isolation, conditional revisions, revocation and fail-closed projection\n";
+
+// Spinner hashes json.RawMessage bytes, not a decoded/re-encoded object.
+$activation=$app->make(Webong\Gateway\Laravel\Companion\CompanionActionActivationStore::class);
+$activation->create(['extension'=>'example/wire-check','enabled'=>true,'version'=>'1.0.0','configuration'=>['pointer'=>'/orders/<new>','quoted'=>"a\"b&c'd"],'artifact'=>['url'=>'https://extensions.invalid/wire.tar.gz','sha256'=>str_repeat('a',64)]]);
+$app['config']->set('gateway.internal_token','disposable-wire-check');
+$request=Illuminate\Http\Request::create('/_internal/gateway/extensions','GET',server:['HTTP_X_GATEWAY_INTERNAL'=>'disposable-wire-check']);
+$response=$http->handle($request);$http->terminate($request,$response);
+check($response->getStatusCode()===200,'Distribution snapshot unavailable');
+$decoded=json_decode($response->getContent(),true,128,JSON_THROW_ON_ERROR);
+check(preg_match('/"configuration":(.*?),"configuration_sha256"/s',$response->getContent(),$wire)===1,'Raw configuration missing');
+check(hash('sha256',$wire[1])===$decoded['data'][0]['configuration_sha256'],'Configuration digest differs from distributed wire bytes');
+echo "PASS distributed JSON pointer/quoted configuration uses exact wire digest\n";

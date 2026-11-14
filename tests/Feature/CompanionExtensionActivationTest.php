@@ -302,6 +302,18 @@ it('serves enabled extension artifact desired state only to private plane reconc
         ]]]);
 });
 
+it('hashes the exact distributed configuration bytes including JSON pointers and HTML characters', function (): void {
+    $configuration=['pointer'=>'/orders/<new>','quoted'=>"a\"b&c'd"];
+    app(CompanionActionActivationStore::class)->create([
+        'extension'=>'example/wire-provider','enabled'=>true,'version'=>'1.0.0',
+        'configuration'=>$configuration,'artifact'=>['url'=>'https://extensions.example.test/wire.tar.gz','sha256'=>str_repeat('a',64)],
+    ]);
+    $response=$this->withHeader('X-Gateway-Internal','internal-secret')->getJson('/_internal/gateway/extensions')->assertOk();
+    expect(preg_match('/"configuration":(.*?),"configuration_sha256"/s',$response->getContent(),$wire))->toBe(1);
+    expect(json_decode($wire[1],true))->toBe($configuration)
+        ->and(hash('sha256',$wire[1]))->toBe($response->json('data.0.configuration_sha256'));
+});
+
 it('owns bounded warmed companion execution policy through Planner', function (): void {
     $created = $this->withToken('registry-secret')->postJson('/extensions', [
         'extension' => 'example/switch-provider',

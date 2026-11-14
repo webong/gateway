@@ -22,16 +22,19 @@ final readonly class QueueRpcRuntime
             throw new \RuntimeException('Invalid queue routing context.');
         }
         /** @var array<string, mixed> $context */
-        return $this->decorate($subject, $this->scheduler->start($run, $context, $this->key($subject, $reservation)));
+        if(ImportedRunIdentity::resolve($subject,$reservation)!==null){return $this->get($subject,$reservation);}
+        $key=$this->key($subject,$reservation);
+        return $this->decorate($this->scheduler->start($run,$context,$key),$key);
     }
 
     public function get(FlowStateSubject $subject, FlowState $reservation): FlowState
     {
-        $state = $this->scheduler->get($this->key($subject, $reservation));
+        $key=$this->key($subject,$reservation);
+        $state = $this->scheduler->get($key);
         if ($state === null) {
             throw new RpcFailure(-32009, 'Queue initialization is incomplete; retry flow.start');
         }
-        return $this->decorate($subject, $state);
+        return $this->decorate($state,$key);
     }
 
     public function resume(FlowStateSubject $subject, FlowState $reservation): FlowState
@@ -47,7 +50,8 @@ final readonly class QueueRpcRuntime
     {
         // Read first so incomplete initialization never falls through to a routing snapshot.
         $this->get($subject, $reservation);
-        return $this->decorate($subject, $this->scheduler->completeDeferred($completion, $this->key($subject, $reservation)));
+        $key=$this->key($subject,$reservation);
+        return $this->decorate($this->scheduler->completeDeferred($completion,$key),$key);
     }
 
     public function cancel(FlowStateSubject $subject, FlowState $reservation): FlowState
@@ -59,6 +63,8 @@ final readonly class QueueRpcRuntime
 
     private function key(FlowStateSubject $subject, FlowState $state): string
     {
+        $imported=ImportedRunIdentity::resolve($subject,$state);
+        if($imported!==null){return $imported;}
         $run = $state->run ?? throw new RpcFailure(-32004, 'Flow run not found');
         $key = RpcRunIdentity::executionId($subject, $run->definition->key, $run->id);
         if (($state->metadata['_rpc_authority'] ?? null) === 'queue-v1'
@@ -68,12 +74,12 @@ final readonly class QueueRpcRuntime
         return $key;
     }
 
-    private function decorate(FlowStateSubject $subject, FlowState $state): FlowState
+    private function decorate(FlowState $state, string $key): FlowState
     {
         return $state->withMetadata([
             'execution_driver' => 'queue',
             'execution_status' => 'dispatched',
-            'execution_id' => $this->key($subject, $state),
+            'execution_id' => $key,
         ]);
     }
 }

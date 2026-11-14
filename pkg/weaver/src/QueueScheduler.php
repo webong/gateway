@@ -170,9 +170,10 @@ final class QueueScheduler implements FlowQueueScheduler
     }
 
     /** Atomic delivery gate. Duplicate queue deliveries never execute a live attempt twice. */
-    public function beginExecution(string $claimId): ?FlowStepClaim
+    public function beginExecution(string $claimId,int $executionLeaseSeconds=0): ?FlowStepClaim
     {
-        return $this->transaction(function () use ($claimId): ?FlowStepClaim {
+        if($executionLeaseSeconds<0 || $executionLeaseSeconds>3600){throw new InvalidArgumentException('Invalid execution lease budget.');}
+        return $this->transaction(function () use ($claimId,$executionLeaseSeconds): ?FlowStepClaim {
             $row = $this->row('SELECT * FROM workflow_queue_claims WHERE id = ?', [$claimId]);
             if ($row === null || $row['status'] !== 'claimed' || (int) $row['expires_at'] <= $this->now()) {
                 return null;
@@ -182,7 +183,8 @@ final class QueueScheduler implements FlowQueueScheduler
             if ($state === null || $state->status === FlowStatus::CANCELLED) {
                 return null;
             }
-            $this->pdo->prepare("UPDATE workflow_queue_claims SET status = 'executing' WHERE id = ?")->execute([$claimId]);
+            $expiry=max((int)$row['expires_at'],$this->now()+$executionLeaseSeconds);
+            $this->pdo->prepare("UPDATE workflow_queue_claims SET status = 'executing', expires_at = ? WHERE id = ?")->execute([$expiry,$claimId]);
             return $claim;
         });
     }

@@ -80,3 +80,46 @@ func TestAdapterReadinessFencesSameIdentityReplacementAndAmbiguousProviders(t *t
 		t.Fatal("inactive provider remained ready")
 	}
 }
+
+// Implementing the optional interface is the explicit host opt-in.
+type pinnedHTTPExecutor struct {
+	legacyDurableExecutor
+	calls *int
+}
+
+func (p pinnedHTTPExecutor) DeliverPinnedHTTP(context.Context, integration.Delivery) (integration.Response, error) {
+	*p.calls++
+	return integration.Response{StatusCode: 204}, nil
+}
+
+func TestPinnedHTTPCapabilityRequiresExplicitExecutor(t *testing.T) {
+	host := NewHost()
+	request := plugin.Request{Contract: integration.DeliveryContract, Operation: integration.OperationSupportsPinnedHTTP}
+	host.Configure(Services{Executor: legacyDurableExecutor{}})
+	raw, err := host.handle(context.Background(), plugin.Identity{}, request)
+	if err != nil || string(raw) != `{"enabled":false}` {
+		t.Fatalf("legacy capability: %s %v", raw, err)
+	}
+	request.Operation = integration.OperationDeliverPinnedHTTP
+	if host.authorize(plugin.Identity{}, request) == nil {
+		t.Fatal("legacy executor acquired pinned delivery")
+	}
+	calls := 0
+	host.Configure(Services{Executor: pinnedHTTPExecutor{calls: &calls}})
+	request.Operation = integration.OperationSupportsPinnedHTTP
+	raw, err = host.handle(context.Background(), plugin.Identity{}, request)
+	if err != nil || string(raw) != `{"enabled":true}` {
+		t.Fatalf("opt-in capability: %s %v", raw, err)
+	}
+	request.Operation = integration.OperationDeliverPinnedHTTP
+	if err := host.authorize(plugin.Identity{}, request); err != nil {
+		t.Fatal(err)
+	}
+	request.Payload = json.RawMessage(`{"protocol":"http","url":"https://example.com/","method":"POST"}`)
+	if _, err := host.handle(context.Background(), plugin.Identity{}, request); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("pinned executor calls: %d", calls)
+	}
+}

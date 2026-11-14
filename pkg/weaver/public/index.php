@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use Webong\Gateway\Weaver\{RuntimeConfiguration,RuntimeFactory,RuntimeControl,RpcFailure};
 
-require_once dirname(__DIR__).'/vendor/autoload.php';
+require_once dirname(__DIR__).'/bin/bootstrap.php';
 header('Content-Type: application/json');
 try {
     $body=file_get_contents('php://input');
@@ -17,7 +17,7 @@ try {
     $context=json_decode(file_get_contents($path),true,128,JSON_THROW_ON_ERROR);
     $configuration=new RuntimeConfiguration($context['configuration']);
     $configuration->assertAuthentication($context['authentication']);
-    $runtime=new RuntimeFactory($configuration,$context['database']);
+    $runtime=new RuntimeFactory($configuration,$context['database'],$context);
     if ($request['method']==='workflow.ready') {
         $response=['result'=>['ready'=>true]];
     } elseif (($request['internal'] ?? false) === true) {

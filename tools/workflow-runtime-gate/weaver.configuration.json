@@ -2,10 +2,11 @@
   "schema_version": 1,
   "database_ref": "weaver-database",
   "authentication_ref": "weaver-authentication",
-  "lease_seconds": 2,
+  "lease_seconds": 10,
   "operations": [
     "gateway.approval",
-    "gateway.complete"
+    "gateway.complete",
+    "gateway.http.v1"
   ],
   "accounts": [
     {
@@ -64,6 +65,114 @@
               "label": "Fulfil",
               "depends_on": [
                 "approve"
+              ],
+              "metadata": {
+                "operation": "gateway.complete"
+              }
+            }
+          ]
+        },
+        {
+          "key": "gate_http",
+          "version": 1,
+          "steps": [
+            {
+              "id": "deliver",
+              "retriable": true,
+              "retry_policy": {
+                "enabled": true,
+                "max_attempts": 2,
+                "backoff_seconds": 0,
+                "idempotent": true
+              },
+              "input": {
+                "order_id": {
+                  "source": "context",
+                  "pointer": "/order_id"
+                }
+              },
+              "metadata": {
+                "operation": "gateway.http.v1",
+                "destination": "orders.v1",
+                "destination_sha256": "d96684b6585a84fe2e1d4caa2c352cf4eb1e7320be972cf43254be376f3c946d"
+              }
+            },
+            {
+              "id": "finish",
+              "depends_on": [
+                "deliver"
+              ],
+              "metadata": {
+                "operation": "gateway.complete"
+              }
+            }
+          ]
+        },
+        {
+          "key": "gate_http_unsafe",
+          "version": 1,
+          "steps": [
+            {
+              "id": "deliver",
+              "retriable": true,
+              "retry_policy": {
+                "enabled": true,
+                "max_attempts": 2,
+                "backoff_seconds": 0,
+                "idempotent": false
+              },
+              "input": {
+                "order_id": {
+                  "source": "context",
+                  "pointer": "/order_id"
+                }
+              },
+              "metadata": {
+                "operation": "gateway.http.v1",
+                "destination": "orders.unsafe",
+                "destination_sha256": "f6c245a916e1f0474ed10cdfdedca263d1057a213cc7a9bd655a014baed8c4a2"
+              }
+            },
+            {
+              "id": "finish",
+              "depends_on": [
+                "deliver"
+              ],
+              "metadata": {
+                "operation": "gateway.complete"
+              }
+            }
+          ]
+        },
+        {
+          "key": "gate_http_rotation",
+          "version": 1,
+          "steps": [
+            {
+              "id": "deliver",
+              "retriable": true,
+              "retry_policy": {
+                "enabled": true,
+                "max_attempts": 2,
+                "backoff_seconds": 30,
+                "idempotent": true
+              },
+              "input": {
+                "order_id": {
+                  "source": "context",
+                  "pointer": "/order_id"
+                }
+              },
+              "metadata": {
+                "operation": "gateway.http.v1",
+                "destination": "orders.v1",
+                "destination_sha256": "d96684b6585a84fe2e1d4caa2c352cf4eb1e7320be972cf43254be376f3c946d"
+              }
+            },
+            {
+              "id": "finish",
+              "depends_on": [
+                "deliver"
               ],
               "metadata": {
                 "operation": "gateway.complete"
@@ -140,8 +249,51 @@
             "flow.cancel",
             "flow.operations"
           ]
+        },
+        {
+          "account": "gate-account",
+          "flow_key": "gate_http",
+          "subject": {
+            "type": "order",
+            "id": "gate-subject"
+          },
+          "actions": [
+            "flow.start",
+            "flow.get",
+            "flow.cancel"
+          ]
+        },
+        {
+          "account": "gate-account",
+          "flow_key": "gate_http_unsafe",
+          "subject": {
+            "type": "order",
+            "id": "gate-subject"
+          },
+          "actions": [
+            "flow.start",
+            "flow.get",
+            "flow.cancel"
+          ]
+        },
+        {
+          "account": "gate-account",
+          "flow_key": "gate_http_rotation",
+          "subject": {
+            "type": "order",
+            "id": "gate-subject"
+          },
+          "actions": [
+            "flow.start",
+            "flow.get",
+            "flow.cancel"
+          ]
         }
       ]
     }
-  ]
+  ],
+  "http_destinations": {
+    "orders.v1": "weaver-http-orders",
+    "orders.unsafe": "weaver-http-unsafe"
+  }
 }

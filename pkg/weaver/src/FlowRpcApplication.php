@@ -455,7 +455,7 @@ final readonly class FlowRpcApplication
         }
         $data = $state->toArray();
         $metadata = $state->metadata;
-        unset($metadata['_rpc_context'], $metadata['_rpc_claim'], $metadata['_rpc_authority'], $metadata['_queue_storage_id']);
+        unset($metadata['_rpc_context'], $metadata['_rpc_claim'], $metadata['_rpc_authority'], $metadata['_queue_storage_id'], $metadata['_rpc_import']);
         $data['metadata'] = $metadata;
         $data['execution_claim'] = $state->metadata['_rpc_claim'] ?? null;
 

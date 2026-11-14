@@ -133,7 +133,10 @@ func (h *Host) authorize(identity plugin.Identity, request plugin.Request) error
 	case integration.DeliveryContract:
 		if services.Executor != nil && (request.Operation == integration.OperationDeliver ||
 			request.Operation == integration.OperationEnqueue || request.Operation == integration.OperationEnqueueGateway ||
-			request.Operation == integration.OperationDurable) {
+			request.Operation == integration.OperationDurable || request.Operation == integration.OperationSupportsPinnedHTTP) {
+			return nil
+		}
+		if _, ok := services.Executor.(integration.PinnedHTTPExecutor); ok && request.Operation == integration.OperationDeliverPinnedHTTP {
 			return nil
 		}
 		if _, ok := services.Executor.(integration.IdempotentGatewayDeliverySupport); ok && request.Operation == integration.OperationDurableIdempotent {
@@ -277,12 +280,25 @@ func handlePlanner(ctx context.Context, services Services, identity plugin.Ident
 
 func handleDelivery(ctx context.Context, services Services, request plugin.Request) (json.RawMessage, error) {
 	switch request.Operation {
-	case integration.OperationDeliver:
+	case integration.OperationSupportsPinnedHTTP:
+		_, enabled := services.Executor.(integration.PinnedHTTPExecutor)
+		return json.Marshal(integration.DurableResponse{Enabled: enabled})
+	case integration.OperationDeliver, integration.OperationDeliverPinnedHTTP:
 		var input integration.Delivery
 		if err := decode(request.Payload, &input); err != nil || input.Validate() != nil {
 			return nil, plugin.ErrInvalid
 		}
-		response, err := services.Executor.Deliver(ctx, input)
+		var response integration.Response
+		var err error
+		if request.Operation == integration.OperationDeliverPinnedHTTP {
+			executor, ok := services.Executor.(integration.PinnedHTTPExecutor)
+			if !ok {
+				return nil, plugin.ErrDenied
+			}
+			response, err = executor.DeliverPinnedHTTP(ctx, input)
+		} else {
+			response, err = services.Executor.Deliver(ctx, input)
+		}
 		if err != nil {
 			return nil, err
 		}

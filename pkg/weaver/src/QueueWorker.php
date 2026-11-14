@@ -21,6 +21,7 @@ final class QueueWorker
         private QueueScheduler $scheduler,
         private array $executors,
         private FlowStepExecution $execution = new FlowStepExecution(),
+        private int $executionLeaseSeconds=0,
     ) {
     }
 
@@ -37,7 +38,7 @@ final class QueueWorker
     /** Broker mode. Only the opaque claim ID is accepted; payload and executors are host-owned. */
     public function handle(string $claimId): bool
     {
-        $claim = $this->scheduler->beginExecution($claimId);
+        $claim = $this->scheduler->beginExecution($claimId,$this->executionLeaseSeconds);
         if ($claim === null) {
             return false;
         }

@@ -175,7 +175,7 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 	}
 	forwardURL := targetURL.String()
 
-	f.logger.Debug("Forwarding to: %s", forwardURL)
+	f.logger.Debug("Forwarding HTTP request")
 	requestContext := req.Context
 	if requestContext == nil {
 		requestContext = context.Background()
@@ -203,6 +203,11 @@ func (f *Forwarder) forward(req ForwardRequest, captureBody bool) (ForwardRespon
 	}
 	if err != nil {
 		return ForwardResponse{}, err
+	}
+	if req.Transport.DisableRedirects {
+		pinned := *client
+		pinned.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &pinned
 	}
 	resp, err := client.Do(httpReq)
 	if err != nil {

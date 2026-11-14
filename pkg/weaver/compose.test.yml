@@ -17,6 +17,7 @@ services:
       MYSQL_USER: workflow
       MYSQL_PASSWORD: disposable-workflow-test
       MYSQL_ROOT_PASSWORD: disposable-workflow-root
+      MYSQL_ROOT_HOST: "%"
     healthcheck:
       test: [CMD, mysqladmin, ping, --protocol=tcp, -h, 127.0.0.1, -pdisposable-workflow-root]
       interval: 2s

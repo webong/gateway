@@ -8,3 +8,4 @@ trap '"${compose[@]}" down --volumes --remove-orphans >/dev/null' EXIT
 "${compose[@]}" build test
 "${compose[@]}" run --rm test "$@"
 python3 "$root/pkg/weaver/tests/http-smoke.py" "$WORKFLOW_TEST_IMAGE"
+python3 "$root/pkg/weaver/tests/cutover-smoke.py" "$WORKFLOW_TEST_IMAGE"

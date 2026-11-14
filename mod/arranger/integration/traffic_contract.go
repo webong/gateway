@@ -204,6 +204,12 @@ type GatewayDeliveryAdapter interface {
 	DeliverGateway(context.Context, GatewayDelivery) error
 }
 
+// PinnedHTTPExecutor returns redirects to the caller rather than selecting a
+// different effect destination. Hosts opt in explicitly; legacy Deliver is unchanged.
+type PinnedHTTPExecutor interface {
+	DeliverPinnedHTTP(context.Context, Delivery) (Response, error)
+}
+
 // GatewayDeliveryResult records non-sensitive outcome metadata from one attempt.
 type GatewayDeliveryResult struct {
 	ResponseStatus int

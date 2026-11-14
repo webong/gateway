@@ -12,7 +12,8 @@ The production Spinner entrypoint, bridge, worker, application stores, explicit
 schema installer and account-scoped runtime authorization have been extracted.
 The dependency now uses released WorkFlow v0.1.0-rc.2 at
 `278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, installed as a dist with a root-owned
-core projection. The installed Planner provider and resource tests pass locally.
+core projection. The installed Planner provider and resource tests pass, including exact Composer
+TAR installation.
 The full extension setup remains incomplete.
 
 ## Runtime decision (gates 1–2)
@@ -45,15 +46,20 @@ separate early merge gate before extraction.
   including denied scopes, invalid configuration, secret rotation/revocation and
   unavailable storage. The installed host matrix seeds through WeaverResources and consumes the
   real provider projection. Operator HTTP boundaries have separate installed-app
-  tests. Production-secret and unavailable-storage rehearsals remain required.
+  tests. Credential rotation, live grant revocation, invalid projection and unavailable
+  storage rejection now pass on the actual local three-host matrix. Native CI
+  reruns the same acceptance for both architectures.
 
 ## Delivery, failure coverage and SQL acceptance (gate 5)
 
 - Implemented: exact durable-idempotent and own-process adapter-readiness
   capabilities, stable outbox receipt IDs, fenced acknowledgement after durable
   acceptance, opaque-claim delivery and the atomic execution gate. Transient
-  enqueue/control/ack failures retry without activation changes. Real business
-  provider operations remain to be deployed and accepted.
+  enqueue/control/ack failures retry without activation changes. `gateway.http.v1` now uses an operator-secret destination, pinned method/URL/
+  provider deduplication scope/header and a no-redirect host capability. Real local
+  host acceptance proves one effect after a lost response, non-idempotent fencing
+  and receipt preservation across credential rotation. Production acceptance remains
+  operator-owned.
 - Test absent, inactive, ambiguous and incompatible bindings; publication crashes,
   uncertain provider effects, stale completion/heartbeat fencing, backoff/deadlines,
   cancellation races and authenticated callback correlation across replacement.
@@ -71,19 +77,30 @@ separate early merge gate before extraction.
 
 ## Cutover and rollback rehearsal (gate 6)
 
-- Rehearse on copied standalone data: drain claims, reconcile uncertain effects,
-  migrate routing reservations and queue records, switch the endpoint and accept
-  callbacks issued before cutover.
-- Assert pinned definitions/context, logical/scoped identities, attempts, callback
-  receipts, outbox IDs and effect-idempotency keys survive. Audit the MySQL identity
-  upgrade where required.
-- Rehearse rollback and document schema/version compatibility and the point beyond
-  which rollback needs reconciliation. Never run old and new active writers on the
-  same executions, or silently convert inline/queue/Temporal authority.
+- Implemented and rehearsed: read-only standalone source -> fresh same-engine
+  destination, explicit account assignments/imported routing markers and unchanged
+  queue/claim/outbox records. SQLite, PostgreSQL and MySQL round trips preserve
+  original execution IDs, pinned definitions/context, attempts and callback/effect
+  idempotency inputs. MySQL requires audited binary identities.
+- Real native RPC endpoint rehearsal stops the old writer, runs the packaged CLI,
+  switches to Weaver under new credentials, accepts an old callback and replays it,
+  then stops Weaver and rolls current progress into a fresh legacy database.
+- Regression guards reject active claims/reservations, wrong imported scopes,
+  missing queue reinitialization, existing destinations and unsupported authority.
+  Cross-engine migration is unsupported. Weaver-native runs/unrouted records stop
+  automatic legacy rollback rather than changing authority.
+- The operator still owns a production-specific backup/drain/reconciliation plan.
+  See `pkg/weaver/UPGRADE.md`; no production data was accessed or migrated.
 
 ## Release and deprecation (gate 7)
 
-- Publish reproducible Linux amd64/arm64 extension artifacts, Composer metadata and
+- Candidate preparation now checks manifest/file integrity, shared versions,
+  runtime/Composer source parity and deterministic archives. The exact Composer
+  TAR installs into a real isolated Planner consumer.
+- Builds pin the core runtime and bridge/static-entrypoint builder by OCI digest.
+  Archive regeneration is deterministic; independent clean rebuild comparison and
+  native candidate CI still need final evidence. Publish Linux amd64/arm64 extension
+  artifacts, Composer metadata and
   checksums through the reviewed release process; validate publisher/artifact trust.
 - Smoke-test fresh installation from published artifacts and ship approval/order
   examples plus installation, authentication, upgrade, operation and rollback docs.

@@ -5,3 +5,5 @@
 /.gateway-router-data/
 /dist/
 .DS_Store
+
+/.workflow-gate-source/

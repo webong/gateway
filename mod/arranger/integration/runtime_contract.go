@@ -20,6 +20,8 @@ const (
 	OperationPrivatePassThrough = "private-pass-through"
 
 	OperationDeliver                  = "deliver"
+	OperationDeliverPinnedHTTP        = "deliver-pinned-http"
+	OperationSupportsPinnedHTTP       = "supports-pinned-http"
 	OperationEnqueue                  = "enqueue"
 	OperationEnqueueGateway           = "enqueue-gateway"
 	OperationEnqueueGatewayIdempotent = "enqueue-gateway-idempotent"

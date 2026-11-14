@@ -70,6 +70,12 @@ func (d deliveryClient) Deliver(ctx context.Context, input Delivery) (Response, 
 	return result.Response, err
 }
 
+func (d deliveryClient) DeliverPinnedHTTP(ctx context.Context, input Delivery) (Response, error) {
+	var result DeliveryResponse
+	err := call(ctx, d.caller, DeliveryContract, OperationDeliverPinnedHTTP, input, &result)
+	return result.Response, err
+}
+
 func (d deliveryClient) Enqueue(input Delivery) bool {
 	var result EnqueueResponse
 	return call(context.Background(), d.caller, DeliveryContract, OperationEnqueue, input, &result) == nil && result.Accepted

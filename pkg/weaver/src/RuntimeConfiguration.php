@@ -11,6 +11,8 @@ final readonly class RuntimeConfiguration
     public string $authenticationReference;
     public int $leaseSeconds;
     public string $workerMode;
+    public array $httpDestinations;
+    public array $httpRequirements;
     public ApprovedOperations $operations;
     /** @var array<string, PublishedDefinitions> */
     public array $definitions;
@@ -19,7 +21,7 @@ final readonly class RuntimeConfiguration
 
     public function __construct(array $document)
     {
-        if (array_diff(array_keys($document),['schema_version','database_ref','authentication_ref','lease_seconds','operations','accounts','worker_mode']) !== []
+        if (array_diff(array_keys($document),['schema_version','database_ref','authentication_ref','lease_seconds','operations','accounts','worker_mode','http_destinations']) !== []
             || ($document['schema_version'] ?? null)!==1) {
             throw new \InvalidArgumentException('Unsupported WorkFlow runtime configuration.');
         }
@@ -36,11 +38,17 @@ final readonly class RuntimeConfiguration
         $mode=$document['worker_mode']??'gateway';
         if(!in_array($mode,['gateway','poll'],true)){throw new \InvalidArgumentException('Invalid worker delivery mode.');}
         $this->workerMode=$mode;
+        $destinations=$document['http_destinations']??[];
+        if(!is_array($destinations) || count($destinations)>16){throw new \InvalidArgumentException('Invalid HTTP destination references.');}
+        foreach($destinations as $name=>$reference){
+            if(!is_string($name) || !is_string($reference) || preg_match('/\A[a-z][a-z0-9._-]{0,63}\z/D',$name)!==1 || preg_match('/\A[a-z][a-z0-9._-]{0,63}\z/D',$reference)!==1){throw new \InvalidArgumentException('HTTP destinations require named scoped secret references.');}
+        }
+        $this->httpDestinations=$destinations;
         if (!is_array($document['operations'] ?? null)) {throw new \InvalidArgumentException('Approved operations are required.');}
         $this->operations=new ApprovedOperations($document['operations']);
         $accounts=$document['accounts'] ?? null;
         if (!is_array($accounts) || !array_is_list($accounts) || $accounts===[]) {throw new \InvalidArgumentException('Explicit WorkFlow accounts are required.');}
-        $definitions=[];$grants=[];
+        $definitions=[];$grants=[];$httpRequirements=[];
         foreach($accounts as $account) {
             if (!is_array($account) || array_diff(array_keys($account),['id','definitions','grants'])!==[]
                 || !is_string($account['id'] ?? null) || $account['id']==='' || strlen($account['id'])>200
@@ -49,6 +57,13 @@ final readonly class RuntimeConfiguration
                 throw new \InvalidArgumentException('Invalid WorkFlow account projection.');
             }
             $definitions[$account['id']]=new PublishedDefinitions($account['definitions'],$this->operations);
+            foreach($account['definitions'] as $definition){foreach($definition['steps']??[] as $step){
+                if(($step['metadata']['operation']??null)==='gateway.http.v1'){
+                    $name=$step['metadata']['destination'];
+                    if(!isset($destinations[$name])){throw new \InvalidArgumentException('HTTP step selects an unavailable destination binding.');}
+                    $httpRequirements[]=['destination'=>$name,'fingerprint'=>$step['metadata']['destination_sha256'],'idempotent'=>($step['retry_policy']['idempotent']??false)===true];
+                }
+            }}
             foreach($account['grants'] as $documentGrant) {
                 if (!is_array($documentGrant)) {throw new \InvalidArgumentException('Invalid WorkFlow grant.');}
                 $grant=RunGrant::fromArray($documentGrant);
@@ -57,6 +72,7 @@ final readonly class RuntimeConfiguration
                 $grants[]=$grant;
             }
         }
+        $this->httpRequirements=$httpRequirements;
         $this->definitions=$definitions;
         $this->grants=$grants;
     }

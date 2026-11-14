@@ -1,0 +1,24 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Webong\Gateway\Weaver\{ConnectionFactory,RuntimeConfiguration,StandaloneCutover};
+require __DIR__.'/bootstrap.php';
+if(count($argv)!==3 || !in_array($argv[1],['--copy','--rollback'],true) || $argv[2]!=='--writers-stopped'){
+    fwrite(STDERR,"Usage: GATEWAY_WEAVER_CUTOVER_CONTEXT=/private/cutover.json bin/cutover --copy|--rollback --writers-stopped\n");exit(2);
+}
+try {
+    $path=getenv('GATEWAY_WEAVER_CUTOVER_CONTEXT');
+    if(!is_string($path) || $path==='' || !is_file($path) || (fileperms($path)&0077)!==0){throw new RuntimeException('Private cutover context required.');}
+    $context=json_decode(file_get_contents($path),true,128,JSON_THROW_ON_ERROR);
+    $source=ConnectionFactory::readOnlySource($context['source']);
+    $destination=ConnectionFactory::cutoverDestination($context['destination']);
+    if($argv[1]==='--copy'){
+        StandaloneCutover::copy($source,$destination,new RuntimeConfiguration($context['configuration']),$context['assignments']);
+    }else{StandaloneCutover::rollback($source,$destination);}
+    fwrite(STDOUT,"Offline copy completed. Verify the destination before switching its endpoint; keep the previous writer stopped.\n");
+}catch(Throwable){
+    // PDO errors may contain operational identifiers; never dump private context.
+    fwrite(STDERR,"Offline copy failed. Source was not modified. Check quiescence, scope assignments, compatible schema and an unused destination.\n");exit(1);
+}

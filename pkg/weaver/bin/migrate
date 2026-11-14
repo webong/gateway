@@ -4,7 +4,7 @@
 declare(strict_types=1);
 
 use Webong\Gateway\Weaver\{ConnectionFactory,OperationalSchema};
-require dirname(__DIR__).'/vendor/autoload.php';
+require __DIR__.'/bootstrap.php';
 if (($argv[1] ?? null)!=='--install' || count($argv)!==2) {
     fwrite(STDERR,"Usage: GATEWAY_WEAVER_CONTEXT=/private/context.json bin/migrate --install\n");exit(2);
 }

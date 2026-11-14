@@ -100,7 +100,11 @@ func (s *Service) control(ctx context.Context, method string, params, output any
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+	timeout := 5 * time.Second
+	if method == "work.handle" {
+		timeout = 25 * time.Second
+	}
+	response, err := (&http.Client{Timeout: timeout}).Do(request)
 	if err != nil {
 		return err
 	}

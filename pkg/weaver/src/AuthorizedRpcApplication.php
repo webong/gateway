@@ -27,9 +27,8 @@ final readonly class AuthorizedRpcApplication
         // The legacy RPC adapter scopes by subject/flow/run. Include authenticated
         // account in that storage identity while retaining the public logical ID.
         $subject = $params['subject'];
-        $params['subject'] = ['type' => 'gateway.workflow.account', 'id' => hash('sha256', json_encode(
-            [$account, $subject['type'], $subject['id']], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
-        ))];
+        $scoped=RpcRunIdentity::accountSubject($account,new \Webong\WorkFlow\ValueObjects\FlowStateSubject($subject['type'],$subject['id']));
+        $params['subject']=['type'=>$scoped->type,'id'=>$scoped->id];
         if ($method === 'flow.start') {
             if (isset($params['driver']) && $params['driver'] !== 'queue') {
                 throw new RpcFailure(-32602, 'Unknown or unavailable execution driver');

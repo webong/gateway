@@ -10,8 +10,9 @@ logical run IDs are preserved.
 stores, explicit operational installer, account grants and Planner resource
 provider. Production uses the released `webong/workflow:0.1.0-rc.2` dist at
 `278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, projected to the `core` surface.
-The runtime and SQL/host acceptance are under active validation. Copied-data
-cutover/rollback and reproducible release/installation acceptance remain open.
+The native host and SQL acceptance passed. Offline copied-data cutover/rollback
+is implemented and rehearsed on all three SQL engines and real RPC endpoints.
+Release publication/trust and fresh published-artifact installation remain open.
 PR #24 stays unmerged until the full extension setup is complete.
 
 ## Runtime package
@@ -122,8 +123,8 @@ and generated ini rather than assuming a host PHP installation.
 
 Installation is idempotent for this package's schema version and preserves queue
 capacity and rows. Unknown versions, partial installs and unversioned standalone
-tables fail closed. Existing standalone data needs the copied-data migration and
-rollback rehearsal; `schema/mysql-queue-rpc-upgrade.sql` is retained for that
+tables fail closed. Existing standalone data uses the explicit same-engine copy and current-progress
+rollback in [UPGRADE.md](UPGRADE.md); `schema/mysql-queue-rpc-upgrade.sql` is retained for that
 explicit maintenance path, never an activation hook.
 
 The routing reservation pins authority/definition/context; queue rows remain
@@ -139,3 +140,20 @@ the old WorkFlow application may move under `examples/` as a test and reference
 host. It should not remain a second supported production host. The independent
 engine and authoring CLI remain WorkFlow-owned. No legacy source is removed by
 this extraction.
+
+## Candidate archives
+
+`python3 pkg/weaver/package.py gateway-weaver:arm64 /private/candidate` verifies
+manifest coverage/digests, matching runtime/Composer source, shared identity and
+version, and deterministic USTAR/gzip bytes. It writes separate runtime and
+Composer TARs, SHA256SUMS and explicit Composer dist metadata. The dist consumer
+smoke installs that TAR into the real Planner and checks authoritative autoload,
+core projection and resource authorization. No repository path dependency or
+release publication is involved in that check.
+
+For a reviewed clean release source, build with `WEAVER_VERSION` and use the
+packager's `--release` plus a reviewed HTTPS `--asset-base`. `--release` rejects
+dirty/wrong revisions and development versions. This is local candidate
+preparation; pinned build inputs, publisher trust, publication and fresh HTTPS
+installation must be accepted before release completion. The core-release
+publication exception does not publish Weaver.

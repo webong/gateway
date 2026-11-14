@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "database_ref": "workflow-database",
+  "authentication_ref": "workflow-auth",
+  "operations": [
+    "gateway.approval",
+    "gateway.http.v1"
+  ],
+  "accounts": [
+    {
+      "id": "example-account",
+      "definitions": [
+        {
+          "key": "order-http-approval",
+          "version": 1,
+          "steps": [
+            {
+              "id": "approve",
+              "label": "Approve order",
+              "metadata": {
+                "operation": "gateway.approval"
+              }
+            },
+            {
+              "id": "fulfil",
+              "depends_on": [
+                "approve"
+              ],
+              "retriable": true,
+              "retry_policy": {
+                "enabled": true,
+                "max_attempts": 3,
+                "backoff_seconds": 5,
+                "idempotent": true
+              },
+              "input": {
+                "order_id": {
+                  "source": "context",
+                  "pointer": "/order_id"
+                }
+              },
+              "metadata": {
+                "operation": "gateway.http.v1",
+                "destination": "orders.v1",
+                "destination_sha256": "124e5a7238e4e87786f8b225e0d4f34c7ffe0ef8377bea00ac262c3885e070fb"
+              }
+            }
+          ]
+        }
+      ],
+      "grants": [
+        {
+          "account": "example-account",
+          "flow_key": "order-http-approval",
+          "subject": {
+            "type": "order",
+            "id": "42"
+          },
+          "actions": [
+            "flow.definition",
+            "flow.get",
+            "flow.start",
+            "flow.complete",
+            "flow.resume",
+            "flow.cancel",
+            "flow.operations"
+          ]
+        }
+      ]
+    }
+  ],
+  "http_destinations": {
+    "orders.v1": "orders-provider-v1"
+  }
+}
