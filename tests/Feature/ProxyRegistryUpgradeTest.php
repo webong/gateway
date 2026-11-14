@@ -21,9 +21,9 @@ use Webong\Proxy\Database\SubscriptionIdentity;
  *    one additive migration, and only that migration runs;
  *  - MySQL 8.4 with its default utf8mb4 now accepts the Proxy migrations.
  *
- * Gateway still runs only SQLite and PostgreSQL. The MySQL case is evidence for
- * a later runtime decision and is skipped unless GATEWAY_TEST_MYSQL_DATABASE is
- * set, like the Planner's own MySQL migration test.
+ * The MySQL case is skipped unless GATEWAY_TEST_MYSQL_DATABASE is set, like the
+ * Planner's own MySQL migration test. The Planner's MySQL runtime is covered by
+ * PlannerMysqlRuntimeTest.
  */
 
 const PROXY_PORTABLE_IDENTITY_MIGRATION = '2026_11_12_000001_use_portable_subscription_identity';

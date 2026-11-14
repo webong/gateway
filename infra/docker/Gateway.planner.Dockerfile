@@ -2,7 +2,7 @@ ARG SWOOLE_VERSION=6.2.3
 
 FROM dunglas/frankenphp:php8.4-bookworm AS frankenphp
 
-RUN install-php-extensions bcmath pcntl pdo_pgsql sockets
+RUN install-php-extensions bcmath pcntl pdo_mysql pdo_pgsql sockets
 
 FROM php:8.4-fpm-bookworm AS fpm
 
@@ -12,7 +12,7 @@ FROM php:8.4-cli-bookworm AS php-base
 
 ARG SWOOLE_VERSION
 COPY --from=frankenphp /usr/local/bin/install-php-extensions /usr/local/bin/install-php-extensions
-RUN install-php-extensions bcmath pcntl pdo_pgsql sockets \
+RUN install-php-extensions bcmath pcntl pdo_mysql pdo_pgsql sockets \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends $PHPIZE_DEPS g++ libssl-dev \

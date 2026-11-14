@@ -128,6 +128,7 @@ if (! function_exists('gatewayPlannerIsolatedEnvironment')) {
         $environment = array_fill_keys([
             'DB_CONNECTION', 'DB_URL', 'DATABASE_URL', 'DB_HOST', 'DB_PORT', 'DB_DATABASE',
             'DB_USERNAME', 'DB_PASSWORD', 'DB_SOCKET', 'DB_CHARSET', 'DB_COLLATION', 'DB_SSLMODE',
+            'DB_TIMEZONE', 'DB_ISOLATION_LEVEL', 'MYSQL_ATTR_SSL_CA',
         ], null);
 
         foreach ([
@@ -249,6 +250,27 @@ if (! function_exists('gatewayPlannerPostgresServerIdentity')) {
     }
 }
 
+if (! function_exists('gatewayPlannerMysqlServerIdentity')) {
+    /**
+     * Identify the MySQL server and database a client reaches, from outside
+     * Laravel: current database, listening port, and the server's UUID (stable for
+     * one data directory, different across servers).
+     *
+     * @return array{database: string, port: int, server_uuid: string}
+     */
+    function gatewayPlannerMysqlServerIdentity(string $host, int $port, string $database, string $username, string $password): array
+    {
+        $pdo = new PDO(sprintf('mysql:host=%s;port=%d;dbname=%s', $host, $port, $database), $username, $password);
+        $row = $pdo->query('SELECT DATABASE() AS name, @@port AS port, @@server_uuid AS uuid')->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'database' => (string) $row['name'],
+            'port' => (int) $row['port'],
+            'server_uuid' => (string) $row['uuid'],
+        ];
+    }
+}
+
 if (! function_exists('gatewayPlannerResolveDatabase')) {
     /**
      * Ask a fresh PHP process (booted the same way as migrations, seeding and the
@@ -338,6 +360,26 @@ if (! function_exists('gatewayPlannerAssertResolvedDatabase')) {
             $resolved = $report['identity'] ?? null;
             if ($resolved !== $expected) {
                 $problems[] = 'PostgreSQL server identity '.json_encode($resolved).', expected '.json_encode($expected);
+            }
+        } elseif ($driver === 'mysql') {
+            $host = (string) getenv('DB_HOST');
+            $port = (int) getenv('DB_PORT');
+            if (($report['database'] ?? null) !== $intended) {
+                $problems[] = sprintf('MySQL database %s, expected %s', var_export($report['database'] ?? null, true), $intended);
+            }
+            if (($report['host'] ?? null) !== $host || ($report['port'] ?? null) !== $port) {
+                $problems[] = sprintf('MySQL endpoint %s:%s, expected %s:%d', $report['host'] ?? '?', $report['port'] ?? '?', $host, $port);
+            }
+            $expected = gatewayPlannerMysqlServerIdentity(
+                $host,
+                $port,
+                $intended,
+                (string) getenv('DB_USERNAME'),
+                (string) getenv('DB_PASSWORD'),
+            );
+            $resolved = $report['identity'] ?? null;
+            if ($resolved !== $expected) {
+                $problems[] = 'MySQL server identity '.json_encode($resolved).', expected '.json_encode($expected);
             }
         } else {
             $problems[] = "unsupported driver [$driver] for resolved-database verification";
@@ -484,6 +526,82 @@ if (! function_exists('gatewayPlannerBaseEnvPostgres')) {
     function gatewayPlannerBaseEnvPostgres(string $dataDirectory, array $connection): array
     {
         return array_merge(gatewayPlannerBaseEnv($dataDirectory, $connection['database'], 'pgsql'), [
+            'DB_HOST' => $connection['host'],
+            'DB_PORT' => (string) $connection['port'],
+            'DB_USERNAME' => $connection['username'],
+            'DB_PASSWORD' => $connection['password'],
+        ]);
+    }
+}
+
+if (! function_exists('gatewayPlannerMysqlConnection')) {
+    /**
+     * Read the disposable MySQL server from the environment, or return null when
+     * MySQL is not configured (tests should then skip).
+     *
+     * @return array{driver: string, host: string, port: int, database: string, username: string, password: string}|null
+     */
+    function gatewayPlannerMysqlConnection(): ?array
+    {
+        $database = getenv('GATEWAY_TEST_MYSQL_DATABASE');
+        if (! is_string($database) || $database === '') {
+            return null;
+        }
+
+        return [
+            'driver' => 'mysql',
+            'host' => getenv('GATEWAY_TEST_MYSQL_HOST') ?: '127.0.0.1',
+            'port' => (int) (getenv('GATEWAY_TEST_MYSQL_PORT') ?: 3306),
+            'database' => $database,
+            'username' => getenv('GATEWAY_TEST_MYSQL_USERNAME') ?: 'root',
+            'password' => getenv('GATEWAY_TEST_MYSQL_PASSWORD') ?: '',
+        ];
+    }
+}
+
+if (! function_exists('gatewayPlannerRunMigrationsMysql')) {
+    /**
+     * Run every Planner + proxy + application migration against a disposable
+     * MySQL database, the way scripts/planner-start does: `gateway:migrate` through
+     * the real `mysql` connection in app/planner/config.php, then Proxy's and the
+     * application's migrations.
+     *
+     * @param array{host: string, port: int, database: string, username: string, password: string} $connection
+     */
+    function gatewayPlannerRunMigrationsMysql(array $connection): void
+    {
+        if ((string) getenv('DB_DATABASE') !== $connection['database']) {
+            throw new RuntimeException(sprintf(
+                'Refusing to migrate [%s]: the environment selects [%s].',
+                $connection['database'],
+                (string) getenv('DB_DATABASE'),
+            ));
+        }
+        gatewayPlannerAssertResolvedDatabase();
+
+        $artisan = gatewayPlannerRepositoryRoot().'/app/planner/artisan';
+        $exitCode = null;
+        $output = null;
+        // The host environment says it is not a console; `gateway:migrate` is only registered in one.
+        exec("APP_RUNNING_IN_CONSOLE=true php $artisan gateway:migrate --no-ansi 2>&1", $output, $exitCode);
+        if ($exitCode !== 0) {
+            throw new RuntimeException("gateway:migrate failed (exit $exitCode):\n".implode("\n", $output));
+        }
+
+        gatewayPlannerRunArtisanMigrations();
+    }
+}
+
+if (! function_exists('gatewayPlannerBaseEnvMysql')) {
+    /**
+     * The environment a Workerman Planner host needs for a disposable MySQL database.
+     *
+     * @param array{host: string, port: int, database: string, username: string, password: string} $connection
+     * @return array<string, string|null>
+     */
+    function gatewayPlannerBaseEnvMysql(string $dataDirectory, array $connection): array
+    {
+        return array_merge(gatewayPlannerBaseEnv($dataDirectory, $connection['database'], 'mysql'), [
             'DB_HOST' => $connection['host'],
             'DB_PORT' => (string) $connection['port'],
             'DB_USERNAME' => $connection['username'],

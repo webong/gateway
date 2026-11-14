@@ -5,8 +5,15 @@ if [ -z "${APP_KEY:-}" ] || [ -z "${GATEWAY_INTERNAL_TOKEN:-}" ] || [ -z "${REGI
     echo 'APP_KEY, GATEWAY_INTERNAL_TOKEN, and REGISTRY_TOKEN are required.' >&2
     exit 1
 fi
-if [ "${DB_CONNECTION:-}" != pgsql ] || [ -z "${DB_URL:-}" ]; then
-    echo 'Standalone Planner requires DB_CONNECTION=pgsql and DB_URL.' >&2
+case "${DB_CONNECTION:-}" in
+    pgsql|mysql) ;;
+    *)
+        echo 'Standalone Planner requires DB_CONNECTION=pgsql or DB_CONNECTION=mysql, and DB_URL.' >&2
+        exit 1
+        ;;
+esac
+if [ -z "${DB_URL:-}" ]; then
+    echo 'Standalone Planner requires DB_URL.' >&2
     exit 1
 fi
 

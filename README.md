@@ -125,7 +125,9 @@ creation.
 Symfony hosts register `MigrateGatewayCommand` with an injected
 `GatewayMigrationRunner`. Both adapters execute the same migration files and
 use the same history table. SQLite, PostgreSQL, MySQL, and MariaDB Laravel-style
-connection arrays are supported. PostgreSQL migrations preserve TLS settings
+connection arrays are supported by the migrations. The standalone Planner runs on
+PostgreSQL or MySQL 8.4; the Router's shared delivery queue needs PostgreSQL (see
+[Database support](docs/deployment.md#database-support)). PostgreSQL migrations preserve TLS settings
 (`sslmode`, `sslrootcert`, `sslcert`, `sslkey`) and target the first existing
 schema in `search_path`. Laravel supplies its configured write connection;
 neutral consumers open a PDO connection from the same options. MySQL migrations
