@@ -43,8 +43,8 @@ the life of the process.
 ## Production is not affected
 
 The Planner image sets `APP_ENV=production` (`infra/docker/Gateway.planner.Dockerfile`)
-and `scripts/router-start` exports it; `app/bootstrap.php` otherwise defaults to
-`production`. In that environment the collection is never registered. The same request,
+and `scripts/router-start` exports it; `app/planner/bootstrap/app.php` otherwise
+defaults to `production`. In that environment the collection is never registered. The same request,
 with the same host started as production:
 
 | Host `APP_ENV` | Response | `connection_count` in `onWorkerStop` | After SIGQUIT |
@@ -54,7 +54,9 @@ with the same host started as production:
 
 The object-graph walk finds no `TcpConnection` outside `$worker->connections` under
 `production`. There is no per-error connection leak in the production host, and
-`app/workerman.php` and `app/WorkermanLaravelHandler.php` are unchanged.
+`app/servers/workerman/server.php` and `app/helpers/Workerman/LaravelHandler.php` are unchanged.
+(They were `app/workerman.php` and `app/WorkermanLaravelHandler.php` when this was investigated;
+the `app/` layout refactor moved them.)
 
 ## What changed
 
