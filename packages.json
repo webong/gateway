@@ -1,0 +1,1178 @@
+{
+    "packages": {
+        "webong/gateway": {
+            "dev-main": {
+                "name": "webong/gateway",
+                "description": "Gateway Planner with Laravel integration and Symfony planning support",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "php": "^8.3",
+                    "robmorgan/phinx": "^0.16",
+                    "symfony/config": "^7.3 || ^8.0",
+                    "symfony/console": "^7.3 || ^8.0",
+                    "symfony/dependency-injection": "^7.3 || ^8.0",
+                    "symfony/http-foundation": "^7.3 || ^8.0",
+                    "symfony/http-kernel": "^7.3 || ^8.0",
+                    "symfony/process": "^7.3 || ^8.0",
+                    "symfony/routing": "^7.3 || ^8.0",
+                    "webong/gateway-adapter": "dev-main"
+                },
+                "suggest": {
+                    "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
+                    "webong/proxy": "Required with Laravel for registry, subscriptions, management, and portable HTTP profiles (^0.3.1).",
+                    "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0)."
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\": "src/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Laravel\\GatewayServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-14T00:58:18+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "215ac7fa857866e2a9aecb902762069595c8ca9c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/215ac7fa857866e2a9aecb902762069595c8ca9c",
+                    "reference": "215ac7fa857866e2a9aecb902762069595c8ca9c",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway",
+                "description": "Gateway Planner with Laravel integration and Symfony planning support",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "php": "^8.3",
+                    "robmorgan/phinx": "^0.16",
+                    "symfony/config": "^7.3 || ^8.0",
+                    "symfony/console": "^7.3 || ^8.0",
+                    "symfony/dependency-injection": "^7.3 || ^8.0",
+                    "symfony/http-foundation": "^7.3 || ^8.0",
+                    "symfony/http-kernel": "^7.3 || ^8.0",
+                    "symfony/process": "^7.3 || ^8.0",
+                    "symfony/routing": "^7.3 || ^8.0",
+                    "webong/gateway-adapter": "^0.2.0"
+                },
+                "suggest": {
+                    "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
+                    "webong/proxy": "Required with Laravel for registry, subscriptions, management, and portable HTTP profiles (^0.3.1).",
+                    "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0)."
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\": "src/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Laravel\\GatewayServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-14T00:58:18+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "215ac7fa857866e2a9aecb902762069595c8ca9c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/215ac7fa857866e2a9aecb902762069595c8ca9c",
+                    "reference": "215ac7fa857866e2a9aecb902762069595c8ca9c",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-adapter": {
+            "dev-main": {
+                "name": "webong/gateway-adapter",
+                "description": "Framework-neutral contracts and protocol values for custom Gateway Planners and extensions",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "php": "^8.3"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Companion\\": "src/Companion/",
+                        "Webong\\Gateway\\Contracts\\": "src/Contract/",
+                        "Webong\\Gateway\\Protocols\\": "src/Protocol/"
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-04T19:11:33+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "33363cc05c73a4a358b4e2ef6b6c022e16f8854d"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/33363cc05c73a4a358b4e2ef6b6c022e16f8854d",
+                    "reference": "33363cc05c73a4a358b4e2ef6b6c022e16f8854d",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-adapter",
+                "description": "Framework-neutral contracts and protocol values for custom Gateway Planners and extensions",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "php": "^8.3"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Companion\\": "src/Companion/",
+                        "Webong\\Gateway\\Contracts\\": "src/Contract/",
+                        "Webong\\Gateway\\Protocols\\": "src/Protocol/"
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-04T19:11:33+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "33363cc05c73a4a358b4e2ef6b6c022e16f8854d"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/33363cc05c73a4a358b4e2ef6b6c022e16f8854d",
+                    "reference": "33363cc05c73a4a358b4e2ef6b6c022e16f8854d",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-builder": {
+            "dev-main": {
+                "name": "webong/gateway-builder",
+                "description": "Build deterministic ext.package/v1 Gateway extension artifacts",
+                "type": "composer-plugin",
+                "license": "MIT",
+                "require": {
+                    "composer-plugin-api": "^2.3",
+                    "php": "^8.3"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\GatewayBuilder\\": "src/"
+                    }
+                },
+                "extra": {
+                    "class": "Webong\\GatewayBuilder\\Composer\\GatewayBuilderPlugin"
+                },
+                "bin": [
+                    "bin/gy"
+                ],
+                "version": "dev-main",
+                "time": "2026-11-04T23:37:10+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "3fa6bbb229fbded4d7394a6d6d44023c6ece6b4d"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/3fa6bbb229fbded4d7394a6d6d44023c6ece6b4d",
+                    "reference": "3fa6bbb229fbded4d7394a6d6d44023c6ece6b4d",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-builder",
+                "description": "Build deterministic ext.package/v1 Gateway extension artifacts",
+                "type": "composer-plugin",
+                "license": "MIT",
+                "require": {
+                    "composer-plugin-api": "^2.3",
+                    "php": "^8.3"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\GatewayBuilder\\": "src/"
+                    }
+                },
+                "extra": {
+                    "class": "Webong\\GatewayBuilder\\Composer\\GatewayBuilderPlugin"
+                },
+                "bin": [
+                    "bin/gy"
+                ],
+                "version": "0.2.0",
+                "time": "2026-11-04T23:37:10+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "3fa6bbb229fbded4d7394a6d6d44023c6ece6b4d"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/3fa6bbb229fbded4d7394a6d6d44023c6ece6b4d",
+                    "reference": "3fa6bbb229fbded4d7394a6d6d44023c6ece6b4d",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-centrifugo": {
+            "dev-main": {
+                "name": "webong/gateway-centrifugo",
+                "description": "Centrifugo workload integration for Webong Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "illuminate/database": "^12.0",
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Centrifugo\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Centrifugo\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Centrifugo\\CentrifugoIntegrationServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:17:23+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "1685309279a7ef9beb04e5f82b2c8d65830da961"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/1685309279a7ef9beb04e5f82b2c8d65830da961",
+                    "reference": "1685309279a7ef9beb04e5f82b2c8d65830da961",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-centrifugo",
+                "description": "Centrifugo workload integration for Webong Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "illuminate/database": "^12.0",
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Centrifugo\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Centrifugo\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Centrifugo\\CentrifugoIntegrationServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:17:23+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "1685309279a7ef9beb04e5f82b2c8d65830da961"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/1685309279a7ef9beb04e5f82b2c8d65830da961",
+                    "reference": "1685309279a7ef9beb04e5f82b2c8d65830da961",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-database": {
+            "dev-main": {
+                "name": "webong/gateway-database",
+                "description": "Managed Database extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Database\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "ff032c48404c7ea8f771ce1359429aa4d3871ab1"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/ff032c48404c7ea8f771ce1359429aa4d3871ab1",
+                    "reference": "ff032c48404c7ea8f771ce1359429aa4d3871ab1",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-database",
+                "description": "Managed Database extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Database\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "ff032c48404c7ea8f771ce1359429aa4d3871ab1"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/ff032c48404c7ea8f771ce1359429aa4d3871ab1",
+                    "reference": "ff032c48404c7ea8f771ce1359429aa4d3871ab1",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-dns": {
+            "dev-main": {
+                "name": "webong/gateway-dns",
+                "description": "DNS transport extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Dns\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "edc1651c5ebc3f2844e124243512451857b54a28"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/edc1651c5ebc3f2844e124243512451857b54a28",
+                    "reference": "edc1651c5ebc3f2844e124243512451857b54a28",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-dns",
+                "description": "DNS transport extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Dns\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "edc1651c5ebc3f2844e124243512451857b54a28"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/edc1651c5ebc3f2844e124243512451857b54a28",
+                    "reference": "edc1651c5ebc3f2844e124243512451857b54a28",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-email": {
+            "dev-main": {
+                "name": "webong/gateway-email",
+                "description": "Email transport extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Email\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "1ff3fc81d22808e5bf3298096a2ca4b9e40599f4"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/1ff3fc81d22808e5bf3298096a2ca4b9e40599f4",
+                    "reference": "1ff3fc81d22808e5bf3298096a2ca4b9e40599f4",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-email",
+                "description": "Email transport extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Email\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "1ff3fc81d22808e5bf3298096a2ca4b9e40599f4"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/1ff3fc81d22808e5bf3298096a2ca4b9e40599f4",
+                    "reference": "1ff3fc81d22808e5bf3298096a2ca4b9e40599f4",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-hookscript": {
+            "dev-main": {
+                "name": "webong/gateway-hookscript",
+                "description": "Primi-powered HookScript extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "ext-mbstring": "*",
+                    "ext-pcntl": "*",
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "smuuf/primi": "^0.4",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "require-dev": {
+                    "orchestra/testbench": "^10.0",
+                    "pestphp/pest": "^4.0",
+                    "pestphp/pest-plugin-laravel": "^4.0",
+                    "webong/gateway-builder": "dev-main"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\HookScript\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\HookScript\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\HookScript\\HookScriptExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "0a5bc5d2dfa3a3e48e2ddd6af2493caef16f7a7c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/0a5bc5d2dfa3a3e48e2ddd6af2493caef16f7a7c",
+                    "reference": "0a5bc5d2dfa3a3e48e2ddd6af2493caef16f7a7c",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-hookscript",
+                "description": "Primi-powered HookScript extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "ext-mbstring": "*",
+                    "ext-pcntl": "*",
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "smuuf/primi": "^0.4",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "require-dev": {
+                    "orchestra/testbench": "^10.0",
+                    "pestphp/pest": "^4.0",
+                    "pestphp/pest-plugin-laravel": "^4.0",
+                    "webong/gateway-builder": "dev-main"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\HookScript\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\HookScript\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\HookScript\\HookScriptExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "0a5bc5d2dfa3a3e48e2ddd6af2493caef16f7a7c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/0a5bc5d2dfa3a3e48e2ddd6af2493caef16f7a7c",
+                    "reference": "0a5bc5d2dfa3a3e48e2ddd6af2493caef16f7a7c",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-javascript": {
+            "dev-main": {
+                "name": "webong/gateway-javascript",
+                "description": "JavaScript automation extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\JavaScript\\": "php/src/"
+                    },
+                    "files": [
+                        "php/register.php"
+                    ]
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\JavaScript\\JavaScriptExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "9531e640427d8c13f089206864af21784b491887"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/9531e640427d8c13f089206864af21784b491887",
+                    "reference": "9531e640427d8c13f089206864af21784b491887",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-javascript",
+                "description": "JavaScript automation extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\JavaScript\\": "php/src/"
+                    },
+                    "files": [
+                        "php/register.php"
+                    ]
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\JavaScript\\JavaScriptExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "9531e640427d8c13f089206864af21784b491887"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/9531e640427d8c13f089206864af21784b491887",
+                    "reference": "9531e640427d8c13f089206864af21784b491887",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-lua": {
+            "dev-main": {
+                "name": "webong/gateway-lua",
+                "description": "Lua automation extension and Planner companion for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Lua\\": "php/src/"
+                    },
+                    "files": [
+                        "php/register.php"
+                    ]
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Lua\\LuaExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "4669eb646769d2d38dc3769004110752e1c132b0"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/4669eb646769d2d38dc3769004110752e1c132b0",
+                    "reference": "4669eb646769d2d38dc3769004110752e1c132b0",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-lua",
+                "description": "Lua automation extension and Planner companion for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Lua\\": "php/src/"
+                    },
+                    "files": [
+                        "php/register.php"
+                    ]
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Lua\\LuaExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "4669eb646769d2d38dc3769004110752e1c132b0"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/4669eb646769d2d38dc3769004110752e1c132b0",
+                    "reference": "4669eb646769d2d38dc3769004110752e1c132b0",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-mercure": {
+            "dev-main": {
+                "name": "webong/gateway-mercure",
+                "description": "Mercure Hub workload integration for Webong Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "illuminate/database": "^12.0",
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Mercure\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Mercure\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Mercure\\MercureIntegrationServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:17:23+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "680548b6be765ed4d7d37a95dd4638d75b3fd13c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/680548b6be765ed4d7d37a95dd4638d75b3fd13c",
+                    "reference": "680548b6be765ed4d7d37a95dd4638d75b3fd13c",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-mercure",
+                "description": "Mercure Hub workload integration for Webong Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "illuminate/database": "^12.0",
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Mercure\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Mercure\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Mercure\\MercureIntegrationServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:17:23+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "680548b6be765ed4d7d37a95dd4638d75b3fd13c"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/680548b6be765ed4d7d37a95dd4638d75b3fd13c",
+                    "reference": "680548b6be765ed4d7d37a95dd4638d75b3fd13c",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-reverb": {
+            "dev-main": {
+                "name": "webong/gateway-reverb",
+                "description": "Laravel Reverb workload integration for Webong Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "illuminate/database": "^12.0",
+                    "laravel/framework": "^12.0",
+                    "laravel/reverb": "^1.10",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "require-dev": {
+                    "orchestra/testbench": "^10.0",
+                    "pestphp/pest": "^4.0",
+                    "pestphp/pest-plugin-laravel": "^4.0"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Reverb\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Reverb\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Reverb\\ReverbIntegrationServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "f5ec38a95a2d2f1f259a8328beebea2cc719d82b"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/f5ec38a95a2d2f1f259a8328beebea2cc719d82b",
+                    "reference": "f5ec38a95a2d2f1f259a8328beebea2cc719d82b",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-reverb",
+                "description": "Laravel Reverb workload integration for Webong Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "illuminate/database": "^12.0",
+                    "laravel/framework": "^12.0",
+                    "laravel/reverb": "^1.10",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "require-dev": {
+                    "orchestra/testbench": "^10.0",
+                    "pestphp/pest": "^4.0",
+                    "pestphp/pest-plugin-laravel": "^4.0"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Reverb\\": "src/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "autoload-dev": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Reverb\\Tests\\": "tests/"
+                    }
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Reverb\\ReverbIntegrationServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "f5ec38a95a2d2f1f259a8328beebea2cc719d82b"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/f5ec38a95a2d2f1f259a8328beebea2cc719d82b",
+                    "reference": "f5ec38a95a2d2f1f259a8328beebea2cc719d82b",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-shell": {
+            "dev-main": {
+                "name": "webong/gateway-shell",
+                "description": "Shell-hook automation extension and Planner companion for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Shell\\": "php/src/"
+                    },
+                    "files": [
+                        "php/register.php"
+                    ]
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Shell\\ShellExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "ebc19cf72795ff583c4e91a72b9579c6a038689a"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/ebc19cf72795ff583c4e91a72b9579c6a038689a",
+                    "reference": "ebc19cf72795ff583c4e91a72b9579c6a038689a",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-shell",
+                "description": "Shell-hook automation extension and Planner companion for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Shell\\": "php/src/"
+                    },
+                    "files": [
+                        "php/register.php"
+                    ]
+                },
+                "extra": {
+                    "laravel": {
+                        "providers": [
+                            "Webong\\Gateway\\Shell\\ShellExtensionServiceProvider"
+                        ]
+                    }
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "ebc19cf72795ff583c4e91a72b9579c6a038689a"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/ebc19cf72795ff583c4e91a72b9579c6a038689a",
+                    "reference": "ebc19cf72795ff583c4e91a72b9579c6a038689a",
+                    "shasum": ""
+                }
+            }
+        },
+        "webong/gateway-web": {
+            "dev-main": {
+                "name": "webong/gateway-web",
+                "description": "Web transport extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "dev-main",
+                    "webong/gateway-adapter": "dev-main",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Web\\": "src/",
+                        "Webong\\Gateway\\Webstream\\": "src/Webstream/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "dev-main",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "e6232739a72bff5a05065e268564b68712d2e1c4"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/e6232739a72bff5a05065e268564b68712d2e1c4",
+                    "reference": "e6232739a72bff5a05065e268564b68712d2e1c4",
+                    "shasum": ""
+                }
+            },
+            "0.2.0": {
+                "name": "webong/gateway-web",
+                "description": "Web transport extension for Gateway",
+                "type": "library",
+                "license": "MIT",
+                "require": {
+                    "laravel/framework": "^12.0",
+                    "php": "^8.3",
+                    "webong/gateway": "^0.2.0",
+                    "webong/gateway-adapter": "^0.2.0",
+                    "webong/proxy": "^0.3.1"
+                },
+                "autoload": {
+                    "psr-4": {
+                        "Webong\\Gateway\\Web\\": "src/",
+                        "Webong\\Gateway\\Webstream\\": "src/Webstream/"
+                    },
+                    "files": [
+                        "register.php"
+                    ]
+                },
+                "version": "0.2.0",
+                "time": "2026-11-13T22:16:40+01:00",
+                "source": {
+                    "type": "git",
+                    "url": "https://github.com/webong/gateway",
+                    "reference": "e6232739a72bff5a05065e268564b68712d2e1c4"
+                },
+                "dist": {
+                    "type": "zip",
+                    "url": "https://api.github.com/repos/webong/gateway/zipball/e6232739a72bff5a05065e268564b68712d2e1c4",
+                    "reference": "e6232739a72bff5a05065e268564b68712d2e1c4",
+                    "shasum": ""
+                }
+            }
+        }
+    }
+}
