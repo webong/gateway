@@ -273,6 +273,48 @@ it('keeps cleaning other connections when one connection fails to roll back', fu
     });
 });
 
+it('gives the application the connection peer address, port and scheme', function (): void {
+    withIsolatedHandler(function (LaravelHandler $handler): void {
+        $seen = [];
+        octaneWorkerOf($handler)->onRequestHandled(function ($request) use (&$seen): void {
+            $seen[] = [
+                'ip' => $request->ip(),
+                'peerPort' => $request->server('REMOTE_PORT'),
+                'serverPort' => $request->server('SERVER_PORT'),
+                'secure' => $request->isSecure(),
+            ];
+        });
+
+        $connect = static function (string $transport, string $extraHeaders = ''): Request {
+            $connection = Mockery::mock(Workerman\Connection\TcpConnection::class);
+            $connection->shouldReceive('getRemoteIp')->andReturn('203.0.113.7');
+            $connection->shouldReceive('getRemotePort')->andReturn(51234);
+            $connection->shouldReceive('getLocalIp')->andReturn('10.0.0.5');
+            $connection->shouldReceive('getLocalPort')->andReturn(8080);
+            $connection->transport = $transport;
+
+            $request = new Request("GET /health HTTP/1.1\r\nHost: planner.internal\r\n{$extraHeaders}Connection: close\r\n\r\n");
+            $request->connection = $connection;
+
+            return $request;
+        };
+
+        $handler->handle($connect('tcp'));
+        $handler->handle($connect('ssl'));
+        // Only the socket decides the address: a client cannot supply its own with headers.
+        $handler->handle($connect('tcp', "X-Forwarded-For: 198.51.100.9\r\nRemote-Addr: 198.51.100.9\r\n"));
+        // Without a connection (as in the other tests) Laravel's defaults apply.
+        $handler->handle(new Request("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+
+        expect($seen)->toBe([
+            ['ip' => '203.0.113.7', 'peerPort' => 51234, 'serverPort' => 8080, 'secure' => false],
+            ['ip' => '203.0.113.7', 'peerPort' => 51234, 'serverPort' => 8080, 'secure' => true],
+            ['ip' => '203.0.113.7', 'peerPort' => 51234, 'serverPort' => 8080, 'secure' => false],
+            ['ip' => '127.0.0.1', 'peerPort' => null, 'serverPort' => 80, 'secure' => false],
+        ]);
+    });
+});
+
 it('keeps memory bounded under repeated database-backed planning requests', function () use ($planRequest, $statusOf): void {
     withIsolatedHandler(function (LaravelHandler $handler) use ($planRequest, $statusOf): void {
         $statusOf($handler->handle($planRequest(ISOLATION_INTERNAL_TOKEN, '/http-smoke/registry-ingress')));
