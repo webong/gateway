@@ -10,7 +10,7 @@ $mode=$argv[1]??'activate';
 $version=getenv('WORKFLOW_GATE_EXTENSION_VERSION')?:'0.1.0-dev';
 $providerToken=getenv('WORKFLOW_GATE_PROVIDER_TOKEN')?:'disposable-weaver-provider-token';
 $accountToken=getenv('WORKFLOW_GATE_ACCOUNT_TOKEN')?:'disposable-weaver-runtime-gate-token';
-$configuration=json_decode(file_get_contents('/gate/weaver.configuration.json'),true,128,JSON_THROW_ON_ERROR);
+$configuration=getenv('WORKFLOW_GATE_OPERATOR_CUTOVER')==='1'?require '/gate/operator-configuration.php':json_decode(file_get_contents('/gate/weaver.configuration.json'),true,128,JSON_THROW_ON_ERROR);
 // Seed only desired resources through the installed Composer provider; the
 // runtime snapshot must expand owned published IDs and current grants.
 $accounts=$app->make(Webong\Gateway\Laravel\Accounts\AccountStore::class);

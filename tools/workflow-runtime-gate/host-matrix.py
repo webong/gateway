@@ -10,6 +10,9 @@ arguments=argparse.ArgumentParser(description=__doc__)
 arguments.add_argument('host',choices=('spinner','roadrunner','frankenphp'))
 arguments.add_argument('image',nargs='?',default='gateway-workflow-runtime-gate:arm64')
 arguments.add_argument('--fresh-https',action='store_true')
+arguments.add_argument('--operator-cutover',action='store_true')
+arguments.add_argument('--legacy-image')
+arguments.add_argument('--operator-report')
 args=arguments.parse_args()
 mode=args.host
 print(mode+': preparing verified package and disposable host',flush=True)
@@ -30,7 +33,7 @@ def docker(*args,check=True):
     return r
 
 def redact(value):
-    for token in (internal,registry,guest,'disposable-weaver-runtime-gate-token','disposable-weaver-runtime-gate-token-rotated','disposable-weaver-provider-token','disposable-weaver-provider-token-rotated','disposable-weaver-provider-other-account'):value=value.replace(token,'<REDACTED>')
+    for token in (internal,registry,guest,'disposable-weaver-runtime-gate-token','disposable-weaver-runtime-gate-token-rotated','disposable-weaver-provider-token','disposable-weaver-provider-token-rotated','disposable-weaver-provider-other-account','disposable-operator-legacy-token'):value=value.replace(token,'<REDACTED>')
     return value
 
 def wait(predicate,message,timeout=75):
@@ -149,7 +152,7 @@ try:
       tls_options=['--mount','type=bind,source='+str(tls)+',target=/gate-tls,readonly',
         '-e','SSL_CERT_FILE=/gate-tls/ca.pem','-e','PHP_INI_SCAN_DIR=:/gate-tls']
     state=volume('state',host_image);data=volume('data',host_image)
-    if production:
+    if production and not args.operator_cutover:
       docker('run','--rm','--mount','type=volume,source='+state+',target=/state',
         '-e','PHP_INI_SCAN_DIR=/package/runtime/php.d','-e','LD_LIBRARY_PATH=/package/runtime/lib',
         '--entrypoint','/package/runtime/loader',image,'--library-path','/package/runtime/lib',
@@ -166,12 +169,18 @@ try:
         '-e','PHP_INI_SCAN_DIR=/package/runtime/php.d','--entrypoint','/package/runtime/loader',image,'--library-path','/package/runtime/lib',
         '/package/runtime/bin/php','-c','/package/php.ini','-S','0.0.0.0:8089','/gate/http-provider.php');containers.append(provider)
       wait(lambda:docker('exec',provider,'/package/runtime/loader','--library-path','/package/runtime/lib','/package/runtime/bin/php','-c','/package/php.ini','-r',"exit(@file_get_contents('http://127.0.0.1:8089/healthz')===false?1:0);",check=False).returncode==0,'disposable HTTP provider did not become ready')
+    operator=None
+    if args.operator_cutover:
+      from operator_cutover import OperatorCutover
+      legacy_image=args.legacy_image or 'gateway-workflow-runtime-gate:source-'+manifest['metadata']['gateway.spinner/v1']['platform']['arch']
+      operator=OperatorCutover(docker,wait,mapped,root,package,image,legacy_image,state,network,name,containers,host_image,mode)
+      operator.prepare()
     common=['-e','APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       '-e','GATEWAY_INTERNAL_TOKEN='+internal,'-e','REGISTRY_TOKEN='+registry,
       '-e','GATEWAY_ROUTER_DATA_DIR=/data','-e','GATEWAY_ROUTER_CREDENTIALS_FILE=/gate/host.env','-e','DB_CONNECTION=sqlite','-e','DB_DATABASE=/data/gateway.sqlite',
       '-e','GATEWAY_PLUGIN_DIR=/extensions','-e','GATEWAY_COMPANION_PLUGIN_DIR=/planner-extensions',
       '-e','WORKFLOW_GATE_ARTIFACT_SHA='+sha,'-e','WORKFLOW_GATE_EXTENSION_VERSION='+version,
-      '-e','WORKFLOW_GATE_ARTIFACT_URL='+artifact_url,*tls_options,
+      '-e','WORKFLOW_GATE_ARTIFACT_URL='+artifact_url,'-e','WORKFLOW_GATE_OPERATOR_CUTOVER='+('1' if args.operator_cutover else '0'),*tls_options,
       '--mount','type=bind,source='+str(root/'tools/workflow-runtime-gate')+',target=/gate,readonly',
       '--mount',planner_mount]
     if mode=='spinner':
@@ -227,74 +236,77 @@ try:
     assert http(admin,'/workflow/rpc',internal,'wrong',method='POST')[0]==401,'wrong extension token accepted'
     assert http(public,'/workflow/rpc',internal,guest)[0] not in (200,405),'private RPC leaked onto public edge'
     print(mode+': installed package activated; credential boundary passed',flush=True)
-    php('start')
-    if production:
-      php('http-effect');php('http-pending-rotation')
-      fixture('changed-http-scope')
-      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'changed provider replay scope retained active workers')
-      provider_token='disposable-weaver-provider-token-rotated'
+    if operator is not None:
+      operator.accept(host,internal,guest,fixture,process_count,sha,manifest,args.operator_report)
+    else:
+      php('start')
+      if production:
+        php('http-effect');php('http-pending-rotation')
+        fixture('changed-http-scope')
+        wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'changed provider replay scope retained active workers')
+        provider_token='disposable-weaver-provider-token-rotated'
+        fixture('activate')
+        wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'same-scope provider credential rotation failed reactivation')
+        php('http-after-rotation')
+      docker('restart','--timeout','10',host)
+      public=mapped(host,5001 if mode=='spinner' else 8080);admin=mapped(host,5052)
+      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after host restart')
+      php('restart');php('abandon')
+      docker('kill',host);docker('start',host)
+      admin=mapped(host,5052)
+      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after host crash')
+      php('lease-recovered')
+      php('abandon-nonidempotent')
+      docker('kill',host);docker('start',host)
+      admin=mapped(host,5052)
+      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover for non-idempotent reconciliation')
+      php('nonidempotent-fenced')
+      if production:php('kill','/gate/kill-weaver.php')
+      else:docker('exec','--workdir',installed,host,installed+'/bin/spinner','--kill-runtime-guest')
+      wait(lambda:process_count()==0,'abruptly terminated guest left live PHP children',timeout=15)
       fixture('activate')
-      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'same-scope provider credential rotation failed reactivation')
-      php('http-after-rotation')
-    docker('restart','--timeout','10',host)
-    public=mapped(host,5001 if mode=='spinner' else 8080);admin=mapped(host,5052)
-    wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after host restart')
-    php('restart');php('abandon')
-    docker('kill',host);docker('start',host)
-    admin=mapped(host,5052)
-    wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after host crash')
-    php('lease-recovered')
-    php('abandon-nonidempotent')
-    docker('kill',host);docker('start',host)
-    admin=mapped(host,5052)
-    wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover for non-idempotent reconciliation')
-    php('nonidempotent-fenced')
-    if production:php('kill','/gate/kill-weaver.php')
-    else:docker('exec','--workdir',installed,host,installed+'/bin/spinner','--kill-runtime-guest')
-    wait(lambda:process_count()==0,'abruptly terminated guest left live PHP children',timeout=15)
-    fixture('activate')
-    wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after guest termination')
-    php('restart')
-    if production:
-      fixture('rotate-secret')
-      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'credential rotation retained active children')
-      previous=guest;guest='disposable-weaver-runtime-gate-token-rotated'
-      fixture('activate')
-      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'rotated credential failed reactivation')
-      assert http(admin,'/workflow/rpc',internal,previous,method='POST')[0]==401,'previous credential accepted after rotation'
+      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'runtime did not recover after guest termination')
       php('restart')
-      fixture('revoke-grants')
-      # A projected resource change must replace the runtime without an activation bump.
-      wait(lambda:http(admin,'/workflow/rpc',internal,guest,method='POST')[0]==200,'projected grant change did not restore RPC')
-      until=time.monotonic()+75
-      while True:
-        result=docker('exec','-e','WORKFLOW_GATE_HOST_TOKEN='+internal,'-e','WORKFLOW_GATE_ACCOUNT_TOKEN='+guest,
-          '-e','WEAVER_PACKAGE_ROOT='+installed,'-e','PHP_INI_SCAN_DIR='+installed+'/runtime/php.d',host,
-          installed+'/runtime/loader','--library-path',installed+'/runtime/lib',installed+'/runtime/bin/php','-c',installed+'/php.ini',
-          '-d','extension_dir='+installed+'/runtime/lib','/gate/weaver-http-smoke.php','http://127.0.0.1:5052','grant-denied',check=False)
-        if result.returncode==0:break
-        assert time.monotonic()<until,'live grant revocation did not deny existing run'
-        time.sleep(.25)
+      if production:
+        fixture('rotate-secret')
+        wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'credential rotation retained active children')
+        previous=guest;guest='disposable-weaver-runtime-gate-token-rotated'
+        fixture('activate')
+        wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'rotated credential failed reactivation')
+        assert http(admin,'/workflow/rpc',internal,previous,method='POST')[0]==401,'previous credential accepted after rotation'
+        php('restart')
+        fixture('revoke-grants')
+        # A projected resource change must replace the runtime without an activation bump.
+        wait(lambda:http(admin,'/workflow/rpc',internal,guest,method='POST')[0]==200,'projected grant change did not restore RPC')
+        until=time.monotonic()+75
+        while True:
+          result=docker('exec','-e','WORKFLOW_GATE_HOST_TOKEN='+internal,'-e','WORKFLOW_GATE_ACCOUNT_TOKEN='+guest,
+            '-e','WEAVER_PACKAGE_ROOT='+installed,'-e','PHP_INI_SCAN_DIR='+installed+'/runtime/php.d',host,
+            installed+'/runtime/loader','--library-path',installed+'/runtime/lib',installed+'/runtime/bin/php','-c',installed+'/php.ini',
+            '-d','extension_dir='+installed+'/runtime/lib','/gate/weaver-http-smoke.php','http://127.0.0.1:5052','grant-denied',check=False)
+          if result.returncode==0:break
+          assert time.monotonic()<until,'live grant revocation did not deny existing run'
+          time.sleep(.25)
+        fixture('activate')
+        wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'grant restoration failed')
+        wait_php('restart')
+        fixture('invalid-config')
+        wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'invalid projected configuration retained active children')
+        fixture('activate')
+        wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'valid configuration failed reactivation')
+        fixture('unavailable-storage')
+        wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'unavailable operational storage retained active children')
+        fixture('activate')
+        wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'operational storage restoration failed')
+        php('restart')
+        print(mode+': PASS credential rotation, live grant revocation, invalid configuration and unavailable storage',flush=True)
+      fixture('disable')
+      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0]==503,'disabled extension retained listeners or child processes')
       fixture('activate')
-      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'grant restoration failed')
-      wait_php('restart')
-      fixture('invalid-config')
-      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'invalid projected configuration retained active children')
-      fixture('activate')
-      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'valid configuration failed reactivation')
-      fixture('unavailable-storage')
-      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'unavailable operational storage retained active children')
-      fixture('activate')
-      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'operational storage restoration failed')
-      php('restart')
-      print(mode+': PASS credential rotation, live grant revocation, invalid configuration and unavailable storage',flush=True)
-    fixture('disable')
-    wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0]==503,'disabled extension retained listeners or child processes')
-    fixture('activate')
-    wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'extension failed to reactivate')
-    fixture('remove-secret')
-    wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'lost secret retained active children')
-    print(mode+': PASS actual host activation, independent credentials, private-only routing, queue RPC/restart/lease recovery, disable and secret-loss teardown; artifact '+sha)
+      wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'extension failed to reactivate')
+      fixture('remove-secret')
+      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'lost secret retained active children')
+      print(mode+': PASS actual host activation, independent credentials, private-only routing, queue RPC/restart/lease recovery, disable and secret-loss teardown; artifact '+sha)
 except BaseException:
   for container in containers:
     if container.endswith('-export'):continue

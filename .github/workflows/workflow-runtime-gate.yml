@@ -113,6 +113,11 @@ jobs:
           python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}' --fresh-https
           python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-weaver:${{ matrix.arch }}' --fresh-https
           python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-weaver:${{ matrix.arch }}' --fresh-https
+      - name: Rehearse operator backup, host cutover and current-progress rollback
+        run: |
+          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}' --fresh-https --operator-cutover --operator-report "$RUNNER_TEMP/operator-spinner.json"
+          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-weaver:${{ matrix.arch }}' --fresh-https --operator-cutover --operator-report "$RUNNER_TEMP/operator-roadrunner.json"
+          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-weaver:${{ matrix.arch }}' --fresh-https --operator-cutover --operator-report "$RUNNER_TEMP/operator-frankenphp.json"
       # No candidate bytes are uploaded until this exact source has explicit
       # publication approval. The repository variable is unset by default.
       - uses: actions/upload-artifact@v4

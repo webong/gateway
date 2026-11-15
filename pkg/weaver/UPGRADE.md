@@ -45,7 +45,7 @@ old tables during activation. Rehearse with disposable copies before production.
    Check old credentials are rejected, then retry outstanding callbacks.
 
 The copier preserves queue records verbatim, including physical execution IDs and
-claim payloads. It adds only a private routing import marker binding the original
+claim payloads, capacity and the queue coordination revision. It adds only a private routing import marker binding the original
 subject to the assigned account. Runtime scope validation checks that binding;
 public RPC hides it. Pinned runs may precede the current published version, but
 all their operations must still be deployed and approved. Missing queue rows,
@@ -80,3 +80,13 @@ record lacks an imported route. Those records require explicit reconciliation
 and an agreed migration path; the CLI never guesses or converts their authority.
 Keep old and new writers mutually exclusive throughout. Do not delete the old
 application until a released replacement and its installation acceptance exist.
+
+## Operator acceptance
+
+The disposable representative rehearsal now covers backup/restore, copied-data
+activation on the actual three hosts, pre-cutover callback completion, original
+provider-effect identity, lost-response deduplication, drain and stopped-writer
+current-progress rollback. Its actual-host dataset is SQLite; mandatory SQL tests
+cover all three engines. See `docs/verification/weaver-operator-acceptance.md` in
+the Gateway repository for commands, report fields and the production decisions
+still requiring operator-specific evidence. This is not a production cutover.

@@ -102,6 +102,7 @@ final class StandaloneCutoverTest extends TestCase
         self::assertSame($claims,$copy->query('SELECT * FROM workflow_queue_claims')->fetchAll(PDO::FETCH_ASSOC));
         self::assertSame($outbox,$copy->query('SELECT * FROM workflow_queue_outbox ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
         self::assertSame(3,(int)$copy->query('SELECT capacity FROM workflow_queue_lock WHERE id=1')->fetchColumn());
+        self::assertSame($source->query('SELECT * FROM workflow_queue_lock')->fetchAll(PDO::FETCH_ASSOC),$copy->query('SELECT * FROM workflow_queue_lock')->fetchAll(PDO::FETCH_ASSOC),'Queue coordination record changed during copy');
         $runtime=new RuntimeFactory($this->configuration(),$secret);$app=$runtime->application('account-a');
         $state=$app->invoke('account-a','flow.get',$params)['state'];
         self::assertSame($waiting['metadata']['execution_id'],$state['metadata']['execution_id']);
@@ -115,6 +116,7 @@ final class StandaloneCutoverTest extends TestCase
         self::assertArrayNotHasKey('fulfil-v2',$completed['steps']);
         self::assertArrayNotHasKey('_rpc_import',$completed['metadata']);
         [$rollback]=$this->database();StandaloneCutover::rollback($copy,$rollback);
+        self::assertSame($copy->query('SELECT * FROM workflow_queue_lock')->fetchAll(PDO::FETCH_ASSOC),$rollback->query('SELECT * FROM workflow_queue_lock')->fetchAll(PDO::FETCH_ASSOC),'Queue coordination record changed during rollback');
         [$restored]=$this->legacy($rollback,false);
         $count=(int)$rollback->query('SELECT COUNT(*) FROM workflow_queue_outbox')->fetchColumn();
         $restored->invoke('flow.complete',$callback);

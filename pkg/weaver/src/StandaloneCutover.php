@@ -97,6 +97,8 @@ final class StandaloneCutover
                 if($event['status']==='delivering'){throw new RuntimeException('Drain or reconcile outbox reservations before copying.');}
             }
             if(count($snapshot['workflow_queue_lock'])!==1 || (int)$snapshot['workflow_queue_lock'][0]['id']!==1){throw new RuntimeException('Invalid queue capacity record.');}
+            $revision=$snapshot['workflow_queue_lock'][0]['revision']??null;
+            if(filter_var($revision,FILTER_VALIDATE_INT)===false || (int)$revision<0){throw new RuntimeException('Invalid queue coordination revision.');}
             $runs=[];
             foreach($snapshot['workflow_queue_runs'] as $row){$runs[$row['id']]=$row;}
             $seen=[];
@@ -137,6 +139,7 @@ final class StandaloneCutover
         }
         $destination->beginTransaction();
         try {
+            $destination->prepare('UPDATE workflow_queue_lock SET revision = ? WHERE id = 1')->execute([$snapshot['workflow_queue_lock'][0]['revision']]);
             foreach(self::TABLES as $table){
                 if($table==='workflow_queue_lock'){continue;}
                 // Also rejects a versioned but non-empty Weaver destination.

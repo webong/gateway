@@ -94,6 +94,12 @@ This does not authorize publishing, deployment or old-app removal.
   missing queue reinitialization, existing destinations and unsupported authority.
   Cross-engine migration is unsupported. Weaver-native runs/unrouted records stop
   automatic legacy rollback rather than changing authority.
+- Representative operator acceptance now covers stopped-writer backup/restore,
+  real three-host activation, old callbacks, original effect keys, one HTTP effect
+  after a lost response and current-progress legacy rollback. The actual-host
+  dataset is SQLite; the independent mandatory SQL suite covers all three engines.
+  Reports explicitly mark the dataset disposable and production unmigrated.
+  See `weaver-operator-acceptance.md`.
 - The operator still owns a production-specific backup/drain/reconciliation plan.
   See `pkg/weaver/UPGRADE.md`; no production data was accessed or migrated.
 
@@ -113,9 +119,13 @@ This does not authorize publishing, deployment or old-app removal.
   the owner changes that instruction. Published-origin/trust acceptance remains open.
 - Smoke-test fresh installation from published artifacts and ship approval/order
   examples plus installation, authentication, upgrade, operation and rollback docs.
-- Once replacement acceptance passes, move WorkFlow `app/` into examples for
-  testing/reference, or deprecate it with versioned compatibility guidance. It
-  should not remain a second supported production host. Keep the engine and
+- Prepared locally on WorkFlow main: `examples/standalone` is canonical, while
+  legacy `app/` entrypoints, namespace and Composer surface remain compatible.
+  The core CLI remains independent. These changes are uncommitted and unpublished.
+- Once production replacement acceptance passes, retire compatibility only with
+  an explicit version boundary and approval. The example host remains available for
+  testing/reference. It should not remain a second supported production host.
+  Keep the engine and
   authoring CLI independent; do not remove legacy source before replacement.
 
 No production migration, artifact publication, old-app deletion or automatic
