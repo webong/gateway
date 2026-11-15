@@ -121,6 +121,13 @@ try:
     host_image='gateway-workflow-host:'+mode
     planner_image='gateway-workflow-host:roadrunner'
     docker('network','create',network)
+    spinner_mount='type=bind,source='+str(spinner_cache)+',target=/extensions'
+    planner_mount='type=bind,source='+str(planner_cache)+',target=/planner-extensions'
+    if args.fresh_https:
+      # Native Linux preserves container UIDs and private 0700 cache ownership.
+      # Keep generated caches in Docker volumes; inspect them as their owners.
+      spinner_mount='type=volume,source='+volume('spinner-cache',host_image)+',target=/extensions'
+      planner_mount='type=volume,source='+volume('planner-cache',planner_image)+',target=/planner-extensions'
     artifact_url='https://extensions.invalid/gateway-workflow.tar.gz'
     tls_options=[]
     if args.fresh_https:
@@ -166,7 +173,7 @@ try:
       '-e','WORKFLOW_GATE_ARTIFACT_SHA='+sha,'-e','WORKFLOW_GATE_EXTENSION_VERSION='+version,
       '-e','WORKFLOW_GATE_ARTIFACT_URL='+artifact_url,*tls_options,
       '--mount','type=bind,source='+str(root/'tools/workflow-runtime-gate')+',target=/gate,readonly',
-      '--mount','type=bind,source='+str(planner_cache)+',target=/planner-extensions']
+      '--mount',planner_mount]
     if mode=='spinner':
       docker('run','-d','--name',planner,'--network',network,'--network-alias','planner','--user','www-data',
         *common,'--mount','type=volume,source='+data+',target=/data','-p','127.0.0.1::8080',
@@ -175,7 +182,7 @@ try:
       wait(lambda:http(management,'/health')[0] in (200,204),'separate Planner did not become ready')
       fixture('activate','0'*64 if args.fresh_https else None)
       docker('run','-d','--name',host,'--network',network,*common,
-        '--mount','type=bind,source='+str(spinner_cache)+',target=/extensions',
+        '--mount',spinner_mount,
         '--mount','type=volume,source='+state+',target=/state',
         '-e','GATEWAY_RUNTIME=http','-e','GATEWAY_PLANNER_URL=http://planner:8080',
         '-e','GATEWAY_DELIVERY_SPOOL_PATH=/tmp/spool','-e','GATEWAY_DELIVERY_ADMIN_ADDR=:5052',
@@ -185,7 +192,7 @@ try:
       public=mapped(host,5001)
     else:
       docker('run','-d','--name',host,'--network',network,*common,
-        '--mount','type=bind,source='+str(spinner_cache)+',target=/extensions',
+        '--mount',spinner_mount,
         '--mount','type=volume,source='+state+',target=/state','--mount','type=volume,source='+data+',target=/data',
         '-e','GATEWAY_ROUTER_LISTEN=0.0.0.0:8080','-e','GATEWAY_ROUTER_TLS_LISTEN=',
         '-e','GATEWAY_DELIVERY_ADMIN_ADDR=0.0.0.0:5052','-e','GATEWAY_PLANNER_WORKERS=1',
@@ -197,17 +204,20 @@ try:
       fixture('activate','0'*64 if args.fresh_https else None)
     admin=mapped(host,5052)
     if args.fresh_https:
+      cache_owners=[(host,'10001:10001' if mode=='spinner' else 'www-data','/extensions'),(planner,'www-data','/planner-extensions')]
       fixture('reject-artifact')
       wait(lambda:'"path":"/objects/workflow.tar.gz"' in docker('logs',artifacts).stdout,'real downloader never fetched the HTTPS archive')
       wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'wrong checksum did not fail closed')
-      assert not (spinner_cache/package.name).exists() and not (planner_cache/package.name).exists(),'wrong checksum installed an artifact'
+      for container,owner,cache in cache_owners:
+        docker('exec','--user',owner,container,'sh','-c','test ! -e "$1"','cache-absent',cache+'/'+package.name)
       fixture('activate')
       fixture('install-artifact')
     wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'verified package did not activate through actual host')
     if args.fresh_https:
-      for cache in (spinner_cache,planner_cache):
-        assert (cache/package.name/'plugin.json').is_file(),'empty-cache HTTPS installation missing'
-        saved=json.loads((cache/'.desired'/receipt).read_text())
+      for container,owner,cache in cache_owners:
+        result=docker('exec','--user',owner,container,'sh','-c',
+          'test -f "$1/plugin.json" && cat "$2"','cache-receipt',cache+'/'+package.name,cache+'/.desired/'+receipt)
+        saved=json.loads(result.stdout)
         assert saved.get('artifact_sha256',saved.get('sha256'))==sha,'installed receipt did not pin transport bytes'
       accesses=docker('logs',artifacts).stdout
       assert 'Go-http-client' in accesses and 'GuzzleHttp' in accesses,'both real downloaders must fetch the artifact'
