@@ -18,6 +18,34 @@ use Webong\Gateway\Laravel\Companion\ExtensionArtifactReconciler;
 use Webong\Gateway\Laravel\Companion\RegisteredCompanionActions;
 use Webong\Gateway\Protocols\CompanionActionInvocation;
 
+it('installs a compressed runtime larger than the PHP memory budget', function (): void {
+    $root = sys_get_temp_dir().'/gateway-large-artifact-'.bin2hex(random_bytes(6));
+    mkdir($root.'/package', 0700, true);
+    try {
+        file_put_contents($root.'/package/plugin.json', json_encode([
+            'descriptor' => ['identity' => ['id' => 'example/large-runtime', 'version' => '1.0.0']],
+        ], JSON_THROW_ON_ERROR));
+        $payload = fopen($root.'/package/runtime.bin', 'wb');
+        for ($remaining = 80; $remaining > 0; $remaining--) {
+            fwrite($payload, random_bytes(1024 * 1024));
+        }
+        fclose($payload);
+        $archive = $root.'/runtime.tar.gz';
+        $pack = new Process(['tar', '--format=ustar', '-czf', $archive, '-C', $root, 'package'], env: ['COPYFILE_DISABLE' => '1']);
+        $pack->mustRun();
+        $project = dirname(__DIR__, 2);
+        $install = new Process([
+            PHP_BINARY, '-d', 'memory_limit=64M', $project.'/tests/Fixtures/extension-artifact-memory.php',
+            $project.'/vendor/autoload.php', $archive, $root.'/installed',
+        ]);
+        $install->mustRun();
+        expect($install->getOutput())->toContain('PASS 80 MiB runtime installed');
+        expect(is_file($root.'/installed/.desired/'.hash('sha256', 'example/large-runtime').'.json'))->toBeTrue();
+    } finally {
+        removeDistributionDirectory($root);
+    }
+});
+
 it('installs and activates a combined HookScript package after Planner has started', function (): void {
     $store = sys_get_temp_dir().'/gateway-planner-ext-store-'.bin2hex(random_bytes(6));
     $generations = sys_get_temp_dir().'/gateway-planner-ext-generations-'.bin2hex(random_bytes(6));

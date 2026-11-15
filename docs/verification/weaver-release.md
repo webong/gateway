@@ -1,6 +1,7 @@
 # Weaver candidate publication and acceptance
 
-PR #24 stays draft and unmerged until replacement acceptance is complete. The
+PR #24 was merged into main at `543e8d50` after explicit source-integration
+approval. The owner subsequently reiterated: do not publish anything yet. The
 prerequisite WorkFlow release exception does not authorize Weaver publication.
 Do not publish tags, archives, Composer metadata or deploy from this checklist
 without an explicit exception naming the tested source commit.
@@ -12,13 +13,19 @@ and builds `0.1.0-rc.1`. The immutable WorkFlow runtime and PHP/Go builder image
 digests are recorded in each manifest and candidate report. `package.py --release`
 requires a clean source tree and exact HEAD revision, verifies every manifest
 artifact, checks runtime/Composer source parity and regenerates archives twice.
-This proves deterministic archive creation, not independently rebuilt binaries.
+The gzip compression level is explicit so Python default changes cannot alter
+archive bytes. Original local arm64 cold-cache rebuilds matched; explicit level 9
+also reproduces the original native CI runtime and Composer archive checksums.
 
 Each architecture produces a runtime TAR, Composer source TAR, Composer package
 entry and repository index, SHA256 sums and a report. CI tests the exact Composer
 TAR locally before publication, keeping its checksum and replacing only the URL
 with a read-only fixture mount. All three real hosts exercise that runtime package.
 The standalone cutover CLI must also bootstrap from the installed Composer dist.
+The private HTTPS Composer test fetches an index and source TAR with an empty
+download cache; it rejects untrusted TLS and corrupt archives before accepting
+the explicitly trusted fixture CA. No ports are published and no assets leave
+the disposable Docker fixture.
 
 No candidate bytes are uploaded by default. Only after explicit publication
 approval may `WEAVER_APPROVED_SOURCE_SHA` be set to the exact tested commit and
@@ -39,8 +46,7 @@ Keep publication, installation, deployment and merging as distinct actions.
 ## Verify replacement acceptance
 
 A compatible Gateway host needs the reserved-receipt, own-adapter readiness and
-`supports-pinned-http` / `deliver-pinned-http` capabilities introduced on this
-branch. Test with the exact reviewed Gateway source; older hosts must refuse
+`supports-pinned-http` / `deliver-pinned-http` capabilities merged through PR #24. Test with the exact reviewed Gateway source; older hosts must refuse
 unsupported activation before accepting work.
 
 From a fresh consumer and empty artifact cache, fetch the published HTTPS Composer
@@ -60,5 +66,33 @@ back into the legacy app are unsupported. No production data was used in CI.
 
 Only after compatible published replacement acceptance should WorkFlow's `app/`
 move into examples or receive versioned deprecation guidance. Preserve engine and
-authoring CLI independence. Keep PR #24 unmerged until the full setup is complete;
-publication alone does not close these gates.
+authoring CLI independence. Source integration is already complete; publication
+alone does not close replacement acceptance.
+
+## Rehearse downloads without publication
+
+Build the Weaver package and actual hosts using the existing build scripts, then
+run these private Docker-only acceptance commands:
+
+```sh
+python3 pkg/weaver/tests/https-composer-smoke.py gateway-weaver:arm64
+python3 tools/workflow-runtime-gate/host-matrix.py spinner gateway-weaver:arm64 --fresh-https
+python3 tools/workflow-runtime-gate/host-matrix.py roadrunner gateway-weaver:arm64 --fresh-https
+python3 tools/workflow-runtime-gate/host-matrix.py frankenphp gateway-weaver:arm64 --fresh-https
+```
+
+Use `amd64` on its native runner. Each run creates and removes its own network,
+certificate, temporary caches, containers and SQL volumes. The host matrix never
+preloads package directories or desired receipts in this mode. Both production
+downloaders must fetch and verify the archive before activation. The Planner
+installer streams the download and expands gzip to bounded temporary files,
+retaining its normal memory budget; a separate regression installs an 80 MiB
+runtime under a 64 MiB limit. Ext deliberately installs non-entrypoint files as private data. Weaver prepares
+only its fixed, verified ELF loader for owner execution after installation;
+arbitrary TAR permission bits do not grant execution permissions.
+TLS verification remains enabled; provider-effect HTTP redirects remain forbidden.
+
+The native runtime workflow runs these checks on relevant main pushes and PRs.
+Candidate upload remains exact-source approval gated; do not enable it while
+publication is prohibited. This rehearsal is deliberately distinct from eventual
+published HTTPS/CDN installation and operator-specific trust/backup acceptance.

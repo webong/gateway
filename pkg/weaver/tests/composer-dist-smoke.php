@@ -1,12 +1,21 @@
 <?php
 // Disposable real Planner consumer: install the exact candidate Composer TAR.
 $package=json_decode(file_get_contents('/release/composer-weaver-'.($argv[1]??'arm64').'.json'),true,128,JSON_THROW_ON_ERROR);
-// Publication is separately approved: consume identical local bytes during CI.
-$package['dist']['url']='file:///release/'.basename(parse_url($package['dist']['url'],PHP_URL_PATH));
+$repository=getenv('WEAVER_COMPOSER_REPOSITORY')?:null;
+if($repository!==null){
+    if(!str_starts_with($repository,'https://')){throw new RuntimeException('HTTPS Composer repository required');}
+    $index=json_decode(file_get_contents($repository.'/packages.json'),true,128,JSON_THROW_ON_ERROR);
+    $remote=$index['packages']['webong/gateway-weaver'][$package['version']]??null;
+    if(!is_array($remote) || ($remote['dist']['shasum']??null)!==$package['dist']['shasum']){throw new RuntimeException('Remote Composer metadata differs from the reviewed candidate');}
+    $package=$remote;
+}else{
+    // Default CI rehearsal consumes identical local bytes without publication.
+    $package['dist']['url']='file:///release/'.basename(parse_url($package['dist']['url'],PHP_URL_PATH));
+}
 $root='/gateway/app';chdir($root);
 $composer=json_decode(file_get_contents('composer.json'),true,128,JSON_THROW_ON_ERROR);
 $composer['require']['webong/gateway-weaver']=$package['version'];
-$composer['repositories']=[['type'=>'package','package'=>$package],['type'=>'vcs','url'=>'https://github.com/webong/workflow','no-api'=>true]];
+$composer['repositories']=[$repository!==null?['type'=>'composer','url'=>$repository]:['type'=>'package','package'=>$package],['type'=>'vcs','url'=>'https://github.com/webong/workflow','no-api'=>true]];
 $composer['config']['allow-plugins']['webong/composer-source-plugin']=true;
 $composer['extra']['source-plugin']['projections']['webong/workflow']=['surfaces'=>['core']];
 file_put_contents('composer.json',json_encode($composer,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR));

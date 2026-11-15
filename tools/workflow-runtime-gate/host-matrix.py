@@ -1,15 +1,20 @@
 """Actual installed-package acceptance across the production Spinner/Router entrypoints.
-Uses disposable containers, volumes and Planner state. HTTPS artifact download is
-seeded through verified caches, as in Gateway's existing container smoke tests.
+Uses disposable containers, volumes and Planner state. --fresh-https exercises
+real downloaders against a private HTTPS fixture, starting with empty caches.
 """
-import gzip, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, tempfile, time, uuid
+import argparse, gzip, hashlib, json, os, pathlib, shutil, subprocess, sys, tarfile, tempfile, time, uuid
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
-mode=sys.argv[1]
+arguments=argparse.ArgumentParser(description=__doc__)
+arguments.add_argument('host',choices=('spinner','roadrunner','frankenphp'))
+arguments.add_argument('image',nargs='?',default='gateway-workflow-runtime-gate:arm64')
+arguments.add_argument('--fresh-https',action='store_true')
+args=arguments.parse_args()
+mode=args.host
 print(mode+': preparing verified package and disposable host',flush=True)
 assert mode in ('spinner','roadrunner','frankenphp')
-image=sys.argv[2] if len(sys.argv)>2 else 'gateway-workflow-runtime-gate:arm64'
+image=args.image
 root=pathlib.Path(__file__).resolve().parents[2]
 name='gw-workflow-host-'+mode+'-'+uuid.uuid4().hex[:8]
 network=name+'-net';provider_network=name+'-effects';host=name;planner=name+'-planner' if mode=='spinner' else host
@@ -53,9 +58,10 @@ def process_count():
     top=docker('top',host,'-eo','pid,args',check=False).stdout
     return sum('/gate/worker.php' in line or '/bin/worker' in line or '/runtime/bin/workflowd' in line for line in top.splitlines())
 
-def fixture(phase):
+def fixture(phase,artifact_digest=None):
     script='/gate/host-weaver-activation.php' if production else '/gate/host-activation.php'
-    docker('exec','--user','www-data','-e','WORKFLOW_GATE_ACCOUNT_TOKEN='+guest,'-e','WORKFLOW_GATE_PROVIDER_TOKEN='+provider_token,planner,'php',script,phase)
+    docker('exec','--user','www-data','-e','WORKFLOW_GATE_ACCOUNT_TOKEN='+guest,'-e','WORKFLOW_GATE_PROVIDER_TOKEN='+provider_token,
+      '-e','WORKFLOW_GATE_ARTIFACT_SHA='+(artifact_digest or sha),planner,'php','-d','memory_limit=128M',script,phase)
 
 def php(phase,script=None):
     if script is None:script='/gate/weaver-http-smoke.php' if production else installed+'/gate/http-smoke.php'
@@ -96,23 +102,45 @@ try:
         info.uid=info.gid=0;info.uname=info.gname='';info.mtime=0
         return info
     with archive.open('wb') as output:
-      with gzip.GzipFile(filename='',mode='wb',fileobj=output,mtime=0) as compressed:
+      with gzip.GzipFile(filename='',mode='wb',fileobj=output,mtime=0,compresslevel=9) as compressed:
         with tarfile.open(fileobj=compressed,mode='w',format=tarfile.USTAR_FORMAT) as tar:
           tar.add(package,arcname=package.name,filter=normalized)
     sha=hashlib.sha256(archive.read_bytes()).hexdigest()
     spinner_cache=tmp/'spinner-cache';planner_cache=tmp/'planner-cache'
     for cache in (spinner_cache,planner_cache):
-        cache.mkdir();(cache/'.desired').mkdir();shutil.copytree(package,cache/package.name)
+        cache.mkdir();(cache/'.desired').mkdir()
+        if not args.fresh_https:shutil.copytree(package,cache/package.name)
         for directory,dirs,files in os.walk(cache):os.chmod(directory,0o755)
         os.chmod(cache,0o777);os.chmod(cache/'.desired',0o777)
     receipt=hashlib.sha256(b'webong/gateway-weaver').hexdigest()+'.json'
-    (spinner_cache/'.desired'/receipt).write_text(json.dumps({'extension':'webong/gateway-weaver','version':version,'revision':1,'artifact_sha256':sha,'package_revision':manifest['descriptor']['identity']['revision']}))
-    (planner_cache/'.desired'/receipt).write_text(json.dumps({'revision':1,'sha256':sha}))
-    os.chmod(spinner_cache/'.desired'/receipt,0o666)
+    if not args.fresh_https:
+      (spinner_cache/'.desired'/receipt).write_text(json.dumps({'extension':'webong/gateway-weaver','version':version,'revision':1,'artifact_sha256':sha,'package_revision':manifest['descriptor']['identity']['revision']}))
+      (planner_cache/'.desired'/receipt).write_text(json.dumps({'revision':1,'sha256':sha}))
+      os.chmod(spinner_cache/'.desired'/receipt,0o666)
     installed='/extensions/'+package.name
     host_image='gateway-workflow-host:'+mode
     planner_image='gateway-workflow-host:roadrunner'
     docker('network','create',network)
+    artifact_url='https://extensions.invalid/gateway-workflow.tar.gz'
+    tls_options=[]
+    if args.fresh_https:
+      assert production,'Fresh HTTPS acceptance requires the actual Weaver package'
+      tls=tmp/'tls';tls.mkdir();os.chmod(tls,0o755)
+      shutil.copy2(archive,tls/'workflow.tar.gz')
+      subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1',
+        '-keyout',str(tls/'key.pem'),'-out',str(tls/'ca.pem'),'-subj','/CN=weaver-artifacts',
+        '-addext','subjectAltName=DNS:weaver-artifacts'],check=True,capture_output=True)
+      (tls/'fixture.ini').write_text('curl.cainfo=/gate-tls/ca.pem\nopenssl.cafile=/gate-tls/ca.pem\n')
+      artifacts=name+'-artifacts'
+      docker('run','-d','--name',artifacts,'--network',network,'--network-alias','weaver-artifacts',
+        '--mount','type=bind,source='+str(root/'tools/workflow-runtime-gate')+',target=/gate,readonly',
+        '--mount','type=bind,source='+str(tls)+',target=/gate-tls,readonly',
+        '--entrypoint','php',planner_image,'/gate/artifact-server.php','/gate-tls');containers.append(artifacts)
+      wait(lambda:docker('exec',artifacts,'php','-d','openssl.cafile=/gate-tls/ca.pem','-r',
+        "exit(@file_get_contents('https://weaver-artifacts:8443/healthz')==='OK'?0:1);",check=False).returncode==0,'private HTTPS artifact fixture failed')
+      artifact_url='https://weaver-artifacts:8443/workflow.tar.gz'
+      tls_options=['--mount','type=bind,source='+str(tls)+',target=/gate-tls,readonly',
+        '-e','SSL_CERT_FILE=/gate-tls/ca.pem','-e','PHP_INI_SCAN_DIR=:/gate-tls']
     state=volume('state',host_image);data=volume('data',host_image)
     if production:
       docker('run','--rm','--mount','type=volume,source='+state+',target=/state',
@@ -136,6 +164,7 @@ try:
       '-e','GATEWAY_ROUTER_DATA_DIR=/data','-e','GATEWAY_ROUTER_CREDENTIALS_FILE=/gate/host.env','-e','DB_CONNECTION=sqlite','-e','DB_DATABASE=/data/gateway.sqlite',
       '-e','GATEWAY_PLUGIN_DIR=/extensions','-e','GATEWAY_COMPANION_PLUGIN_DIR=/planner-extensions',
       '-e','WORKFLOW_GATE_ARTIFACT_SHA='+sha,'-e','WORKFLOW_GATE_EXTENSION_VERSION='+version,
+      '-e','WORKFLOW_GATE_ARTIFACT_URL='+artifact_url,*tls_options,
       '--mount','type=bind,source='+str(root/'tools/workflow-runtime-gate')+',target=/gate,readonly',
       '--mount','type=bind,source='+str(planner_cache)+',target=/planner-extensions']
     if mode=='spinner':
@@ -144,7 +173,7 @@ try:
         '--entrypoint','sh',planner_image,'/gate/host-planner.sh');containers.append(planner)
       management=mapped(planner,8080)
       wait(lambda:http(management,'/health')[0] in (200,204),'separate Planner did not become ready')
-      fixture('activate')
+      fixture('activate','0'*64 if args.fresh_https else None)
       docker('run','-d','--name',host,'--network',network,*common,
         '--mount','type=bind,source='+str(spinner_cache)+',target=/extensions',
         '--mount','type=volume,source='+state+',target=/state',
@@ -165,9 +194,24 @@ try:
       if production:docker('network','connect',provider_network,host)
       public=mapped(host,8080);management=public
       wait(lambda:http(public,'/health')[0] in (200,204),'Router did not become ready')
-      fixture('activate')
+      fixture('activate','0'*64 if args.fresh_https else None)
     admin=mapped(host,5052)
+    if args.fresh_https:
+      fixture('reject-artifact')
+      wait(lambda:'"path":"/objects/workflow.tar.gz"' in docker('logs',artifacts).stdout,'real downloader never fetched the HTTPS archive')
+      wait(lambda:process_count()==0 and http(admin,'/workflow/rpc',internal,guest)[0] in (502,503),'wrong checksum did not fail closed')
+      assert not (spinner_cache/package.name).exists() and not (planner_cache/package.name).exists(),'wrong checksum installed an artifact'
+      fixture('activate')
+      fixture('install-artifact')
     wait(lambda:process_count()==2 and http(admin,'/workflow/rpc',internal,guest)[0]==405,'verified package did not activate through actual host')
+    if args.fresh_https:
+      for cache in (spinner_cache,planner_cache):
+        assert (cache/package.name/'plugin.json').is_file(),'empty-cache HTTPS installation missing'
+        saved=json.loads((cache/'.desired'/receipt).read_text())
+        assert saved.get('artifact_sha256',saved.get('sha256'))==sha,'installed receipt did not pin transport bytes'
+      accesses=docker('logs',artifacts).stdout
+      assert 'Go-http-client' in accesses and 'GuzzleHttp' in accesses,'both real downloaders must fetch the artifact'
+      print(mode+': PASS empty-cache HTTPS install, trusted fixture CA, TLS-only redirect and wrong-checksum rejection in real Planner/Spinner downloaders',flush=True)
     assert http(admin,'/workflow/rpc',guest,method='POST')[0]==401,'extension credential bypassed host authentication'
     assert http(admin,'/workflow/rpc',internal,method='POST')[0]==401,'host token bypassed extension authentication'
     assert http(admin,'/workflow/rpc',internal,'wrong',method='POST')[0]==401,'wrong extension token accepted'

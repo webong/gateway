@@ -13,3 +13,4 @@ app/planner/vendor
 /pkg/roadrunner/cmd/router/router
 
 .workflow-gate-source
+.claude/worktrees

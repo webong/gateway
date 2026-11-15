@@ -96,7 +96,7 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 				return
 			}
 			plannerClient := &http.Client{Transport: routerHandlerTransport{handler: next}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-			artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			artifactClient := spinnerextensions.NewArtifactHTTPClient()
 			artifactReconciler, err := spinnerextensions.NewArtifactReconciler(
 				"http://gateway.internal", spinner.InternalToken, pluginDir,
 				plannerClient, artifactClient, spinnerextensions.Registries{

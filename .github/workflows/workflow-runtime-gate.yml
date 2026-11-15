@@ -16,6 +16,22 @@ on:
       - 'app/**'
       - 'composer.*'
       - '.github/workflows/workflow-runtime-gate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/workflow-runtime-gate/**'
+      - 'pkg/weaver/**'
+      - 'pkg/planner/**'
+      - 'go.work'
+      - 'mod/arranger/**'
+      - 'pkg/spinner/**'
+      - 'pkg/roadrunner/**'
+      - 'pkg/frankenphp/**'
+      - 'infra/docker/Gateway*.Dockerfile'
+      - 'scripts/router-start'
+      - 'app/**'
+      - 'composer.*'
+      - '.github/workflows/workflow-runtime-gate.yml'
   workflow_dispatch:
 
 permissions:
@@ -91,11 +107,12 @@ jobs:
         run: |
           python3 pkg/weaver/package.py 'gateway-weaver:${{ matrix.arch }}' "$RUNNER_TEMP/weaver-candidate" --release --asset-base "$WEAVER_RELEASE_BASE"
           docker run --rm --mount "type=bind,source=$RUNNER_TEMP/weaver-candidate,target=/release,readonly" --mount "type=bind,source=$PWD/pkg/weaver/tests/composer-dist-smoke.php,target=/composer-dist-smoke.php,readonly" --entrypoint php gateway-weaver-planner-test /composer-dist-smoke.php '${{ matrix.arch }}'
+          python3 pkg/weaver/tests/https-composer-smoke.py 'gateway-weaver:${{ matrix.arch }}'
       - name: Exercise actual host matrix with the same verified package
         run: |
-          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}'
-          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-weaver:${{ matrix.arch }}'
-          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-weaver:${{ matrix.arch }}'
+          python3 tools/workflow-runtime-gate/host-matrix.py spinner 'gateway-weaver:${{ matrix.arch }}' --fresh-https
+          python3 tools/workflow-runtime-gate/host-matrix.py roadrunner 'gateway-weaver:${{ matrix.arch }}' --fresh-https
+          python3 tools/workflow-runtime-gate/host-matrix.py frankenphp 'gateway-weaver:${{ matrix.arch }}' --fresh-https
       # No candidate bytes are uploaded until this exact source has explicit
       # publication approval. The repository variable is unset by default.
       - uses: actions/upload-artifact@v4

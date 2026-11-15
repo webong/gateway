@@ -155,7 +155,7 @@ func NewArtifactReconciler(
 		plannerClient = http.DefaultClient
 	}
 	if artifactClient == nil {
-		artifactClient = http.DefaultClient
+		artifactClient = NewArtifactHTTPClient()
 	}
 	registries = registries.withDefaults()
 	return &ArtifactReconciler{

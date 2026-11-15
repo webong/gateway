@@ -13,7 +13,7 @@ def docker(*values):return subprocess.check_output(['docker',*map(str,values)],t
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def archive(root,target):
     with target.open('wb') as output:
-        with gzip.GzipFile(filename='',mode='wb',fileobj=output,mtime=0) as zipped:
+        with gzip.GzipFile(filename='',mode='wb',fileobj=output,mtime=0,compresslevel=9) as zipped:
             with tarfile.open(fileobj=zipped,mode='w',format=tarfile.USTAR_FORMAT) as tar:
                 for path in [root,*sorted(root.rglob('*'))]:
                     assert not path.is_symlink(),'Archive symlinks are forbidden'
@@ -70,7 +70,10 @@ with tempfile.TemporaryDirectory(prefix='weaver-package-') as temporary:
                     counterpart=package/member.relative_to(source)
                     assert counterpart.is_file() and digest(member)==digest(counterpart),'Composer/runtime source mismatch: '+str(member.relative_to(source))
             shutil.copytree(path,composer_root/name)
-        else:shutil.copy2(path,composer_root/name)
+        else:
+            counterpart=package/name
+            assert counterpart.is_file() and digest(path)==digest(counterpart),'Composer/runtime source mismatch: '+name
+            shutil.copy2(path,composer_root/name)
     composer_document=json.loads((composer_root/'composer.json').read_text());composer_document['version']=identity['version']
     (composer_root/'composer.json').write_text(json.dumps(composer_document,indent=2)+'\n')
     composer_target=args.destination/('gateway-weaver-composer-'+arch+'.tar.gz')

@@ -14,13 +14,16 @@ The dependency now uses released WorkFlow v0.1.0-rc.2 at
 `278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, installed as a dist with a root-owned
 core projection. The installed Planner provider and resource tests pass, including exact Composer
 TAR installation.
-The full extension setup remains incomplete.
+PR #24 was merged into main at `543e8d500195625d802125177790a2f8ffad8fd0`.
+Source integration is complete; publication and operator replacement acceptance
+remain separate and incomplete. The owner explicitly prohibits publication.
 
 ## Runtime decision (gates 1–2)
 
-Review the runtime/ownership ADR and PR #24 with their native host evidence.
-**Do not merge PR #24 until the full extension setup is complete.** There is no
-separate early merge gate before extraction.
+Completed: the owner approved source integration after the native host proof.
+PR #24 is merged. Its final native amd64/arm64 run passed all three hosts, the
+extracted SQL suite (142 tests / 794 assertions) and Composer dist acceptance.
+This does not authorize publishing, deployment or old-app removal.
 
 ## Dependency and extraction (gate 3)
 
@@ -71,9 +74,11 @@ separate early merge gate before extraction.
   The upstream SQL prerequisite is evidence to preserve, not a substitute for
   testing the extracted package.
 - Keep all three production hosts and both native architectures green against the
-  final package, with upgrade/replacement and failure cases. The runtime harness
-  preloads verified artifact caches and uses disposable tokens; fresh HTTPS
-  download/installation and production trust policy need separate acceptance.
+  final package, with upgrade/replacement and failure cases. `--fresh-https` now
+  starts with empty Planner/Spinner artifact caches and uses a private TLS fixture.
+  It covers checksum rejection, explicit CA trust and HTTPS redirects through the
+  actual downloaders, followed by the existing workflow/failure acceptance.
+  This private rehearsal does not establish published-origin installation.
 
 ## Cutover and rollback rehearsal (gate 6)
 
@@ -98,10 +103,14 @@ separate early merge gate before extraction.
   runtime/Composer source parity and deterministic archives. The exact Composer
   TAR installs into a real isolated Planner consumer.
 - Builds pin the core runtime and bridge/static-entrypoint builder by OCI digest.
-  Archive regeneration is deterministic; independent clean rebuild comparison and
-  native candidate CI still need final evidence. Publish Linux amd64/arm64 extension
-  artifacts, Composer metadata and
-  checksums through the reviewed release process; validate publisher/artifact trust.
+  The original arm64 cold-cache rebuild matched its local candidate. Explicit gzip
+  compression now also reproduces the prior native CI runtime/Composer checksums
+  across the local and CI Python defaults. New acceptance runs use a private HTTPS
+  Composer index/dist, reject untrusted TLS and corrupt downloads, and keep the
+  Composer cache empty.
+- Blocked by owner instruction: publishing Linux amd64/arm64 extension archives,
+  Composer metadata, checksums or tags. Do not ask for publication again unless
+  the owner changes that instruction. Published-origin/trust acceptance remains open.
 - Smoke-test fresh installation from published artifacts and ship approval/order
   examples plus installation, authentication, upgrade, operation and rollback docs.
 - Once replacement acceptance passes, move WorkFlow `app/` into examples for

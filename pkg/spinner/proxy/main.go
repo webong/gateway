@@ -408,7 +408,7 @@ func runHTTPBackend(config *relayconfig.Config, server *Server, logger *logging.
 		},
 	})
 	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
-		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		artifactClient := spinnerextensions.NewArtifactHTTPClient()
 		reconciler, err := spinnerextensions.NewArtifactReconciler(
 			config.PlannerURL, config.InternalToken, pluginDir,
 			client, artifactClient, spinnerextensions.Registries{

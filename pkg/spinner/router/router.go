@@ -80,7 +80,7 @@ func Run(ctx context.Context, startPlanner func(string) (Planner, error)) error 
 	var artifactReconciler *spinnerextensions.ArtifactReconciler
 	if pluginDir := automationextensions.DefaultLoadConfig().ExternalDir; pluginDir != "" {
 		plannerClient := &http.Client{Transport: handlerRoundTripper{handler: planner}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-		artifactClient := &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		artifactClient := spinnerextensions.NewArtifactHTTPClient()
 		artifactReconciler, err = spinnerextensions.NewArtifactReconciler(
 			"http://gateway.internal", spinner.InternalToken, pluginDir,
 			plannerClient, artifactClient, spinnerextensions.Registries{

@@ -202,6 +202,18 @@ func (s *Service) Start(ctx context.Context, request arranger.RuntimeStartReques
 		return result, errors.New("runtime settings unavailable")
 	}
 	// Probe the bundled executable, not PATH or the host's PHP installation.
+	// Ext installs non-entrypoint artifacts as private data (0600). This fixed
+	// loader belongs to Weaver's verified package, not operator configuration.
+	loader := filepath.Join(s.root, "runtime/loader")
+	loaderInfo, loaderErr := os.Lstat(loader)
+	if loaderErr != nil || !loaderInfo.Mode().IsRegular() {
+		return result, errors.New("bundled runtime loader is unavailable")
+	}
+	if loaderInfo.Mode().Perm()&0o100 == 0 {
+		if err := os.Chmod(loader, 0o700); err != nil {
+			return result, errors.New("bundled runtime loader cannot be prepared")
+		}
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	cmd := s.php("-r", `if (PHP_VERSION_ID < 80300 || PHP_VERSION_ID >= 80400 || !extension_loaded('pcntl') || array_diff(['sqlite','pgsql','mysql'], PDO::getAvailableDrivers())) exit(1); echo 'ready';`)

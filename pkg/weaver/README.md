@@ -12,8 +12,10 @@ provider. Production uses the released `webong/workflow:0.1.0-rc.2` dist at
 `278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, projected to the `core` surface.
 The native host and SQL acceptance passed. Offline copied-data cutover/rollback
 is implemented and rehearsed on all three SQL engines and real RPC endpoints.
-Release publication/trust and fresh published-artifact installation remain open.
-PR #24 stays unmerged until the full extension setup is complete.
+PR #24 is merged into main. Private, empty-cache HTTPS download/installation
+acceptance now exercises the real Planner and Spinner downloaders; publication,
+published-origin trust and operator replacement acceptance remain open. Nothing
+is published or deployed by the package/test scripts.
 
 ## Runtime package
 

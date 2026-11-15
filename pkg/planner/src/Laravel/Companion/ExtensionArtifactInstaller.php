@@ -39,24 +39,6 @@ final readonly class ExtensionArtifactInstaller
             }
         }
 
-        // Public release asset hosts may redirect to a CDN. Keep that flow
-        // bounded and TLS-only; the archive digest below pins the bytes.
-        $response = $this->http->timeout(60)->withOptions([
-            'allow_redirects' => [
-                'max' => 5,
-                'protocols' => ['https'],
-                'referer' => false,
-            ],
-        ])->get($artifact['url']);
-        if (! $response->successful()) {
-            throw new RuntimeException('Unable to download the desired Gateway extension artifact.');
-        }
-        $archive = $response->body();
-        if ($archive === '' || strlen($archive) > self::MAX_ARCHIVE_BYTES
-            || ! hash_equals($artifact['sha256'], hash('sha256', $archive))) {
-            throw new RuntimeException('Gateway extension artifact failed transport integrity verification.');
-        }
-
         if (! is_dir($this->root) && ! mkdir($this->root, 0700, true) && ! is_dir($this->root)) {
             throw new RuntimeException('Unable to create Planner extension artifact storage.');
         }
@@ -65,8 +47,10 @@ final readonly class ExtensionArtifactInstaller
             throw new RuntimeException('Unable to stage the Gateway extension artifact.');
         }
         try {
-            $archivePath = $temporary.DIRECTORY_SEPARATOR.'package.tar.gz';
-            file_put_contents($archivePath, $archive, LOCK_EX);
+            $compressed = $temporary.DIRECTORY_SEPARATOR.'package.tar.gz';
+            $archivePath = $temporary.DIRECTORY_SEPARATOR.'package.tar';
+            $this->downloadArchive($artifact, $compressed);
+            $this->expandArchive($compressed, $archivePath);
             $extracted = $temporary.DIRECTORY_SEPARATOR.'extracted';
             mkdir($extracted, 0700);
             $phar = new PharData($archivePath);
@@ -126,6 +110,92 @@ final readonly class ExtensionArtifactInstaller
         } finally {
             if (is_dir($temporary)) {
                 $this->removeDirectory($temporary);
+            }
+        }
+    }
+
+    /** @param array{url: string, sha256: string} $artifact */
+    private function downloadArchive(array $artifact, string $destination): void
+    {
+        // Keep both transport buffers and archive expansion independent of the
+        // runtime's size. Public release origins may redirect to an HTTPS CDN.
+        $deadline = hrtime(true) + 60_000_000_000;
+        $response = $this->http->timeout(60)->withOptions([
+            'stream' => true,
+            'read_timeout' => 10,
+            'allow_redirects' => ['max' => 5, 'protocols' => ['https'], 'referer' => false],
+        ])->get($artifact['url']);
+        $input = $response->toPsrResponse()->getBody();
+        $output = null;
+        try {
+            if (! $response->successful()) {
+                throw new RuntimeException('Unable to download the desired Gateway extension artifact.');
+            }
+            $output = fopen($destination, 'wb');
+            if ($output === false) {
+                throw new RuntimeException('Unable to stage the Gateway extension artifact.');
+            }
+            $hash = hash_init('sha256');
+            $bytes = 0;
+            while (! $input->eof()) {
+                if (hrtime(true) >= $deadline) {
+                    throw new RuntimeException('Gateway extension artifact download timed out.');
+                }
+                $chunk = $input->read(65536);
+                if (hrtime(true) >= $deadline) {
+                    throw new RuntimeException('Gateway extension artifact download timed out.');
+                }
+                $bytes += strlen($chunk);
+                if ($bytes > self::MAX_ARCHIVE_BYTES || ($chunk === '' && ! $input->eof())) {
+                    throw new RuntimeException('Gateway extension artifact failed transport integrity verification.');
+                }
+                hash_update($hash, $chunk);
+                if (fwrite($output, $chunk) !== strlen($chunk)) {
+                    throw new RuntimeException('Unable to stage the Gateway extension artifact.');
+                }
+            }
+            if ($bytes === 0 || ! hash_equals($artifact['sha256'], hash_final($hash))) {
+                throw new RuntimeException('Gateway extension artifact failed transport integrity verification.');
+            }
+        } finally {
+            $input->close();
+            if (is_resource($output)) {
+                fclose($output);
+            }
+        }
+    }
+
+    private function expandArchive(string $compressed, string $destination): void
+    {
+        if (file_get_contents($compressed, false, null, 0, 2) !== "\x1f\x8b") {
+            throw new RuntimeException('Gateway extension artifact is not a gzip archive.');
+        }
+        $input = gzopen($compressed, 'rb');
+        $output = fopen($destination, 'wb');
+        try {
+            if ($input === false || $output === false) {
+                throw new RuntimeException('Unable to expand the Gateway extension artifact.');
+            }
+            $bytes = 0;
+            while (! gzeof($input)) {
+                $chunk = gzread($input, 65536);
+                if ($chunk === false || ($chunk === '' && ! gzeof($input))) {
+                    throw new RuntimeException('Unable to expand the Gateway extension artifact.');
+                }
+                $bytes += strlen($chunk);
+                if ($bytes > self::MAX_ARCHIVE_BYTES) {
+                    throw new RuntimeException('Gateway extension artifact exceeds extraction limits.');
+                }
+                if (fwrite($output, $chunk) !== strlen($chunk)) {
+                    throw new RuntimeException('Unable to expand the Gateway extension artifact.');
+                }
+            }
+        } finally {
+            if (is_resource($input)) {
+                gzclose($input);
+            }
+            if (is_resource($output)) {
+                fclose($output);
             }
         }
     }
