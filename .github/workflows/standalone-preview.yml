@@ -47,6 +47,10 @@ jobs:
           [[ "$EXPECTED_SOURCE" =~ ^[0-9a-f]{40}$ ]]
           actual=$(git rev-parse HEAD)
           test "$actual" = "$EXPECTED_SOURCE"
+          # Composer path fixtures require dev-main; attach that name locally
+          # without changing the selected commit or any source bytes.
+          git checkout -B main "$actual"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           echo "sha=$actual" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v5
         with:
