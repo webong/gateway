@@ -37,7 +37,7 @@ jobs:
         with:
           php-version: '8.4'
           tools: composer
-          extensions: mbstring, pdo_sqlite, sockets, zip
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
       - uses: docker/setup-buildx-action@v3
       - name: Verify publication controls without Docker access
         run: bash scripts/test-publish-gateway-image
@@ -66,6 +66,8 @@ jobs:
         run: python3 tools/release-acceptance/standalone.py gateway-preview:${{ matrix.runtime }} --web-package "$RUNNER_TEMP/extensions/webong%2fweb" --report "$RUNNER_TEMP/standalone-report.json"
       - name: Packaged HTTP and WebSocket routing
         run: bash scripts/test-router-managed-route gateway-preview:${{ matrix.runtime }}
+      - name: Install locked extension build tooling
+        run: scripts/composer-install --prefer-dist
       - name: Custom extension activation and integrity
         env:
           GATEWAY_ROUTER_SKIP_BUILD: 'true'
