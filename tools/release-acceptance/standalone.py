@@ -1,5 +1,10 @@
 """Accept an already-built standalone Router image without publishing or production data."""
 import argparse
+import base64
+import os
+import socket
+import shutil
+import tarfile
 import hashlib
 import json
 import pathlib
@@ -16,7 +21,11 @@ def main():
     parser.add_argument('image')
     parser.add_argument('--report', type=pathlib.Path)
     parser.add_argument('--web-package', type=pathlib.Path, help='Locally built webong%%2fweb package directory')
+    parser.add_argument('--web-archive', type=pathlib.Path, help='Frozen Web TAR for actual empty-cache HTTPS installation')
     args = parser.parse_args()
+    if args.web_package and args.web_archive:
+        parser.error('Select either --web-package or --web-archive')
+    has_web = bool(args.web_package or args.web_archive)
     root = pathlib.Path(__file__).resolve().parent
     prefix = 'gateway-release-' + uuid.uuid4().hex[:10]
     router, receiver = prefix + '-router', prefix + '-receiver'
@@ -75,6 +84,42 @@ def main():
         except (HTTPError, URLError, TimeoutError, ConnectionError):
             return False
 
+    def websocket_message(marker):
+        port = int(base.rsplit(':', 1)[1])
+        key = base64.b64encode(os.urandom(16)).decode()
+        payload = json.dumps({'acceptance': marker}, separators=(',', ':')).encode()
+        connection = None
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            candidate = socket.create_connection(('127.0.0.1', port), timeout=5)
+            candidate.sendall(('GET /hooks/socket HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ' + key + '\r\n\r\n').encode())
+            response = b''
+            while b'\r\n\r\n' not in response:
+                block = candidate.recv(1024)
+                assert block and len(response) < 16384, 'WebSocket handshake incomplete'
+                response += block
+            expected = base64.b64encode(hashlib.sha1((key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+            if response.startswith(b'HTTP/1.1 101 ') and expected.lower() in response.lower():
+                connection = candidate
+                break
+            candidate.close()
+            time.sleep(.25)
+        assert connection is not None, 'Installed Web extension did not advertise a WebSocket mount: ' + response.decode(errors='replace')[:300]
+        with connection:
+            def frame(opcode, body):
+                assert len(body) < 126
+                mask = os.urandom(4)
+                return bytes([opcode, 0x80 | len(body)]) + mask + bytes(value ^ mask[i % 4] for i, value in enumerate(body))
+            connection.sendall(frame(0x81, payload) + frame(0x88, b'\x03\xe8'))
+            try:
+                connection.recv(1024)
+            except TimeoutError:
+                pass
+        def delivered():
+            rows = docker('exec', receiver, 'cat', '/tmp/websocket.jsonl', check=False).stdout.splitlines()
+            return any(json.loads(line)['body'] == payload.decode() for line in rows)
+        wait(delivered, 'Installed Web extension did not deliver the WebSocket message')
+
     def start(volume):
         nonlocal base
         mounts = []
@@ -123,6 +168,9 @@ def main():
             fixture = pathlib.Path(directory)
             # Mount contains disposable server keys only. No production credentials enter the test.
             fixture.chmod(0o755)
+            if args.web_archive:
+                shutil.copyfile(args.web_archive, fixture / 'web.tar.gz')
+                (fixture / 'web.tar.gz').chmod(0o644)
             subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
                             '-keyout', str(fixture / 'key.pem'), '-out', str(fixture / 'ca.pem'),
                             '-subj', '/CN=release-receiver', '-addext', 'subjectAltName=DNS:release-receiver'],
@@ -151,19 +199,29 @@ def main():
             assert http('/registry/endpoints/orders', authenticated=True)[0] == 200, 'Endpoint missing'
             event('fresh')
             print('PASS fresh startup, management boundaries and HTTPS webhook', flush=True)
-            if args.web_package:
-                manifest = json.loads((args.web_package / 'plugin.json').read_text())
-                version = manifest['descriptor']['identity']['version']
-                status, body = http('/extensions', {'extension': 'webong/web', 'enabled': True, 'mode': 'dynamic', 'version': version}, authenticated=True)
+            if has_web:
+                if args.web_archive:
+                    with tarfile.open(args.web_archive) as package:
+                        manifest = json.load(package.extractfile('webong%2fweb/plugin.json'))
+                    artifact_sha = hashlib.sha256(args.web_archive.read_bytes()).hexdigest()
+                    activation = {'extension': 'webong/web', 'enabled': True, 'version': manifest['descriptor']['identity']['version'],
+                                  'artifact': {'url': 'https://release-receiver:8443/web.tar.gz', 'sha256': artifact_sha}}
+                else:
+                    manifest = json.loads((args.web_package / 'plugin.json').read_text())
+                    activation = {'extension': 'webong/web', 'enabled': True, 'mode': 'dynamic', 'version': manifest['descriptor']['identity']['version']}
+                status, body = http('/extensions', activation, authenticated=True)
                 assert status in (200, 201), 'Web activation rejected: ' + body.decode()[:500]
                 artisan('gateway:endpoint', 'updates')
                 status, body = http('/registry/endpoints/updates/subscriptions', {
                     'subscriber_id': 'stream-source', 'subscription_id': 'stream-source', 'type': 'reply',
                     'group': 'default', 'routing_scope': 'path', 'routing_key': '/hooks/updates',
-                    'url': 'https://release-receiver:8443/stream'}, authenticated=True)
+                    'url': 'http://release-receiver:8081/stream'}, authenticated=True)
                 assert status in (200, 201), 'Stream source rejected: ' + body.decode()[:500]
+                artisan('gateway:endpoint', 'socket')
+                artisan('gateway:subscribe', 'socket', 'socket-service', 'https://release-receiver:8443/socket-events')
+                websocket_message('websocket-fresh')
                 wait(stream, 'Installed Web extension did not relay SSE with Last-Event-ID')
-            if args.web_package:
+            if has_web:
                 print('PASS installed Web extension and SSE', flush=True)
             stop()
             before, copied = copy_volume(volumes[0], volumes[1])
@@ -190,7 +248,8 @@ def main():
             assert artisan('gateway:token') == token, 'Restore changed credentials'
             assert http('/registry/endpoints/orders', authenticated=True)[0] == 200, 'Restore lost registry'
             event('restored')
-            if args.web_package:
+            if has_web:
+                websocket_message('websocket-restored')
                 wait(stream, 'Web activation or SSE source did not survive restore')
             rows = ledger()
             assert sorted(row['payload']['acceptance'] for row in rows) == ['fresh', 'pending', 'replacement', 'restored'], 'Unexpected replay'
@@ -203,8 +262,14 @@ def main():
                       'published': False, 'production_data': False,
                       'limits': ['same-version replacement and restore; not a cross-version schema rollback',
                                  'SQLite and local spool; shared PostgreSQL is a separate gate']}
-            if args.web_package:
-                report['checks'].extend(['installed_web_extension', 'https_sse_stream', 'sse_last_event_id', 'extension_activation_restored'])
+            if has_web:
+                report['checks'].extend(['installed_web_extension', 'websocket_ingress_delivery', 'websocket_after_restore', 'sse_stream', 'sse_last_event_id', 'extension_activation_restored'])
+            if args.web_archive:
+                downloads = docker('exec', receiver, 'cat', '/tmp/downloads.txt').stdout.splitlines()
+                assert downloads, 'Web archive was not downloaded over HTTPS'
+                report['checks'].append('empty_cache_https_web_install')
+                report['web_archive_sha256'] = artifact_sha
+                report['archive_downloads'] = len(downloads)
             if args.report:
                 with args.report.open('x') as output:
                     json.dump(report, output, indent=2)

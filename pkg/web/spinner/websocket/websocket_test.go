@@ -169,3 +169,89 @@ func TestHandlerClosesIdleSessionAtMaximumDuration(t *testing.T) {
 		t.Fatalf("Gateway took %s to close a 30ms WebSocket session", elapsed)
 	}
 }
+
+func TestHandlerDeliversRegistryConnectionMessageAndClosePlans(t *testing.T) {
+	executor := &recordingExecutor{deliveries: make(chan bridge.GatewayDelivery, 3)}
+	handler := NewHandler(plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebSocket,
+			Action: bridge.GatewayDeliver, Deliveries: []bridge.GatewayDelivery{{Protocol: bridge.ProtocolHTTP,
+				Target: "https://subscriber.example.test/events", Payload: event.Payload,
+				Attributes: map[string]string{"kind": string(event.Kind), "event_id": event.ID}}}}, nil
+	}), executor, Config{PlannerTimeout: time.Second})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+"/hooks/orders", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.WriteMessage(websocket.TextMessage, []byte("order-created")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "done"), time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []bridge.EventKind{bridge.EventConnect, bridge.EventMessage, bridge.EventClose} {
+		select {
+		case delivery := <-executor.deliveries:
+			if delivery.Attributes["kind"] != string(kind) || delivery.Attributes["event_id"] == "" {
+				t.Fatalf("unexpected lifecycle delivery: %+v", delivery)
+			}
+			if kind == bridge.EventMessage && string(delivery.Payload) != "order-created" {
+				t.Fatalf("message payload changed: %+v", delivery)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("missing delivery for %s", kind)
+		}
+	}
+}
+
+type refusingExecutor struct{}
+
+func (refusingExecutor) EnqueueGateway(bridge.GatewayDelivery) bool { return false }
+
+func TestHandlerClosesWhenConnectionDeliveryCannotQueue(t *testing.T) {
+	handler := NewHandler(plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebSocket,
+			Action: bridge.GatewayDeliver, Deliveries: []bridge.GatewayDelivery{{Protocol: bridge.ProtocolHTTP,
+				Target: "https://subscriber.example.test/events"}}}, nil
+	}), refusingExecutor{}, Config{PlannerTimeout: time.Second})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+"/hooks/orders", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	_ = client.SetReadDeadline(time.Now().Add(time.Second))
+	_, _, err = client.ReadMessage()
+	if !websocket.IsCloseError(err, websocket.CloseTryAgainLater) {
+		t.Fatalf("expected retryable queue refusal, got %v", err)
+	}
+}
+
+func TestHandlerDoesNotDeliverRejectedOriginConnection(t *testing.T) {
+	executor := &recordingExecutor{deliveries: make(chan bridge.GatewayDelivery, 1)}
+	handler := NewHandler(plannerFunc(func(_ context.Context, event bridge.GatewayEvent) (bridge.GatewayDecision, error) {
+		return bridge.GatewayDecision{Version: bridge.ProtocolVersion, Protocol: bridge.ProtocolWebSocket,
+			Action: bridge.GatewayDeliver, Deliveries: []bridge.GatewayDelivery{{Protocol: bridge.ProtocolHTTP,
+				Target: "https://subscriber.example.test/events"}}}, nil
+	}), executor, Config{PlannerTimeout: time.Second})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client, response, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):]+"/hooks/orders", http.Header{"Origin": {"https://other.example"}})
+	if client != nil {
+		client.Close()
+	}
+	if response != nil {
+		defer response.Body.Close()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected rejected origin, got response=%v err=%v", response, err)
+	}
+	select {
+	case delivery := <-executor.deliveries:
+		t.Fatalf("rejected connection produced delivery: %+v", delivery)
+	default:
+	}
+}

@@ -362,7 +362,9 @@ jobs:
             exit 1
           fi
 
+      # CI builds and tests packages without retaining release candidate bytes.
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           name: ${{ matrix.family }}-linux-${{ matrix.arch }}
           path: ${{ runner.temp }}/gateway-guest-assets/*

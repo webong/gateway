@@ -4,8 +4,12 @@ declare(strict_types=1);
 $context=stream_context_create(['ssl'=>['local_cert'=>'/fixture/ca.pem','local_pk'=>'/fixture/key.pem']]);
 $server=stream_socket_server('tls://0.0.0.0:8443',$code,$message,STREAM_SERVER_BIND|STREAM_SERVER_LISTEN,$context);
 if($server===false){throw new RuntimeException($message);}
+$plain=stream_socket_server('tcp://0.0.0.0:8081',$code,$message);
+if($plain===false){throw new RuntimeException($message);}
 while(true){
-    $client=@stream_socket_accept($server,1);
+    $read=[$server,$plain];$write=null;$except=null;
+    if(stream_select($read,$write,$except,1)===0){continue;}
+    $client=@stream_socket_accept(current($read),1);
     if($client===false){continue;}
     stream_set_timeout($client,5);
     $request=fgets($client,8192);$headers=[];$size=0;
@@ -18,7 +22,16 @@ while(true){
     $body='';while(strlen($body)<$length){$part=fread($client,$length-strlen($body));if($part===false || $part===''){break;}$body.=$part;}
     clearstatcache(true,'/tmp/unavailable');
     $path=explode(' ',trim($request?:''))[1]??'';
-    if($path==='/health'){$response='OK';$status='200 OK';}
+    if($path==='/web.tar.gz' && is_file('/fixture/web.tar.gz')){
+        fwrite($client,"HTTP/1.1 200 OK\r\nContent-Type: application/gzip\r\nContent-Length: ".filesize('/fixture/web.tar.gz')."\r\nConnection: close\r\n\r\n");
+        $input=fopen('/fixture/web.tar.gz','rb');stream_copy_to_stream($input,$client);fclose($input);fclose($client);
+        file_put_contents('/tmp/downloads.txt',"web\n",FILE_APPEND|LOCK_EX);continue;
+    }
+    elseif($path==='/health'){$response='OK';$status='200 OK';}
+    elseif($path==='/socket-events'){
+        file_put_contents('/tmp/websocket.jsonl',json_encode(['body'=>$body],JSON_THROW_ON_ERROR)."\n",FILE_APPEND|LOCK_EX);
+        $response='';$status='204 No Content';
+    }
     elseif($path==='/events' && is_file('/tmp/unavailable')){$response='retry later';$status='503 Service Unavailable';}
     elseif($path==='/events'){
         $payload=json_decode($body,true,flags:JSON_THROW_ON_ERROR);

@@ -61,7 +61,7 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: |
-          php scripts/build-gateway-runtime-extension pkg/web "$RUNNER_TEMP/extensions/webong%2fweb" 0.0.0-preview
+          php scripts/build-gateway-runtime-extension pkg/web "$RUNNER_TEMP/extensions/webong%2fweb" 0.2.0-rc.1 "${{ github.sha }}"
           chmod 755 "$RUNNER_TEMP/extensions" "$RUNNER_TEMP/extensions/webong%2fweb" "$RUNNER_TEMP/extensions/webong%2fweb/bin"
           chmod 644 "$RUNNER_TEMP/extensions/webong%2fweb/plugin.json"
           chmod 755 "$RUNNER_TEMP/extensions/webong%2fweb/bin/spinner"

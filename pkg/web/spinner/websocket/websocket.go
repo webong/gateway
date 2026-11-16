@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -178,6 +179,11 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	defer connection.Close()
+	// Deliver connection events only after Gorilla validates the handshake/origin.
+	if connectDecision.Action == bridge.GatewayDeliver && !h.enqueue(connectDecision.Deliveries, nil) {
+		_ = writeClose(connection, websocket.CloseTryAgainLater, "gateway delivery queue unavailable")
+		return
+	}
 	connection.SetReadLimit(h.config.MaxMessageSize)
 	_ = connection.SetReadDeadline(deadline)
 	_ = connection.SetWriteDeadline(deadline)
@@ -221,15 +227,9 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 				return
 			}
 		case bridge.GatewayDeliver:
-			for index := range decision.Deliveries {
-				delivery := decision.Deliveries[index]
-				if len(delivery.Payload) == 0 {
-					delivery.Payload = append([]byte(nil), payload...)
-				}
-				if !h.executor.EnqueueGateway(delivery) {
-					_ = writeClose(connection, websocket.CloseTryAgainLater, "gateway delivery queue unavailable")
-					return
-				}
+			if !h.enqueue(decision.Deliveries, payload) {
+				_ = writeClose(connection, websocket.CloseTryAgainLater, "gateway delivery queue unavailable")
+				return
 			}
 		case bridge.GatewayReject, bridge.GatewayClose:
 			_ = writeClose(connection, websocket.ClosePolicyViolation, decision.Message)
@@ -260,7 +260,7 @@ func (h *Handler) plan(parent context.Context, event bridge.GatewayEvent) (bridg
 }
 
 func (h *Handler) planClose(request *http.Request, sessionID string, sequence int, cause error) {
-	_, _ = h.plan(context.Background(), bridge.GatewayEvent{
+	decision, err := h.plan(context.Background(), bridge.GatewayEvent{
 		ID:        fmt.Sprintf("%s:close:%d", sessionID, sequence),
 		Protocol:  bridge.ProtocolWebSocket,
 		Kind:      bridge.EventClose,
@@ -274,11 +274,32 @@ func (h *Handler) planClose(request *http.Request, sessionID string, sequence in
 			"sequence":     fmt.Sprintf("%d", sequence),
 		},
 	})
+	if err != nil {
+		log.Print("WebSocket close-event planning failed")
+		return
+	}
+	if decision.Action == bridge.GatewayDeliver && !h.enqueue(decision.Deliveries, nil) {
+		log.Print("WebSocket close-event delivery queue unavailable")
+	}
+}
+
+// Only message events supply fallback payload bytes. Connection and close
+// notifications preserve exactly the payload selected by Planner.
+func (h *Handler) enqueue(deliveries []bridge.GatewayDelivery, fallback []byte) bool {
+	for _, delivery := range deliveries {
+		if len(delivery.Payload) == 0 {
+			delivery.Payload = append([]byte(nil), fallback...)
+		}
+		if !h.executor.EnqueueGateway(delivery) {
+			return false
+		}
+	}
+	return true
 }
 
 func writeConnectionDecision(writer http.ResponseWriter, decision bridge.GatewayDecision) bool {
 	switch decision.Action {
-	case bridge.GatewayAccept:
+	case bridge.GatewayAccept, bridge.GatewayDeliver:
 		return true
 	case bridge.GatewayRespond:
 		status := decision.StatusCode
