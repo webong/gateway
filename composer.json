@@ -16,7 +16,7 @@
         "spiral/roadrunner-cli": "^2.6",
         "spiral/roadrunner-http": "^3.3",
         "symfony/framework-bundle": "^7.3",
-        "webong/composer-source-plugin": "^0.4",
+        "webong/composer-source-plugin": "^0.5.1",
         "webong/gateway": "dev-main",
         "webong/gateway-adapter": "dev-main",
         "webong/gateway-builder": "dev-main",

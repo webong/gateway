@@ -1,75 +1,106 @@
 # Installing and releasing the Composer packages
 
-The Composer packages under `mod/` and `pkg/` (`webong/gateway`, `webong/gateway-adapter`, `webong/gateway-builder` and the `webong/gateway-*` extensions) are published from this repository. No separate repository per package is needed.
+The packages under `mod/` and `pkg/` are served from this repository. Composer
+Source Plugin owns their splitting, versioning and index generation. Gateway
+requires public `webong/composer-source-plugin:^0.5.1` as an author development
+dependency; consumers do not need this publisher installed.
 
-Composer binds a VCS repository to one package name, so adding this repository directly would expose only the root project. Instead, `scripts/split-packages`:
-
-1. splits each package directory into its own history on a branch, `dist/<package>` (for example `dist/gateway-adapter`), with the package's `composer.json` at the root;
-2. tags a release on every package as `<package>/vX.Y.Z` (for example `gateway/v1.2.0`);
-3. generates a static Composer repository, `packages.json`, from those branches and tags, kept on the `dist/composer` branch.
+**Current release boundary:** do not publish Gateway packages, tags, metadata or
+release artifacts until separately authorized. The frozen standalone
+v0.2.0-rc.1 artifacts are independent of this tooling change. Commands below
+explain the publication procedure; they do not authorize running it live.
 
 ## Installing
 
-Add the repository once to the consuming project's `composer.json`:
+Add the existing index to the consuming project's `composer.json`:
 
 ```json
 {
   "repositories": [
-    { "type": "composer", "url": "https://raw.githubusercontent.com/webong/gateway/dist/composer" }
+    { "type": "composer", "url": "https://raw.githubusercontent.com/webong/gateway/dist/composer/packages.json" }
   ]
 }
 ```
 
-Then require packages by name, at the released version:
+Then require packages at a version that is already published. For example, the
+historical index contains `webong/gateway:0.2.0` and matching extension packages.
+Use matching constraints for sibling Gateway packages. Packagist is not involved
+in resolving this index; external dependencies resolve through their own
+repositories. GitHub's raw host may cache a new index briefly.
+
+`dev-main` entries describe the package split branches. Their sibling requirements
+also use `dev-main`; consumers need `minimum-stability: dev` and should not mix
+these with stable Gateway siblings.
+
+The new publisher writes `composer-packages.json` and an identical
+`packages.json` alias. Existing directory URLs and locked source/dist URLs keep
+working. Historical stable records, including their original URLs and commit
+references, are retained exactly. Old package tags must never be rewritten.
+
+## Preparing an author checkout
 
 ```bash
-composer require webong/gateway:^1.2 webong/gateway-web:^1.2
+scripts/composer-install --prefer-dist
+# Fetch and inspect the selected remote's published history first.
+git fetch --no-tags origin '+refs/heads/dist/*:refs/remotes/origin/dist/*'
+git log -1 origin/dist/composer
+git show origin/dist/composer:packages.json
+scripts/prepare-composer-publication "$PWD" origin
 ```
 
-All packages are released together and share one version, so use the same constraint for every Gateway package. Packagist is not involved. GitHub's raw host caches responses for a few minutes, so a new release can take a moment to appear.
+The helper seeds absent local `dist/*` branches from the fetched `origin` refs.
+It never fetches, pushes or resets an existing local branch. It requires the
+published metadata tracking ref. Substitute the selected remote consistently
+when working elsewhere. Review divergence instead of resetting local history.
+Metadata, release and verify commands refuse to ignore a remote-tracking
+metadata baseline when the corresponding local branch is missing.
 
-**Development versions.** `dev-main` of each package is the tip of its `dist/<package>` branch. Packages at `dev-main` depend on each other at `dev-main`, so the project must accept dev stability and should require every Gateway package at `dev-main`:
+## Previewing and publishing
 
-```json
-{ "minimum-stability": "dev", "prefer-stable": true, "require": { "webong/gateway-web": "dev-main" } }
-```
-
-Mixing `dev-main` of one Gateway package with a released version of another does not resolve.
-
-## Releasing
-
-Push a monorepo release tag, `vX.Y.Z`. The `Composer packages` workflow tests the tool, splits every package, tags each `<package>/vX.Y.Z`, regenerates the metadata and pushes the `dist/*` branches, the tags and `dist/composer` in one atomic push.
-
-To run it by hand, or to preview a release:
+Use both compatibility flags consistently:
 
 ```bash
-scripts/split-packages release --version=1.2.0 --dry-run    # what would happen, nothing changes
-scripts/split-packages release --version=1.2.0              # local branches, tags and metadata
-scripts/split-packages release --version=1.2.0 --push       # and publish them
+composer source:publish list --ref-names=short --metadata-alias=packages.json
+composer source:publish release --release-version=1.2.0 --ref-names=short --metadata-alias=packages.json --dry-run
 ```
 
-The `Composer packages` workflow can also be started by hand (Actions, Run workflow). With no version it refreshes the `dist/` branches and the metadata so `dev-main` is current; with *push* unticked it only reports.
+`--ref-names=short` retains `dist/gateway-adapter` and
+`gateway-adapter/vX.Y.Z`, rather than introducing vendor-qualified refs.
+`--metadata-alias=packages.json` preserves the existing index endpoint. Root
+`extra.source-plugin.workspaces` selects committed package manifests; nested
+projects are excluded, and Composer-plugin packages such as Builder are included.
 
-A release is refused, and nothing is changed, when:
+Without `--dry-run`, the release command changes local package branches, tags and
+metadata. `--push` additionally publishes refs in an atomic remote push. The
+`Composer packages` workflow installs the locked author dependencies, runs the
+acceptance suite, fetches/seeds the published baselines, then calls the plugin
+with these compatibility flags. Its existing global release-tag trigger can
+publish all discovered packages, so creating such a tag requires publication
+authorization. A manual dispatch defaults to dry-run.
 
-- a package already has that version tagged at different content (versions are not reused);
-- a tagged package would require another Gateway package at a version that is not published;
-- a `dist/<package>` branch would not fast-forward (its history changed); pass `--force-branches` only when that is intended.
+The compatibility entrypoint `scripts/split-packages` delegates to the same
+Composer command and translates legacy `--version` to `--release-version`. It
+contains no independent split or version-index implementation. Existing callers
+can keep using it; new automation uses `composer source:publish` directly.
 
-Every package is tagged on each release, including packages that did not change; an unchanged package simply gets the new tag on the same commit.
+The plugin refuses reused versions with different content, conflicting stable
+references, ambiguous short names, disagreeing index aliases, unrelated metadata
+branch files and unintended non-fast-forward package updates. It retains exact
+stable records while regenerating development records. It does not retrieve or
+validate historical network URLs automatically.
 
-### What the metadata contains
+## Verification
 
-For each package and version, the entry is that commit's own `composer.json` (without the root-only keys `repositories`, `config`, `scripts`, `minimum-stability`, `prefer-stable`), plus the commit's date and where to get it: the git clone URL and a GitHub zip URL at the exact commit. In tagged versions, a requirement on another Gateway package of `dev-main` is rewritten to `^X.Y.Z`, so a release installs as a stable set; `dev-main` entries keep `dev-main`. Packages are listed in a fixed order and the same refs always generate the same file.
+```bash
+bash scripts/test-split-packages
+```
 
-### Using another host
+After author dependencies are installed, this suite needs no network. It uses
+disposable local repositories and consumers to check split history/determinism,
+legacy index migration, old stable records, stable/dev siblings, Builder plugin
+activation, genuine ZIP installs, locked source replay, missing-baseline refusal,
+safe checkout bootstrap, dry-run/refusal behavior and local atomic pushes.
 
-`--source-url` sets the clone URL written into the metadata (default: the remote's URL, with `git@github.com:` turned into `https://github.com/`), `--dist-url` sets a zip URL template (`{sha}` is replaced by the commit) and `--metadata-branch` changes the metadata branch. For a private repository, consumers need credentials for both the metadata URL and the zip URL; the generated `README.md` on the metadata branch shows the repository URL to use.
-
-## Notes
-
-- Packages also require packages that are not part of this split, for example `webong/proxy`; Composer resolves those from their own repositories as usual.
-- `dist/composer` is generated. Do not edit it by hand.
-- `git subtree` must be available (it is part of the standard git distribution).
-- `bash scripts/test-split-packages` (or `make test-split-packages`) tests the tool on a throwaway repository, including a real `composer install` from the generated repository. It needs no network.
-- Run `scripts/split-packages --help` for every option.
+See the [adoption evidence](verification/composer-source-publisher-adoption.md)
+and [upstream command documentation](https://github.com/webong/composer-source-plugin/blob/v0.5.1/docs/publication.md)
+for the supported flags and migration contract. `git subtree` must be available.

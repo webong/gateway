@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Seed absent local publication refs from an explicitly fetched, selected remote.
+# Never fetch, push or reset an existing local branch.
+# Usage: scripts/prepare-composer-publication [checkout-directory] [remote]
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+REPO=${1:-$ROOT}
+REMOTE=${2:-origin}
+git -C "$REPO" remote get-url "$REMOTE" >/dev/null
+baseline="refs/remotes/$REMOTE/dist/composer"
+if ! git -C "$REPO" show-ref --verify --quiet "$baseline"; then
+    echo "Missing $baseline; fetch and inspect the selected remote's publication refs first." >&2
+    exit 1
+fi
+while IFS= read -r tracking; do
+    branch=${tracking#"refs/remotes/$REMOTE/"}
+    if git -C "$REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+        echo "Keeping existing $branch ($(git -C "$REPO" rev-parse "refs/heads/$branch"))"
+    else
+        echo "Seeding $branch from $tracking ($(git -C "$REPO" rev-parse "$tracking"))"
+        git -C "$REPO" branch --no-track "$branch" "$tracking"
+    fi
+done < <(git -C "$REPO" for-each-ref --format='%(refname)' "refs/remotes/$REMOTE/dist/")

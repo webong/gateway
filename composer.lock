@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "02839442835764ed86a2552c3e6f9ebd",
+    "content-hash": "0e7e6d1fa250bdc04363b776b606d62e",
     "packages": [],
     "packages-dev": [
         {
@@ -14032,16 +14032,16 @@
         },
         {
             "name": "webong/composer-source-plugin",
-            "version": "v0.4.0",
+            "version": "v0.5.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/composer-source-plugin.git",
-                "reference": "e415df9e0cf087a72b9a72802040a80cd5a49d9f"
+                "reference": "52605a4e707c07fcc4baf64cf0614a05f27ab25d"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/composer-source-plugin/zipball/e415df9e0cf087a72b9a72802040a80cd5a49d9f",
-                "reference": "e415df9e0cf087a72b9a72802040a80cd5a49d9f",
+                "url": "https://api.github.com/repos/webong/composer-source-plugin/zipball/52605a4e707c07fcc4baf64cf0614a05f27ab25d",
+                "reference": "52605a4e707c07fcc4baf64cf0614a05f27ab25d",
                 "shasum": ""
             },
             "require": {
@@ -14081,9 +14081,9 @@
             "description": "Select one Composer package source and generate optional namespace compatibility aliases.",
             "support": {
                 "issues": "https://github.com/webong/composer-source-plugin/issues",
-                "source": "https://github.com/webong/composer-source-plugin/tree/v0.4.0"
+                "source": "https://github.com/webong/composer-source-plugin/tree/v0.5.1"
             },
-            "time": "2026-11-03T21:37:15+00:00"
+            "time": "2026-11-16T09:11:48+00:00"
         },
         {
             "name": "webong/gateway",

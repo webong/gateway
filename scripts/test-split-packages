@@ -54,13 +54,32 @@ package() { # package DIR NAME [TYPE] [REQUIRE-JSON]
     echo "<?php // $2 v1" > "$MONO/$1/src/Marker.php"
 }
 
+cat > "$MONO/composer.json" <<'JSON'
+{"name":"acme/publication-fixture","type":"project","extra":{"source-plugin":{"workspaces":["mod/*","pkg/*"]}}}
+JSON
+
 package mod/adapter acme/gateway-adapter
 package pkg/planner acme/gateway library '{"acme/gateway-adapter": "dev-main"}'
 commit 'add adapter and planner'
 package pkg/web acme/gateway-web library '{"acme/gateway": "dev-main", "acme/gateway-adapter": "dev-main"}'
 mkdir -p "$MONO/pkg/golang" && echo 'package x' > "$MONO/pkg/golang/x.go"     # not a Composer package
 package pkg/host acme/host project                                           # a project, never published
-commit 'add web, a Go module and a host project'
+mkdir -p "$MONO/pkg/planner/companion"
+echo '{"name":"acme/nested-companion","type":"project"}' > "$MONO/pkg/planner/companion/composer.json"
+package mod/builder acme/gateway-builder composer-plugin '{"composer-plugin-api":"^2.3"}'
+php -r '$p=$argv[1];$m=json_decode(file_get_contents($p),true);$m["extra"]["class"]="Acme\\Builder\\Plugin";file_put_contents($p,json_encode($m,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");' "$MONO/mod/builder/composer.json"
+cat > "$MONO/mod/builder/src/Plugin.php" <<'PHP'
+<?php
+namespace Acme\Builder;
+final class Plugin implements \Composer\Plugin\PluginInterface {
+    public function activate(\Composer\Composer $composer, \Composer\IO\IOInterface $io): void {
+        file_put_contents($composer->getConfig()->get('vendor-dir').'/fixture-builder-activated', 'ready');
+    }
+    public function deactivate(\Composer\Composer $composer, \Composer\IO\IOInterface $io): void {}
+    public function uninstall(\Composer\Composer $composer, \Composer\IO\IOInterface $io): void {}
+}
+PHP
+commit 'add web, nested companion, plugin, Go module and host project'
 echo '<?php // adapter v2' > "$MONO/mod/adapter/src/Marker.php"
 commit 'change the adapter'
 git -C "$MONO" remote add origin "$BARE"
@@ -68,12 +87,13 @@ git -C "$MONO" remote add origin "$BARE"
 split() { php "$TOOL" "$@" --repo="$MONO" --source-url="$BARE"; }
 
 # ---- list ---------------------------------------------------------------------------------
-step 'lists only Composer libraries under mod/ and pkg/'
+step 'lists library and Composer-plugin workspaces, excluding host projects'
 listing=$(split list)
 assert_contains "$listing" 'acme/gateway-adapter' 'list'
 assert_contains "$listing" 'acme/gateway-web' 'list'
 case "$listing" in *acme/host*|*golang*) fail "list included a project or a non-package: $listing";; esac
-assert_eq "$(printf '%s\n' "$listing" | wc -l | tr -d ' ')" 3 'package count'
+assert_eq "$(printf '%s\n' "$listing" | wc -l | tr -d ' ')" 4 'package count'
+assert_contains "$listing" 'acme/gateway-builder' 'Composer-plugin workspace'
 
 # ---- split --------------------------------------------------------------------------------
 step 'split gives each package its own root and history'
@@ -83,6 +103,15 @@ assert_eq "$(git -C "$MONO" rev-list --count dist/gateway-adapter)" 2 'adapter h
 assert_eq "$(git -C "$MONO" rev-list --count dist/gateway-web)" 1 'web history'
 adapter_tip=$(git -C "$MONO" rev-parse dist/gateway-adapter)
 
+step 'compatibility invocation preserves paths from another checkout'
+assert_eq "$(cd "$MONO" && php "$TOOL" list --repo=.)" "$listing" 'relative repo= targeted the wrong checkout'
+assert_eq "$(cd "$MONO" && php "$TOOL" list --repo .)" "$listing" 'relative repo targeted the wrong checkout'
+(cd "$MONO" && php "$TOOL" metadata --repo=. --source-url="$BARE" --out-dir=relative-output --no-metadata-branch >/dev/null)
+[[ -f "$MONO/relative-output/packages.json" ]] || fail 'relative output was written outside the caller checkout'
+(cd "$MONO" && php "$TOOL" metadata --repo . --source-url="$BARE" --out-dir relative-output-spaced --no-metadata-branch >/dev/null)
+[[ -f "$MONO/relative-output-spaced/packages.json" ]] || fail 'space-separated output was written outside the caller checkout'
+rm -rf "$MONO/relative-output" "$MONO/relative-output-spaced"
+
 step 'split is deterministic'
 git -C "$MONO" branch -q -D dist/gateway-adapter dist/gateway dist/gateway-web
 split split >/dev/null
@@ -91,7 +120,7 @@ assert_eq "$(git -C "$MONO" rev-parse dist/gateway-adapter)" "$adapter_tip" 'ada
 # ---- release ------------------------------------------------------------------------------
 step 'release tags every package and writes consistent metadata'
 split release --version=0.1.0 --out-dir="$WORK/out1" >/dev/null
-for p in gateway-adapter gateway gateway-web; do
+for p in gateway-adapter gateway gateway-web gateway-builder; do
     git -C "$MONO" rev-parse -q --verify "refs/tags/$p/v0.1.0" >/dev/null || fail "tag $p/v0.1.0 missing"
 done
 M="$WORK/out1/packages.json"
@@ -107,6 +136,18 @@ assert_eq "$(git -C "$MONO" show dist/composer:packages.json)" "$(cat "$M")" 'me
 step 'a repeated release at the same content is a no-op'
 split release --version=0.1.0 >/dev/null
 assert_eq "$(git -C "$MONO" rev-list --count dist/composer)" 1 'metadata branch gained a commit without a change'
+
+step 'legacy packages.json and exact stable records survive migration'
+git clone -q --shared --branch dist/composer "$MONO" "$WORK/legacy-index"
+rm "$WORK/legacy-index/composer-packages.json"
+php -r '$p=$argv[1];$m=json_decode(file_get_contents($p),true);foreach($m["packages"] as &$versions){$versions["0.1.0"]["description"]="Historical published description";}unset($versions);file_put_contents($p,json_encode($m,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");' "$WORK/legacy-index/packages.json"
+cp "$WORK/legacy-index/packages.json" "$WORK/legacy-before.json"
+git -C "$WORK/legacy-index" add -A
+git -C "$WORK/legacy-index" -c user.name=Fixture -c user.email=fixture@example.test commit -q -m 'simulate historical publisher index'
+git -C "$MONO" fetch -q "$WORK/legacy-index" HEAD:refs/heads/dist/composer
+split metadata --out-dir="$WORK/migrated-index" >/dev/null
+cmp -s "$WORK/migrated-index/packages.json" "$WORK/migrated-index/composer-packages.json" || fail 'metadata aliases differ'
+php -r '$old=json_decode(file_get_contents($argv[1]),true);$new=json_decode(file_get_contents($argv[2]),true);foreach($old["packages"] as $name=>$versions){if($new["packages"][$name]["0.1.0"]!==$versions["0.1.0"]){exit(1);}}' "$WORK/legacy-before.json" "$WORK/migrated-index/packages.json" || fail 'historical stable records changed'
 
 step 'a release is refused when its version was already published from other content'
 echo '<?php // web v2' > "$MONO/pkg/web/src/Marker.php"
@@ -145,10 +186,29 @@ step 'push sends branches, tags and the metadata branch atomically'
 split release --version=0.2.0 --push --remote=origin >/dev/null
 remote_refs=$(git ls-remote "$BARE" | awk '{print $2}')
 for ref in refs/heads/dist/composer refs/heads/dist/gateway refs/heads/dist/gateway-web refs/heads/dist/gateway-adapter \
+    refs/heads/dist/gateway-builder refs/tags/gateway-builder/v0.2.0 \
     refs/tags/gateway/v0.2.0 refs/tags/gateway-web/v0.2.0 refs/tags/gateway-adapter/v0.2.0; do
     case "$remote_refs" in *"$ref"*) ;; *) fail "remote is missing $ref";; esac
 done
 assert_eq "$(git ls-remote "$BARE" refs/heads/dist/composer | awk '{print $1}')" "$(git -C "$MONO" rev-parse dist/composer)" 'remote metadata branch'
+
+step 'fresh checkouts refuse missing history and bootstrap only absent local refs'
+git clone -q --no-hardlinks "$MONO" "$WORK/fresh-publisher"
+fresh_before=$(git -C "$WORK/fresh-publisher" show-ref)
+if out=$(php "$TOOL" metadata --repo="$WORK/fresh-publisher" --source-url="$BARE" --out-dir="$WORK/refused-output" 2>&1); then
+    fail 'metadata without a local published baseline was accepted'
+fi
+assert_contains "$out" 'Local metadata baseline' 'missing baseline refusal'
+assert_eq "$(git -C "$WORK/fresh-publisher" show-ref)" "$fresh_before" 'missing baseline refusal changed refs'
+[[ ! -e "$WORK/refused-output" ]] || fail 'missing baseline refusal wrote output'
+bash "$ROOT/scripts/prepare-composer-publication" "$WORK/fresh-publisher" origin >/dev/null
+php "$TOOL" metadata --repo="$WORK/fresh-publisher" --source-url="$BARE" --out-dir="$WORK/fresh-output" >/dev/null
+cmp -s "$WORK/out2b/packages.json" "$WORK/fresh-output/packages.json" || fail 'fresh checkout lost metadata'
+# A stale tracking ref must never reset an existing local baseline.
+git -C "$WORK/fresh-publisher" update-ref refs/remotes/origin/dist/composer "$(git -C "$WORK/fresh-publisher" rev-parse dist/composer^)"
+local_before=$(git -C "$WORK/fresh-publisher" show-ref --heads)
+bash "$ROOT/scripts/prepare-composer-publication" "$WORK/fresh-publisher" origin >/dev/null
+assert_eq "$(git -C "$WORK/fresh-publisher" show-ref --heads)" "$local_before" 'bootstrap reset existing local branches'
 
 # ---- Composer consumes the published repository -----------------------------------------
 step 'composer installs a release from the generated repository'
@@ -184,6 +244,38 @@ fi
 (cd "$WORK/consumer-dev" && composer config minimum-stability dev && composer config prefer-stable true \
     && composer update --no-plugins --no-scripts --no-progress --dry-run 2>&1 | grep -E 'Installing acme/' | sort) > "$WORK/dev-install.txt" || fail 'dev-main did not resolve'
 assert_eq "$(grep -c 'dev-main' "$WORK/dev-install.txt")" 3 'all three packages resolve at dev-main'
+
+step 'locked plugin-disabled replay retains exact historical source commits'
+mkdir "$WORK/consumer-history"
+cat > "$WORK/consumer-history/composer.json" <<JSON
+{"name":"acme/historical-consumer","repositories":[{"type":"composer","url":"file://$WORK/composer-repo"},{"packagist.org":false}],"require":{"acme/gateway-web":"0.1.0"}}
+JSON
+composer install --working-dir="$WORK/consumer-history" --no-dev --no-plugins --no-scripts --prefer-source --no-progress -q
+cp "$WORK/consumer-history/composer.lock" "$WORK/history.lock"
+rm -rf "$WORK/consumer-history/vendor"
+composer install --working-dir="$WORK/consumer-history" --no-dev --no-plugins --no-scripts --prefer-source --no-progress -q
+cmp -s "$WORK/history.lock" "$WORK/consumer-history/composer.lock" || fail 'locked history replay changed references'
+
+step 'dist archives install at package roots and retain Composer-plugin metadata'
+mkdir "$WORK/dist"
+for package in gateway gateway-web gateway-adapter gateway-builder; do
+    sha=$(git -C "$MONO" rev-parse "refs/tags/$package/v0.2.0^{commit}")
+    if [[ ! -f "$WORK/dist/$sha.zip" ]]; then
+        git -C "$MONO" archive --format=zip --prefix=package-root/ "$sha" > "$WORK/dist/$sha.zip"
+    fi
+done
+split metadata --metadata-branch=dist/zip-index --dist-url="file://$WORK/dist/{sha}.zip" --out-dir="$WORK/dist-index" >/dev/null
+mkdir "$WORK/consumer-dist"
+cat > "$WORK/consumer-dist/composer.json" <<JSON
+{"name":"acme/dist-consumer","repositories":[{"type":"composer","url":"file://$WORK/dist-index/packages.json"},{"packagist.org":false}],"require":{"acme/gateway-web":"0.2.0","acme/gateway-builder":"0.2.0"},"config":{"allow-plugins":{"acme/gateway-builder":true}}}
+JSON
+composer install --working-dir="$WORK/consumer-dist" --no-scripts --prefer-dist --no-progress -q
+for package in gateway gateway-web gateway-adapter gateway-builder; do
+    test -f "$WORK/consumer-dist/vendor/acme/$package/composer.json" || fail 'dist package root is wrong'
+    test ! -d "$WORK/consumer-dist/vendor/acme/$package/pkg" || fail 'dist includes a monorepo root'
+done
+test -f "$WORK/consumer-dist/vendor/fixture-builder-activated" || fail 'Composer-plugin metadata or autoload was lost'
+php -r '$installed=json_decode(file_get_contents($argv[1]),true);foreach($installed["packages"] as $package){if(($package["installation-source"]??null)!=="dist"){fwrite(STDERR,$package["name"]." did not install from dist\n");exit(1);}}' "$WORK/consumer-dist/vendor/composer/installed.json" || fail 'Composer fell back to source instead of exercising ZIP extraction'
 
 step 'verify agrees'
 split verify --composer >/dev/null || fail 'verify --composer failed'

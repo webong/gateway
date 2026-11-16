@@ -2,7 +2,7 @@ name: Composer packages
 
 # Publishes the monorepo's Composer packages from this repository: the dist/<package>
 # branches, the <package>/vX.Y.Z tags, and the Composer repository metadata on
-# dist/composer. See docs/composer-packages.md and scripts/split-packages.
+# dist/composer. See docs/composer-packages.md; Composer Source Plugin owns publication.
 
 on:
   # A release tag of the monorepo (v1.2.3) releases every package at that version.
@@ -39,10 +39,21 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
+          extensions: bcmath, curl, intl, mbstring, pcntl, pdo_mysql, pdo_pgsql, pdo_sqlite, sockets, sqlite3, zip
           tools: composer
 
-      - name: Check the split tool
+      - name: Install locked author dependencies
+        env:
+          COMPOSER_ROOT_VERSION: dev-main
+        run: scripts/composer-install --prefer-dist
+
+      - name: Check the publisher
         run: bash scripts/test-split-packages
+
+      - name: Load the published metadata and package baselines
+        run: |
+          git fetch --no-tags origin '+refs/heads/dist/*:refs/remotes/origin/dist/*'
+          scripts/prepare-composer-publication "$PWD" origin
 
       - name: Split, tag and publish
         env:
@@ -61,11 +72,11 @@ jobs:
           fi
 
           if [ -n "$version" ]; then
-              scripts/split-packages release --version="$version" --remote=origin "$mode"
+              composer source:publish release --release-version="$version" --ref-names=short --metadata-alias=packages.json --remote=origin "$mode"
           else
-              scripts/split-packages split --remote=origin "$mode"
+              composer source:publish split --ref-names=short --metadata-alias=packages.json --remote=origin "$mode"
               # A dry run creates no branches, so there is nothing to describe yet.
               if [ "$mode" = --push ]; then
-                  scripts/split-packages metadata --remote=origin "$mode"
+                  composer source:publish metadata --ref-names=short --metadata-alias=packages.json --remote=origin "$mode"
               fi
           fi
