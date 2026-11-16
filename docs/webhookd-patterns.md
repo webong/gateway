@@ -18,7 +18,7 @@ That is a useful deployment-automation primitive, but a different route
 boundary from Gateway. Gateway's public path is application-owned, while PHP
 owns authentication, registry lookup, matching, and route planning; the Go
 edge receives a `RoutePlan` and executes it. See [Gateway's responsibility
-split](../README.md#responsibilities). Gateway's optional `shell` extension
+split](technical-reference.md#responsibilities). Gateway's optional `shell` extension
 can execute a Planner-selected hook from a configured directory without
 turning every public URL into a filesystem lookup.
 

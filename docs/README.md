@@ -16,7 +16,7 @@ run it. There is no admin dashboard in the current release.
 
 | Feature | What you can do |
 | --- | --- |
-| Web | Receive HTTP Webhooks, proxy WebSocket connections, and relay Webstream (SSE). See [Web setup](using-gateway.md#choose-what-you-want-gateway-to-do). |
+| Web | Receive HTTP Webhooks, proxy WebSocket connections, and relay Webstream (SSE). See [Web setup](using-gateway.md#5-choose-what-you-want-gateway-to-do). |
 | DNS | Host authoritative zones, provide application-generated answers, or forward selected queries. See [DNS setup](using-gateway.md#dns) and the [public delegation checklist](dns-ha.md). |
 | Email | Receive or relay SMTP, send mail from applications, and connect to existing IMAP/POP3 services. See [Email setup](using-gateway.md#email) and the [authentication checklist](email-authentication.md). |
 | Automations | Run small event-driven scripts and scheduled work with installed languages. See [Automation setup](using-gateway.md#automations). |
@@ -45,3 +45,6 @@ Email provides mail transport and routing, not mailbox storage or webmail.
 - [Automation capabilities, languages, and schedules](automations.md)
 - [Deployment configuration reference](configuration-ownership.md)
 - [Planner schema reference](planner-schema.md)
+
+- [Gateway technical reference](technical-reference.md): component responsibilities,
+  repository layout, development setup and tests.
