@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+
 jobs:
   standalone:
     name: ${{ matrix.runtime }} / ${{ matrix.arch }}
