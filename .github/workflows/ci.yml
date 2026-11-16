@@ -200,6 +200,9 @@ jobs:
           bash scripts/test-router-container-entrypoint
           bash scripts/test-router-start-migrations
 
+      - name: Check image publication safeguards
+        run: bash scripts/test-publish-gateway-image
+
       - name: Check the install left composer.lock unchanged
         run: git diff --exit-code -- composer.lock
 

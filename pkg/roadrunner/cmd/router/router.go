@@ -123,7 +123,11 @@ func runRoadRunnerWithNativeJobs(ctx context.Context, newServer func(string, fun
 				http.Error(writer, "Planner schedule control is unavailable", http.StatusServiceUnavailable)
 			})
 		}
-		return router.NewHandler(next, integrationextensions.DefaultRegistry.Handler(), managed)
+		edge := bridge.NewEdge(planner, spinner.Executor, spinner.MaxBodySize).
+			SetAutomationExecutor(spinner.Automation).
+			SetScheduleRegistrar(control).
+			SetPassThrough(next)
+		return router.NewHandler(next, integrationextensions.DefaultRegistry.HandlerWithFallback(edge), managed)
 	})
 	if err != nil {
 		return err

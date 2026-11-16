@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Verify publication controls against a fake Docker command in a disposable repository.
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+TEMP=$(mktemp -d)
+trap 'rm -rf "$TEMP"' EXIT
+mkdir -p "$TEMP/repo/scripts" "$TEMP/bin"
+cp "$ROOT/scripts/publish-gateway-image" "$TEMP/repo/scripts/"
+cat > "$TEMP/bin/docker" <<'FAKE'
+#!/bin/sh
+printf '%s\n' "$@" > "$DOCKER_CAPTURE"
+FAKE
+chmod +x "$TEMP/bin/docker"
+export PATH="$TEMP/bin:$PATH" DOCKER_CAPTURE="$TEMP/docker-arguments"
+git -C "$TEMP/repo" init -q
+git -C "$TEMP/repo" add scripts
+git -C "$TEMP/repo" -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm fixture
+publish="$TEMP/repo/scripts/publish-gateway-image"
+"$publish" v0.2.0 > "$TEMP/plan"
+test ! -e "$DOCKER_CAPTURE"
+"$publish" --push v0.2.0
+grep -Fx 'webong/gateway:v0.2.0' "$DOCKER_CAPTURE" >/dev/null
+if grep -Fx 'webong/gateway:latest' "$DOCKER_CAPTURE"; then exit 1; fi
+GATEWAY_ROUTER_RUNTIME=frankenphp "$publish" --push v0.2.0
+grep -Fx 'webong/gateway:v0.2.0-frankenphp' "$DOCKER_CAPTURE" >/dev/null
+if grep -Fx 'webong/gateway:latest' "$DOCKER_CAPTURE"; then exit 1; fi
+"$publish" --push --latest v0.2.0
+grep -Fx 'webong/gateway:latest' "$DOCKER_CAPTURE" >/dev/null
+for runtime in roadrunner frankenphp; do
+    if GATEWAY_ROUTER_RUNTIME=$runtime "$publish" --latest v0.2.0-rc.1 > /dev/null 2>&1; then exit 1; fi
+done
+if GATEWAY_ROUTER_RUNTIME=frankenphp "$publish" --latest v0.2.0 > /dev/null 2>&1; then exit 1; fi
+if "$publish" --push sha-0000000 > /dev/null 2>&1; then exit 1; fi
+rm "$DOCKER_CAPTURE"
+touch "$TEMP/repo/unaccepted-change"
+if "$publish" --push v0.2.0 > /dev/null 2>&1; then exit 1; fi
+test ! -e "$DOCKER_CAPTURE"
+echo 'Image publication is explicit; runtime tags, latest, source identity and clean-tree gates passed.'

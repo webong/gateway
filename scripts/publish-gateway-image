@@ -1,42 +1,50 @@
 #!/usr/bin/env bash
-
+# Plan by default. Publication requires an explicit --push after source acceptance.
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPOSITORY="${GATEWAY_IMAGE_REPOSITORY:-webong/gateway}"
 PLATFORMS="${GATEWAY_IMAGE_PLATFORMS:-linux/amd64,linux/arm64}"
-DOCKERFILE="infra/docker/Gateway.router.Dockerfile"
 ROUTER_RUNTIME="${GATEWAY_ROUTER_RUNTIME:-roadrunner}"
-TAG="${1:-sha-$(git -C "$ROOT" rev-parse --short=7 HEAD)}"
-
-if [[ ! "$TAG" =~ ^(latest|sha-[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?)$ ]]; then
-    echo "Gateway image tags must be latest, sha-<commit>, or v<semver>." >&2
-    exit 2
+TAG=""
+PUSH=false
+LATEST=false
+for argument in "$@"; do
+    case "$argument" in
+        --push) PUSH=true ;;
+        --latest) LATEST=true ;;
+        --help|-h)
+            echo 'Usage: scripts/publish-gateway-image [--push] [--latest] v<semver>|sha-<commit>'
+            echo 'Defaults to a dry run. FrankenPHP uses a -frankenphp tag and cannot update latest.'
+            exit 0 ;;
+        --*) echo "Unknown option: $argument" >&2; exit 2 ;;
+        *) if [[ -n "$TAG" ]]; then echo 'Pass exactly one image version.' >&2; exit 2; fi; TAG=$argument ;;
+    esac
+done
+TAG=${TAG:-sha-$(git -C "$ROOT" rev-parse --short=7 HEAD)}
+if [[ ! "$TAG" =~ ^(sha-[0-9a-f]{7,40}|v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?)$ ]]; then
+    echo 'Gateway image tags must be sha-<commit> or v<semver>.' >&2; exit 2
 fi
-
 case "$ROUTER_RUNTIME" in
-    roadrunner|frankenphp) ;;
-    *)
-        echo "GATEWAY_ROUTER_RUNTIME must be roadrunner or frankenphp." >&2
-        exit 2
-        ;;
+    roadrunner) suffix= ;;
+    frankenphp) suffix=-frankenphp ;;
+    *) echo 'GATEWAY_ROUTER_RUNTIME must be roadrunner or frankenphp.' >&2; exit 2 ;;
 esac
-
-if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
-    echo "Refusing to publish Gateway from a dirty worktree." >&2
-    exit 1
+if [[ "$LATEST" == true && ( "$ROUTER_RUNTIME" != roadrunner || ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ) ]]; then
+    echo 'Only a stable RoadRunner release may update latest.' >&2; exit 2
 fi
-
-tags=(--tag "$REPOSITORY:$TAG")
-if [[ "$TAG" != "latest" ]]; then
-    tags+=(--tag "$REPOSITORY:latest")
+revision=$(git -C "$ROOT" rev-parse HEAD)
+if [[ "$TAG" == sha-* && "$revision" != "${TAG#sha-}"* ]]; then
+    echo 'The SHA image tag must identify the current source commit.' >&2; exit 2
 fi
-
-exec docker buildx build \
-    --platform "$PLATFORMS" \
-    --file "$ROOT/$DOCKERFILE" \
-    --build-arg "GATEWAY_ROUTER_RUNTIME=$ROUTER_RUNTIME" \
-    "${tags[@]}" \
-    --provenance=true \
-    --push \
-    "$ROOT"
+if [[ "$PUSH" == true && -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+    echo 'Refusing to publish Gateway from a dirty worktree.' >&2; exit 1
+fi
+tags=(--tag "$REPOSITORY:$TAG$suffix")
+if [[ "$LATEST" == true ]]; then tags+=(--tag "$REPOSITORY:latest"); fi
+command=(docker buildx build --platform "$PLATFORMS" --file "$ROOT/infra/docker/Gateway.router.Dockerfile"
+    --build-arg "GATEWAY_ROUTER_RUNTIME=$ROUTER_RUNTIME" --label "org.opencontainers.image.revision=$revision"
+    --label "org.opencontainers.image.version=$TAG" "${tags[@]}" --provenance=true --push "$ROOT")
+if [[ "$PUSH" == true ]]; then exec "${command[@]}"; fi
+printf 'Dry run only; no image is built or published.\n'
+printf '%q ' "${command[@]}"
+printf '\n'

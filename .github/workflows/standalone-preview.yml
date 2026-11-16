@@ -1,0 +1,73 @@
+name: Standalone Gateway acceptance
+
+# Deliberately manual: builds and tests local candidates, never publishes images,
+# tags, Composer metadata or extension assets.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  standalone:
+    name: ${{ matrix.runtime }} / ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runtime: [roadrunner, frankenphp]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      GOWORK: off
+      GOTELEMETRY: off
+      COMPOSER_ROOT_VERSION: dev-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache-dependency-path: '**/go.sum'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          extensions: mbstring, pdo_sqlite, sockets, zip
+      - uses: docker/setup-buildx-action@v3
+      - name: Verify publication controls without Docker access
+        run: bash scripts/test-publish-gateway-image
+      - name: Core HTTP fallback regression suite
+        run: go -C pkg/roadrunner/cmd/router test -mod=readonly -race ./...
+      - name: Build the production Router locally
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Gateway.router.Dockerfile
+          build-args: GATEWAY_ROUTER_RUNTIME=${{ matrix.runtime }}
+          load: true
+          tags: gateway-preview:${{ matrix.runtime }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=preview-${{ matrix.runtime }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=preview-${{ matrix.runtime }}-${{ matrix.arch }}
+      - name: Build Web after the host image exists
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          php scripts/build-gateway-runtime-extension pkg/web "$RUNNER_TEMP/extensions/webong%2fweb" 0.0.0-preview
+          chmod 755 "$RUNNER_TEMP/extensions" "$RUNNER_TEMP/extensions/webong%2fweb" "$RUNNER_TEMP/extensions/webong%2fweb/bin"
+          chmod 644 "$RUNNER_TEMP/extensions/webong%2fweb/plugin.json"
+          chmod 755 "$RUNNER_TEMP/extensions/webong%2fweb/bin/spinner"
+      - name: Fresh installation, HTTPS traffic, replacement and restore
+        run: python3 tools/release-acceptance/standalone.py gateway-preview:${{ matrix.runtime }} --web-package "$RUNNER_TEMP/extensions/webong%2fweb" --report "$RUNNER_TEMP/standalone-report.json"
+      - name: Packaged HTTP and WebSocket routing
+        run: bash scripts/test-router-managed-route gateway-preview:${{ matrix.runtime }}
+      - name: Custom extension activation and integrity
+        env:
+          GATEWAY_ROUTER_SKIP_BUILD: 'true'
+          GATEWAY_ROUTER_IMAGE: gateway-preview:${{ matrix.runtime }}
+        run: bash scripts/test-router-companion-image

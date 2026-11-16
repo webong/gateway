@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"strings"
+
+	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -373,5 +377,53 @@ func awaitControlResponse(t *testing.T, address string) *http.Response {
 			t.Fatalf("private control listener unavailable: %v", err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// A clean Router must serve core HTTP routes before any traffic extension is installed.
+func TestRoadRunnerPlansUnclaimedHTTPWithoutInstalledExtension(t *testing.T) {
+	t.Setenv("GATEWAY_RUNTIME", "")
+	t.Setenv("GATEWAY_INTERNAL_TOKEN", "test-token")
+	t.Setenv("GATEWAY_PLUGIN_DIR", "")
+	t.Setenv("GATEWAY_SCHEDULES_ENABLED", "false")
+	t.Setenv("ROADRUNNER_CONFIG", "test.yaml")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := &testWorkerServer{done: make(chan struct{}), cancel: cancel}
+	planned := false
+	err := runRoadRunner(ctx, func(_ string, middleware func(http.Handler) http.Handler) (workerServer, error) {
+		handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == bridge.PHPPlannerPath {
+				if r.Header.Get("X-Gateway-Internal") != "test-token" {
+					t.Error("planning was not authenticated")
+				}
+				var ingress bridge.IngressRequest
+				if err := json.NewDecoder(r.Body).Decode(&ingress); err != nil {
+					t.Error(err)
+				}
+				if ingress.Path != "/hooks/orders" || string(ingress.Body) != "order-event" {
+					t.Errorf("unexpected ingress: %+v", ingress)
+				}
+				planned = true
+				_ = json.NewEncoder(w).Encode(bridge.RoutePlan{Version: bridge.ProtocolVersion, Action: bridge.ActionPassThrough})
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			_, _ = w.Write(body)
+		}))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/hooks/orders", strings.NewReader("order-event")))
+		if response.Code != http.StatusOK || response.Body.String() != "order-event" || !planned {
+			t.Errorf("unclaimed HTTP route returned %d %q; planned=%v", response.Code, response.Body.String(), planned)
+		}
+		private := httptest.NewRecorder()
+		handler.ServeHTTP(private, httptest.NewRequest(http.MethodPost, bridge.PHPPlannerPath, nil))
+		if private.Code != http.StatusNotFound {
+			t.Errorf("private planning route exposed: %d", private.Code)
+		}
+		return server, nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
