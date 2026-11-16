@@ -78,7 +78,8 @@ run remains the required evidence for the committed candidate.
 
 - Run the new four-job workflow against the committed candidate and retain the
   run URL and source SHA. Local arm64 success does not establish native amd64.
-- Confirm the final version and support matrix. Existing v0.1.0/v0.1.1 releases
+- The draft version is v0.2.0-rc.1. Freeze its support matrix and final source.
+  Existing v0.1.0/v0.1.1 releases
   describe guest packages; do not repurpose or mutate those tags.
 - Accept the selected immutable image and extension archives together. Test their
   fresh HTTPS download/installation at the eventual public origin after separate
@@ -104,7 +105,9 @@ Actual publication needs `--push` and a clean tree. Alternative images receive
 builds never update it. Image labels record the source commit and version.
 The control regression uses a fake Docker command and never publishes.
 
-A global `v*` Git tag triggers Composer package publication. A published global
+A global `v*` Git tag triggers publication of every Composer package, including
+Weaver. The proposed product tag is `gateway/v0.2.0-rc.1`, which does not match
+those legacy global release triggers. No product tag has been created. A published global
 GitHub release triggers guest asset publication. Those actions are separate
 from image publication and must not occur until their exact scope is approved.
 Do not run the publisher with `--push`, create tags/releases or enable Weaver's

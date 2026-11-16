@@ -1,6 +1,7 @@
-# Gateway standalone preview — draft release notes
+# Gateway v0.2.0-rc.1 — draft standalone preview notes
 
-Status: preparation only. Version and tested source commit are not yet frozen.
+Status: preparation only. The target version is v0.2.0-rc.1; the final tested
+source commit and immutable release artifacts are not yet frozen.
 No release, image or extension package has been published from this candidate.
 
 Gateway is a programmable gateway for WWW, SMTP, DNS and others. This preview
@@ -55,3 +56,16 @@ Publication remains a separate approval. A global version tag can also trigger
 Composer publishing; publishing a global GitHub release can publish guest assets.
 See the [release preparation record](../verification/standalone-preview-release.md)
 for the exact gates and non-publishing workflow.
+
+## Planned release identity
+
+- Product version: `v0.2.0-rc.1`.
+- Default image: `webong/gateway:v0.2.0-rc.1` (RoadRunner).
+- Alternative image: `webong/gateway:v0.2.0-rc.1-frankenphp`.
+- Proposed product Git tag: `gateway/v0.2.0-rc.1`, keeping product releases
+  separate from the legacy global Composer/guest release triggers.
+
+These names are a plan, not published artifacts. Do not create a global
+`v0.2.0-rc.1` Git tag: it would publish every Composer package, including Weaver.
+The preview must not move `latest`. Any selected extension assets need their
+own exact versions, acceptance evidence and separate publication scope.
