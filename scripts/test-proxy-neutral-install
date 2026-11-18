@@ -27,3 +27,40 @@ if (!class_exists(Webong\Gateway\Symfony\GatewayBundle::class) || !interface_exi
 if (Composer\InstalledVersions::getPrettyVersion("webong/proxy")!=="0.4.0") { throw new RuntimeException("Wrong Proxy"); }
 ' "$WORK"
 echo 'Neutral Planner and Proxy 0.4 install without Laravel, Spatie or the Laravel adapter.'
+
+# The optional Laravel registry adapter must migrate without installing Web.
+php -r '
+$p=$argv[1]."/composer.json";$m=json_decode(file_get_contents($p),true);
+$m["require"]["webong/proxy-laravel"]="^0.4";$m["require"]["laravel/framework"]="^12.0";
+$m["extra"]["source-plugin"]["workspaces"]["include"][]="app/ext/proxy/adapters/laravel";
+file_put_contents($p,json_encode($m,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");
+' "$WORK"
+COMPOSER_ROOT_VERSION=dev-main composer update --working-dir="$WORK" --no-interaction --no-scripts --prefer-dist --no-progress
+mkdir -p "$WORK/bootstrap/cache" "$WORK/storage/framework/cache/data" "$WORK/storage/framework/views"
+touch "$WORK/gateway.sqlite"
+APP_ENV=testing php -- "$WORK" <<'PHP'
+<?php
+require $argv[1].'/vendor/autoload.php';
+if (Composer\InstalledVersions::isInstalled('webong/gateway-web')) {
+    throw new RuntimeException('This consumer must not install Web.');
+}
+$app = Illuminate\Foundation\Application::configure(basePath: $argv[1])->create();
+$app->afterBootstrapping(Illuminate\Foundation\Bootstrap\LoadConfiguration::class, static function ($app) use ($argv): void {
+    $app['config']->set('database.default', 'sqlite');
+    $app['config']->set('database.connections.sqlite', ['driver' => 'sqlite', 'database' => $argv[1].'/gateway.sqlite', 'prefix' => '', 'foreign_key_constraints' => true]);
+});
+$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+foreach ([1, 2] as $_) {
+    if ($kernel->call('gateway:migrate', ['--force' => true]) !== 0) {
+        throw new RuntimeException($kernel->output());
+    }
+}
+$pdo = new PDO('sqlite:'.$argv[1].'/gateway.sqlite');
+foreach (['endpoints', 'subscriptions', 'profiles', 'gateway_migrations', 'migrations'] as $table) {
+    if (!$pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name=".$pdo->quote($table))->fetchColumn()) {
+        throw new RuntimeException('Missing schema '.$table);
+    }
+}
+echo "Laravel Proxy schema is discovered and repeatable without Web installed.\n";
+PHP

@@ -14,6 +14,7 @@ use Webong\Gateway\Planning\RoutePlanObserverRegistry;
 use Webong\Gateway\Planning\RoutePlannerRegistry;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
+use Webong\Gateway\Web\Events\WebEventPolicyStore;
 use Webong\Gateway\Web\Events\WebEventRecorder;
 use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
 use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;

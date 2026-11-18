@@ -45,7 +45,9 @@ old cached configurations. Host router/channel overrides win. Proxy's provider,
 models and queued job identities are reused; no copied Spatie provider or job is
 introduced, and the paused extraction draft is not merged.
 
-Registry migrations now load from `vendor/webong/proxy-laravel/database/migrations`.
+The enabled Proxy adapter declares its own migrations. Planner discovers that
+declaration through its integration bridge; startup calls only `gateway:migrate`.
+See [extension migrations](../extensions/migrations.md) for registration and history.
 Existing migration names, tables, identifiers, ciphertext, credentials, subscriptions,
 profiles and queued payloads remain owned by Proxy. Coordinate writers when applying
 its subscription-lock migration. Before rollback, stop ingress, drain workers and

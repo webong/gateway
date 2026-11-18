@@ -33,18 +33,16 @@ export APP_EVENTS_CACHE="$DATA_DIR/cache/events.php"
 
 migrate_gateway_schema() {
     if [ "${GATEWAY_MIGRATIONS_ADOPT_EXISTING:-false}" = true ]; then
-        php "$APP_DIR/planner/artisan" gateway:migrate --adopt-existing
+        php "$APP_DIR/planner/artisan" gateway:migrate --force --adopt-existing
     else
-        php "$APP_DIR/planner/artisan" gateway:migrate
+        php "$APP_DIR/planner/artisan" gateway:migrate --force
     fi
 }
 
 case "${1:-serve}" in
     migrate)
         migrate_gateway_schema
-        php "$APP_DIR/planner/artisan" migrate --realpath \
-            --path=/gateway/vendor/webong/proxy-laravel/database/migrations --force
-        exec php "$APP_DIR/planner/artisan" migrate --force
+        exit 0
         ;;
     serve)
         SERVER=${GATEWAY_PLANNER_SERVER:-frankenphp}
@@ -95,9 +93,6 @@ case "${1:-serve}" in
         esac
 
         migrate_gateway_schema
-        php "$APP_DIR/planner/artisan" migrate --realpath \
-            --path=/gateway/vendor/webong/proxy-laravel/database/migrations --force
-        php "$APP_DIR/planner/artisan" migrate --force
 
         if [ "$SERVER" = workerman ]; then
             # Workerman stops immediately on SIGTERM and SIGINT, which is what

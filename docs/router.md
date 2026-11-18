@@ -336,3 +336,5 @@ and a webhook created on one replica and routed through the other.
 It does not prove failover across separate hosts.
 
 Proxy dependencies are provisioned from a pinned monorepo before Composer. See [Proxy 0.4 setup](implementations/proxy-04-adoption.md) for source provisioning, intentional dependency updates and cold production installs.
+
+Schema startup uses one `gateway:migrate --force` command. Planner discovers adapter/application/extension contributions while retaining their native histories; see [extension migrations](extensions/migrations.md).

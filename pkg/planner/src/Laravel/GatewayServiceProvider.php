@@ -88,6 +88,8 @@ final class GatewayServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->singleton(\Webong\Gateway\Migrations\MigrationRegistry::class);
+        $this->app->register(ProxyMigrationServiceProvider::class);
         $this->mergeConfigFrom(dirname(__DIR__, 2).'/config/gateway.php', 'gateway');
 
         $this->app->singleton(CompanionActionActivationStore::class);

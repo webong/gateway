@@ -15,8 +15,7 @@ $console = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $console->bootstrap();
 $app['config']->set('app.key','base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=');
 foreach ([
-    ['migrate', ['--realpath'=>true, '--path'=>'/gateway/vendor/webong/proxy-laravel/database/migrations', '--force'=>true]],
-    ['gateway:migrate', []], ['migrate', ['--force'=>true]],
+    ['gateway:migrate', ['--force'=>true]],
 ] as [$command, $arguments]) {
     if ($console->call($command, $arguments)!==0) { throw new RuntimeException('Disposable Planner migrations failed.'); }
 }

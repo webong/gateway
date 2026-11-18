@@ -62,8 +62,8 @@ expect_planner_accepted() {
     local connection=$1 url=$2 output status=0
     output=$(run_planner "$connection" "$url") || status=$?
     [ "$status" -eq 0 ] || fail "planner-start rejected DB_CONNECTION=$connection: $output"
-    grep -q 'gateway:migrate' "$PHP_CALLS" || fail "planner-start did not run gateway:migrate for $connection"
-    grep -q 'migrate --force' "$PHP_CALLS" || fail "planner-start did not run the application migrations for $connection"
+    [ "$(grep -c 'gateway:migrate --force' "$PHP_CALLS")" -eq 1 ] || fail "planner-start must run one migration coordinator for $connection"
+    if grep -q -- '--path=' "$PHP_CALLS"; then fail 'planner-start contains package-specific migration paths'; fi
 }
 
 expect_planner_rejected 'no connection' 'DB_CONNECTION=pgsql or DB_CONNECTION=mysql' '' 'postgresql://x'

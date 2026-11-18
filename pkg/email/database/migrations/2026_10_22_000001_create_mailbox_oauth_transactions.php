@@ -10,9 +10,13 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('mailbox_oauth_transactions', static function (Blueprint $table): void {
+        // A foreign key must use its core-owned identity column's collation.
+        $identity = collect(Schema::getColumns('accounts'))->firstWhere('name', 'id');
+        $collation = in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
+            ? ($identity['collation'] ?? null) : null;
+        Schema::create('mailbox_oauth_transactions', static function (Blueprint $table) use ($collation): void {
             $table->string('state_hash', 64)->primary();
-            $table->string('account_id', 200)->index();
+            $table->string('account_id', 200)->collation($collation)->index();
             $table->longText('ciphertext');
             $table->string('status', 16)->default('pending');
             $table->string('code_hash', 64)->nullable();

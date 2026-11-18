@@ -11,10 +11,10 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Webong\Gateway\Migrations\GatewayMigrationRunner;
 
-#[AsCommand(name: 'gateway:migrate', description: 'Apply the framework-neutral Gateway schema migrations')]
+#[AsCommand(name: 'gateway:migrate', description: 'Apply framework-neutral Gateway and extension schema migrations')]
 final class MigrateGatewayCommand extends Command
 {
-    public function __construct(private readonly GatewayMigrationRunner $runner)
+    public function __construct(private readonly GatewayMigrationRunner $runner, private readonly ?\Webong\Gateway\Migrations\MigrationRegistry $migrations = null)
     {
         parent::__construct();
     }
@@ -31,6 +31,10 @@ final class MigrateGatewayCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($this->migrations !== null && $this->migrations->laravelPaths() !== []) {
+            $output->writeln('<error>Laravel migration contributions require a Laravel host.</error>');
+            return self::FAILURE;
+        }
         $result = $input->getOption('adopt-existing')
             ? $this->runner->adoptExistingSchema()
             : $this->runner->migrate();
