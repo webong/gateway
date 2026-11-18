@@ -16,3 +16,5 @@ app/planner/vendor
 .claude/worktrees
 
 /app/ext/proxy
+
+app/planner/bootstrap/cache/*.php

@@ -49,7 +49,11 @@ Registry migrations now load from `vendor/webong/proxy-laravel/database/migratio
 Existing migration names, tables, identifiers, ciphertext, credentials, subscriptions,
 profiles and queued payloads remain owned by Proxy. Coordinate writers when applying
 its subscription-lock migration. Before rollback, stop ingress, drain workers and
-restore matching dependency locks/source pins and configuration; do not discard
+restore matching dependency locks/source pins and configuration. Clear/rebuild
+Laravel configuration/routes and regenerate Proxy discovery after the source
+upgrade; never ship a developer-generated `app/planner/bootstrap/cache/proxy.php`
+in a container image. Existing legacy router classes remain loadable during the
+transition. Do not discard
 registry tables, migration history or application keys.
 
 Gateway continues to supply authorized dialers, TLS/trust, proxy grants, callback
