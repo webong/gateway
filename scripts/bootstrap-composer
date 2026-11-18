@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Seed the trusted plugin before the initial workspace dependency solve.
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+php "$ROOT/scripts/provision-proxy.php"
+if ! php -r '
+    $root = $argv[1];
+    $data = is_file($root."/vendor/composer/installed.json") ? json_decode(file_get_contents($root."/vendor/composer/installed.json"), true) : [];
+    foreach ($data["packages"] ?? [] as $package) {
+        if ($package["name"] === "webong/composer-source-plugin" && preg_match("/^v?0\\.5\\.[1-9][0-9]*$/D", $package["version"])) {
+            foreach (["autoload.php", "webong/composer-source-plugin/src/ComposerSourcePlugin.php", "webong/composer-source-plugin/src/bootstrap.php"] as $path) {
+                if (! is_file($root."/vendor/".$path)) { exit(1); }
+            }
+            exit(0);
+        }
+    }
+    exit(1);
+' "$ROOT"; then
+    COMPOSER=composer.bootstrap.json composer install --working-dir="$ROOT" --no-interaction --no-plugins --no-scripts --prefer-dist
+fi

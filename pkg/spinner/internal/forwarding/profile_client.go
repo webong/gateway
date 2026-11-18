@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/webong/gateway/arranger/integration"
-	"github.com/webong/proxy/httpclient"
-	"github.com/webong/proxy/httpprofile"
+	"github.com/webong/proxy/go/httpclient"
+	"github.com/webong/proxy/go/httpprofile"
 )
 
 // ErrInvalidTransport reports per-delivery connection settings that do not

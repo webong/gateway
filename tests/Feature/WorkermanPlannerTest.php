@@ -610,7 +610,7 @@ it('runs migrations only against a disposable database', function (): void {
     try {
         $result = GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: gatewayPlannerRepositoryRoot().'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: [],
         )->migrate();
         expect($result->applied)->not->toBeEmpty();

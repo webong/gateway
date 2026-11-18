@@ -15,8 +15,13 @@ for tool in composer php; do
     command -v "$tool" >/dev/null || { echo "$tool is required." >&2; exit 1; }
 done
 
-mkdir -p "$TEST_DIR/scripts" "$TEST_DIR/mod"
+mkdir -p "$TEST_DIR/scripts" "$TEST_DIR/mod" "$TEST_DIR/tools/proxy"
+cp "$ROOT/scripts/provision-proxy.php" "$TEST_DIR/scripts/"
+cp "$ROOT/tools/proxy/source.json" "$TEST_DIR/tools/proxy/"
 cp "$ROOT/composer.json" "$ROOT/composer.lock" "$TEST_DIR/"
+# App fixtures share vendor with the author project but own their workspace policy.
+mkdir -p "$TEST_DIR/app"
+(cd "$ROOT" && rg --files --hidden app) | tar -C "$ROOT" -cf - -T - | tar -C "$TEST_DIR" -xf -
 cp "$ROOT/scripts/composer-install" "$TEST_DIR/scripts/"
 cp -R "$ROOT/mod/adapter" "$TEST_DIR/mod/adapter"
 cp -R "$ROOT/mod/builder" "$TEST_DIR/mod/builder"
@@ -51,3 +56,20 @@ php -r '
 ' "$TEST_DIR"
 
 printf 'composer.lock is unchanged by a fresh install and extension namespaces are autoloaded.\n'
+
+# Replay the production lock from an empty vendor tree with no plugin execution.
+rm -rf "$TEST_DIR/vendor"
+php "$TEST_DIR/scripts/provision-proxy.php"
+composer install --working-dir="$TEST_DIR/app" --no-dev --no-plugins --no-scripts --no-interaction --prefer-dist --no-progress > "$TEST_DIR/production.log" 2>&1 || { cat "$TEST_DIR/production.log"; exit 1; }
+cmp -s "$ROOT/app/composer.lock" "$TEST_DIR/app/composer.lock"
+php -r '
+    require $argv[1]."/vendor/autoload.php";
+    foreach (["webong/proxy", "webong/proxy-laravel"] as $package) {
+        if (Composer\InstalledVersions::getPrettyVersion($package) !== "0.4.0") { throw new RuntimeException("Wrong Proxy version"); }
+    }
+    $provider = new ReflectionClass(Webong\Proxy\WebProxyServiceProvider::class);
+    if (! str_contains($provider->getFileName(), "/vendor/webong/proxy-laravel/")) { throw new RuntimeException("Wrong provider owner"); }
+    $profile = (new Webong\Proxy\Http\HttpProfileNormalizer())->normalize([])->toArray();
+    if ($profile["version"] !== 1) { throw new RuntimeException("Wrong profile contract"); }
+' "$TEST_DIR"
+echo 'Proxy 0.4 production lock replays with plugins disabled and portable relative source paths.'

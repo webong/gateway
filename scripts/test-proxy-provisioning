@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/gateway-proxy-source.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+fixture() {
+    mkdir -p "$1/scripts" "$1/tools/proxy"
+    cp "$ROOT/scripts/provision-proxy.php" "$1/scripts/"
+    cp "$ROOT/tools/proxy/source.json" "$1/tools/proxy/"
+}
+fixture "$WORK/good"
+php "$WORK/good/scripts/provision-proxy.php"
+cp "$ROOT/scripts/bootstrap-composer" "$WORK/good/scripts/"
+cp "$ROOT/composer.bootstrap.json" "$ROOT/composer.bootstrap.lock" "$WORK/good/"
+printf preserved-application-lock > "$WORK/good/composer.lock"
+cp "$WORK/good/composer.lock" "$WORK/application-lock"
+bash "$WORK/good/scripts/bootstrap-composer"
+bash "$WORK/good/scripts/bootstrap-composer"
+cmp "$WORK/application-lock" "$WORK/good/composer.lock"
+php "$WORK/good/scripts/provision-proxy.php"
+printf '\n// operator edit\n' >> "$WORK/good/app/ext/proxy/php/src/Http/HttpProfile.php"
+if php "$WORK/good/scripts/provision-proxy.php" > "$WORK/dirty.log" 2>&1; then
+    echo 'Modified source was accepted.' >&2; exit 1
+fi
+tail -1 "$WORK/good/app/ext/proxy/php/src/Http/HttpProfile.php" | grep -q 'operator edit'
+fixture "$WORK/bad"
+printf invalid > "$WORK/wrong.tar.gz"
+if GATEWAY_PROXY_ARCHIVE="$WORK/wrong.tar.gz" php "$WORK/bad/scripts/provision-proxy.php" > "$WORK/bad.log" 2>&1; then
+    echo 'Invalid archive was accepted.' >&2; exit 1
+fi
+[[ ! -e "$WORK/bad/app/ext/proxy" ]]
+echo 'Proxy provisioning verifies its pin, is repeatable, preserves edits and rejects corrupt archives.'

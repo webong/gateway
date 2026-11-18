@@ -409,7 +409,7 @@ if (! function_exists('gatewayPlannerRunArtisanMigrations')) {
     {
         $root = gatewayPlannerRepositoryRoot();
         $artisan = $root.'/app/planner/artisan';
-        $proxyMigrations = $root.'/vendor/webong/proxy/database/migrations';
+        $proxyMigrations = $root.'/vendor/webong/proxy-laravel/database/migrations';
         foreach ([
             "php $artisan migrate --realpath --path=$proxyMigrations --force --no-ansi",
             "php $artisan migrate --force --no-ansi",
@@ -446,7 +446,7 @@ if (! function_exists('gatewayPlannerRunMigrations')) {
 
         $runner = Webong\Gateway\Migrations\GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: $root.'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: [],
         );
         $runner->migrate();
@@ -506,7 +506,7 @@ if (! function_exists('gatewayPlannerRunMigrationsPostgres')) {
             database: $connection['database'],
             username: $connection['username'],
             password: $connection['password'],
-            migrationsPath: $root.'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: [],
         );
         $runner->migrate();

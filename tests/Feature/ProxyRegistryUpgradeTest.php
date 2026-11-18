@@ -13,12 +13,12 @@ use Webong\Proxy\Database\SubscriptionIdentity;
  * Proxy v0.3.1 replaced the seven-column subscription unique index (which
  * MySQL's 3,072-byte limit rejects) with a fixed-size registration hash. These
  * tests prove what an operator relies on when they run the same
- * `artisan migrate --realpath --path=vendor/webong/proxy/database/migrations`
+ * `artisan migrate --realpath --path=vendor/webong/proxy-laravel/database/migrations`
  * that scripts/planner-start and scripts/router-start run:
  *
  *  - a fresh registry gets the hash and the unique index it replaces;
  *  - a registry created by Proxy v0.2.0 keeps every subscription through the
- *    one additive migration, and only that migration runs;
+ *    additive identity/locking upgrades without replaying table creation;
  *  - MySQL 8.4 with its default utf8mb4 now accepts the Proxy migrations.
  *
  * The MySQL case is skipped unless GATEWAY_TEST_MYSQL_DATABASE is set, like the
@@ -273,7 +273,8 @@ it('refuses to roll the portable identity back on MySQL', function (): void {
         $row = legacySubscription();
         DB::connection($connection)->table('subscriptions')->insert($row + ['registration_hash' => SubscriptionIdentity::hash($row)]);
 
-        expect(fn () => Artisan::call('migrate:rollback', ['--database' => $connection, '--path' => [proxyMigrationsPath()], '--realpath' => true, '--step' => 1, '--force' => true]))
+        // 0.4 adds a reversible lock table after the protected identity migration.
+        expect(fn () => Artisan::call('migrate:rollback', ['--database' => $connection, '--path' => [proxyMigrationsPath()], '--realpath' => true, '--step' => 2, '--force' => true]))
             ->toThrow(RuntimeException::class, 'cannot be rolled back on MySQL/MariaDB');
         assertPortableSubscriptionIdentity($connection);
         expect(DB::connection($connection)->table('subscriptions')->count())->toBe(1);

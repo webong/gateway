@@ -246,5 +246,11 @@ jobs:
       - name: Check the Composer package split and metadata
         run: bash scripts/test-split-packages
 
+      - name: Check neutral Planner and Proxy install
+        run: bash scripts/test-proxy-neutral-install
+
+      - name: Check pinned Proxy source provisioning
+        run: bash scripts/test-proxy-provisioning
+
       - name: Check workspace install stability
         run: bash scripts/test-composer-install-stability

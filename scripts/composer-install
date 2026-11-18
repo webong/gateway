@@ -12,6 +12,7 @@
 set -euo pipefail
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+php "$ROOT/scripts/provision-proxy.php"
 WORKING_DIR=$ROOT
 install_args=()
 

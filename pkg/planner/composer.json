@@ -17,8 +17,9 @@
     },
     "suggest": {
         "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
-        "webong/proxy": "Required with Laravel for registry, subscriptions, management, and portable HTTP profiles (^0.3.1).",
-        "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0)."
+        "webong/proxy": "Neutral portable HTTP profiles and registry records (^0.4).",
+        "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0).",
+        "webong/proxy-laravel": "Required for Laravel registry persistence and management (^0.4)."
     },
     "autoload": {
         "psr-4": {

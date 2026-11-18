@@ -1,0 +1,14 @@
+{
+    "name": "webong/gateway-composer-bootstrap",
+    "type": "project",
+    "require": {
+        "webong/composer-source-plugin": "^0.5.1"
+    },
+    "config": {
+        "allow-plugins": {
+            "webong/composer-source-plugin": true
+        }
+    },
+    "description": "Locked author plugin seed for Gateway workspace resolution.",
+    "license": "MIT"
+}

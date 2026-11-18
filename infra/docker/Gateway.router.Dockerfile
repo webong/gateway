@@ -31,8 +31,9 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN apk add --no-cache unzip
 COPY . /src/gateway
 WORKDIR /src/gateway/app
-# Install locked dependencies without the merge plugin's post-install update.
-# Enable it for autoload generation so extension namespaces and discovery remain.
+RUN php ../scripts/provision-proxy.php
+# Source workspaces are already locked; production install needs no plugin.
+# Regenerate extension namespaces and Laravel discovery after installation.
 RUN --mount=type=cache,target=/tmp/composer-cache \
     COMPOSER_CACHE_DIR=/tmp/composer-cache \
     composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \
@@ -133,6 +134,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends unzip \
     && rm -rf /var/lib/apt/lists/*
 COPY . /src/gateway
 WORKDIR /src/gateway/app
+RUN php ../scripts/provision-proxy.php
 # Install only the Planner host and its built-in integrations. Automation
 # runtimes and companions arrive later through verified extension packages.
 RUN --mount=type=cache,target=/tmp/composer-cache \

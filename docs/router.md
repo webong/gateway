@@ -44,12 +44,11 @@ entrypoints and Caddyfiles live under `app/servers`, and the `Gateway\Router\`
 classes under `app/helpers`.
 Host configuration overrides framework defaults before providers register;
 installed Composer packages are discovered normally and merge their own defaults.
-The monorepo host also uses Composer Merge Plugin to load
-`../pkg/*/composer.json`. Those extension-owned manifests supply their
-dependencies, autoload paths, and Planner companion registration without
-adding extension names to Planner.
-The Proxy dependency uses the `proxy` configuration namespace and resolves the
-tagged `webong/proxy` release directly from Packagist.
+The bundled host declares its extension dependencies in `app/composer.json`.
+Extension-owned manifests supply autoload paths and companion registration
+without adding extension names to Planner. Proxy uses the `proxy` configuration
+namespace and is provisioned from the pinned monorepo through Composer Source
+Plugin. Its Laravel integration is the `webong/proxy-laravel` package.
 Dependencies live in the shared root `vendor/` directory (`app/composer.json`
 sets `vendor-dir` to `../vendor`). Use the app Composer manifest for a production
 Router build; it shares a vendor location with the development manifest, so do
@@ -66,7 +65,7 @@ From the source checkout, install Planner dependencies and build a portable
 directory for the current OS and architecture:
 
 ```bash
-composer install --working-dir=app
+scripts/composer-install --working-dir=app
 ./scripts/build-gateway-router
 ./dist/gateway-router/scripts/gateway-router roadrunner
 ```
@@ -92,7 +91,7 @@ the RoadRunner Router from this checkout on startup unless `GATEWAY_ROUTER_ROADR
 to a prebuilt executable.
 
 ```bash
-composer install --working-dir=app
+scripts/composer-install --working-dir=app
 ./scripts/gateway-router roadrunner
 ```
 
@@ -108,7 +107,7 @@ An existing Router database created with `webong/web-proxy` needs the opt-in
 Proxy legacy migration before its first start with this version. Back up the
 Router data directory, load its usual database and app-key environment, and
 run `app/planner/artisan migrate --realpath` against
-`vendor/webong/proxy/database/legacy-migrations` once. The normal startup then
+`vendor/webong/proxy-laravel/database/legacy-migrations` once. The normal startup then
 applies the renamed Proxy migrations and creates the `profiles` table.
 
 An existing Router database from before Proxy 0.3.1 also needs Proxy's additive
@@ -335,3 +334,5 @@ disposable test runs two Router containers plus PostgreSQL and verifies
 `pdo_pgsql`, Planner migrations, health, the private delivery-admin listener,
 and a webhook created on one replica and routed through the other.
 It does not prove failover across separate hosts.
+
+Proxy dependencies are provisioned from a pinned monorepo before Composer. See [Proxy 0.4 setup](implementations/proxy-04-adoption.md) for source provisioning, intentional dependency updates and cold production installs.

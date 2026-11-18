@@ -43,7 +43,7 @@ case "${1:-serve}" in
     migrate)
         migrate_gateway_schema
         php "$APP_DIR/planner/artisan" migrate --realpath \
-            --path=/gateway/vendor/webong/proxy/database/migrations --force
+            --path=/gateway/vendor/webong/proxy-laravel/database/migrations --force
         exec php "$APP_DIR/planner/artisan" migrate --force
         ;;
     serve)
@@ -96,7 +96,7 @@ case "${1:-serve}" in
 
         migrate_gateway_schema
         php "$APP_DIR/planner/artisan" migrate --realpath \
-            --path=/gateway/vendor/webong/proxy/database/migrations --force
+            --path=/gateway/vendor/webong/proxy-laravel/database/migrations --force
         php "$APP_DIR/planner/artisan" migrate --force
 
         if [ "$SERVER" = workerman ]; then

@@ -18,7 +18,6 @@ require (
 	github.com/webong/gateway/pkg/lua v0.0.0
 	github.com/webong/gateway/pkg/shell v0.0.0
 	github.com/webong/gateway/pkg/spinner v0.0.0
-	github.com/webong/gateway/pkg/web v0.0.0
 )
 
 require (
@@ -31,12 +30,11 @@ require (
 	ergo.services/ergo v1.999.330 // indirect
 	github.com/buke/quickjs-go v0.7.7 // indirect
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
-	github.com/webong/proxy v0.3.1 // indirect
+	github.com/webong/proxy/go v0.4.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
 )
 
 replace github.com/webong/gateway/arranger => ../../mod/arranger

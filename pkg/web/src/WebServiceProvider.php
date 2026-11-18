@@ -23,6 +23,11 @@ final class WebServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/web.php', 'gateway.events');
+        $webProxy = require __DIR__.'/../config/proxy.php';
+        $routers = $this->app['config']->get('proxy.routers', []);
+        $this->mergeConfigFrom(__DIR__.'/../config/proxy.php', 'proxy');
+        // Host-defined clients win. Proxy keeps its provider, models and queued jobs.
+        $this->app['config']->set('proxy.routers', array_replace($webProxy['routers'], $routers));
         $this->app->singleton(WebSocketSubscriptionTargetExtension::class);
 
         $this->app->bind(WebProtocolPlanner::class, fn (): WebProtocolPlanner => new WebProtocolPlanner(
@@ -70,6 +75,10 @@ final class WebServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $proxy = $this->app->make(\Webong\Proxy\WebProxy::class);
+        if (! $proxy->has('gateway')) {
+            $proxy->register('gateway', $this->app['config']->get('proxy.routers.gateway'));
+        }
         $this->loadRoutesFrom(__DIR__.'/../routes/planner.php');
 
         $this->publishes([__DIR__.'/../config/web.php' => config_path('gateway-web.php')], 'gateway-web-config');

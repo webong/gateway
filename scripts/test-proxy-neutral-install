@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/gateway-proxy-neutral.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/pkg" "$WORK/mod" "$WORK/app/ext"
+cp -R "$ROOT/pkg/planner" "$WORK/pkg/planner"
+cp -R "$ROOT/mod/adapter" "$WORK/mod/adapter"
+cp -R "$ROOT/app/ext/proxy" "$WORK/app/ext/proxy"
+cp "$ROOT/composer.bootstrap.json" "$WORK/composer.json"
+COMPOSER_ROOT_VERSION=dev-main composer install --working-dir="$WORK" --no-interaction --no-scripts --prefer-dist --no-progress
+php -r '
+$p=$argv[1]."/composer.json"; $m=json_decode(file_get_contents($p),true);
+$m["minimum-stability"]="dev"; $m["prefer-stable"]=true;
+$m["require"]["webong/gateway"]="dev-main";
+$m["require"]["webong/proxy"]="^0.4";
+$m["extra"]["source-plugin"]["workspaces"]=["include"=>["mod/adapter","pkg/planner","app/ext/proxy"],"symlink"=>false];
+file_put_contents($p,json_encode($m,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES)."\n");
+' "$WORK"
+COMPOSER_ROOT_VERSION=dev-main composer update --working-dir="$WORK" --no-interaction --no-scripts --prefer-dist --no-progress
+php -r '
+require $argv[1]."/vendor/autoload.php";
+foreach (["laravel/framework","webong/proxy-laravel","spatie/laravel-webhook-client","spatie/laravel-webhook-server"] as $name) {
+    if (Composer\InstalledVersions::isInstalled($name)) { throw new RuntimeException("Neutral Planner unexpectedly requires ".$name); }
+}
+if (!class_exists(Webong\Gateway\Symfony\GatewayBundle::class) || !interface_exists(Webong\Proxy\Registry\Contracts\EndpointRepository::class)) { throw new RuntimeException("Neutral public API missing"); }
+if (Composer\InstalledVersions::getPrettyVersion("webong/proxy")!=="0.4.0") { throw new RuntimeException("Wrong Proxy"); }
+' "$WORK"
+echo 'Neutral Planner and Proxy 0.4 install without Laravel, Spatie or the Laravel adapter.'

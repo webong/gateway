@@ -12,7 +12,7 @@ cd "$ROOT"
 
 touch "$DB_DATABASE"
 php app/planner/artisan package:discover --no-ansi
-php app/planner/artisan migrate --realpath --path="$ROOT/vendor/webong/proxy/database/migrations" --force --no-ansi
+php app/planner/artisan migrate --realpath --path="$ROOT/vendor/webong/proxy-laravel/database/migrations" --force --no-ansi
 php app/planner/artisan gateway:migrate --no-ansi
 php app/planner/artisan migrate --force --no-ansi
 check_host() {

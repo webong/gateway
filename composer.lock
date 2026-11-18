@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0e7e6d1fa250bdc04363b776b606d62e",
+    "content-hash": "850ee289621aa6e320dcdbb06094a21d",
     "packages": [],
     "packages-dev": [
         {
@@ -14091,7 +14091,7 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/planner",
-                "reference": "445492cb99875b3fb35978f1df41bada5f825af7"
+                "reference": "2642737e74775aaff84f40adbea81f7bbce72b36"
             },
             "require": {
                 "php": "^8.3",
@@ -14108,7 +14108,8 @@
             "suggest": {
                 "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
                 "symfony/framework-bundle": "Register GatewayBundle in Symfony applications (^7.3 || ^8.0).",
-                "webong/proxy": "Required with Laravel for registry, subscriptions, management, and portable HTTP profiles (^0.3.1)."
+                "webong/proxy": "Neutral portable HTTP profiles and registry records (^0.4).",
+                "webong/proxy-laravel": "Required for Laravel registry persistence and management (^0.4)."
             },
             "type": "library",
             "extra": {
@@ -14128,7 +14129,7 @@
             ],
             "description": "Gateway Planner with Laravel integration and Symfony planning support",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14138,7 +14139,7 @@
             "dist": {
                 "type": "path",
                 "url": "mod/adapter",
-                "reference": "af1d614fb41cb121c0331933ae118d1d96886758"
+                "reference": "1753afbafef13d5d26c8676452d10c5f1298b87e"
             },
             "require": {
                 "php": "^8.3"
@@ -14156,7 +14157,7 @@
             ],
             "description": "Framework-neutral contracts and protocol values for custom Gateway Planners and extensions",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14166,7 +14167,7 @@
             "dist": {
                 "type": "path",
                 "url": "mod/builder",
-                "reference": "0031667562c6fe14689e47dc1f54303a49eec800"
+                "reference": "945fbad1653de32de1e8b6c31502ee41ae5646ad"
             },
             "require": {
                 "composer-plugin-api": "^2.3",
@@ -14189,7 +14190,7 @@
             ],
             "description": "Build deterministic ext.package/v1 Gateway extension artifacts",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14199,7 +14200,7 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/centrifugo",
-                "reference": "8615719e861718e117180c999c4bad90c5a0e50b"
+                "reference": "f2bd623efc72a766588109ad47d4d6e0272f619d"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -14207,7 +14208,7 @@
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "type": "library",
             "extra": {
@@ -14235,7 +14236,7 @@
             ],
             "description": "Centrifugo workload integration for Webong Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14245,14 +14246,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/database",
-                "reference": "d6dde43c383f6216fdfe460d916c1dbaa55c034d"
+                "reference": "a99293f160b2bf0d75f8b61afff13b3dc49c1290"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "type": "library",
             "autoload": {
@@ -14268,7 +14269,7 @@
             ],
             "description": "Managed Database extension for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14278,14 +14279,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/dns",
-                "reference": "1af4019daee4d73b0e2034abeee7913903f70385"
+                "reference": "4af88f6459f97d43be36a29fcc3f319a222f81a4"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy-laravel": "^0.4"
             },
             "type": "library",
             "autoload": {
@@ -14301,7 +14302,7 @@
             ],
             "description": "DNS transport extension for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14311,14 +14312,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/email",
-                "reference": "f08e37b63b91511a59c0ddd23cc7f80c434e5cfe"
+                "reference": "91ea467935445567d02b2b4cac92d18d092ff265"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy-laravel": "^0.4"
             },
             "type": "library",
             "autoload": {
@@ -14334,7 +14335,7 @@
             ],
             "description": "Email transport extension for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14344,7 +14345,7 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/hookscript",
-                "reference": "95f61e7c6213529f2693715350fa452756df16e1"
+                "reference": "91c01469a54aa68aaa319d8f99d57cc0345dfe20"
             },
             "require": {
                 "ext-mbstring": "*",
@@ -14354,7 +14355,7 @@
                 "smuuf/primi": "^0.4",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "require-dev": {
                 "orchestra/testbench": "^10.0",
@@ -14393,7 +14394,7 @@
             ],
             "description": "Primi-powered HookScript extension for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14403,14 +14404,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/javascript",
-                "reference": "93781f3077cc4ea39b05202b80fedcfad16dcc2a"
+                "reference": "e4b1829d35514974a75fddf9845f1304a7f1c7fd"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "type": "library",
             "extra": {
@@ -14433,7 +14434,7 @@
             ],
             "description": "JavaScript automation extension for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14443,14 +14444,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/lua",
-                "reference": "94cc9aeaba3a2f2c65d3c27701b9b0c552d7e5a3"
+                "reference": "a9a105e6f86e0fce57e750272b1f6fa19a0578dd"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "type": "library",
             "extra": {
@@ -14473,7 +14474,7 @@
             ],
             "description": "Lua automation extension and Planner companion for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14483,7 +14484,7 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/mercure",
-                "reference": "8ba9287d2431337a697ce4ba0cb361044f034c69"
+                "reference": "5eb43cc7ad9a040622b6f746f4246e462a5b4acd"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -14491,7 +14492,7 @@
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "type": "library",
             "extra": {
@@ -14519,7 +14520,7 @@
             ],
             "description": "Mercure Hub workload integration for Webong Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14529,7 +14530,7 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/reverb",
-                "reference": "6b916779cac0f0a9343ce088d924f3082262236a"
+                "reference": "041ed32b0893c5465561f2854198da4fe6cf4e18"
             },
             "require": {
                 "illuminate/database": "^12.0",
@@ -14538,7 +14539,7 @@
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy": "^0.4"
             },
             "require-dev": {
                 "orchestra/testbench": "^10.0",
@@ -14576,7 +14577,7 @@
             ],
             "description": "Laravel Reverb workload integration for Webong Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14586,14 +14587,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/shell",
-                "reference": "44cd5fd06897f83bd3da376cc81bc10009d9d2bb"
+                "reference": "3123412922ef6510205a192588966ad135b6fd84"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy-laravel": "^0.4"
             },
             "type": "library",
             "extra": {
@@ -14616,7 +14617,7 @@
             ],
             "description": "Shell-hook automation extension and Planner companion for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
@@ -14626,14 +14627,14 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/web",
-                "reference": "4e2de465b7251c696b9741156b4a0a7f50d6cb0b"
+                "reference": "6f76ca3089f99fafefd5154372239182cd61c045"
             },
             "require": {
                 "laravel/framework": "^12.0",
                 "php": "^8.3",
                 "webong/gateway": "dev-main",
                 "webong/gateway-adapter": "dev-main",
-                "webong/proxy": "^0.3.1"
+                "webong/proxy-laravel": "^0.4"
             },
             "type": "library",
             "autoload": {
@@ -14650,36 +14651,117 @@
             ],
             "description": "Web transport extension for Gateway",
             "transport-options": {
-                "symlink": true,
+                "symlink": false,
                 "relative": true
             }
         },
         {
             "name": "webong/proxy",
-            "version": "v0.3.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/webong/proxy.git",
-                "reference": "8362bbe98fcff9c549c062cd0088d38da9a32bbd"
-            },
+            "version": "0.4.0",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/webong/proxy/zipball/8362bbe98fcff9c549c062cd0088d38da9a32bbd",
-                "reference": "8362bbe98fcff9c549c062cd0088d38da9a32bbd",
-                "shasum": ""
+                "type": "path",
+                "url": "app/ext/proxy",
+                "reference": "ad3b135bb1a8e9b8f9288d5708f10d793d14edb0"
+            },
+            "require": {
+                "guzzlehttp/guzzle": "^7.10",
+                "php": "^8.3"
+            },
+            "conflict": {
+                "webong/proxy-registry": "*",
+                "webong/proxy-transport": "*"
+            },
+            "require-dev": {
+                "orchestra/testbench": "^10.0 || ^11.0",
+                "pestphp/pest": "^4.0",
+                "pestphp/pest-plugin-laravel": "^4.0",
+                "webong/composer-source-plugin": "^0.5.0",
+                "webong/proxy-laravel": "^0.4.0"
+            },
+            "type": "library",
+            "extra": {
+                "source-plugin": {
+                    "surfaces": {
+                        "php": {
+                            "include": [
+                                "php/src/**",
+                                "php/README.md",
+                                "README.md",
+                                "LICENSE"
+                            ]
+                        }
+                    },
+                    "workspaces": [
+                        "adapters/laravel"
+                    ]
+                },
+                "branch-alias": {
+                    "dev-main": "0.4.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Webong\\Proxy\\": "php/src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Webong\\Proxy\\Tests\\": "tests/"
+                }
+            },
+            "archive": {
+                "exclude": [
+                    "/vendor",
+                    "/tests",
+                    "/.github",
+                    "/go",
+                    "/scripts",
+                    "/spec",
+                    "/composer.lock",
+                    "/composer.bootstrap.*",
+                    "/composer-source.lock",
+                    "/.phpunit.cache",
+                    "/Makefile",
+                    "/php/vendor",
+                    "/php/composer.lock",
+                    "/adapters/laravel/vendor",
+                    "/adapters/laravel/composer.lock",
+                    "/.git"
+                ]
+            },
+            "scripts": {
+                "test": [
+                    "@php scripts/check_php_api.php",
+                    "@php scripts/check_php_api.php --registry",
+                    "pest"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Framework-neutral HTTP profiles, TCP/UDP proxy transports and storage-neutral registry contracts.",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
+        },
+        {
+            "name": "webong/proxy-laravel",
+            "version": "0.4.0",
+            "dist": {
+                "type": "path",
+                "url": "app/ext/proxy/adapters/laravel",
+                "reference": "676f8a7fe6ecad4a7cebf4a7e004a5cfc94f623e"
             },
             "require": {
                 "guzzlehttp/guzzle": "^7.10",
                 "illuminate/contracts": "^12.0 || ^13.0",
                 "illuminate/support": "^12.0 || ^13.0",
+                "laravel/framework": "^12.0 || ^13.0",
                 "php": "^8.3 || ^8.4",
                 "spatie/laravel-webhook-client": "^3.5",
-                "spatie/laravel-webhook-server": "^3.10"
-            },
-            "require-dev": {
-                "orchestra/testbench": "^10.0 || ^11.0",
-                "pestphp/pest": "^4.0",
-                "pestphp/pest-plugin-laravel": "^4.0"
+                "spatie/laravel-webhook-server": "^3.10",
+                "webong/proxy": "^0.4.0"
             },
             "type": "library",
             "extra": {
@@ -14687,6 +14769,19 @@
                     "providers": [
                         "Webong\\Proxy\\WebProxyServiceProvider"
                     ]
+                },
+                "source-plugin": {
+                    "surfaces": {
+                        "php": {
+                            "include": [
+                                "src/**",
+                                "config/**",
+                                "database/**",
+                                "README.md",
+                                "LICENSE"
+                            ]
+                        }
+                    }
                 }
             },
             "autoload": {
@@ -14694,16 +14789,23 @@
                     "Webong\\Proxy\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "archive": {
+                "exclude": [
+                    "/vendor",
+                    "/tests",
+                    "/.phpunit.cache",
+                    "/composer.lock",
+                    "/composer-source.lock"
+                ]
+            },
             "license": [
                 "MIT"
             ],
-            "description": "Webhook proxy system for scoped webhook routing and delivery",
-            "support": {
-                "issues": "https://github.com/webong/proxy/issues",
-                "source": "https://github.com/webong/proxy/tree/v0.3.1"
-            },
-            "time": "2026-11-13T20:05:20+00:00"
+            "description": "Laravel registry persistence, migrations and Spatie webhook integration for Proxy.",
+            "transport-options": {
+                "symlink": false,
+                "relative": true
+            }
         },
         {
             "name": "workerman/coroutine",
