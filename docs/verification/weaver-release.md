@@ -96,10 +96,16 @@ operator-owned copy, covering the real provider's deduplication guarantee and
 unknown-outcome reconciliation. Cross-engine migration and Weaver-native runs
 back into the legacy app are unsupported. No production data was used in CI.
 
-Only after compatible published replacement acceptance should WorkFlow's `app/`
-move into examples or receive versioned deprecation guidance. Preserve engine and
-authoring CLI independence. Source integration is already complete; publication
-alone does not close replacement acceptance.
+WorkFlow's source host moved to `examples/standalone` at signed `ab517494`, with
+[passing CI](https://github.com/webong/workflow/actions/runs/43790467576). Its new
+source layout removes legacy paths/namespaces without aliases; do not treat it as
+an in-place compatibility upgrade. Existing rc.2 releases and Weaver's pinned
+legacy rollback source remain unchanged. See the upstream source-layout guide.
+
+Production retirement still requires compatible published replacement acceptance
+and versioned deprecation/upgrade guidance. Retain matching old release images
+for existing deployments and rollback; preserve independent engine/CLI usage.
+Source relocation and publication alone do not close replacement acceptance.
 
 ## Rehearse downloads without publication
 

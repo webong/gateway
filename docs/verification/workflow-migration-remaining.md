@@ -125,15 +125,19 @@ This does not authorize publishing, deployment or old-app removal.
   using Gateway installation metadata; no public Composer index is required. Ship
   approval/order examples plus installation, authentication, upgrade, operation and
   rollback docs.
-- The earlier local WorkFlow example-host preparation is not present in the
-  inspected clean main checkout at `3f037f5`: `app/` remains and
-  `examples/standalone` is absent. Locate or prepare that move before claiming it
-  complete. Preserve compatible entrypoints/namespace and engine/CLI independence.
-- Once production replacement acceptance passes, retire compatibility only with
-  an explicit version boundary and approval. The example host remains available for
-  testing/reference. It should not remain a second supported production host.
-  Keep the engine and
-  authoring CLI independent; do not remove legacy source before replacement.
+- Completed in WorkFlow source at signed `ab517494b42e3428a3fe0467e89c98f51d890196`:
+  the testing/reference host lives under `examples/standalone`; the authoring CLI
+  remains in core. [Its CI passed](https://github.com/webong/workflow/actions/runs/43790467576).
+  The active WorkFlow checkout includes that commit; the primary local checkout
+  previously inspected was stale. The new source namespace/path has no legacy
+  aliases; this is not an in-place upgrade contract. Existing rc.2 releases remain
+  immutable, Weaver stays pinned to rc.2, and rollback rehearsal retains its
+  original `00e0bbcdd61c2c6ed96af55865d0ef2e77557adb` source. See WorkFlow's
+  [source-layout guidance](https://github.com/webong/workflow/blob/main/docs/standalone-example.md).
+- Production retirement still requires accepted replacement installation/cutover
+  and explicit versioned guidance. Retain the matching legacy release/image for
+  existing deployments and rollback. The example remains testing/reference code,
+  not a second supported production host; engine/CLI independence is preserved.
 
 No production migration, artifact publication, old-app deletion or automatic
 run-authority conversion is part of the runtime/host proof.

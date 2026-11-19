@@ -145,11 +145,16 @@ worker claims and leaves uncertain work to fenced leases and reconciliation.
 
 ## Standalone app retirement
 
-After replacement installation, copied-data migration and rollback acceptance,
-the old WorkFlow application may move under `examples/` as a test and reference
-host. It should not remain a second supported production host. The independent
-engine and authoring CLI remain WorkFlow-owned. No legacy source is removed by
-this extraction.
+WorkFlow moved its source host to `examples/standalone` at `ab517494`, as testing
+and reference code. The new source namespace/path has no legacy aliases; existing
+rc.2 releases remain immutable. Weaver still consumes rc.2 and rehearses rollback
+against its original pinned standalone source. See WorkFlow's
+[source-layout guide](https://github.com/webong/workflow/blob/main/docs/standalone-example.md).
+
+Retiring an existing production host still requires replacement installation,
+copied-data migration, rollback acceptance and versioned guidance. Retain the
+matching legacy image for rollback. The independent engine and authoring CLI
+remain WorkFlow-owned.
 
 ## Candidate archives
 
