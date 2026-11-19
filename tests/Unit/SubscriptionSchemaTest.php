@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Webong\Gateway\Protocols\MatchRules;
 use Webong\Gateway\Protocols\MatchRulesPatch;
 use Webong\Gateway\Protocols\SubscriptionState;
+use Webong\WorkFlow\Rules\RuleSet;
 
 it('keeps the subscription JSON schema aligned with match-rules v1', function (): void {
     $schema = json_decode(
@@ -13,7 +14,7 @@ it('keeps the subscription JSON schema aligned with match-rules v1', function ()
         512,
         JSON_THROW_ON_ERROR,
     );
-    $matchRules = new ReflectionClass(MatchRules::class);
+    $matchRules = new ReflectionClass(RuleSet::class);
 
     expect($schema['$defs']['match']['properties']['version']['const'])
         ->toBe(MatchRules::VERSION)
