@@ -49,7 +49,7 @@ gateway_prepare_automation_extension() {
     fi
     printf -v "GATEWAY_AUTOMATION_SMOKE_SHA256_$engine" '%s' "$sha"
 
-    for cache in "$planner_cache" "$@"; do
+    for cache in "$planner_cache"; do
         mkdir -p "$cache/.desired"
         cp -Rp "$staging/webong%2f$engine" "$cache/webong%2f$engine"
     done
@@ -58,14 +58,10 @@ gateway_prepare_automation_extension() {
         file_put_contents($argv[1]."/.desired/".hash("sha256", $argv[2]).".json",
             json_encode(["revision" => 1, "sha256" => $argv[3]], JSON_THROW_ON_ERROR));
     ' "$planner_cache" "webong/$engine" "$sha"
-    # Spinner's receipt also names the installed package revision.
+    # Use Ext itself to verify/install and create Spinner's receipt.
     for cache in "$@"; do
-        php -r '
-            file_put_contents($argv[1]."/.desired/".hash("sha256", $argv[2]).".json", json_encode([
-                "extension" => $argv[2], "version" => $argv[3], "revision" => 1,
-                "artifact_sha256" => $argv[4], "package_revision" => $argv[5],
-            ], JSON_THROW_ON_ERROR));
-        ' "$cache" "webong/$engine" "$GATEWAY_AUTOMATION_SMOKE_VERSION" "$sha" "$revision"
+        GOWORK=off go -C "$root/tools/workflow-runtime-gate" run ./cmd/seed-store \
+            "$cache" "$staging/webong%2f$engine.tar.gz" "$sha" "webong/$engine"
     done
     rm -rf -- "$staging"
 }

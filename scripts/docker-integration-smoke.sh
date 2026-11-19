@@ -36,15 +36,10 @@ prepare_extension() {
     GOOS="$extension_goos" GOARCH="$extension_goarch" CGO_ENABLED=0 \
         "$ROOT/scripts/build-gateway-runtime-extension" \
         "$ROOT/pkg/$extension" "$package" 0.1.0 "$revision" >/dev/null
-    artifact_sha="$(php -r 'echo hash_file("sha256", $argv[1]);' "$package/plugin.json")"
-    mkdir -p "$EXTENSIONS/.desired"
-    php -r '
-        $receipt = [
-            "extension" => $argv[2], "version" => "0.1.0", "revision" => 1,
-            "artifact_sha256" => $argv[3], "package_revision" => $argv[4],
-        ];
-        file_put_contents($argv[1]."/.desired/".hash("sha256", $argv[2]).".json", json_encode($receipt, JSON_THROW_ON_ERROR));
-    ' "$EXTENSIONS" "$identity" "$artifact_sha" "$revision"
+    local archive="$TEMP_DIR/$extension.tar.gz"
+    artifact_sha="$("$ROOT/scripts/archive-gateway-extension" "$package" "$archive" | awk '{print $1}')"
+    GOWORK=off go -C "$ROOT/tools/workflow-runtime-gate" run ./cmd/seed-store \
+        "$EXTENSIONS" "$archive" "$artifact_sha" "$identity" >/dev/null
     printf '%s' "$artifact_sha"
 }
 
