@@ -12,6 +12,10 @@ COMPOSER_ROOT_VERSION=dev-main composer install --working-dir="$WORK" --no-inter
 php -r '
 $p=$argv[1]."/composer.json"; $m=json_decode(file_get_contents($p),true);
 $m["minimum-stability"]="dev"; $m["prefer-stable"]=true;
+$m["repositories"] = [
+    ["type" => "composer", "url" => "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json", "only" => ["webong/workflow-conditions", "webong/workflow-jq", "webong/workflow-rules"]],
+    ["type" => "vcs", "url" => "https://github.com/webong/workflow", "no-api" => true, "only" => ["webong/workflow"]],
+];
 $m["require"]["webong/gateway"]="dev-main";
 $m["require"]["webong/proxy"]="^0.4";
 $m["extra"]["source-plugin"]["workspaces"]=["include"=>["mod/adapter","pkg/planner","app/ext/proxy"],"symlink"=>false];

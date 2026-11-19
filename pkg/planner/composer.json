@@ -13,7 +13,8 @@
         "symfony/http-kernel": "^7.3 || ^8.0",
         "symfony/process": "^7.3 || ^8.0",
         "symfony/routing": "^7.3 || ^8.0",
-        "webong/gateway-adapter": "dev-main"
+        "webong/gateway-adapter": "dev-main",
+        "webong/workflow-conditions": "^0.1.0-rc.3"
     },
     "suggest": {
         "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",

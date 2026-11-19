@@ -4,7 +4,8 @@
     "type": "library",
     "license": "MIT",
     "require": {
-        "php": "^8.3"
+        "php": "^8.3",
+        "webong/workflow-rules": "^0.1.0-rc.3"
     },
     "autoload": {
         "psr-4": {
