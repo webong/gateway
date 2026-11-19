@@ -8,6 +8,10 @@ ENV COMPOSER_ROOT_VERSION=dev-main
 
 COPY composer.json composer.lock ./
 COPY pkg ./pkg
+COPY mod ./mod
+COPY scripts ./scripts
+COPY tools/proxy ./tools/proxy
+RUN php scripts/provision-proxy.php
 
 RUN composer install --no-interaction --no-progress --prefer-dist \
         --ignore-platform-req=ext-sockets --ignore-platform-req=ext-pcntl \

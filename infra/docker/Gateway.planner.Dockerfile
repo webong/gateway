@@ -31,6 +31,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY . /gateway
 WORKDIR /gateway/app
+RUN php ../scripts/provision-proxy.php
 RUN --mount=type=cache,target=/tmp/composer-cache \
     COMPOSER_CACHE_DIR=/tmp/composer-cache \
     composer install --no-dev --no-interaction --prefer-dist --no-plugins --no-scripts \

@@ -23,12 +23,13 @@ final class GatewayExtension extends Extension
         $container->register(PlanningController::class)
             ->setArguments([new Reference(PlanningEndpoint::class), new Reference(RoutePlanner::class), new Reference(ProtocolPlanner::class)])
             ->addTag('controller.service_arguments')->setPublic(true);
+        $container->register(\Webong\Gateway\Migrations\MigrationRegistry::class)->setPublic(true);
         if (isset($config['connection'])) {
             $container->register(GatewayMigrationRunner::class)
                 ->setFactory([GatewayMigrationRunner::class, 'fromConnection'])
-                ->setArguments([$config['connection'], dirname(__DIR__, 3).'/migrations', $config['tables'] ?? []]);
+                ->setArguments([$config['connection'], new Reference(\Webong\Gateway\Migrations\MigrationRegistry::class), $config['tables'] ?? []]);
             $container->register(MigrateGatewayCommand::class)
-                ->setArguments([new Reference(GatewayMigrationRunner::class)])
+                ->setArguments([new Reference(GatewayMigrationRunner::class), new Reference(\Webong\Gateway\Migrations\MigrationRegistry::class)])
                 ->addTag('console.command');
         }
     }

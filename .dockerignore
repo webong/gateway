@@ -14,3 +14,7 @@ app/planner/vendor
 
 .workflow-gate-source
 .claude/worktrees
+
+/app/ext/proxy
+
+app/planner/bootstrap/cache/*.php

@@ -106,11 +106,15 @@ foreach (['one', 'two'] as $body) {
 }
 $response = $kernel->handle(Request::create('/_internal/gateway/event', 'POST', server: ['HTTP_X_GATEWAY_INTERNAL' => 'consumer-secret'], content: '{"id":"dns","protocol":"dns","kind":"query","route":"/dns"}'));
 check($response->getStatusCode() === 200, 'Protocol planning failed.');
+$kernel->getContainer()->get(\Webong\Gateway\Migrations\MigrationRegistry::class)
+    ->register('consumer/extension', __DIR__.'/extension-migrations/neutral');
 $console = new \Symfony\Bundle\FrameworkBundle\Console\Application($kernel);
 $command = new CommandTester($console->find('gateway:migrate'));
 check($command->execute([]) === 0, 'Migration command failed.');
 check($command->execute([]) === 0, 'Repeated migration failed.');
 $pdo = new PDO('sqlite:'.$argv[1].'/gateway.sqlite');
 check((int) $pdo->query('SELECT count(*) FROM gateway_migrations')->fetchColumn() > 0, 'Gateway migration ledger missing.');
+check((int) $pdo->query('SELECT count(*) FROM gateway_migrations WHERE version = 20261119000100')->fetchColumn() === 1, 'Registered extension history missing or duplicated.');
+check($pdo->query("SELECT name FROM sqlite_master WHERE name='extension_probes'")->fetchColumn() === 'extension_probes', 'Registered extension schema missing.');
 $kernel->shutdown();
 echo "Standalone Symfony consumer: HTTP planning, protocol planning, and migrations passed without Laravel.\n";

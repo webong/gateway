@@ -13,7 +13,7 @@ it('applies planner migrations without booting a framework', function (): void {
     try {
         $runner = GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
         );
 
         $result = $runner->migrate();
@@ -36,7 +36,7 @@ it('creates the accounts schema expected by the Laravel planner', function (): v
     try {
         GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
         )->migrate();
 
         $databaseManager = new Capsule();
@@ -68,7 +68,7 @@ it('adopts an existing Laravel-managed schema without replaying destructive migr
     try {
         $runner = GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
         );
         $runner->migrate();
 
@@ -97,7 +97,7 @@ it('refuses to adopt a schema whose required columns are incompatible', function
     try {
         $runner = GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
         );
         $runner->migrate();
 
@@ -128,7 +128,7 @@ it('uses configured planner table names for migration and adoption', function ()
     try {
         $runner = GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: $tables,
         );
         $runner->migrate();
@@ -158,7 +158,7 @@ it('applies and re-runs the neutral schema on PostgreSQL', function (): void {
         database: $database,
         username: getenv('GATEWAY_TEST_POSTGRES_USERNAME') ?: 'postgres',
         password: getenv('GATEWAY_TEST_POSTGRES_PASSWORD') ?: '',
-        migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+        migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
     );
 
     $pdo = new PDO(sprintf(
@@ -196,7 +196,7 @@ it('applies and re-runs the neutral schema on MySQL', function (): void {
     ];
     $runner = GatewayMigrationRunner::fromConnection(
         connection: $connection,
-        migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+        migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
     );
 
     $pdo = new PDO(sprintf(
@@ -226,7 +226,7 @@ it('provides the same migration runner through Symfony Console', function (): vo
     try {
         $command = new MigrateGatewayCommand(GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
         ));
         $tester = new CommandTester($command);
 
@@ -260,7 +260,7 @@ it('migrates and adopts a non-public PostgreSQL schema without a framework', fun
     $pdo = new PDO(sprintf('pgsql:host=%s;port=%d;dbname=%s', $connection['host'], $connection['port'], $database), $connection['username'], $connection['password']);
     $pdo->exec('CREATE SCHEMA "'.$schema.'"');
     try {
-        $runner = GatewayMigrationRunner::fromConnection($connection, dirname(__DIR__, 2).'/pkg/planner/migrations');
+        $runner = GatewayMigrationRunner::fromConnection($connection, \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations');
         expect($runner->migrate()->applied)->not->toBeEmpty()
             ->and($pdo->query("SELECT to_regclass('{$schema}.accounts')")->fetchColumn())->not->toBeNull();
         $pdo->exec('DROP TABLE "'.$schema.'".gateway_migrations');
@@ -334,7 +334,7 @@ it('does not discard MySQL TLS options', function (bool $laravel): void {
             config()->set('database.connections.gateway_mysql_tls_test', $connection);
             expect(fn () => $this->artisan('gateway:migrate', ['--database' => 'gateway_mysql_tls_test']))->toThrow(PDOException::class);
         } else {
-            expect(fn () => GatewayMigrationRunner::fromConnection($connection, dirname(__DIR__, 2).'/pkg/planner/migrations')->migrate())->toThrow(PDOException::class);
+            expect(fn () => GatewayMigrationRunner::fromConnection($connection, \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations')->migrate())->toThrow(PDOException::class);
         }
     } finally {
         app('db')->purge('gateway_mysql_tls_test');

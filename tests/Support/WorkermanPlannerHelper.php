@@ -409,10 +409,8 @@ if (! function_exists('gatewayPlannerRunArtisanMigrations')) {
     {
         $root = gatewayPlannerRepositoryRoot();
         $artisan = $root.'/app/planner/artisan';
-        $proxyMigrations = $root.'/vendor/webong/proxy/database/migrations';
         foreach ([
-            "php $artisan migrate --realpath --path=$proxyMigrations --force --no-ansi",
-            "php $artisan migrate --force --no-ansi",
+            "APP_RUNNING_IN_CONSOLE=true php $artisan gateway:migrate --force --no-ansi",
         ] as $command) {
             $exitCode = null;
             $output = null;
@@ -446,7 +444,7 @@ if (! function_exists('gatewayPlannerRunMigrations')) {
 
         $runner = Webong\Gateway\Migrations\GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: $root.'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: [],
         );
         $runner->migrate();
@@ -506,7 +504,7 @@ if (! function_exists('gatewayPlannerRunMigrationsPostgres')) {
             database: $connection['database'],
             username: $connection['username'],
             password: $connection['password'],
-            migrationsPath: $root.'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: [],
         );
         $runner->migrate();
@@ -583,7 +581,7 @@ if (! function_exists('gatewayPlannerRunMigrationsMysql')) {
         $exitCode = null;
         $output = null;
         // The host environment says it is not a console; `gateway:migrate` is only registered in one.
-        exec("APP_RUNNING_IN_CONSOLE=true php $artisan gateway:migrate --no-ansi 2>&1", $output, $exitCode);
+        exec("APP_RUNNING_IN_CONSOLE=true php $artisan gateway:migrate --force --no-ansi 2>&1", $output, $exitCode);
         if ($exitCode !== 0) {
             throw new RuntimeException("gateway:migrate failed (exit $exitCode):\n".implode("\n", $output));
         }

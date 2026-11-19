@@ -7,7 +7,7 @@ cat > "$TEST_DIR/router" <<'PHP'
 #!/usr/bin/env php
 <?php
 $db = new PDO('sqlite:'.getenv('DB_DATABASE'));
-foreach (['configurations', 'gateway_migrations', 'schedules'] as $table) {
+foreach (['configurations', 'gateway_migrations', 'schedules', 'endpoints', 'subscriptions', 'profiles', 'subscription_locks', 'migrations'] as $table) {
     if ($db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = '$table'")->fetchColumn() === false) {
         fwrite(STDERR, "Router started without migrating $table.\n");
         exit(1);

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+image=${1:?Pass the locally built Router image}
+docker run --rm --entrypoint php \
+    -e APP_ENV=production -e GATEWAY_ROUTER_DATA_DIR=/tmp/proxy-adoption-smoke \
+    -e DB_CONNECTION=sqlite -e DB_DATABASE=:memory: "$image" -r '
+require "/gateway/vendor/autoload.php";
+foreach (["webong/proxy", "webong/proxy-laravel"] as $package) {
+    if (Composer\InstalledVersions::getPrettyVersion($package) !== "0.4.0") { throw new RuntimeException("Wrong Proxy package version"); }
+}
+$app = require "/gateway/app/planner/bootstrap/app.php";
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if ($app->make(Webong\Proxy\WebProxy::class)->resolve("gateway")::class !== Webong\Gateway\Web\WebhookRouter::class) {
+    throw new RuntimeException("Production webhook client is not Web-owned; check stale discovery caches");
+}
+if (count($app->getProviders(Webong\Proxy\WebProxyServiceProvider::class)) !== 1) { throw new RuntimeException("Proxy provider registered more than once"); }
+echo "Production Router installs Proxy 0.4 and boots exactly one Web-owned webhook client.\n";
+'

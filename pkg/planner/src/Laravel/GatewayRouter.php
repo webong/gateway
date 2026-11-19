@@ -8,8 +8,8 @@ use Webong\Proxy\Contracts\Router;
 use Webong\Proxy\Models\WebProxyCall;
 
 /**
- * Gateway normalizes ingress before WebProxy selects destinations. This client
- * reserves one WebProxy namespace for Gateway-owned endpoint identities.
+ * Empty Proxy router retained for non-Web extensions and cached configurations.
+ * Gateway-specific webhook registration belongs to the Web extension.
  */
 final class GatewayRouter implements Router
 {

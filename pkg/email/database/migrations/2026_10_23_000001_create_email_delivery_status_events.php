@@ -10,11 +10,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('email_delivery_status_events', function (Blueprint $table): void {
+        // A foreign key must use its core-owned identity column's collation.
+        $identity = collect(Schema::getColumns('configurations'))->firstWhere('name', 'id');
+        $collation = in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)
+            ? ($identity['collation'] ?? null) : null;
+        Schema::create('email_delivery_status_events', function (Blueprint $table) use ($collation): void {
             $table->char('delivery_id', 32)->primary();
             $table->char('event_id', 64)->nullable()->unique();
             $table->string('account_id', 200);
-            $table->uuid('hook_id');
+            $table->uuid('hook_id')->collation($collation);
             $table->string('node', 64);
             $table->string('state', 16)->default('watching');
             $table->string('delivery_state', 16)->nullable();

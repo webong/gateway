@@ -133,7 +133,7 @@ jobs:
       - name: Install Planner dependencies
         env:
           COMPOSER_ROOT_VERSION: dev-main
-        run: composer install --no-interaction --prefer-dist
+        run: scripts/composer-install --prefer-dist
 
       - name: Install HookScript companion dependencies
         run: composer install --working-dir=pkg/hookscript/companion --no-dev --no-interaction --prefer-dist --classmap-authoritative

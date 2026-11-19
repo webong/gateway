@@ -36,7 +36,7 @@ it('matches every Laravel-managed Planner table and column', function (): void {
     try {
         GatewayMigrationRunner::sqlite(
             database: $database,
-            migrationsPath: dirname(__DIR__, 2).'/pkg/planner/migrations',
+            migrationsPath: \Composer\InstalledVersions::getInstallPath('webong/gateway').'/migrations',
             tables: $tables,
         )->migrate();
 

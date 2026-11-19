@@ -14,6 +14,7 @@ use Webong\Gateway\Planning\RoutePlanObserverRegistry;
 use Webong\Gateway\Planning\RoutePlannerRegistry;
 use Webong\Gateway\Protocols\Protocol;
 use Webong\Gateway\Resources\ConfigurationKindRegistry;
+use Webong\Gateway\Web\Events\WebEventPolicyStore;
 use Webong\Gateway\Web\Events\WebEventRecorder;
 use Webong\Gateway\Webstream\WebstreamPrivateSourceStore;
 use Webong\Gateway\Webstream\WebstreamRoutePolicyStore;
@@ -23,6 +24,17 @@ final class WebServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/web.php', 'gateway.events');
+        $webProxy = require __DIR__.'/../config/proxy.php';
+        $routers = $this->app['config']->get('proxy.routers', []);
+        $this->mergeConfigFrom(__DIR__.'/../config/proxy.php', 'proxy');
+        // Host-defined clients win. Proxy keeps its provider, models and queued jobs.
+        $this->app['config']->set('proxy.routers', array_replace($webProxy['routers'], $routers));
+        // Email and Proxy may resolve the shared registry before Web's boot method.
+        $this->callAfterResolving(\Webong\Proxy\WebProxy::class, function (\Webong\Proxy\WebProxy $proxy): void {
+            if (! $proxy->has('gateway')) {
+                $proxy->register('gateway', $this->app['config']->get('proxy.routers.gateway', WebhookRouter::class));
+            }
+        });
         $this->app->singleton(WebSocketSubscriptionTargetExtension::class);
 
         $this->app->bind(WebProtocolPlanner::class, fn (): WebProtocolPlanner => new WebProtocolPlanner(

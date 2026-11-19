@@ -128,9 +128,19 @@ final class CreateGatewayPlannerSchema extends AbstractMigration
 
     private function createEvents(string $endpoints): void
     {
+        $endpointOptions = ['null' => true];
+        if ($this->isMysql() && $this->getAdapter()->hasTable($endpoints)) {
+            // Preserve Gateway's exact key collation while matching the external
+            // owner's UUID column for MySQL's cross-table foreign key rules.
+            $column = $this->fetchRow('SHOW FULL COLUMNS FROM '.$this->getAdapter()->quoteTableName($endpoints)." WHERE Field = 'id'");
+            if (is_array($column) && is_string($column['Collation'] ?? null)) {
+                $endpointOptions['collation'] = $column['Collation'];
+                $endpointOptions['encoding'] = explode('_', $column['Collation'])[0];
+            }
+        }
         $table = $this->table('events', ['id' => false, 'primary_key' => ['id']])
             ->addColumn('id', 'uuid', ['null' => false])
-            ->addColumn('endpoint_id', 'uuid', ['null' => true])
+            ->addColumn('endpoint_id', 'uuid', $endpointOptions)
             ->addColumn('subject_kind', 'string', ['limit' => 96, 'null' => true])
             ->addColumn('subject_id', 'string', ['limit' => 200, 'null' => true])
             ->addColumn('event_id', 'string')

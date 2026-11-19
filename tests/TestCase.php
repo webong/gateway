@@ -72,6 +72,7 @@ abstract class TestCase extends Orchestra
                 'driver' => 'database',
             ],
             'proxy.routers' => [
+                'gateway' => \Webong\Gateway\Web\WebhookRouter::class,
                 'relay-test' => Support\TestRouter::class,
             ],
             'gateway.path_resolver' => Support\TestPathResolver::class,

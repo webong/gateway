@@ -45,7 +45,7 @@ final readonly class GatewayMigrationRunner
      */
     private function __construct(
         private array $connection,
-        private string $migrationsPath,
+        private string|MigrationRegistry $migrationsPath,
         private array $tables,
         private ?array $postgresConfig = null,
         private ?array $mysqlConfig = null,
@@ -53,7 +53,7 @@ final readonly class GatewayMigrationRunner
     ) {}
 
     /** @param array<string, string> $tables */
-    public static function sqlite(string $database, string $migrationsPath, array $tables = []): self
+    public static function sqlite(string $database, string|MigrationRegistry $migrationsPath, array $tables = []): self
     {
         return new self([
             'adapter' => 'sqlite',
@@ -69,7 +69,7 @@ final readonly class GatewayMigrationRunner
         string $database,
         string $username,
         string $password,
-        string $migrationsPath,
+        string|MigrationRegistry $migrationsPath,
         array $tables = [],
     ): self {
         return self::fromConnection([
@@ -89,7 +89,7 @@ final readonly class GatewayMigrationRunner
      * @param array<string, mixed> $connection
      * @param array<string, string> $tables
      */
-    public static function fromConnection(array $connection, string $migrationsPath, array $tables = [], ?PDO $pdo = null): self
+    public static function fromConnection(array $connection, string|MigrationRegistry $migrationsPath, array $tables = [], ?PDO $pdo = null): self
     {
         $driver = $connection['driver'] ?? null;
 
@@ -134,7 +134,9 @@ final readonly class GatewayMigrationRunner
 
     public function adoptExistingSchema(): MigrationResult
     {
-        $manager = $this->manager();
+        // Adoption may mark only the validated core schema as already applied.
+        // Newly installed extension schemas must still execute normally.
+        $manager = $this->manager($this->migrationsPath instanceof MigrationRegistry ? $this->migrationsPath->corePath() : null);
         $adapter = $manager->getEnvironment(self::ENVIRONMENT)->getAdapter();
         $missing = [];
         foreach (self::REQUIRED_COLUMNS as $logicalTable => $requiredColumns) {
@@ -161,7 +163,10 @@ final readonly class GatewayMigrationRunner
             ));
         }
 
-        return $this->run(fake: true, manager: $manager);
+        $adopted = $this->run(fake: true, manager: $manager);
+        $extensions = $this->run(fake: false);
+
+        return new MigrationResult(array_values(array_unique([...$adopted->applied, ...$extensions->applied])));
     }
 
     private function run(bool $fake, ?Manager $manager = null): MigrationResult
@@ -175,7 +180,7 @@ final readonly class GatewayMigrationRunner
         return new MigrationResult(array_values(array_diff($after, $before)));
     }
 
-    private function manager(): Manager
+    private function manager(string|array|null $paths = null): Manager
     {
         $connection = $this->connection;
         if ($this->postgresConfig !== null) {
@@ -198,7 +203,7 @@ final readonly class GatewayMigrationRunner
         }
 
         return new Manager(new Config([
-            'paths' => ['migrations' => $this->migrationsPath],
+            'paths' => ['migrations' => $paths ?? ($this->migrationsPath instanceof MigrationRegistry ? $this->migrationsPath->phinxPaths() : $this->migrationsPath)],
             'environments' => [
                 'default_environment' => self::ENVIRONMENT,
                 self::ENVIRONMENT => [

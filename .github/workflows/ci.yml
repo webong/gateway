@@ -107,6 +107,9 @@ jobs:
         run: |
           test "$(docker image inspect gateway-ci:${{ matrix.runtime }} --format '{{ index .Config.Labels "com.webong.gateway.router-runtime" }}')" = '${{ matrix.runtime }}'
 
+      - name: Check production Proxy setup and Web-owned webhook client
+        run: bash scripts/test-router-proxy-image gateway-ci:${{ matrix.runtime }}
+
   boundaries:
     name: Module boundaries
     runs-on: ubuntu-24.04
@@ -245,6 +248,12 @@ jobs:
 
       - name: Check the Composer package split and metadata
         run: bash scripts/test-split-packages
+
+      - name: Check neutral Planner and Proxy install
+        run: bash scripts/test-proxy-neutral-install
+
+      - name: Check pinned Proxy source provisioning
+        run: bash scripts/test-proxy-provisioning
 
       - name: Check workspace install stability
         run: bash scripts/test-composer-install-stability
