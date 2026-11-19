@@ -71,7 +71,15 @@ The initial deployed operation catalog contains `gateway.approval` (deferred) an
 requires a deployed executor and the reviewed durable-delivery/idempotency path;
 clients cannot turn a class, command or URL into executable behavior.
 
-## Planner installation and desired resources
+## Distribution
+
+Gateway installs Weaver from a verified native runtime archive. The intended
+release assets are Linux amd64/arm64 archives, checksums and Gateway installation
+metadata. A separate public Composer package or index is not required. Composer
+remains an internal build dependency; direct PHP consumers may use Composer Source
+Plugin with a pinned Gateway checkout and the `pkg/weaver` workspace.
+
+## Planner source consumption and desired resources
 
 The effective consumer root must require `webong/gateway-weaver`, configure the
 WorkFlow VCS repository, trust `webong/composer-source-plugin` and select the
@@ -137,19 +145,25 @@ worker claims and leaves uncertain work to fenced leases and reconciliation.
 
 ## Standalone app retirement
 
-After replacement installation, copied-data migration and rollback acceptance,
-the old WorkFlow application may move under `examples/` as a test and reference
-host. It should not remain a second supported production host. The independent
-engine and authoring CLI remain WorkFlow-owned. No legacy source is removed by
-this extraction.
+WorkFlow moved its source host to `examples/standalone` at `ab517494`, as testing
+and reference code. The new source namespace/path has no legacy aliases; existing
+rc.2 releases remain immutable. Weaver still consumes rc.2 and rehearses rollback
+against its original pinned standalone source. See WorkFlow's
+[source-layout guide](https://github.com/webong/workflow/blob/main/docs/standalone-example.md).
+
+Retiring an existing production host still requires replacement installation,
+copied-data migration, rollback acceptance and versioned guidance. Retain the
+matching legacy image for rollback. The independent engine and authoring CLI
+remain WorkFlow-owned.
 
 ## Candidate archives
 
 `python3 pkg/weaver/package.py gateway-weaver:arm64 /private/candidate` verifies
 manifest coverage/digests, matching runtime/Composer source, shared identity and
 version, and deterministic USTAR/gzip bytes. It writes separate runtime and
-Composer TARs, SHA256SUMS and explicit Composer dist metadata. The dist consumer
-smoke installs that TAR into the real Planner and checks authoritative autoload,
+Composer TARs, SHA256SUMS and explicit Composer dist metadata. The Composer
+outputs are internal acceptance fixtures, not required public release assets.
+The dist consumer smoke installs that TAR into the real Planner and checks authoritative autoload,
 core projection and resource authorization. No repository path dependency or
 release publication is involved in that check.
 
@@ -157,5 +171,8 @@ For a reviewed clean release source, build with `WEAVER_VERSION` and use the
 packager's `--release` plus a reviewed HTTPS `--asset-base`. `--release` rejects
 dirty/wrong revisions and development versions. This is local candidate
 preparation; pinned build inputs, publisher trust, publication and fresh HTTPS
-installation must be accepted before release completion. The core-release
-publication exception does not publish Weaver.
+runtime installation must be accepted before release completion. Release only
+the runtime archives with runtime-only checksum and Gateway metadata entries;
+do not upload the complete candidate directory or its Composer fixtures. See
+`docs/verification/weaver-release.md` in the Gateway repository for the asset list.
+The core-release publication exception does not publish Weaver.

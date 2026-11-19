@@ -3,8 +3,22 @@
 PR #24 was merged into main at `543e8d50` after explicit source-integration
 approval. The owner subsequently reiterated: do not publish anything yet. The
 prerequisite WorkFlow release exception does not authorize Weaver publication.
-Do not publish tags, archives, Composer metadata or deploy from this checklist
-without an explicit exception naming the tested source commit.
+Do not publish tags, runtime archives or installation metadata, or deploy from
+this checklist without an explicit exception naming the tested source commit.
+
+## Release scope
+
+Weaver is distributed for installation through Gateway. The release consists of
+Linux amd64/arm64 runtime archives, their SHA-256 checksums and Gateway installation
+metadata identifying the version, source revision, platform and archive URL/digest.
+Each runtime archive already contains its verified `plugin.json` manifest.
+
+There is no separate Composer publication requirement: do not publish Weaver
+Composer source TARs, package indexes, split branches or Composer package tags.
+Direct PHP consumers may use Composer Source Plugin with a pinned Gateway checkout
+and its `pkg/weaver` workspace. They must retain their own root-owned plugin trust,
+WorkFlow core-surface selection and locks. This optional source-consumer path is
+not a Gateway runtime installation prerequisite.
 
 ## Prepare the candidate
 
@@ -17,15 +31,18 @@ The gzip compression level is explicit so Python default changes cannot alter
 archive bytes. Original local arm64 cold-cache rebuilds matched; explicit level 9
 also reproduces the original native CI runtime and Composer archive checksums.
 
-Each architecture produces a runtime TAR, Composer source TAR, Composer package
-entry and repository index, SHA256 sums and a report. CI tests the exact Composer
-TAR locally before publication, keeping its checksum and replacing only the URL
+The candidate tooling currently produces both a runtime TAR and internal Composer
+source TAR/index fixtures, SHA256 sums and a report for each architecture. CI
+tests the exact Composer TAR locally, keeping its checksum and replacing only the URL
 with a read-only fixture mount. All three real hosts exercise that runtime package.
 The standalone cutover CLI must also bootstrap from the installed Composer dist.
 The private HTTPS Composer test fetches an index and source TAR with an empty
 download cache; it rejects untrusted TLS and corrupt archives before accepting
 the explicitly trusted fixture CA. No ports are published and no assets leave
 the disposable Docker fixture.
+
+The Composer outputs remain internal packaging/consumer test fixtures. Their
+existing tests remain useful but do not create a Composer release gate.
 
 No candidate bytes are uploaded by default. Only after explicit publication
 approval may `WEAVER_APPROVED_SOURCE_SHA` be set to the exact tested commit and
@@ -36,8 +53,18 @@ manifest revision, version and checksums before downloading or publishing.
 ## Publish only after approval
 
 Use a signed `weaver-runtime/v0.1.0-rc.1` tag at the approved source commit and a
-GitHub prerelease with that tag. Upload both native candidate sets unchanged,
-including metadata and checksums. Their HTTPS base is
+GitHub prerelease with that tag. Stage only the two verified runtime TARs unchanged:
+
+- `gateway-weaver-linux-amd64.tar.gz`
+- `gateway-weaver-linux-arm64.tar.gz`
+
+Prepare runtime-only checksum and Gateway installation metadata files from the
+verified candidate reports. Preserve each runtime digest, identity, source revision,
+platform and reviewed build inputs; use the approved HTTPS archive URLs. The
+candidate `SHA256SUMS-*` and `weaver-*.json` reports also reference internal Composer
+TARs, so filter those entries for the runtime release. Do not upload the entire
+candidate directory or advertise unpublished Composer assets. Review the resulting
+runtime-only file list before uploading anything. Their HTTPS base is
 `https://github.com/webong/gateway/releases/download/weaver-runtime%2Fv0.1.0-rc.1`.
 Do not use the global `v*` guest-package release workflow: this candidate has its
 own package version. The global workflow skips this namespaced release event.
@@ -49,13 +76,18 @@ A compatible Gateway host needs the reserved-receipt, own-adapter readiness and
 `supports-pinned-http` / `deliver-pinned-http` capabilities merged through PR #24. Test with the exact reviewed Gateway source; older hosts must refuse
 unsupported activation before accepting work.
 
-From a fresh consumer and empty artifact cache, fetch the published HTTPS Composer
-index and exact native TAR, apply the operator's artifact trust policy, verify
-checksums and run real activation on all three hosts. Do not preload the cache for
-this final download test. The Planner root explicitly trusts the Composer source
-plugin and selects only WorkFlow's `core` surface; the dependency cannot grant
-itself that trust. Configure account grants, private credentials, operational SQL
-schema and operator HTTP destination secrets as documented in Weaver's README,
+From a fresh Gateway installation and empty artifact cache, use the Gateway
+installation metadata to fetch the exact published native TAR over HTTPS, apply
+the operator's artifact trust policy, verify checksums and run real activation on
+all three hosts. Do not preload the cache for this final download test.
+
+Composer remains an internal build/source-consumer dependency. A PHP source
+consumer explicitly trusts the Composer Source Plugin and selects only WorkFlow's
+`core` surface; the dependency cannot grant itself that trust. Public Composer
+index/dist installation is not required for runtime release acceptance.
+
+Configure account grants, private credentials, operational SQL schema and operator
+HTTP destination secrets as documented in Weaver's README,
 HTTP and UPGRADE guides. No destination URL or provider credential comes from a
 client workflow input.
 
@@ -64,10 +96,16 @@ operator-owned copy, covering the real provider's deduplication guarantee and
 unknown-outcome reconciliation. Cross-engine migration and Weaver-native runs
 back into the legacy app are unsupported. No production data was used in CI.
 
-Only after compatible published replacement acceptance should WorkFlow's `app/`
-move into examples or receive versioned deprecation guidance. Preserve engine and
-authoring CLI independence. Source integration is already complete; publication
-alone does not close replacement acceptance.
+WorkFlow's source host moved to `examples/standalone` at signed `ab517494`, with
+[passing CI](https://github.com/webong/workflow/actions/runs/43790467576). Its new
+source layout removes legacy paths/namespaces without aliases; do not treat it as
+an in-place compatibility upgrade. Existing rc.2 releases and Weaver's pinned
+legacy rollback source remain unchanged. See the upstream source-layout guide.
+
+Production retirement still requires compatible published replacement acceptance
+and versioned deprecation/upgrade guidance. Retain matching old release images
+for existing deployments and rollback; preserve independent engine/CLI usage.
+Source relocation and publication alone do not close replacement acceptance.
 
 ## Rehearse downloads without publication
 
