@@ -17,8 +17,8 @@ import (
 
 	smtpclient "github.com/emersion/go-smtp"
 	mdns "github.com/miekg/dns"
-	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
+	packagekit "github.com/webong/ext/pkg/ext-go/engine/package"
 	protocol "github.com/webong/gateway/arranger/integration"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )

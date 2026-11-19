@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 )
 
 type testEngine struct{}

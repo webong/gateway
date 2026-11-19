@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/transport/jsonline"
 )
 
 var automationContract = plugin.ContractRef{Name: "gateway.automation", Version: "v1"}

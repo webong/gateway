@@ -9,7 +9,7 @@ require (
 	github.com/emersion/go-smtp v0.24.0
 	github.com/google/uuid v1.6.0
 	github.com/miekg/dns v1.1.62
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
+	github.com/webong/ext/pkg/ext-go/engine v0.3.0
 	github.com/webong/gateway/arranger v0.0.0
 	github.com/wttw/spf v0.0.0-20260423095328-b281622f2e8a
 	golang.org/x/net v0.60.0

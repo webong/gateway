@@ -10,7 +10,7 @@ require (
 
 require (
 	ergo.services/ergo v1.999.330 // indirect
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
+	github.com/webong/ext/pkg/ext-go/engine v0.3.0
 )
 
 require (

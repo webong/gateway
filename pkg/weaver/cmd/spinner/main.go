@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
+	packagekit "github.com/webong/ext/pkg/ext-go/engine/package"
 	weaver "github.com/webong/gateway/pkg/weaver/runtime"
 	"os"
 	"os/signal"

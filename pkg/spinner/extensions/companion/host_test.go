@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/ext/pkg/plugin-go/contract/transport/inprocess"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/transport/inprocess"
 	"github.com/webong/gateway/arranger/companion"
 )
 

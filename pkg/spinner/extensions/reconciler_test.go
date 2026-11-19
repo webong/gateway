@@ -19,9 +19,10 @@ import (
 	"testing"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
-	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
+	packagekit "github.com/webong/ext/pkg/ext-go/engine/package"
+	"github.com/webong/ext/pkg/ext-go/engine/transport/jsonline"
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/companion"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
@@ -385,7 +386,7 @@ func TestExtractExtensionArchiveAcceptsConventionalRootDirectoryEntry(t *testing
 		t.Fatal(err)
 	}
 	destination := filepath.Join(t.TempDir(), "extracted")
-	if err := extractExtensionArchive(archivePath, destination); err != nil {
+	if _, err := store.ExtractArchive(archivePath, "", destination, extensionStoreLimits()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(destination, "plugin.json")); err != nil {

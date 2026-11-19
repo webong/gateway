@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 )
 
 func TestGuestRequiresAutomationAndCompanionDeclarations(t *testing.T) {

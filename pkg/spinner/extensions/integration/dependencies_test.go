@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
+	packagekit "github.com/webong/ext/pkg/ext-go/engine/package"
 )
 
 type dependencyProcess struct {

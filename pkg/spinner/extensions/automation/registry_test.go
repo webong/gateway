@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/webong/ext/pkg/plugin-go/contract"
+	contract "github.com/webong/ext/pkg/ext-go/engine"
 	"github.com/webong/gateway/arranger/automation"
 )
 

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
+	contract "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
+	packagekit "github.com/webong/ext/pkg/ext-go/engine/package"
 	"github.com/webong/gateway/arranger/automation"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 )

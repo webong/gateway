@@ -10,7 +10,7 @@ require (
 	ergo.services/ergo v1.999.330
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v4 v4.18.3
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
+	github.com/webong/ext/pkg/ext-go/engine v0.3.0
 	github.com/webong/proxy/go v0.4.0
 	golang.org/x/sys v0.48.0
 )

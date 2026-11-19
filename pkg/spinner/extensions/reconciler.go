@@ -3,8 +3,6 @@
 package extensions
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,16 +12,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
-	packagekit "github.com/webong/ext/pkg/plugin-go/contract/package"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
+	packagekit "github.com/webong/ext/pkg/ext-go/engine/package"
 	automationextensions "github.com/webong/gateway/pkg/spinner/extensions/automation"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"
 )
@@ -32,6 +27,16 @@ const (
 	maxExtensionArchiveBytes = 512 << 20
 	maxExtensionArchiveFiles = 250000
 )
+
+// Keep Gateway's pre-migration archive and expanded-tree budgets.
+func extensionStoreLimits() store.Limits {
+	return store.Limits{
+		MaxArchiveBytes:  maxExtensionArchiveBytes,
+		MaxArtifactBytes: maxExtensionArchiveBytes,
+		MaxTreeBytes:     maxExtensionArchiveBytes,
+		MaxTreeFiles:     maxExtensionArchiveFiles,
+	}
+}
 
 type DesiredArtifact struct {
 	URL    string `json:"url"`
@@ -173,7 +178,7 @@ func (r *ArtifactReconciler) Reconcile(ctx context.Context) error {
 		r.closeExternalExtensions()
 		return err
 	}
-	packages, err := store.New(r.storeDir, store.Limits{})
+	packages, err := store.New(r.storeDir, extensionStoreLimits())
 	if err != nil {
 		return fmt.Errorf("open extension store: %w", err)
 	}
@@ -355,60 +360,21 @@ func validSHA256(value string) bool {
 	return err == nil && strings.ToLower(value) == value
 }
 
-type artifactReceipt struct {
-	Extension       string `json:"extension"`
-	Version         string `json:"version"`
-	Revision        int    `json:"revision"`
-	ArtifactSHA256  string `json:"artifact_sha256"`
-	PackageRevision string `json:"package_revision"`
-}
-
 func (r *ArtifactReconciler) materialize(ctx context.Context, packages *store.Store, desired DesiredExtension) (store.Installed, error) {
-	if installed, err := packages.Load(desired.Extension); err == nil {
-		receipt, receiptErr := r.readReceipt(desired.Extension)
-		if receiptErr == nil && receipt.Extension == desired.Extension && receipt.Version == desired.Version &&
-			receipt.ArtifactSHA256 == desired.Artifact.SHA256 &&
-			receipt.PackageRevision == installed.Manifest.Descriptor.Identity.Revision {
-			if err := r.verifyInstalled(installed, desired); err != nil {
-				return store.Installed{}, err
-			}
-			if receipt.Revision != desired.Revision {
-				receipt.Revision = desired.Revision
-				if err := r.writeReceipt(receipt); err != nil {
-					return store.Installed{}, err
-				}
-			}
-			return installed, nil
-		}
-	} else if !errors.Is(err, store.ErrNotFound) {
+	// A damaged installed package is not repaired or silently replaced.
+	if _, err := packages.Load(desired.Extension); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Installed{}, err
 	}
-
-	source, cleanup, err := r.downloadAndExtract(ctx, desired.Artifact)
-	if err != nil {
-		return store.Installed{}, err
-	}
-	defer cleanup()
-
-	installed, loadErr := packages.Load(desired.Extension)
-	if errors.Is(loadErr, store.ErrNotFound) {
-		installed, err = packages.Install(source)
-	} else if loadErr != nil {
-		return store.Installed{}, loadErr
-	} else {
-		installed, err = packages.Upgrade(source)
-	}
+	// Bound the transfer even when an injected HTTP client has no timeout.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	installed, err := packages.InstallArchive(ctx, store.Archive{
+		Source: desired.Artifact.URL, SHA256: desired.Artifact.SHA256, ID: desired.Extension,
+	}, store.ArchiveOptions{Client: r.artifacts})
 	if err != nil {
 		return store.Installed{}, err
 	}
 	if err := r.verifyInstalled(installed, desired); err != nil {
-		return store.Installed{}, err
-	}
-	if err := r.writeReceipt(artifactReceipt{
-		Extension: desired.Extension, Version: desired.Version, Revision: desired.Revision,
-		ArtifactSHA256:  desired.Artifact.SHA256,
-		PackageRevision: installed.Manifest.Descriptor.Identity.Revision,
-	}); err != nil {
 		return store.Installed{}, err
 	}
 	return installed, nil
@@ -429,186 +395,4 @@ func (r *ArtifactReconciler) verifyInstalled(installed store.Installed, desired 
 		}
 	}
 	return nil
-}
-
-func (r *ArtifactReconciler) downloadAndExtract(ctx context.Context, artifact DesiredArtifact) (string, func(), error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
-	if err != nil {
-		return "", func() {}, err
-	}
-	response, err := r.artifacts.Do(request)
-	if err != nil {
-		return "", func() {}, fmt.Errorf("download extension artifact: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return "", func() {}, fmt.Errorf("download extension artifact: origin returned %s", response.Status)
-	}
-	if err := os.MkdirAll(r.storeDir, 0o700); err != nil {
-		return "", func() {}, err
-	}
-	temporary, err := os.MkdirTemp(r.storeDir, ".artifact-")
-	if err != nil {
-		return "", func() {}, err
-	}
-	cleanup := func() { _ = os.RemoveAll(temporary) }
-	archivePath := filepath.Join(temporary, "package.tar.gz")
-	archive, err := os.OpenFile(archivePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		cleanup()
-		return "", func() {}, err
-	}
-	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(archive, hash), io.LimitReader(response.Body, maxExtensionArchiveBytes+1))
-	closeErr := archive.Close()
-	if copyErr != nil || closeErr != nil {
-		cleanup()
-		return "", func() {}, errors.Join(copyErr, closeErr)
-	}
-	if written > maxExtensionArchiveBytes {
-		cleanup()
-		return "", func() {}, errors.New("extension artifact exceeds size limit")
-	}
-	if hex.EncodeToString(hash.Sum(nil)) != artifact.SHA256 {
-		cleanup()
-		return "", func() {}, errors.New("extension artifact SHA-256 does not match desired state")
-	}
-	extracted := filepath.Join(temporary, "extracted")
-	if err := extractExtensionArchive(archivePath, extracted); err != nil {
-		cleanup()
-		return "", func() {}, err
-	}
-	root, err := extensionArchiveRoot(extracted)
-	if err != nil {
-		cleanup()
-		return "", func() {}, err
-	}
-	return root, cleanup, nil
-}
-
-func extractExtensionArchive(archivePath, destination string) error {
-	archive, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer archive.Close()
-	compressed, err := gzip.NewReader(archive)
-	if err != nil {
-		return errors.New("extension artifact is not a gzip-compressed tar archive")
-	}
-	defer compressed.Close()
-	if err := os.MkdirAll(destination, 0o700); err != nil {
-		return err
-	}
-	reader := tar.NewReader(compressed)
-	files := 0
-	var bytes int64
-	for {
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		name := path.Clean(strings.TrimPrefix(header.Name, "./"))
-		if name == "." && header.Typeflag == tar.TypeDir {
-			continue
-		}
-		if name == "." || path.IsAbs(name) || name == ".." || strings.HasPrefix(name, "../") {
-			return errors.New("extension artifact contains an unsafe path")
-		}
-		target := filepath.Join(destination, filepath.FromSlash(name))
-		if target != destination && !strings.HasPrefix(target, destination+string(filepath.Separator)) {
-			return errors.New("extension artifact escapes its staging directory")
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o700); err != nil {
-				return err
-			}
-		case tar.TypeReg, tar.TypeRegA:
-			files++
-			bytes += header.Size
-			if files > maxExtensionArchiveFiles || header.Size < 0 || bytes > maxExtensionArchiveBytes {
-				return errors.New("extension artifact exceeds extraction limits")
-			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-				return err
-			}
-			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-			if err != nil {
-				return err
-			}
-			_, copyErr := io.CopyN(file, reader, header.Size)
-			closeErr := file.Close()
-			if copyErr != nil || closeErr != nil {
-				return errors.Join(copyErr, closeErr)
-			}
-		default:
-			return errors.New("extension artifact contains unsupported links or special files")
-		}
-	}
-	return nil
-}
-
-func extensionArchiveRoot(extracted string) (string, error) {
-	if _, err := os.Stat(filepath.Join(extracted, store.ManifestName)); err == nil {
-		return extracted, nil
-	}
-	entries, err := os.ReadDir(extracted)
-	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
-		return "", errors.New("extension artifact must contain one package root")
-	}
-	root := filepath.Join(extracted, entries[0].Name())
-	if _, err := os.Stat(filepath.Join(root, store.ManifestName)); err != nil {
-		return "", errors.New("extension artifact is missing plugin.json")
-	}
-	return root, nil
-}
-
-func (r *ArtifactReconciler) receiptPath(extension string) string {
-	digest := sha256.Sum256([]byte(extension))
-	return filepath.Join(r.storeDir, ".desired", hex.EncodeToString(digest[:])+".json")
-}
-
-func (r *ArtifactReconciler) readReceipt(extension string) (artifactReceipt, error) {
-	var receipt artifactReceipt
-	data, err := os.ReadFile(r.receiptPath(extension))
-	if err != nil {
-		return receipt, err
-	}
-	if err := json.Unmarshal(data, &receipt); err != nil {
-		return receipt, err
-	}
-	return receipt, nil
-}
-
-func (r *ArtifactReconciler) writeReceipt(receipt artifactReceipt) error {
-	directory := filepath.Dir(r.receiptPath(receipt.Extension))
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(receipt)
-	if err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(directory, ".receipt-")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, r.receiptPath(receipt.Extension))
 }

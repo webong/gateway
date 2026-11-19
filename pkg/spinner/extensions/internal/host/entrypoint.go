@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
-	pluginprocess "github.com/webong/ext/pkg/plugin-go/contract/host/process"
-	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	pluginprocess "github.com/webong/ext/pkg/ext-go/engine/host/process"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
 )
 
 // spinnerEnvironmentMetadata names the package metadata key listing the
