@@ -70,5 +70,24 @@
             "webong/gateway-builder": true
         },
         "sort-packages": true
-    }
+    },
+    "repositories": [
+        {
+            "type": "composer",
+            "url": "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json",
+            "only": [
+                "webong/workflow-conditions",
+                "webong/workflow-jq",
+                "webong/workflow-rules"
+            ]
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/webong/workflow",
+            "no-api": true,
+            "only": [
+                "webong/workflow"
+            ]
+        }
+    ]
 }

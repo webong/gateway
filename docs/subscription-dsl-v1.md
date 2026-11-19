@@ -587,3 +587,7 @@ $definition = WebSubscriptionDefinition::matching(
     ],
 );
 ```
+
+## Shared rule implementation
+
+Gateway delegates the bounded rule definition to `webong/workflow-rules` and validation to `webong/workflow-conditions`, distributed through WorkFlow's Composer Source Plugin index. Gateway retains event-field restrictions, header normalization, protocol-specific matching policy, subscription ownership and delivery. The version-v1 subscription JSON contract is unchanged; the reusable condition compiler's jq/composition features do not extend Gateway's subscription wire format.

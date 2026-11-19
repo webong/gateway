@@ -11,10 +11,13 @@ $root = $argv[1];
 $manifest = [
     "name" => "gateway-test/symfony-consumer",
     "require" => ["webong/gateway" => "dev-main", "symfony/framework-bundle" => "^7.3"],
-    "repositories" => array_map(fn ($path) => [
+    "repositories" => array_merge(array_map(fn ($path) => [
         "type" => "path", "url" => $root."/".$path,
         "options" => ["symlink" => false, "versions" => ["webong/gateway" => "dev-main", "webong/gateway-adapter" => "dev-main"]],
-    ], ["pkg/planner", "mod/adapter"]),
+    ], ["pkg/planner", "mod/adapter"]), [
+        ["type" => "composer", "url" => "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json", "only" => ["webong/workflow-conditions", "webong/workflow-jq", "webong/workflow-rules"]],
+        ["type" => "vcs", "url" => "https://github.com/webong/workflow", "no-api" => true, "only" => ["webong/workflow"]],
+    ]),
     "minimum-stability" => "dev", "prefer-stable" => true,
 ];
 file_put_contents($argv[2]."/composer.json", json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));

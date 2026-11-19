@@ -7,6 +7,7 @@ namespace Webong\Gateway\Laravel;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\MatchRules;
+use Webong\WorkFlow\Conditions\RuleMatcher;
 
 final readonly class RequestMatcher
 {
@@ -19,9 +20,11 @@ final readonly class RequestMatcher
         'body' => true,
     ];
 
-    public function __construct(
-        private ValidationFactory $validator,
-    ) {
+    private RuleMatcher $matcher;
+
+    public function __construct(ValidationFactory $validator)
+    {
+        $this->matcher = new RuleMatcher($validator);
     }
 
     public function matches(IngressRequest $request, MatchRules $match): bool
@@ -39,10 +42,10 @@ final readonly class RequestMatcher
             }
         }
 
-        return $this->validator->make(
+        return $this->matcher->matches(
             $this->matchingDocument($request),
-            $match->rules,
-        )->passes();
+            $match->toRuleSet(),
+        );
     }
 
     /** @return array<string, mixed> */
