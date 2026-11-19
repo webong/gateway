@@ -71,7 +71,15 @@ The initial deployed operation catalog contains `gateway.approval` (deferred) an
 requires a deployed executor and the reviewed durable-delivery/idempotency path;
 clients cannot turn a class, command or URL into executable behavior.
 
-## Planner installation and desired resources
+## Distribution
+
+Gateway installs Weaver from a verified native runtime archive. The intended
+release assets are Linux amd64/arm64 archives, checksums and Gateway installation
+metadata. A separate public Composer package or index is not required. Composer
+remains an internal build dependency; direct PHP consumers may use Composer Source
+Plugin with a pinned Gateway checkout and the `pkg/weaver` workspace.
+
+## Planner source consumption and desired resources
 
 The effective consumer root must require `webong/gateway-weaver`, configure the
 WorkFlow VCS repository, trust `webong/composer-source-plugin` and select the
@@ -148,8 +156,9 @@ this extraction.
 `python3 pkg/weaver/package.py gateway-weaver:arm64 /private/candidate` verifies
 manifest coverage/digests, matching runtime/Composer source, shared identity and
 version, and deterministic USTAR/gzip bytes. It writes separate runtime and
-Composer TARs, SHA256SUMS and explicit Composer dist metadata. The dist consumer
-smoke installs that TAR into the real Planner and checks authoritative autoload,
+Composer TARs, SHA256SUMS and explicit Composer dist metadata. The Composer
+outputs are internal acceptance fixtures, not required public release assets.
+The dist consumer smoke installs that TAR into the real Planner and checks authoritative autoload,
 core projection and resource authorization. No repository path dependency or
 release publication is involved in that check.
 
@@ -157,5 +166,8 @@ For a reviewed clean release source, build with `WEAVER_VERSION` and use the
 packager's `--release` plus a reviewed HTTPS `--asset-base`. `--release` rejects
 dirty/wrong revisions and development versions. This is local candidate
 preparation; pinned build inputs, publisher trust, publication and fresh HTTPS
-installation must be accepted before release completion. The core-release
-publication exception does not publish Weaver.
+runtime installation must be accepted before release completion. Release only
+the runtime archives with runtime-only checksum and Gateway metadata entries;
+do not upload the complete candidate directory or its Composer fixtures. See
+`docs/verification/weaver-release.md` in the Gateway repository for the asset list.
+The core-release publication exception does not publish Weaver.

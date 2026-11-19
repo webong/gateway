@@ -114,14 +114,21 @@ This does not authorize publishing, deployment or old-app removal.
   across the local and CI Python defaults. New acceptance runs use a private HTTPS
   Composer index/dist, reject untrusted TLS and corrupt downloads, and keep the
   Composer cache empty.
-- Blocked by owner instruction: publishing Linux amd64/arm64 extension archives,
-  Composer metadata, checksums or tags. Do not ask for publication again unless
-  the owner changes that instruction. Published-origin/trust acceptance remains open.
-- Smoke-test fresh installation from published artifacts and ship approval/order
-  examples plus installation, authentication, upgrade, operation and rollback docs.
-- Prepared locally on WorkFlow main: `examples/standalone` is canonical, while
-  legacy `app/` entrypoints, namespace and Composer surface remain compatible.
-  The core CLI remains independent. These changes are uncommitted and unpublished.
+- Runtime release scope: Linux amd64/arm64 extension archives, checksums and
+  Gateway installation metadata. Separate Composer package/index publication is
+  not required. Direct PHP consumers can use Composer Source Plugin against a
+  pinned source checkout; existing Composer dist fixtures remain internal tests.
+- Blocked by owner instruction: publishing runtime archives, installation metadata,
+  checksums or tags. Do not ask for publication again unless the owner changes
+  that instruction. Published-origin/trust acceptance remains open.
+- Smoke-test fresh Gateway installation from the published runtime archives
+  using Gateway installation metadata; no public Composer index is required. Ship
+  approval/order examples plus installation, authentication, upgrade, operation and
+  rollback docs.
+- The earlier local WorkFlow example-host preparation is not present in the
+  inspected clean main checkout at `3f037f5`: `app/` remains and
+  `examples/standalone` is absent. Locate or prepare that move before claiming it
+  complete. Preserve compatible entrypoints/namespace and engine/CLI independence.
 - Once production replacement acceptance passes, retire compatibility only with
   an explicit version boundary and approval. The example host remains available for
   testing/reference. It should not remain a second supported production host.
