@@ -72,7 +72,8 @@ Gateway routing; all observed endpoints are reported to Planner.
 
 1. Back up Planner and each worker journal. Inventory the running services and their
    legacy `gateway.provisioning.*` Docker/Kubernetes labels. New resources use
-   `workload.provisioning.*`; they are not interchangeable.
+   `workload.provisioning.*` Docker labels and `workload.webong.dev/*` Kubernetes labels;
+   they are not interchangeable.
 2. Stop new desired-state changes. Stop/drain the legacy worker and each legacy service.
    Verify actual process/container/pod termination, including any disconnected worker.
    A database reset, expired heartbeat or a `stopped` row alone is insufficient proof.
