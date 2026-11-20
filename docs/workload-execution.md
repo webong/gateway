@@ -19,7 +19,8 @@ even after its session expires. This deliberately prefers an unavailable service
 simultaneous execution on two nodes.
 
 Every response carries `workload/v1`, the confirmed owner/session, an issuance timestamp
-and a permission expiry timestamp. Gateway measures the grant from request start,
+and a permission expiry timestamp. Each poll carries a fresh random nonce that Planner
+echoes; a response from an earlier poll cannot renew permission. Gateway measures the grant from request start,
 caps it at its configured coordination lease and subtracts 100 ms. The full request
 round trip consumes this budget; remote wall-clock skew cannot widen it. Failed,
 missing, null, malformed and expired responses never become an empty desired snapshot
@@ -42,6 +43,11 @@ For local execution, `GATEWAY_PROVISIONING_SUPERVISOR_BINARY` is an absolute pat
 ```sh
 GOWORK=off go -C pkg/spinner build -o /absolute/path/gateway-workload-supervisor ./cmd/workload-supervisor
 ```
+
+On macOS, start local workers with `TMPDIR=/tmp` (or another short temporary path).
+The supervisor socket path must fit within 100 bytes; the default macOS per-user
+temporary path may exceed that limit. Gateway rejects this configuration before
+claiming a worker session. The supervisor creates its own private socket directory.
 
 The supervisor owns the service process group independently of the controller. A worker
 restart recovers the supervisor's journal and verifies execution identity before adoption.

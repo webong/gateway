@@ -26,6 +26,7 @@ final readonly class InternalAssignmentController
             'node_id' => ['required', 'string', 'max:255'],
             'drivers' => ['required', 'array', 'min:1'],
             'drivers.*' => ['string', 'in:local,docker,kubernetes'],
+            'request_nonce' => ['required', 'string', 'regex:/^[a-f0-9]{32}$/'],
             'execution_protocol' => ['required', 'in:workload/v1'],
             'owner_id' => ['required', 'string', 'regex:/\A[0-9a-f]{32}\z/D'],
             'legacy_drained' => ['sometimes', 'boolean'],
@@ -44,6 +45,7 @@ final readonly class InternalAssignmentController
         return response()->json(['data' => $assignment['data'], 'meta' => [
             'leader_id' => $assignment['leader_id'],
             'execution_protocol' => 'workload/v1',
+                'request_nonce' => $validator->validated()['request_nonce'],
             'owner_id' => $validator->validated()['owner_id'],
             'issued_at_ms' => $assignment['issued_at_ms'],
             'permission_expires_at_ms' => $assignment['permission_expires_at_ms'],

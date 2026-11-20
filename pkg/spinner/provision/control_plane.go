@@ -59,14 +59,16 @@ func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPCo
 }
 
 type assignmentDocument struct {
-	Data []ServerSpec `json:"data"`
-	Meta struct {
-		LeaderID  string `json:"leader_id"`
-		SessionID string `json:"session_id"`
-		OwnerID   string `json:"owner_id"`
-		Protocol  string `json:"execution_protocol"`
-		IssuedAt  int64  `json:"issued_at_ms"`
-		ExpiresAt int64  `json:"permission_expires_at_ms"`
+	requestNonce string
+	Data         []ServerSpec `json:"data"`
+	Meta         struct {
+		LeaderID     string `json:"leader_id"`
+		SessionID    string `json:"session_id"`
+		OwnerID      string `json:"owner_id"`
+		RequestNonce string `json:"request_nonce"`
+		Protocol     string `json:"execution_protocol"`
+		IssuedAt     int64  `json:"issued_at_ms"`
+		ExpiresAt    int64  `json:"permission_expires_at_ms"`
 	} `json:"meta"`
 }
 type executionSnapshot struct {
@@ -89,7 +91,7 @@ func (c *HTTPControlPlane) executionAssignments(ctx context.Context, nodeID stri
 		return executionSnapshot{}, "", err
 	}
 	meta := document.Meta
-	if meta.Protocol != "workload/v1" || c.ownerID == "" || meta.OwnerID != c.ownerID || meta.IssuedAt <= 0 || meta.ExpiresAt <= meta.IssuedAt || maxLease <= 0 {
+	if meta.RequestNonce != document.requestNonce || meta.Protocol != "workload/v1" || c.ownerID == "" || meta.OwnerID != c.ownerID || meta.IssuedAt <= 0 || meta.ExpiresAt <= meta.IssuedAt || maxLease <= 0 {
 		return executionSnapshot{}, "", fmt.Errorf("Planner lacks the Workload ownership/deadline protocol; upgrade Planner before starting this worker")
 	}
 	// Subtract timestamps before converting to Duration to reject overflow.
@@ -106,7 +108,12 @@ func (c *HTTPControlPlane) executionAssignments(ctx context.Context, nodeID stri
 }
 
 func (c *HTTPControlPlane) loadAssignments(ctx context.Context, nodeID string, drivers []string) (*assignmentDocument, error) {
-	payload, err := json.Marshal(map[string]any{"drivers": drivers, "session_id": c.sessionID, "owner_id": c.ownerID, "execution_protocol": "workload/v1", "legacy_drained": c.legacyDrained})
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, fmt.Errorf("generate permission request nonce: %w", err)
+	}
+	requestNonce := hex.EncodeToString(nonce[:])
+	payload, err := json.Marshal(map[string]any{"request_nonce": requestNonce, "drivers": drivers, "session_id": c.sessionID, "owner_id": c.ownerID, "execution_protocol": "workload/v1", "legacy_drained": c.legacyDrained})
 	if err != nil {
 		return nil, fmt.Errorf("encode provisioning node heartbeat: %w", err)
 	}
@@ -147,6 +154,7 @@ func (c *HTTPControlPlane) loadAssignments(ctx context.Context, nodeID string, d
 		}
 	}
 
+	document.requestNonce = requestNonce
 	return &document, nil
 }
 

@@ -41,7 +41,7 @@ it('accepts observed instance reports only through the internal API', function (
 
     $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/instance-a", [])->assertNotFound();
     $claim = $this->putJson('/_internal/provisioning/nodes/node-a/assignments', [
-        'drivers' => ['kubernetes'], 'execution_protocol' => 'workload/v1',
+        'drivers' => ['kubernetes'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1',
         'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32),
     ], ['X-Gateway-Internal' => 'internal-secret'])->assertOk();
     $instanceId = $claim->json('data.0.assignment_id');
@@ -72,16 +72,16 @@ it('coordinates deterministic replica placements across live compatible nodes', 
 
     $headers = ['X-Gateway-Internal' => 'internal-secret'];
     $first = $this->withHeaders($headers)
-        ->putJson('/_internal/provisioning/nodes/node-a/assignments', ['drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32)])
+        ->putJson('/_internal/provisioning/nodes/node-a/assignments', ['drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32)])
         ->assertOk()
         ->assertJsonPath('meta.leader_id', 'node-a');
     $second = $this->withHeaders($headers)
-        ->putJson('/_internal/provisioning/nodes/node-b/assignments', ['drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32)])
+        ->putJson('/_internal/provisioning/nodes/node-b/assignments', ['drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32)])
         ->assertOk()
         ->assertJsonPath('meta.leader_id', 'node-a');
 
     $first = $this->withHeaders($headers)
-        ->putJson('/_internal/provisioning/nodes/node-a/assignments', ['drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32)])
+        ->putJson('/_internal/provisioning/nodes/node-a/assignments', ['drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => str_repeat('a', 32)])
         ->assertOk()
         ->assertJsonPath('meta.leader_id', 'node-a');
     $firstIds = collect($first->json('data'))->pluck('assignment_id');
@@ -103,12 +103,12 @@ it('fences concurrent provisioning worker sessions and permits graceful handover
     $secondSession = str_repeat('b', 32);
     $internal = ['X-Gateway-Internal' => 'internal-secret', 'X-Gateway-Worker-Owner' => str_repeat('c', 32)];
     $first = $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
-        'drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $firstSession,
+        'drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $firstSession,
     ], $internal)->assertOk()->assertJsonPath('meta.session_id', $firstSession);
     $instanceId = $first->json('data.0.assignment_id');
     expect($instanceId)->toBeString();
     $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
-        'drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $secondSession,
+        'drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $secondSession,
     ], $internal)->assertStatus(423);
 
     $report = [
@@ -132,14 +132,14 @@ it('fences concurrent provisioning worker sessions and permits graceful handover
     $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
         [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertConflict();
     $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
-        'drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $secondSession,
+        'drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $secondSession,
     ], $internal)->assertOk();
     $this->putJson("/_internal/provisioning/servers/{$server->getKey()}/instances/{$instanceId}", $report,
         [...$internal, 'X-Gateway-Worker-Session' => $firstSession])->assertConflict();
 
     ProvisioningNode::query()->whereKey('node-fenced')->update(['heartbeat_at' => now()->subSeconds(30)]);
     $this->putJson('/_internal/provisioning/nodes/node-fenced/assignments', [
-        'drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $firstSession,
+        'drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('c', 32), 'session_id' => $firstSession,
     ], $internal)->assertOk();
 });
 
@@ -149,7 +149,7 @@ it('retains reservations across revision changes and expired node heartbeats', f
         'path' => '', 'driver' => 'docker', 'desired_state' => 'running',
         'replicas' => 1, 'revision' => 1, 'configuration' => [],
     ]);
-    $claim = ['drivers' => ['docker'], 'execution_protocol' => 'workload/v1',
+    $claim = ['drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1',
         'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)];
     $headers = ['X-Gateway-Internal' => 'internal-secret'];
     $first = $this->putJson('/_internal/provisioning/nodes/node-a/assignments', $claim, $headers)
@@ -173,7 +173,7 @@ it('requires a versioned worker and an explicit legacy drain before adoption', f
     $this->putJson('/_internal/provisioning/nodes/legacy/assignments', ['drivers' => ['docker']], $headers)
         ->assertUnprocessable();
     ProvisioningNode::query()->create(['id' => 'legacy', 'drivers' => ['docker'], 'heartbeat_at' => now()->subMinute()]);
-    $claim = ['drivers' => ['docker'], 'execution_protocol' => 'workload/v1',
+    $claim = ['drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1',
         'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)];
     $this->putJson('/_internal/provisioning/nodes/legacy/assignments', $claim, $headers)->assertStatus(423);
     $this->putJson('/_internal/provisioning/nodes/legacy/assignments', [...$claim, 'legacy_drained' => true], $headers)->assertOk();

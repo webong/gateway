@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"sort"
 	"sync"
@@ -54,6 +57,7 @@ type Runtime struct {
 	owner       io.Closer
 	stopMu      sync.Mutex
 	released    bool
+	runErr      error
 	once        sync.Once
 }
 
@@ -91,10 +95,19 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 	control.ownerID = owner.id
 	control.legacyDrained = config.LegacyDrained
 	var localDriver *workload.LocalDriver
-	if target == nil || target.Driver == DriverLocal {
+	if (target == nil || target.Driver == DriverLocal) && hasDriver(workloads, DriverLocal) {
 		if !filepath.IsAbs(config.SupervisorBinary) {
 			return nil, fmt.Errorf("local execution requires an absolute supervisor binary")
 		}
+		socket := filepath.Join(os.TempDir(), "workload-"+strconv.Itoa(os.Getuid()), strings.Repeat("x", 32)+".sock")
+		if len(socket) > 100 {
+			return nil, fmt.Errorf("local supervisor socket path exceeds 100 bytes; set TMPDIR to a short private-capable path such as /tmp before starting the worker")
+		}
+		info, statErr := os.Stat(config.SupervisorBinary)
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return nil, fmt.Errorf("local supervisor binary must exist and be executable: %s", config.SupervisorBinary)
+		}
+
 		localDriver, err = workload.NewLocalDriver(workload.LocalDriverConfig{
 			NodeID: config.NodeID, StateDirectory: filepath.Join(owner.directory, "local"), SupervisorBinary: config.SupervisorBinary,
 			StartTimeout: config.StartTimeout, StopTimeout: config.StopTimeout,
@@ -105,7 +118,7 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 	}
 
 	drivers := map[string]workload.Driver{}
-	if target == nil || target.Driver == DriverLocal {
+	if (target == nil || target.Driver == DriverLocal) && hasDriver(workloads, DriverLocal) {
 		drivers[DriverLocal] = localDriver
 	}
 	if hasDriver(workloads, DriverDocker) && (target == nil || target.Driver == DriverDocker) {
@@ -193,20 +206,20 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 
 	reconcileContext, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	runtime := &Runtime{
+		router: router, cancel: cancel, done: done, core: reconciler, owner: owner,
+		release: func(ctx context.Context) error { return control.ReleaseNode(ctx, config.NodeID) },
+		logger:  logger, stopTimeout: config.StopTimeout, stopped: make(chan struct{}),
+	}
 	go func() {
 		defer close(done)
-		if err := reconciler.Run(reconcileContext); err != nil {
-			logger.Error("Workload reconciliation stopped with unconfirmed cleanup: %v", err)
+		runtime.runErr = reconciler.Run(reconcileContext)
+		if runtime.runErr != nil {
+			logger.Error("Workload reconciliation stopped: %v", runtime.runErr)
 		}
 	}()
-
 	started = true
-	return &Runtime{
-		router: router, cancel: cancel, done: done, core: reconciler, owner: owner,
-		release:     func(ctx context.Context) error { return control.ReleaseNode(ctx, config.NodeID) },
-		logger:      logger,
-		stopTimeout: config.StopTimeout, stopped: make(chan struct{}),
-	}, nil
+	return runtime, nil
 }
 
 func claimWorkerSession(config Config, control *HTTPControlPlane, drivers []string) error {
@@ -278,26 +291,26 @@ func (r *Runtime) StopContext(ctx context.Context) error {
 	r.stopMu.Lock()
 	defer r.stopMu.Unlock()
 	if r.released {
-		return nil
+		return r.runErr
 	}
 	if r.core != nil {
 		if err := r.core.Shutdown(ctx); err != nil {
-			return err
+			return errors.Join(r.runErr, err)
 		}
 	}
 	if r.release != nil {
 		if err := r.release(ctx); err != nil {
-			return err
+			return errors.Join(r.runErr, err)
 		}
 	}
 	if r.owner != nil {
 		if err := r.owner.Close(); err != nil {
-			return err
+			return errors.Join(r.runErr, err)
 		}
 	}
 	r.released = true
 	r.once.Do(func() { close(r.stopped) })
-	return nil
+	return r.runErr
 
 }
 

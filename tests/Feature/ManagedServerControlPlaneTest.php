@@ -127,14 +127,14 @@ it('isolates assignments and reports by deployment target with versioned worker 
     [$west, $westServer] = $targets['west'];
     $eastHeaders = ['X-Gateway-Target' => $east['id'], 'X-Gateway-Internal' => $east['worker_token'], 'X-Gateway-Worker-Owner' => str_repeat('a', 32), 'X-Gateway-Worker-Session' => str_repeat('b', 32)];
     $westHeaders = ['X-Gateway-Target' => $west['id'], 'X-Gateway-Internal' => $west['worker_token']];
-    $assignment = $this->putJson('/_internal/provisioning/nodes/east-worker/assignments', ['drivers' => ['local'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $eastHeaders)
+    $assignment = $this->putJson('/_internal/provisioning/nodes/east-worker/assignments', ['drivers' => ['local'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $eastHeaders)
         ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $eastServer['id'])->json('data.0');
-    $this->putJson('/_internal/provisioning/nodes/west-worker/assignments', ['drivers' => ['local'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $westHeaders)
+    $this->putJson('/_internal/provisioning/nodes/west-worker/assignments', ['drivers' => ['local'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $westHeaders)
         ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $westServer['id']);
-    $this->putJson('/_internal/provisioning/nodes/legacy/assignments', ['drivers' => ['local'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], ['X-Gateway-Internal' => 'internal-secret'])
+    $this->putJson('/_internal/provisioning/nodes/legacy/assignments', ['drivers' => ['local'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], ['X-Gateway-Internal' => 'internal-secret'])
         ->assertOk()->assertJsonCount(0, 'data');
-    $this->putJson('/_internal/provisioning/nodes/east-worker/assignments', ['drivers' => ['local'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $westHeaders)->assertConflict();
-    $this->putJson('/_internal/provisioning/nodes/east-worker/assignments', ['drivers' => ['docker'], 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $eastHeaders)->assertUnprocessable();
+    $this->putJson('/_internal/provisioning/nodes/east-worker/assignments', ['drivers' => ['local'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $westHeaders)->assertConflict();
+    $this->putJson('/_internal/provisioning/nodes/east-worker/assignments', ['drivers' => ['docker'], 'request_nonce' => str_repeat('d', 32), 'execution_protocol' => 'workload/v1', 'owner_id' => str_repeat('a', 32), 'session_id' => str_repeat('b', 32)], $eastHeaders)->assertUnprocessable();
     $this->getJson("/_internal/provisioning/targets/{$west['id']}", $eastHeaders)->assertNotFound();
     $report = ['node_id' => 'east-worker', 'runtime' => 'local', 'host' => '10.0.0.1', 'port' => 8080, 'state' => 'running', 'revision' => 1];
     $this->putJson("/_internal/provisioning/servers/{$westServer['id']}/instances/{$assignment['assignment_id']}", $report, $eastHeaders)->assertNotFound();

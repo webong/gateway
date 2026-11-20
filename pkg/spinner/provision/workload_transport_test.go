@@ -21,7 +21,7 @@ func TestExecutionSnapshotUsesConfirmedOwnerAndConservativeDeadline(t *testing.T
 		}
 		time.Sleep(30 * time.Millisecond)
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []ServerSpec{validServerSpec()}, "meta": map[string]any{
-			"session_id": request["session_id"], "owner_id": request["owner_id"], "execution_protocol": "workload/v1",
+			"session_id": request["session_id"], "request_nonce": request["request_nonce"], "owner_id": request["owner_id"], "execution_protocol": "workload/v1",
 			"issued_at_ms": 1000000, "permission_expires_at_ms": 1002000,
 		}})
 	}))
@@ -47,7 +47,7 @@ func TestExecutionSnapshotRejectsMissingOwnershipAndExpiredTransit(t *testing.T)
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var request map[string]any
 				_ = json.NewDecoder(r.Body).Decode(&request)
-				meta := map[string]any{"session_id": request["session_id"], "owner_id": "persistent-owner", "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000}
+				meta := map[string]any{"session_id": request["session_id"], "request_nonce": request["request_nonce"], "owner_id": "persistent-owner", "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000}
 				switch mode {
 				case "legacy":
 					delete(meta, "execution_protocol")
@@ -78,5 +78,31 @@ func TestExecutionSnapshotRejectsMissingOwnershipAndExpiredTransit(t *testing.T)
 				t.Fatal("invalid response became a successful empty snapshot")
 			}
 		})
+	}
+}
+
+func TestExecutionSnapshotCannotRenewFromReplayedResponse(t *testing.T) {
+	var cached []byte
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		if cached == nil {
+			cached, _ = json.Marshal(map[string]any{"data": []ServerSpec{validServerSpec()}, "meta": map[string]any{
+				"session_id": request["session_id"], "request_nonce": request["request_nonce"], "owner_id": "persistent-owner", "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000,
+			}})
+		}
+		_, _ = w.Write(cached)
+	}))
+	defer backend.Close()
+	control, err := NewHTTPControlPlane(backend.URL, "token", backend.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	control.ownerID = "persistent-owner"
+	if _, _, err := control.executionAssignments(t.Context(), "node-a", []string{DriverLocal}, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := control.executionAssignments(t.Context(), "node-a", []string{DriverLocal}, time.Second); err == nil {
+		t.Fatal("cached permission renewed on a fresh poll")
 	}
 }

@@ -115,16 +115,16 @@ func (c *workloadControl) Assignments(ctx context.Context, node string, drivers 
 		return nil, "", err
 	}
 	result := make([]workload.Spec, 0, len(snapshot.specs))
-	routes := make(map[string]ServerSpec, len(snapshot.specs))
+	seenAssignments := make(map[string]struct{}, len(snapshot.specs))
 	for _, spec := range snapshot.specs {
 		assignment, err := executionSpec(spec, snapshot.deadline)
 		if err != nil {
 			return nil, "", err
 		}
-		if _, duplicate := routes[spec.AssignmentID]; duplicate {
+		if _, duplicate := seenAssignments[spec.AssignmentID]; duplicate {
 			return nil, "", fmt.Errorf("duplicate assignment %s", spec.AssignmentID)
 		}
-		routes[spec.AssignmentID] = spec
+		seenAssignments[spec.AssignmentID] = struct{}{}
 		result = append(result, assignment)
 	}
 	return result, leader, nil

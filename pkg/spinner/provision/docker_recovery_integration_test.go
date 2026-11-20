@@ -101,8 +101,9 @@ func TestDockerWorkerRecoversAfterCrash(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/assignments"):
 			var request struct {
-				SessionID string `json:"session_id"`
-				OwnerID   string `json:"owner_id"`
+				SessionID    string `json:"session_id"`
+				RequestNonce string `json:"request_nonce"`
+				OwnerID      string `json:"owner_id"`
 			}
 			if json.NewDecoder(r.Body).Decode(&request) != nil || request.SessionID != session || session == "" {
 				w.WriteHeader(http.StatusUnprocessableEntity)
@@ -118,7 +119,7 @@ func TestDockerWorkerRecoversAfterCrash(t *testing.T) {
 			leaseUntil = time.Now().Add(2 * time.Second)
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data": []ServerSpec{spec}, "meta": map[string]any{"session_id": session, "leader_id": nodeID, "owner_id": request.OwnerID, "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000},
+				"data": []ServerSpec{spec}, "meta": map[string]any{"session_id": session, "request_nonce": request.RequestNonce, "leader_id": nodeID, "owner_id": request.OwnerID, "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000},
 			})
 		case strings.HasSuffix(r.URL.Path, "/instances/reset"):
 			w.WriteHeader(http.StatusNoContent)

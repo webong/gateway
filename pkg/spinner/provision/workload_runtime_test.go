@@ -80,7 +80,7 @@ func TestWorkloadRuntimeRoutesReplacesAndWithdrawsOnPermissionLoss(t *testing.T)
 				return
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": []ServerSpec{current}, "meta": map[string]any{
-				"session_id": request["session_id"], "owner_id": request["owner_id"], "execution_protocol": "workload/v1",
+				"session_id": request["session_id"], "request_nonce": request["request_nonce"], "owner_id": request["owner_id"], "execution_protocol": "workload/v1",
 				"issued_at_ms": 1000000, "permission_expires_at_ms": 1003000,
 			}})
 			return
