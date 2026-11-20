@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/provision"
+	"github.com/webong/workload"
 )
 
 func TestKubernetesSmoke(t *testing.T) {
@@ -17,7 +18,7 @@ func TestKubernetesSmoke(t *testing.T) {
 	if namespace == "" || image == "" {
 		t.Skip("set the Mercure Kubernetes smoke namespace and image to run this test")
 	}
-	driver, err := provision.NewKubernetesDriver(provision.KubernetesDriverConfig{
+	driver, err := workload.NewKubernetesDriver(workload.KubernetesDriverConfig{
 		KubectlBinary: "kubectl", NodeID: "mercure-kubernetes-smoke", Namespace: namespace,
 		ImagePullPolicy: "Never", RouteMode: "port-forward", StartTimeout: 30 * time.Second, StopTimeout: 15 * time.Second,
 	})
@@ -26,9 +27,14 @@ func TestKubernetesSmoke(t *testing.T) {
 	}
 	spec := validMercureSpec()
 	spec.Driver = provision.DriverKubernetes
-	process, err := driver.Start(t.Context(), spec, "33333333-3333-4333-8333-333333333333", NewWorkload(Config{
+	spec.AssignmentID = "33333333-3333-4333-8333-333333333333"
+	assigned, err := provision.WorkloadAssignment(spec, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := driver.Start(t.Context(), assigned, provision.WorkloadDefinition(NewWorkload(Config{
 		KubernetesImage: image, KubernetesBinary: "caddy", KubernetesConfigPath: "/etc/caddy/Caddyfile", KubernetesContainerPort: 80,
-	}))
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +43,12 @@ func TestKubernetesSmoke(t *testing.T) {
 		defer cancel()
 		_ = process.Stop(ctx)
 	})
-	assertHTTPReady(t, "http://"+process.Host()+":"+strconv.Itoa(process.Port())+"/healthz")
+	if len(process.Endpoints()) != 1 {
+		t.Fatalf("expected one ready endpoint: %+v", process.Endpoints())
+	}
+	observed := process.Endpoints()[0]
+
+	assertHTTPReady(t, "http://"+observed.Host+":"+strconv.Itoa(observed.Port)+"/healthz")
 }
 
 func assertHTTPReady(t *testing.T, endpoint string) {

@@ -148,3 +148,26 @@ func TestRuntimePropagatesTerminalFailureAfterSuccessfulCleanup(t *testing.T) {
 		t.Fatalf("cleanup not completed once: %d", owner.closed)
 	}
 }
+
+func TestRuntimeRejectsInvalidLocalSupervisorBeforeClaim(t *testing.T) {
+	calls := 0
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(500) }))
+	defer backend.Close()
+	config := Config{NodeID: "local-preflight", StateDirectory: t.TempDir(), SupervisorBinary: "/missing/gateway-workload-supervisor", CoordinationLease: time.Second, PollInterval: time.Second, StartTimeout: time.Second, StopTimeout: time.Second}
+	if runtime, err := Start(config, backend.URL, "token", backend.Client(), &fakeLogger{}, &preflightDefinition{}); err == nil {
+		runtime.Stop()
+		t.Fatal("missing supervisor accepted")
+	}
+	if calls != 0 {
+		t.Fatal("worker claimed permission before local preflight completed")
+	}
+}
+
+type preflightDefinition struct{}
+
+func (*preflightDefinition) Type() string                { return "test" }
+func (*preflightDefinition) Supports(driver string) bool { return driver == DriverLocal }
+func (*preflightDefinition) Validate(ServerSpec) error   { return nil }
+func (*preflightDefinition) Launch(ServerSpec, string, string, int) (LaunchSpec, error) {
+	return LaunchSpec{}, nil
+}

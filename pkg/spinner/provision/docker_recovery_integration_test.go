@@ -286,6 +286,20 @@ func mustExecutionSpec(t *testing.T, spec ServerSpec) engine.Spec {
 }
 func startDockerPredecessor(t *testing.T, ctx context.Context, spec ServerSpec, node string) string {
 	t.Helper()
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		output, err := exec.CommandContext(cleanup, "docker", "ps", "--all", "--quiet", "--filter", "label=workload.provisioning.node="+runtimeLabelValue(node)).Output()
+		if err != nil {
+			t.Errorf("list disposable resources: %v", err)
+			return
+		}
+		for _, id := range strings.Fields(string(output)) {
+			if err := exec.CommandContext(cleanup, "docker", "rm", "--force", id).Run(); err != nil {
+				t.Errorf("remove disposable resource: %v", err)
+			}
+		}
+	})
 	driver, err := engine.NewDockerDriver(engine.DockerDriverConfig{Binary: "docker", NodeID: node, PublishHost: "127.0.0.1", StartTimeout: 10 * time.Second, StopTimeout: 3 * time.Second})
 	if err != nil {
 		t.Fatal(err)

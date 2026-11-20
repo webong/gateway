@@ -180,3 +180,14 @@ func plannerEndpoints(endpoints []workload.Endpoint) []InstanceEndpoint {
 	}
 	return result
 }
+
+// WorkloadAssignment converts an already authorized Gateway assignment. The caller
+// must supply its confirmed permission deadline; this helper grants no authority.
+func WorkloadAssignment(spec ServerSpec, deadline time.Time) (workload.Spec, error) {
+	return executionSpec(spec, deadline)
+}
+
+// WorkloadDefinition adapts Arranger authoring to the independently published engine.
+func WorkloadDefinition(source Provisioner) workload.Definition {
+	return definitionAdapter{source: source}
+}

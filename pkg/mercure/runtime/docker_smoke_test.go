@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/provision"
+	"github.com/webong/workload"
 )
 
 func TestDockerSmoke(t *testing.T) {
@@ -16,7 +17,7 @@ func TestDockerSmoke(t *testing.T) {
 	if image == "" {
 		t.Skip("set GATEWAY_MERCURE_DOCKER_SMOKE_IMAGE to run the live Docker smoke")
 	}
-	driver, err := provision.NewDockerDriver(provision.DockerDriverConfig{
+	driver, err := workload.NewDockerDriver(workload.DockerDriverConfig{
 		Binary: "docker", NodeID: "mercure-docker-smoke", PublishHost: "127.0.0.1",
 		StartTimeout: 20 * time.Second, StopTimeout: 10 * time.Second,
 	})
@@ -26,9 +27,13 @@ func TestDockerSmoke(t *testing.T) {
 	spec := validMercureSpec()
 	spec.AssignmentID = "11111111-1111-4111-8111-111111111111"
 	spec.Driver = provision.DriverDocker
-	process, err := driver.Start(t.Context(), spec, "11111111-1111-4111-8111-111111111111", NewWorkload(Config{
+	assigned, err := provision.WorkloadAssignment(spec, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := driver.Start(t.Context(), assigned, provision.WorkloadDefinition(NewWorkload(Config{
 		DockerImage: image, DockerBinary: "caddy", DockerConfigPath: "/etc/caddy/Caddyfile", DockerContainerPort: 80,
-	}))
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +43,12 @@ func TestDockerSmoke(t *testing.T) {
 		_ = process.Stop(ctx)
 	})
 
-	endpoint := "http://" + process.Host() + ":" + strconv.Itoa(process.Port()) + "/healthz"
+	if len(process.Endpoints()) != 1 {
+		t.Fatalf("expected one ready endpoint: %+v", process.Endpoints())
+	}
+	observed := process.Endpoints()[0]
+
+	endpoint := "http://" + observed.Host + ":" + strconv.Itoa(observed.Port) + "/healthz"
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		response, requestErr := http.Get(endpoint)

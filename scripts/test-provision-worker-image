@@ -8,6 +8,8 @@ if [[ "$MODE" != docker && "$MODE" != kubernetes ]]; then
     exit 1
 fi
 
+docker run --rm --entrypoint /usr/local/bin/gateway-workload-supervisor "$IMAGE" --help >/dev/null 2>&1
+
 uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
 if [[ "$uid" == 0 ]]; then
     echo 'Provisioning image unexpectedly runs as root by default.' >&2

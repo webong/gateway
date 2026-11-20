@@ -9,7 +9,7 @@ WORKDIR /src/gateway/pkg/spinner/cmd/gateway
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -mod=readonly -trimpath -ldflags="-s -w" -o /tmp/gateway . \
-    && CGO_ENABLED=0 go build -mod=readonly -trimpath -o /tmp/gateway-workload-supervisor ../workload-supervisor
+    && CGO_ENABLED=0 GOWORK=off go -C /src/gateway/pkg/spinner build -mod=readonly -trimpath -o /tmp/gateway-workload-supervisor ./cmd/workload-supervisor
 
 FROM debian:bookworm-slim AS runtime
 

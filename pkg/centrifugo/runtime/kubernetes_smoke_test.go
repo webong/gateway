@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/provision"
+	"github.com/webong/workload"
 )
 
 func TestKubernetesSmoke(t *testing.T) {
@@ -17,7 +18,7 @@ func TestKubernetesSmoke(t *testing.T) {
 	if namespace == "" || image == "" {
 		t.Skip("set the Centrifugo Kubernetes smoke namespace and image to run this test")
 	}
-	driver, err := provision.NewKubernetesDriver(provision.KubernetesDriverConfig{
+	driver, err := workload.NewKubernetesDriver(workload.KubernetesDriverConfig{
 		KubectlBinary: "kubectl", NodeID: "centrifugo-kubernetes-smoke", Namespace: namespace,
 		ImagePullPolicy: "Never", RouteMode: "port-forward", StartTimeout: 30 * time.Second, StopTimeout: 15 * time.Second,
 	})
@@ -38,9 +39,14 @@ func TestKubernetesSmoke(t *testing.T) {
 		"prometheus_enabled":false,
 		"log_level":"info"
 	}`)
-	process, err := driver.Start(t.Context(), spec, spec.AssignmentID, NewWorkload(Config{
+	spec.AssignmentID = spec.AssignmentID
+	assigned, err := provision.WorkloadAssignment(spec, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := driver.Start(t.Context(), assigned, provision.WorkloadDefinition(NewWorkload(Config{
 		KubernetesImage: image, KubernetesBinary: "centrifugo", KubernetesContainerPort: 8000,
-	}))
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +55,12 @@ func TestKubernetesSmoke(t *testing.T) {
 		defer cancel()
 		_ = process.Stop(ctx)
 	})
-	assertHTTPReady(t, "http://"+process.Host()+":"+strconv.Itoa(process.Port())+"/health")
+	if len(process.Endpoints()) != 1 {
+		t.Fatalf("expected one ready endpoint: %+v", process.Endpoints())
+	}
+	observed := process.Endpoints()[0]
+
+	assertHTTPReady(t, "http://"+observed.Host+":"+strconv.Itoa(observed.Port)+"/health")
 }
 
 func assertHTTPReady(t *testing.T, endpoint string) {

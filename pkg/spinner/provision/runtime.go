@@ -177,6 +177,9 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 
 	definitions := make([]workload.Definition, 0, len(workloads))
 	for _, definition := range workloads {
+		if definition == nil {
+			return nil, fmt.Errorf("provisioning definition is nil")
+		}
 		definitions = append(definitions, definitionAdapter{source: definition})
 	}
 	driver, err := workload.NewDriverRegistry(drivers, definitions)
