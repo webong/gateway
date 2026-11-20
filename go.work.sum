@@ -501,7 +501,6 @@ github.com/valyala/tcplisten v1.0.0/go.mod h1:T0xQ8SeCZGxckz9qRXTfG43PvQ/mcWh7Fw
 github.com/vishvananda/netlink v1.1.0/go.mod h1:cTgwzPIzzgDAYoQrMm0EdrjRUBkTqKYppBueQtXaqoE=
 github.com/vishvananda/netns v0.0.0-20211101163701-50045581ed74/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=
 github.com/webong/ext/pkg/plugin-go/cengine v0.6.0/go.mod h1:UOiIP01dfSVn8F2CusGQnsCgVIzS1Pj7IkfieUIUme8=
-github.com/webong/ext/pkg/plugin-go/contract v0.2.1/go.mod h1:YajPTz7utaUNrcn856mnFegEHuk8l70pK2krbVFSZoc=
 github.com/webong/ext/pkg/plugin-go/hashicorp v0.3.0 h1:24KUXbR0ZujsMJJFpk8XzJq/0zIwWMeTTI0/A4WXp3s=
 github.com/webong/ext/pkg/plugin-go/hashicorp v0.3.0/go.mod h1:BVmsuLaau9M9pwqzCHL5vAlwOKkFBKHPgWVJKN/ZDPo=
 github.com/webong/ext/pkg/plugin-go/wasm v0.2.1/go.mod h1:mUIHGlHHScjaWrbIuiPOdNWHZYqKTAeCTabC3KGSgK8=

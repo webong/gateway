@@ -3,7 +3,7 @@ module github.com/webong/gateway/tools/workflow-runtime-gate
 go 1.26.0
 
 require (
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
+	github.com/webong/ext/pkg/ext-go/engine v0.3.0
 	github.com/webong/gateway/arranger v0.0.0
 )
 

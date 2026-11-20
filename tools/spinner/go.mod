@@ -12,7 +12,7 @@ go 1.26.0
 require (
 	github.com/emersion/go-smtp v0.24.0
 	github.com/miekg/dns v1.1.65
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0
+	github.com/webong/ext/pkg/ext-go/engine v0.3.0
 	github.com/webong/gateway/arranger v0.0.0
 	github.com/webong/gateway/pkg/javascript v0.0.0
 	github.com/webong/gateway/pkg/lua v0.0.0

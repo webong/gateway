@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 	runtimecontract "github.com/webong/gateway/arranger/integration"
 	emailruntime "github.com/webong/gateway/pkg/email/spinner"
 	"github.com/webong/gateway/pkg/email/spinner/delivery"

@@ -566,8 +566,8 @@ github.com/vmihailenco/msgpack/v5 v5.4.1 h1:cQriyiUvjTwOHg8QZaPihLWeRAAVoCpE00IU
 github.com/vmihailenco/msgpack/v5 v5.4.1/go.mod h1:GaZTsDaehaPpQVyxrf5mtQlH+pc21PIudVV/E3rRQok=
 github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAhO7/IwNM9g=
 github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
-github.com/webong/ext/pkg/plugin-go/contract v0.6.0 h1:Rkgan4DRfrdv9kwiFmhROZlwsDSF4BrThSO6kE/3jQ0=
-github.com/webong/ext/pkg/plugin-go/contract v0.6.0/go.mod h1:YajPTz7utaUNrcn856mnFegEHuk8l70pK2krbVFSZoc=
+github.com/webong/ext/pkg/ext-go/engine v0.3.0 h1:BSsdKtqiWKLkhXLQc2dKAPl5fFlQMbH+Enw5qjPlw1o=
+github.com/webong/ext/pkg/ext-go/engine v0.3.0/go.mod h1:lnYoMIb5lKAnz60k2oG47rhxxFqOLA5MT3IaU5rlU4s=
 github.com/webong/proxy/go v0.4.0 h1:xk8+YtGgIYiBuheJuieHbeN4O44TvOexog8Bqs8tajk=
 github.com/webong/proxy/go v0.4.0/go.mod h1:1m2Gu2QU0abOaaq2dYW0Ug8e9zRHi7KEDg55yt4PsfI=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=

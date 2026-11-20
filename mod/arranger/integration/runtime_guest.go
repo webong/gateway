@@ -8,8 +8,8 @@ import (
 	"os"
 	"sync"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/ext/pkg/plugin-go/contract/transport/jsonline"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/transport/jsonline"
 )
 
 type packageManifest struct {

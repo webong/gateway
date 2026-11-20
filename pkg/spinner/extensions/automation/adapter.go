@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/webong/ext/pkg/plugin-go/contract"
-	"github.com/webong/ext/pkg/plugin-go/contract/host"
+	contract "github.com/webong/ext/pkg/ext-go/engine"
+	"github.com/webong/ext/pkg/ext-go/engine/host"
 	"github.com/webong/gateway/arranger/automation"
 )
 

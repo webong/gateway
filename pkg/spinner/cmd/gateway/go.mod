@@ -15,7 +15,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgtype v1.14.0 // indirect
 	github.com/jackc/pgx/v4 v4.18.3 // indirect
-	github.com/webong/ext/pkg/plugin-go/contract v0.6.0 // indirect
+	github.com/webong/ext/pkg/ext-go/engine v0.3.0 // indirect
 	github.com/webong/gateway/arranger v0.0.0 // indirect
 	github.com/webong/proxy/go v0.4.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 	arranger "github.com/webong/gateway/arranger/integration"
 )
 

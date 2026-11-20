@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
 	"github.com/webong/gateway/arranger/integration"
 	bridge "github.com/webong/gateway/pkg/spinner/bridge"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"

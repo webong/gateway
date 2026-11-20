@@ -11,7 +11,7 @@ import (
 	"time"
 
 	mdns "github.com/miekg/dns"
-	"github.com/webong/ext/pkg/plugin-go/contract/host/store"
+	"github.com/webong/ext/pkg/ext-go/engine/host/store"
 	"github.com/webong/gateway/arranger/automation"
 	protocol "github.com/webong/gateway/arranger/integration"
 	integrationextensions "github.com/webong/gateway/pkg/spinner/extensions/integration"

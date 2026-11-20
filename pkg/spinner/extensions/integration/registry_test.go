@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 	integrationcontract "github.com/webong/gateway/arranger/integration"
 )
 

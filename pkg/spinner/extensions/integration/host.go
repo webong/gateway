@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 	"github.com/webong/gateway/arranger/automation"
 	"github.com/webong/gateway/arranger/integration"
 	secretextensions "github.com/webong/gateway/pkg/spinner/extensions/secret"

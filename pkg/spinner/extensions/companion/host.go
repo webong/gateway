@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	plugin "github.com/webong/ext/pkg/plugin-go/contract"
+	plugin "github.com/webong/ext/pkg/ext-go/engine"
 	"github.com/webong/gateway/arranger/companion"
 )
 

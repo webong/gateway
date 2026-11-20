@@ -112,14 +112,14 @@ try:
     spinner_cache=tmp/'spinner-cache';planner_cache=tmp/'planner-cache'
     for cache in (spinner_cache,planner_cache):
         cache.mkdir();(cache/'.desired').mkdir()
-        if not args.fresh_https:shutil.copytree(package,cache/package.name)
+        if not args.fresh_https and cache==planner_cache:shutil.copytree(package,cache/package.name)
         for directory,dirs,files in os.walk(cache):os.chmod(directory,0o755)
         os.chmod(cache,0o777);os.chmod(cache/'.desired',0o777)
     receipt=hashlib.sha256(b'webong/gateway-weaver').hexdigest()+'.json'
     if not args.fresh_https:
-      (spinner_cache/'.desired'/receipt).write_text(json.dumps({'extension':'webong/gateway-weaver','version':version,'revision':1,'artifact_sha256':sha,'package_revision':manifest['descriptor']['identity']['revision']}))
+      subprocess.run(['go','-C',str(root/'tools/workflow-runtime-gate'),'run','./cmd/seed-store',
+          str(spinner_cache),str(archive),sha,'webong/gateway-weaver'],check=True,env=os.environ|{'GOWORK':'off'})
       (planner_cache/'.desired'/receipt).write_text(json.dumps({'revision':1,'sha256':sha}))
-      os.chmod(spinner_cache/'.desired'/receipt,0o666)
     installed='/extensions/'+package.name
     host_image='gateway-workflow-host:'+mode
     planner_image='gateway-workflow-host:roadrunner'
@@ -225,9 +225,11 @@ try:
     if args.fresh_https:
       for container,owner,cache in cache_owners:
         result=docker('exec','--user',owner,container,'sh','-c',
-          'test -f "$1/plugin.json" && cat "$2"','cache-receipt',cache+'/'+package.name,cache+'/.desired/'+receipt)
+          'test -f "$1/plugin.json" && cat "$2"','cache-receipt',cache+'/'+package.name,cache+('/.receipts/'+package.name+'.json' if cache=='/extensions' else '/.desired/'+receipt))
         saved=json.loads(result.stdout)
         assert saved.get('artifact_sha256',saved.get('sha256'))==sha,'installed receipt did not pin transport bytes'
+        if cache=='/extensions':
+          assert saved['id']=='webong/gateway-weaver' and saved['revision']==manifest['descriptor']['identity']['revision'],'Ext receipt identity/revision mismatch'
       accesses=docker('logs',artifacts).stdout
       assert 'Go-http-client' in accesses and 'GuzzleHttp' in accesses,'both real downloaders must fetch the artifact'
       print(mode+': PASS empty-cache HTTPS install, trusted fixture CA, TLS-only redirect and wrong-checksum rejection in real Planner/Spinner downloaders',flush=True)
