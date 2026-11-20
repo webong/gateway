@@ -491,6 +491,8 @@ github.com/webong/ext/pkg/ext-go/engine v0.3.0 h1:BSsdKtqiWKLkhXLQc2dKAPl5fFlQMb
 github.com/webong/ext/pkg/ext-go/engine v0.3.0/go.mod h1:lnYoMIb5lKAnz60k2oG47rhxxFqOLA5MT3IaU5rlU4s=
 github.com/webong/proxy/go v0.4.0 h1:xk8+YtGgIYiBuheJuieHbeN4O44TvOexog8Bqs8tajk=
 github.com/webong/proxy/go v0.4.0/go.mod h1:1m2Gu2QU0abOaaq2dYW0Ug8e9zRHi7KEDg55yt4PsfI=
+github.com/webong/workload v0.2.1 h1:37km+UpZ9hWKghxCanqhhppcJ7gLH7ezSEBXRguKb00=
+github.com/webong/workload v0.2.1/go.mod h1:lC/bADOvSWVFF6YFmbyTlmE5SVPn8qTafFx+t5lG2tA=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
 github.com/zeebo/assert v1.1.0 h1:hU1L1vLTHsnO8x8c9KAR5GmM5QscxHg5RNU5z5qbUWY=

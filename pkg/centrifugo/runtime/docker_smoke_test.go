@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/webong/gateway/pkg/spinner/provision"
+	"github.com/webong/workload"
 )
 
 func TestDockerSmoke(t *testing.T) {
@@ -16,7 +17,7 @@ func TestDockerSmoke(t *testing.T) {
 	if image == "" {
 		t.Skip("set GATEWAY_CENTRIFUGO_DOCKER_SMOKE_IMAGE to run the live Docker smoke")
 	}
-	driver, err := provision.NewDockerDriver(provision.DockerDriverConfig{
+	driver, err := workload.NewDockerDriver(workload.DockerDriverConfig{
 		Binary: "docker", NodeID: "centrifugo-docker-smoke", PublishHost: "127.0.0.1",
 		StartTimeout: 20 * time.Second, StopTimeout: 10 * time.Second,
 	})
@@ -37,9 +38,13 @@ func TestDockerSmoke(t *testing.T) {
 		"prometheus_enabled":false,
 		"log_level":"info"
 	}`)
-	process, err := driver.Start(t.Context(), spec, "22222222-2222-4222-8222-222222222222", NewWorkload(Config{
+	assigned, err := provision.WorkloadAssignment(spec, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := driver.Start(t.Context(), assigned, provision.WorkloadDefinition(NewWorkload(Config{
 		DockerImage: image, DockerBinary: "centrifugo", DockerContainerPort: 8000,
-	}))
+	})))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +54,12 @@ func TestDockerSmoke(t *testing.T) {
 		_ = process.Stop(ctx)
 	})
 
-	endpoint := "http://" + process.Host() + ":" + strconv.Itoa(process.Port()) + "/health"
+	if len(process.Endpoints()) != 1 {
+		t.Fatalf("expected one ready endpoint: %+v", process.Endpoints())
+	}
+	observed := process.Endpoints()[0]
+
+	endpoint := "http://" + observed.Host + ":" + strconv.Itoa(observed.Port) + "/health"
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		response, requestErr := http.Get(endpoint)

@@ -35,11 +35,15 @@ final readonly class InternalInstanceController
             'node_id' => ['required', 'string', 'max:255'],
             'runtime' => ['required', 'in:local,docker,kubernetes'],
             'pid' => ['nullable', 'integer', 'min:1'],
-            'host' => ['nullable', 'required_if:state,starting,running,stopping', 'ip'],
-            'port' => ['nullable', 'required_if:state,starting,running,stopping', 'integer', 'min:1', 'max:65535'],
+            'host' => ['nullable', 'required_if:state,running', 'ip'],
+            'port' => ['nullable', 'required_if:state,running', 'integer', 'min:1', 'max:65535'],
             'state' => ['required', 'in:starting,running,stopping,stopped,failed'],
             'revision' => ['required', 'integer', 'min:1'],
             'error' => ['nullable', 'string', 'max:65535'],
+            'endpoints' => ['sometimes', 'array', 'max:32'],
+            'endpoints.*.name' => ['required', 'string', 'max:128', 'distinct'],
+            'endpoints.*.host' => ['required', 'ip'],
+            'endpoints.*.port' => ['required', 'integer', 'min:1', 'max:65535'],
         ]);
         if ($validator->fails()) {
             return response()->json([
@@ -55,14 +59,16 @@ final readonly class InternalInstanceController
         return DB::transaction(function () use ($request, $target, $server, $instance, $attributes): JsonResponse {
             $node = ProvisioningNode::query()->lockForUpdate()->find($attributes['node_id']);
             $this->assertSession($request, $node, $target?->getKey());
-            $existing = Instance::query()->find($instance);
-            abort_if($existing !== null && $existing->server_id !== $server, Response::HTTP_CONFLICT);
+            $existing = Instance::query()->lockForUpdate()->find($instance);
+            abort_if($existing === null || $existing->server_id !== $server || $existing->node_id !== $attributes['node_id'], Response::HTTP_CONFLICT, 'No assignment reservation for this node.');
+            $currentRevision = Server::query()->whereKey($server)->value('revision');
+            abort_if($attributes['revision'] < $existing->revision || ($attributes['revision'] > $existing->revision && $attributes['revision'] !== (int) $currentRevision), Response::HTTP_CONFLICT, 'Stale or unissued execution revision.');
             $now = now();
             $attributes['heartbeat_at'] = $now;
             if (in_array($attributes['state'], ['starting', 'running'], true)) {
                 $attributes['started_at'] = $existing?->started_at ?? $now;
                 $attributes['stopped_at'] = null;
-            } elseif (in_array($attributes['state'], ['stopped', 'failed'], true)) {
+            } elseif ($attributes['state'] === 'stopped') {
                 $attributes['stopped_at'] = $now;
             }
 
@@ -100,10 +106,10 @@ final readonly class InternalInstanceController
                 ->whereIn('server_id', Server::query()->where('target_id', $target?->getKey())->select('id'))
                 ->whereIn('state', ['starting', 'running', 'stopping'])
                 ->update([
-                    'state' => 'stopped',
-                    'error' => 'Gateway reconciler restarted.',
+                    'state' => 'stopping',
+                    'error' => 'Gateway observation reset; termination remains unconfirmed.',
                     'heartbeat_at' => $now,
-                    'stopped_at' => $now,
+                    'stopped_at' => null,
                     'updated_at' => $now,
                 ]);
 
@@ -115,6 +121,7 @@ final readonly class InternalInstanceController
     {
         abort_if($node !== null && $node->target_id !== $targetId, Response::HTTP_NOT_FOUND);
         abort_if($targetId !== null && $node === null, Response::HTTP_NOT_FOUND);
+        abort_if($node === null || $node->owner_id === null || $request->header('X-Gateway-Worker-Owner') !== $node->owner_id, Response::HTTP_CONFLICT, 'The persistent worker owner does not match.');
         $sessionId = $request->header('X-Gateway-Worker-Session') ?: 'legacy';
         abort_if($node !== null && ($node->session_id ?? 'legacy') !== $sessionId, Response::HTTP_CONFLICT, 'Another worker session owns this node.');
         abort_if($node === null && $sessionId !== 'legacy', Response::HTTP_CONFLICT, 'The worker session has no node claim.');

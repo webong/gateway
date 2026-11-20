@@ -24,6 +24,7 @@ class Instance extends Model
     protected function casts(): array
     {
         return [
+            'endpoints' => 'array',
             'pid' => 'integer',
             'port' => 'integer',
             'revision' => 'integer',

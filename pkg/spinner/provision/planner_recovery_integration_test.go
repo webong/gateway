@@ -298,7 +298,7 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, integrationWorkload bo
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
 		output, err := exec.CommandContext(cleanupCtx, "docker", "ps", "--all", "--quiet", "--filter",
-			"label=gateway.provisioning.node="+runtimeLabelValue(nodeID)).CombinedOutput()
+			"label=workload.provisioning.node="+runtimeLabelValue(nodeID)).CombinedOutput()
 		if err != nil {
 			t.Errorf("list disposable recovery containers: %v: %s", err, output)
 			return
@@ -312,7 +312,7 @@ func runPlannerDockerRecovery(t *testing.T, realWorkload, integrationWorkload bo
 	startWorker := func() (func() error, *synchronizedBuffer) {
 		command := exec.Command(os.Args[0], "-test.run=^TestDockerWorkerRecoversAfterCrash$")
 		workerEnv := append(os.Environ(),
-			"GATEWAY_TEST_WORKER_CHILD=1", "GATEWAY_TEST_REAL_PLANNER=1",
+			"GATEWAY_TEST_WORKER_CHILD=1", "GATEWAY_TEST_STATE_DIR="+filepath.Join(dataDir, "worker-state"), "GATEWAY_TEST_REAL_PLANNER=1",
 			"GATEWAY_TEST_BACKEND="+backendURL, "GATEWAY_TEST_NODE="+nodeID,
 		)
 		if integrationWorkload {

@@ -61,7 +61,11 @@ func run(check bool) error {
 	if err != nil {
 		return err
 	}
-	defer runtime.Stop()
-	<-ctx.Done()
-	return nil
+	select {
+	case <-ctx.Done():
+	case <-runtime.Done():
+	}
+	stopContext, stopCancel := context.WithTimeout(context.Background(), config.StopTimeout)
+	defer stopCancel()
+	return runtime.StopContext(stopContext)
 }

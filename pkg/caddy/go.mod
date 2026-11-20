@@ -95,6 +95,7 @@ require (
 	github.com/urfave/cli v1.22.16 // indirect
 	github.com/webong/ext/pkg/ext-go/engine v0.3.0 // indirect
 	github.com/webong/proxy/go v0.4.0 // indirect
+	github.com/webong/workload v0.2.1 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.etcd.io/bbolt v1.4.0 // indirect
 	go.step.sm/cli-utils v0.9.0 // indirect

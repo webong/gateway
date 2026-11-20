@@ -4,13 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/webong/workload"
 )
 
 type Config struct {
+	StateDirectory                 string
+	SupervisorBinary               string
+	LegacyDrained                  bool
 	TargetID                       string
 	TargetToken                    string
 	CoordinationLease              time.Duration
@@ -42,7 +53,11 @@ type Runtime struct {
 	logger      Logger
 	stopTimeout time.Duration
 	stopped     chan struct{}
-	stopErr     error
+	core        *workload.Reconciler
+	owner       io.Closer
+	stopMu      sync.Mutex
+	released    bool
+	runErr      error
 	once        sync.Once
 }
 
@@ -67,16 +82,43 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 			return nil, fmt.Errorf("verify deployment target: %w", err)
 		}
 	}
-	localDriver, err := NewLocalDriver(LocalDriverConfig{
-		StartTimeout: config.StartTimeout,
-		StopTimeout:  config.StopTimeout,
-	})
+	owner, err := acquireWorkerOwnership(config)
 	if err != nil {
-		return nil, fmt.Errorf("initialize local provisioning driver: %w", err)
+		return nil, err
+	}
+	started := false
+	defer func() {
+		if !started {
+			_ = owner.Close()
+		}
+	}()
+	control.ownerID = owner.id
+	control.legacyDrained = config.LegacyDrained
+	var localDriver *workload.LocalDriver
+	if (target == nil || target.Driver == DriverLocal) && hasDriver(workloads, DriverLocal) {
+		if !filepath.IsAbs(config.SupervisorBinary) {
+			return nil, fmt.Errorf("local execution requires an absolute supervisor binary")
+		}
+		socket := filepath.Join(os.TempDir(), "workload-"+strconv.Itoa(os.Getuid()), strings.Repeat("x", 32)+".sock")
+		if len(socket) > 100 {
+			return nil, fmt.Errorf("local supervisor socket path exceeds 100 bytes; set TMPDIR to a short private-capable path such as /tmp before starting the worker")
+		}
+		info, statErr := os.Stat(config.SupervisorBinary)
+		if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return nil, fmt.Errorf("local supervisor binary must exist and be executable: %s", config.SupervisorBinary)
+		}
+
+		localDriver, err = workload.NewLocalDriver(workload.LocalDriverConfig{
+			NodeID: config.NodeID, StateDirectory: filepath.Join(owner.directory, "local"), SupervisorBinary: config.SupervisorBinary,
+			StartTimeout: config.StartTimeout, StopTimeout: config.StopTimeout,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("initialize local Workload driver: %w", err)
+		}
 	}
 
-	drivers := map[string]Driver{}
-	if target == nil || target.Driver == DriverLocal {
+	drivers := map[string]workload.Driver{}
+	if (target == nil || target.Driver == DriverLocal) && hasDriver(workloads, DriverLocal) {
 		drivers[DriverLocal] = localDriver
 	}
 	if hasDriver(workloads, DriverDocker) && (target == nil || target.Driver == DriverDocker) {
@@ -85,7 +127,7 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 			config.DockerRouteHost = target.Connection.RouteHost
 			config.DockerNetwork = target.Connection.Network
 		}
-		dockerDriver, driverErr := NewDockerDriver(DockerDriverConfig{
+		dockerDriver, driverErr := workload.NewDockerDriver(workload.DockerDriverConfig{
 			TargetID:        config.TargetID,
 			Context:         targetContext(target),
 			Binary:          config.DockerBinary,
@@ -109,7 +151,7 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 			config.KubernetesNamespace = target.Connection.Namespace
 			config.KubernetesRouteMode = target.Connection.RouteMode
 		}
-		kubernetesDriver, driverErr := NewKubernetesDriver(KubernetesDriverConfig{
+		kubernetesDriver, driverErr := workload.NewKubernetesDriver(workload.KubernetesDriverConfig{
 			TargetID:             config.TargetID,
 			Context:              targetContext(target),
 			Kubeconfig:           kubeconfig,
@@ -133,48 +175,54 @@ func Start(config Config, backendURL, internalToken string, client *http.Client,
 		return nil, fmt.Errorf("no enabled workload supports target driver %s", target.Driver)
 	}
 
-	driver, err := NewDriverRegistry(drivers, workloads)
+	definitions := make([]workload.Definition, 0, len(workloads))
+	for _, definition := range workloads {
+		if definition == nil {
+			return nil, fmt.Errorf("provisioning definition is nil")
+		}
+		definitions = append(definitions, definitionAdapter{source: definition})
+	}
+	driver, err := workload.NewDriverRegistry(drivers, definitions)
 	if err != nil {
-		return nil, fmt.Errorf("initialize provisioning driver registry: %w", err)
+		return nil, fmt.Errorf("initialize Workload definitions/drivers: %w", err)
 	}
-	// Claim a process-unique node session before loading or changing workloads.
-	// A crashed predecessor keeps its claim only until its placement lease ends.
-	if err := claimWorkerSession(config, control, supportedDrivers(drivers)); err != nil {
-		return nil, fmt.Errorf("claim provisioning worker session: %w", err)
-	}
-	resetContext, cancelReset := context.WithTimeout(context.Background(), config.StopTimeout)
-	resetErr := control.ResetNode(resetContext, config.NodeID)
-	cancelReset()
-	if resetErr != nil {
-		releaseWorkerSession(config, control, logger)
-		return nil, fmt.Errorf("reset stale provisioning reports: %w", resetErr)
-	}
+
 	router := NewRouter()
-	reconciler, err := NewReconciler(ReconcilerConfig{
+	adapter := &workloadControl{control: control, router: router, maxLease: config.CoordinationLease}
+	reconciler, err := workload.NewReconciler(workload.ReconcilerConfig{
 		NodeID:            config.NodeID,
 		Drivers:           supportedDrivers(drivers),
 		CoordinationLease: config.CoordinationLease,
 		PollInterval:      config.PollInterval,
 		StopTimeout:       config.StopTimeout,
-	}, control, driver, router, logger)
+		StartTimeout:      config.StartTimeout,
+	}, adapter, driver, adapter, logger)
 	if err != nil {
-		releaseWorkerSession(config, control, logger)
 		return nil, fmt.Errorf("initialize provisioning reconciler: %w", err)
+	}
+
+	// Claim a process-unique node session before loading or changing workloads.
+	// Persistent ownership fences replacement controllers even after lease expiry.
+	if err := claimWorkerSession(config, control, supportedDrivers(drivers)); err != nil {
+		return nil, fmt.Errorf("claim provisioning worker session: %w", err)
 	}
 
 	reconcileContext, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	runtime := &Runtime{
+		router: router, cancel: cancel, done: done, core: reconciler, owner: owner,
+		release: func(ctx context.Context) error { return control.ReleaseNode(ctx, config.NodeID) },
+		logger:  logger, stopTimeout: config.StopTimeout, stopped: make(chan struct{}),
+	}
 	go func() {
 		defer close(done)
-		reconciler.Run(reconcileContext)
+		runtime.runErr = reconciler.Run(reconcileContext)
+		if runtime.runErr != nil {
+			logger.Error("Workload reconciliation stopped: %v", runtime.runErr)
+		}
 	}()
-
-	return &Runtime{
-		router: router, cancel: cancel, done: done,
-		release:     func(ctx context.Context) error { return control.ReleaseNode(ctx, config.NodeID) },
-		logger:      logger,
-		stopTimeout: config.StopTimeout, stopped: make(chan struct{}),
-	}, nil
+	started = true
+	return runtime, nil
 }
 
 func claimWorkerSession(config Config, control *HTTPControlPlane, drivers []string) error {
@@ -185,7 +233,7 @@ func claimWorkerSession(config Config, control *HTTPControlPlane, drivers []stri
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	for {
-		_, _, err := control.Assignments(ctx, config.NodeID, drivers)
+		_, _, err := control.executionAssignments(ctx, config.NodeID, drivers, config.CoordinationLease)
 		if err == nil || !errors.Is(err, ErrNodeSessionActive) {
 			return err
 		}
@@ -197,15 +245,7 @@ func claimWorkerSession(config Config, control *HTTPControlPlane, drivers []stri
 	}
 }
 
-func releaseWorkerSession(config Config, control *HTTPControlPlane, logger Logger) {
-	ctx, cancel := context.WithTimeout(context.Background(), config.StopTimeout)
-	defer cancel()
-	if err := control.ReleaseNode(ctx, config.NodeID); err != nil {
-		logger.Warn("Failed to release provisioning worker session: %v", err)
-	}
-}
-
-func supportedDrivers(drivers map[string]Driver) []string {
+func supportedDrivers[T any](drivers map[string]T) []string {
 	keys := make([]string, 0, len(drivers))
 	for key := range drivers {
 		keys = append(keys, key)
@@ -240,32 +280,41 @@ func (r *Runtime) Done() <-chan struct{} {
 
 // StopContext cancels reconciliation and waits only for the caller's deadline.
 // If it times out, the worker session remains fenced until reconciliation
-// really exits; its normal lease expiry handles a worker that never exits.
+// really exits and cleanup is confirmed. Lease expiry never proves termination.
 func (r *Runtime) StopContext(ctx context.Context) error {
 	if r == nil {
 		return nil
 	}
-	r.once.Do(func() {
-		r.cancel()
-		go func() {
-			<-r.done
-			if r.release != nil {
-				releaseCtx, cancel := context.WithTimeout(context.Background(), r.stopTimeout)
-				r.stopErr = r.release(releaseCtx)
-				cancel()
-				if r.stopErr != nil && r.logger != nil {
-					r.logger.Warn("Failed to release provisioning worker session: %v", r.stopErr)
-				}
-			}
-			close(r.stopped)
-		}()
-	})
+	r.cancel()
 	select {
-	case <-r.stopped:
-		return r.stopErr
+	case <-r.done:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	r.stopMu.Lock()
+	defer r.stopMu.Unlock()
+	if r.released {
+		return r.runErr
+	}
+	if r.core != nil {
+		if err := r.core.Shutdown(ctx); err != nil {
+			return errors.Join(r.runErr, err)
+		}
+	}
+	if r.release != nil {
+		if err := r.release(ctx); err != nil {
+			return errors.Join(r.runErr, err)
+		}
+	}
+	if r.owner != nil {
+		if err := r.owner.Close(); err != nil {
+			return errors.Join(r.runErr, err)
+		}
+	}
+	r.released = true
+	r.once.Do(func() { close(r.stopped) })
+	return r.runErr
+
 }
 
 // Stop retains the standalone lifecycle API with a bounded wait.

@@ -31,6 +31,7 @@ require (
 	github.com/buke/quickjs-go v0.7.7 // indirect
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6 // indirect
 	github.com/webong/proxy/go v0.4.0 // indirect
+	github.com/webong/workload v0.2.1 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.61.0 // indirect

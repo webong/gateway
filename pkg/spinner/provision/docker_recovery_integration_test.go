@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/webong/gateway/pkg/spinner/internal/logging"
+	engine "github.com/webong/workload"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,38 +30,28 @@ func TestDockerDriverAdoptsRealContainer(t *testing.T) {
 	spec.Driver = DriverDocker
 	spec.AssignmentID = "recovery-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	nodeID := "gateway-recovery-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	name := runtimeResourceName(spec.AssignmentID)
-	command := exec.CommandContext(ctx, "docker", "run", "--detach", "--rm", "--name", name,
-		"--label", "gateway.provisioning.node="+nodeID,
-		"--label", "gateway.provisioning.instance="+spec.AssignmentID,
-		"--label", "gateway.provisioning.server="+spec.ID,
-		"--label", "gateway.provisioning.type="+runtimeLabelValue(spec.Type),
-		"--publish", "127.0.0.1::80", "nginx:alpine")
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("start predecessor container: %v: %s", err, output)
-	}
-	id := strings.TrimSpace(string(output))
+	id := startDockerPredecessor(t, ctx, spec, nodeID)
+
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
 		_ = exec.CommandContext(cleanupCtx, "docker", "rm", "--force", id).Run()
 	})
-	driver, err := NewDockerDriver(DockerDriverConfig{
+	driver, err := engine.NewDockerDriver(engine.DockerDriverConfig{
 		Binary: "docker", NodeID: nodeID, PublishHost: "127.0.0.1",
-		StartTimeout: 10 * time.Second, StopTimeout: 5 * time.Second,
+		StartTimeout: 10 * time.Second, StopTimeout: 3 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.PrepareDesired(ctx, map[string]ServerSpec{spec.AssignmentID: spec}); err != nil {
+	if err := driver.PrepareDesired(ctx, map[string]engine.Spec{spec.AssignmentID: mustExecutionSpec(t, spec)}); err != nil {
 		t.Fatal(err)
 	}
-	process, err := driver.Start(ctx, spec, spec.AssignmentID, &recoveryWorkload{port: 80, image: "nginx:alpine"})
+	process, err := driver.Start(ctx, mustExecutionSpec(t, spec), definitionAdapter{source: &recoveryWorkload{port: 80, image: "nginx:alpine", executable: "nginx", arguments: []string{"-g", "daemon off;"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := process.(*dockerProcess).containerID; !strings.HasPrefix(id, got) {
+	if got := runtimeResourceName(spec.AssignmentID); !strings.HasPrefix(id, got) || got == "" {
 		t.Fatalf("recreated container: expected %s, got %s", id, got)
 	}
 	if err := process.Stop(ctx); err != nil {
@@ -83,18 +76,8 @@ func TestDockerWorkerRecoversAfterCrash(t *testing.T) {
 	spec.Driver = DriverDocker
 	spec.AssignmentID = "worker-recovery-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	nodeID := "gateway-worker-recovery-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	name := runtimeResourceName(spec.AssignmentID)
-	container := exec.CommandContext(ctx, "docker", "run", "--detach", "--rm", "--name", name,
-		"--label", "gateway.provisioning.node="+nodeID,
-		"--label", "gateway.provisioning.instance="+spec.AssignmentID,
-		"--label", "gateway.provisioning.server="+spec.ID,
-		"--label", "gateway.provisioning.type="+runtimeLabelValue(spec.Type),
-		"--publish", "127.0.0.1::80", "nginx:alpine")
-	output, err := container.CombinedOutput()
-	if err != nil {
-		t.Fatalf("start predecessor workload: %v: %s", err, output)
-	}
-	containerID := strings.TrimSpace(string(output))
+	containerID := startDockerPredecessor(t, ctx, spec, nodeID)
+
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
@@ -118,7 +101,9 @@ func TestDockerWorkerRecoversAfterCrash(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/assignments"):
 			var request struct {
-				SessionID string `json:"session_id"`
+				SessionID    string `json:"session_id"`
+				RequestNonce string `json:"request_nonce"`
+				OwnerID      string `json:"owner_id"`
 			}
 			if json.NewDecoder(r.Body).Decode(&request) != nil || request.SessionID != session || session == "" {
 				w.WriteHeader(http.StatusUnprocessableEntity)
@@ -134,7 +119,7 @@ func TestDockerWorkerRecoversAfterCrash(t *testing.T) {
 			leaseUntil = time.Now().Add(2 * time.Second)
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data": []ServerSpec{spec}, "meta": map[string]string{"session_id": session, "leader_id": nodeID},
+				"data": []ServerSpec{spec}, "meta": map[string]any{"session_id": session, "request_nonce": request.RequestNonce, "leader_id": nodeID, "owner_id": request.OwnerID, "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000},
 			})
 		case strings.HasSuffix(r.URL.Path, "/instances/reset"):
 			w.WriteHeader(http.StatusNoContent)
@@ -171,10 +156,11 @@ func TestDockerWorkerRecoversAfterCrash(t *testing.T) {
 	}))
 	defer backend.Close()
 
+	stateDirectory := t.TempDir()
 	startWorker := func() (func() error, *synchronizedBuffer) {
 		command := exec.Command(os.Args[0], "-test.run=^TestDockerWorkerRecoversAfterCrash$")
 		command.Env = append(os.Environ(),
-			"GATEWAY_TEST_WORKER_CHILD=1", "GATEWAY_TEST_BACKEND="+backend.URL,
+			"GATEWAY_TEST_WORKER_CHILD=1", "GATEWAY_TEST_STATE_DIR="+stateDirectory, "GATEWAY_TEST_BACKEND="+backend.URL,
 			"GATEWAY_TEST_NODE="+nodeID, "GATEWAY_TEST_ASSIGNMENT="+spec.AssignmentID,
 		)
 		log := &synchronizedBuffer{}
@@ -252,13 +238,14 @@ func (b *synchronizedBuffer) String() string {
 
 func runDockerRecoveryWorker(t *testing.T) {
 	config := Config{
+		StateDirectory: os.Getenv("GATEWAY_TEST_STATE_DIR"), SupervisorBinary: filepath.Join(os.TempDir(), "unused-container-supervisor"),
 		NodeID: os.Getenv("GATEWAY_TEST_NODE"), DockerBinary: "docker",
 		DockerPublishHost: "127.0.0.1", CoordinationLease: 2 * time.Second,
 		DockerEnvironmentFile: os.Getenv("GATEWAY_TEST_DOCKER_ENV_FILE"),
 		PollInterval:          200 * time.Millisecond, StartTimeout: 10 * time.Second,
 		StopTimeout: 3 * time.Second,
 	}
-	var workload Provisioner = &recoveryWorkload{port: 80, image: "nginx:alpine"}
+	var workload Provisioner = &recoveryWorkload{port: 80, image: "nginx:alpine", executable: "nginx", arguments: []string{"-g", "daemon off;"}}
 	var integrations *IntegrationSet
 	if os.Getenv("GATEWAY_TEST_EXECUTABLE_INTEGRATION") == "1" {
 		paths, err := IntegrationPaths()
@@ -281,10 +268,49 @@ func runDockerRecoveryWorker(t *testing.T) {
 			executable: "nginx", arguments: []string{"-g", "daemon off;"},
 		}
 	}
-	runtime, err := Start(config, os.Getenv("GATEWAY_TEST_BACKEND"), "test-only", &http.Client{Timeout: 5 * time.Second}, &fakeLogger{}, workload)
+	runtime, err := Start(config, os.Getenv("GATEWAY_TEST_BACKEND"), "test-only", &http.Client{Timeout: 5 * time.Second}, logging.NewLogger("debug"), workload)
 	if err != nil {
 		t.Fatalf("start worker runtime: %v", err)
 	}
 	_ = runtime
 	select {}
+}
+
+func mustExecutionSpec(t *testing.T, spec ServerSpec) engine.Spec {
+	t.Helper()
+	result, err := executionSpec(spec, time.Now().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+func startDockerPredecessor(t *testing.T, ctx context.Context, spec ServerSpec, node string) string {
+	t.Helper()
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		output, err := exec.CommandContext(cleanup, "docker", "ps", "--all", "--quiet", "--filter", "label=workload.provisioning.node="+runtimeLabelValue(node)).Output()
+		if err != nil {
+			t.Errorf("list disposable resources: %v", err)
+			return
+		}
+		for _, id := range strings.Fields(string(output)) {
+			if err := exec.CommandContext(cleanup, "docker", "rm", "--force", id).Run(); err != nil {
+				t.Errorf("remove disposable resource: %v", err)
+			}
+		}
+	})
+	driver, err := engine.NewDockerDriver(engine.DockerDriverConfig{Binary: "docker", NodeID: node, PublishHost: "127.0.0.1", StartTimeout: 10 * time.Second, StopTimeout: 3 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = driver.Start(ctx, mustExecutionSpec(t, spec), definitionAdapter{source: &recoveryWorkload{port: 80, image: "nginx:alpine", executable: "nginx", arguments: []string{"-g", "daemon off;"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := runtimeResourceName(spec.AssignmentID)
+	if id == "" {
+		t.Fatal("cannot find created container")
+	}
+	return id
 }

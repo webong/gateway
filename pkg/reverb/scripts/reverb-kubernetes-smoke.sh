@@ -57,7 +57,7 @@ diagnostics() {
     cat "$PHP_LOG" "$GATEWAY_LOG" >&2 || true
     kubectl get pods --namespace "$NAMESPACE" -o wide >&2 || true
     kubectl describe pods --namespace "$NAMESPACE" >&2 || true
-    kubectl logs --namespace "$NAMESPACE" --all-containers --prefix --selector app.kubernetes.io/name=gateway-provisioning >&2 || true
+    kubectl logs --namespace "$NAMESPACE" --all-containers --prefix --selector app.kubernetes.io/name=workload-provisioning >&2 || true
 }
 
 trap cleanup EXIT INT TERM
@@ -70,6 +70,7 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+GOWORK=off go -C "$ROOT/pkg/spinner" build "$GO_BUILD_FLAGS" -o "$TEMP_DIR/gateway-workload-supervisor" ./cmd/workload-supervisor
 GOWORK=off go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$INTEGRATION_BIN" ./cmd/integration
 GOWORK=off go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
 
@@ -177,6 +178,8 @@ GATEWAY_RUNTIME=http \
 GATEWAY_PLANNER_URL="$PHP_URL" \
 PORT="$GATEWAY_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
+GATEWAY_PROVISIONING_STATE_DIR="$TEMP_DIR/worker-state" \
+GATEWAY_PROVISIONING_SUPERVISOR_BINARY="$TEMP_DIR/gateway-workload-supervisor" \
 GATEWAY_PROVISIONING_ENABLED=true \
 GATEWAY_INTEGRATION_PATHS="$INTEGRATION_BIN" \
 GATEWAY_PROVISIONING_POLL_INTERVAL=250ms \
@@ -237,11 +240,11 @@ fi
 
 kubectl wait \
     --namespace "$NAMESPACE" \
-    --selector app.kubernetes.io/name=gateway-provisioning \
+    --selector app.kubernetes.io/name=workload-provisioning \
     --for=condition=Ready pod \
     --timeout=30s >/dev/null
 
-pod_count="$(kubectl get pods --namespace "$NAMESPACE" --selector app.kubernetes.io/name=gateway-provisioning --no-headers | wc -l | tr -d ' ')"
+pod_count="$(kubectl get pods --namespace "$NAMESPACE" --selector app.kubernetes.io/name=workload-provisioning --no-headers | wc -l | tr -d ' ')"
 if [[ "$pod_count" != "3" ]]; then
     echo "Expected three managed Kubernetes Reverb Pods, found $pod_count." >&2
     diagnostics
@@ -312,7 +315,7 @@ if [[ "$primary_active" != "0" || "$secondary_active" != "0" ]]; then
     exit 1
 fi
 
-if [[ "$(kubectl get pods --namespace "$NAMESPACE" --selector app.kubernetes.io/name=gateway-provisioning --no-headers 2>/dev/null | wc -l | tr -d ' ')" != "0" ]]; then
+if [[ "$(kubectl get pods --namespace "$NAMESPACE" --selector app.kubernetes.io/name=workload-provisioning --no-headers 2>/dev/null | wc -l | tr -d ' ')" != "0" ]]; then
     echo "Kubernetes Reverb Pod remained after stop." >&2
     diagnostics
     exit 1

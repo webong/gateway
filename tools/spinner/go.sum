@@ -22,6 +22,8 @@ github.com/webong/ext/pkg/ext-go/engine v0.3.0 h1:BSsdKtqiWKLkhXLQc2dKAPl5fFlQMb
 github.com/webong/ext/pkg/ext-go/engine v0.3.0/go.mod h1:lnYoMIb5lKAnz60k2oG47rhxxFqOLA5MT3IaU5rlU4s=
 github.com/webong/proxy/go v0.4.0 h1:xk8+YtGgIYiBuheJuieHbeN4O44TvOexog8Bqs8tajk=
 github.com/webong/proxy/go v0.4.0/go.mod h1:1m2Gu2QU0abOaaq2dYW0Ug8e9zRHi7KEDg55yt4PsfI=
+github.com/webong/workload v0.2.1 h1:37km+UpZ9hWKghxCanqhhppcJ7gLH7ezSEBXRguKb00=
+github.com/webong/workload v0.2.1/go.mod h1:lC/bADOvSWVFF6YFmbyTlmE5SVPn8qTafFx+t5lG2tA=
 github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M=
 github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
 golang.org/x/crypto v0.58.0 h1:COkYLr4k7nDI4r6QtMML2AfzeIswWHAJthLS6K/M/54=

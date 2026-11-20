@@ -75,7 +75,7 @@ func (t DeploymentTarget) Check(ctx context.Context, config Config, runner comma
 		if strings.TrimSpace(t.Connection.Context) == "" || !filepath.IsAbs(t.Connection.Kubeconfig) || t.Connection.Namespace == "" || (t.Connection.RouteMode != "pod-ip" && t.Connection.RouteMode != "port-forward") {
 			return fmt.Errorf("Kubernetes target requires context, absolute kubeconfig path, namespace and route_mode")
 		}
-		prefix := KubernetesDriverConfig{Context: t.Connection.Context, Kubeconfig: t.Connection.Kubeconfig}.connectionArguments()
+		prefix := []string{"--kubeconfig", t.Connection.Kubeconfig, "--context", t.Connection.Context}
 		prefix = append(prefix, "--namespace", t.Connection.Namespace)
 		checks := [][]string{{"get", "pods"}, {"list", "pods"}, {"watch", "pods"}, {"create", "pods"}, {"delete", "pods"}, {"deletecollection", "pods"}}
 		if t.Connection.RouteMode == "port-forward" {

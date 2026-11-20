@@ -1,0 +1,70 @@
+name: Workload execution acceptance
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local:
+    name: Local supervisor (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+    env:
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache-dependency-path: '**/go.sum'
+      - name: Run ownership, transport, authoring and real local execution checks
+        run: go -C pkg/spinner test -mod=readonly -race -count=1 ./provision
+      - name: Keep Arranger independent
+        run: go -C mod/arranger test -mod=readonly ./integration
+
+  docker:
+    name: Docker recovery (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    env:
+      GOWORK: 'off'
+      GOTELEMETRY: 'off'
+      COMPOSER_ROOT_VERSION: dev-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pkg/spinner/go.mod
+          cache-dependency-path: '**/go.sum'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: bcmath, curl, mbstring, pdo_sqlite, sockets, sqlite3, zip
+      - name: Install locked Planner dependencies
+        run: scripts/composer-install --prefer-dist
+      - name: Prepare disposable test images
+        run: |
+          docker pull nginx:alpine
+          docker pull centrifugo/centrifugo:v6
+          docker build --target docker -f infra/docker/Gateway.provision.Dockerfile -t gateway-workload-worker:local .
+      - name: Verify packaged worker
+        run: bash scripts/test-provision-worker-image gateway-workload-worker:local docker
+      - name: Recover real containers through both control-plane fixtures
+        env:
+          GATEWAY_TEST_DOCKER_ADOPTION: '1'
+          GATEWAY_TEST_DOCKER_WORKER_RECOVERY: '1'
+          GATEWAY_TEST_PHP_DOCKER_RECOVERY: '1'
+          GATEWAY_TEST_PROVISION_WORKER_IMAGE: gateway-workload-worker:local
+        run: go -C pkg/spinner test -mod=readonly -count=1 -v ./provision

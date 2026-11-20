@@ -12,6 +12,7 @@ require (
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/webong/ext/pkg/ext-go/engine v0.3.0
 	github.com/webong/proxy/go v0.4.0
+	github.com/webong/workload v0.2.1
 	golang.org/x/sys v0.48.0
 )
 

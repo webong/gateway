@@ -1,3 +1,13 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: provision-worker-state
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 64Mi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,6 +27,7 @@ spec:
       serviceAccountName: provision-worker
       automountServiceAccountToken: true
       securityContext:
+        fsGroup: 10001
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -53,6 +64,8 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            - name: state
+              mountPath: /data
             - name: tmp
               mountPath: /tmp
           resources:
@@ -63,5 +76,8 @@ spec:
               cpu: "1"
               memory: 256Mi
       volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: provision-worker-state
         - name: tmp
           emptyDir: {}

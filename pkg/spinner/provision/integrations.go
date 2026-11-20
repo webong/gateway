@@ -136,16 +136,28 @@ func (p *IntegrationWorkload) Type() string                { return p.typeName }
 func (p *IntegrationWorkload) Supports(driver string) bool { return p.drivers[driver] }
 
 func (p *IntegrationWorkload) Validate(spec ServerSpec) error {
-	ctx, cancel := context.WithTimeout(context.Background(), integrationCallTimeout)
+	return p.ValidateContext(context.Background(), spec)
+}
+
+func (p *IntegrationWorkload) ValidateContext(parent context.Context, spec ServerSpec) error {
+	ctx, cancel := context.WithTimeout(parent, integrationCallTimeout)
 	defer cancel()
 	_, err := p.call(ctx, integration.ProvisionRequest{Method: "validate", Spec: &spec})
 	return err
 }
 
 func (p *IntegrationWorkload) Launch(spec ServerSpec, runtime, host string, port int) (LaunchSpec, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), integrationCallTimeout)
+	return p.LaunchContext(context.Background(), spec, runtime, host, port)
+}
+
+func (p *IntegrationWorkload) LaunchContext(parent context.Context, spec ServerSpec, runtime, host string, port int) (LaunchSpec, error) {
+	return p.LaunchPlacementContext(parent, spec, integration.Placement{Driver: runtime, BindHost: host, Ports: map[string]int{"default": port}})
+}
+
+func (p *IntegrationWorkload) LaunchPlacementContext(parent context.Context, spec ServerSpec, placement integration.Placement) (LaunchSpec, error) {
+	ctx, cancel := context.WithTimeout(parent, integrationCallTimeout)
 	defer cancel()
-	response, err := p.call(ctx, integration.ProvisionRequest{Method: "launch", Spec: &spec, Runtime: runtime, Host: host, Port: port})
+	response, err := p.call(ctx, integration.ProvisionRequest{Method: "launch", Spec: &spec, Runtime: placement.Driver, Host: placement.BindHost, Port: placement.Ports["default"], Ports: placement.Ports})
 	if err != nil {
 		return LaunchSpec{}, err
 	}

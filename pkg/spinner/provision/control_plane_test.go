@@ -53,8 +53,8 @@ func TestHTTPControlPlaneLoadsSpecsAndReportsInstances(t *testing.T) {
 			resetNode = payload["node_id"]
 			writer.WriteHeader(http.StatusOK)
 		case "/control/_internal/provisioning/nodes/node-a/session":
-			var payload map[string]string
-			if request.Method != http.MethodDelete || json.NewDecoder(request.Body).Decode(&payload) != nil || payload["session_id"] != workerSession {
+			var payload map[string]any
+			if request.Method != http.MethodDelete || json.NewDecoder(request.Body).Decode(&payload) != nil || payload["session_id"] != workerSession || payload["cleanup_confirmed"] != true {
 				t.Fatal("invalid worker session release")
 			}
 			released = true

@@ -7,13 +7,14 @@ const ProvisionVersion = 1
 const ProvisionMaxMessageBytes = 8 << 20
 
 type ProvisionRequest struct {
-	Version int         `json:"version"`
-	ID      uint64      `json:"id"`
-	Method  string      `json:"method"`
-	Spec    *ServerSpec `json:"spec,omitempty"`
-	Runtime string      `json:"runtime,omitempty"`
-	Host    string      `json:"host,omitempty"`
-	Port    int         `json:"port,omitempty"`
+	Ports   map[string]int `json:"ports,omitempty"`
+	Version int            `json:"version"`
+	ID      uint64         `json:"id"`
+	Method  string         `json:"method"`
+	Spec    *ServerSpec    `json:"spec,omitempty"`
+	Runtime string         `json:"runtime,omitempty"`
+	Host    string         `json:"host,omitempty"`
+	Port    int            `json:"port,omitempty"`
 }
 
 type ProvisionResponse struct {

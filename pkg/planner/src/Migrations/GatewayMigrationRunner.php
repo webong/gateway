@@ -163,18 +163,20 @@ final readonly class GatewayMigrationRunner
             ));
         }
 
-        $adopted = $this->run(fake: true, manager: $manager);
+        // Only the validated original schema is adopted. Later core migrations
+        // must execute, just like newly registered extension schemas.
+        $adopted = $this->run(fake: true, manager: $manager, version: 20261103000001);
         $extensions = $this->run(fake: false);
 
         return new MigrationResult(array_values(array_unique([...$adopted->applied, ...$extensions->applied])));
     }
 
-    private function run(bool $fake, ?Manager $manager = null): MigrationResult
+    private function run(bool $fake, ?Manager $manager = null, ?int $version = null): MigrationResult
     {
         $manager ??= $this->manager();
         $environment = $manager->getEnvironment(self::ENVIRONMENT);
         $before = $environment->getVersions();
-        $manager->migrate(self::ENVIRONMENT, fake: $fake);
+        $manager->migrate(self::ENVIRONMENT, version: $version, fake: $fake);
         $after = $environment->getVersions();
 
         return new MigrationResult(array_values(array_diff($after, $before)));

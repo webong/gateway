@@ -3,6 +3,7 @@ package provision
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,9 @@ func LoadConfig(gatewayRuntime string) (HostConfig, error) {
 	config := HostConfig{
 		Enabled: envBool("GATEWAY_PROVISIONING_ENABLED", false),
 		Config: Config{
+			StateDirectory:                 env("GATEWAY_PROVISIONING_STATE_DIR", defaultStateDirectory()),
+			SupervisorBinary:               env("GATEWAY_PROVISIONING_SUPERVISOR_BINARY", defaultSupervisorBinary()),
+			LegacyDrained:                  envBool("GATEWAY_PROVISIONING_LEGACY_DRAINED", false),
 			TargetID:                       env("GATEWAY_PROVISIONING_TARGET_ID", ""),
 			TargetToken:                    env("GATEWAY_PROVISIONING_TARGET_TOKEN", ""),
 			CoordinationLease:              envSeconds("GATEWAY_PROVISIONING_COORDINATION_LEASE_SECONDS", 15*time.Second),
@@ -86,4 +90,25 @@ func envSeconds(key string, defaultValue time.Duration) time.Duration {
 		}
 	}
 	return defaultValue
+}
+
+func defaultStateDirectory() string {
+	if root := os.Getenv("GATEWAY_ROUTER_DATA_DIR"); root != "" {
+		return filepath.Join(root, "workload")
+	}
+	if root := os.Getenv("GATEWAY_DATA_DIR"); root != "" {
+		return filepath.Join(root, "workload")
+	}
+	root, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(root, "gateway", "workload")
+}
+func defaultSupervisorBinary() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(executable), "gateway-workload-supervisor")
 }

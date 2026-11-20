@@ -39,6 +39,8 @@ cleanup() {
     fi
 
     rm -f "$PHP_LOG" "$GATEWAY_LOG" "$DATABASE_FILE" "$BODY" "$GATEWAY_BIN" "$INTEGRATION_BIN" "$CLIENT_BIN"
+    rm -rf "$TEMP_DIR/worker-state"
+    rm -f "$TEMP_DIR/gateway-workload-supervisor"
     rmdir "$TEMP_DIR" 2>/dev/null || true
 }
 
@@ -52,6 +54,7 @@ fi
 touch "$DATABASE_FILE"
 GO_BUILD_FLAGS="${GOFLAGS:--mod=mod}"
 GOWORK=off go -C "$ROOT/pkg/spinner/cmd/gateway" build "$GO_BUILD_FLAGS" -o "$GATEWAY_BIN" .
+GOWORK=off go -C "$ROOT/pkg/spinner" build "$GO_BUILD_FLAGS" -o "$TEMP_DIR/gateway-workload-supervisor" ./cmd/workload-supervisor
 GOWORK=off go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$INTEGRATION_BIN" ./cmd/integration
 GOWORK=off go -C "$ROOT/pkg/reverb" build "$GO_BUILD_FLAGS" -o "$CLIENT_BIN" ./cmd/reverb-smoke
 
@@ -128,6 +131,8 @@ PORT="$GATEWAY_PORT" \
 GATEWAY_INTERNAL_TOKEN="$TOKEN" \
 GATEWAY_PLANNER='Webong\Gateway\Tests\Fixtures\HttpSmokePlanner' \
 GATEWAY_PATH_RESOLVER='Webong\Gateway\Tests\Fixtures\HttpSmokePathResolver' \
+GATEWAY_PROVISIONING_STATE_DIR="$TEMP_DIR/worker-state" \
+GATEWAY_PROVISIONING_SUPERVISOR_BINARY="$TEMP_DIR/gateway-workload-supervisor" \
 GATEWAY_PROVISIONING_ENABLED=true \
 GATEWAY_INTEGRATION_PATHS="$INTEGRATION_BIN" \
 GATEWAY_PROVISIONING_POLL_INTERVAL=250ms \

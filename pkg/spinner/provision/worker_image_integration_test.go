@@ -224,14 +224,16 @@ func TestProvisionWorkerImageRecoversCentrifugo(t *testing.T) {
 
 	nodeID := "gateway-image-recovery-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	workerNames := []string{nodeID + "-first", nodeID + "-second"}
+	stateVolume := nodeID + "-state"
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
 		for _, name := range workerNames {
 			_ = exec.CommandContext(cleanupCtx, "docker", "rm", "--force", name).Run()
 		}
+		_ = exec.CommandContext(cleanupCtx, "docker", "volume", "rm", stateVolume).Run()
 		output, err := exec.CommandContext(cleanupCtx, "docker", "ps", "--all", "--quiet", "--filter",
-			"label=gateway.provisioning.node="+runtimeLabelValue(nodeID)).CombinedOutput()
+			"label=workload.provisioning.node="+runtimeLabelValue(nodeID)).CombinedOutput()
 		if err != nil {
 			t.Errorf("list disposable workload containers: %v: %s", err, output)
 			return
@@ -245,6 +247,7 @@ func TestProvisionWorkerImageRecoversCentrifugo(t *testing.T) {
 	startWorker := func(name string) {
 		command := exec.CommandContext(fixture.ctx, "docker", "run", "--detach", "--rm", "--pull", "never",
 			"--name", name, "--network", "host", "--user", "0:0",
+			"--mount", "type=volume,source="+stateVolume+",target=/data",
 			"--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
 			"--env", "GATEWAY_PLANNER_URL="+fixture.backend,
 			"--env", "GATEWAY_PROVISIONING_TARGET_ID="+fixture.targetID,
@@ -342,4 +345,28 @@ func TestProvisionWorkerImageRecoversCentrifugo(t *testing.T) {
 		t.Fatalf("replacement packaged worker did not adopt the same clean instance: first=%+v second=%+v before=%q after=%q", first, second, containerBefore, inspect(second))
 	}
 	checkHealth(second)
+	fixture.post(t, "/servers/"+serverID+"/stop", map[string]any{}, http.StatusAccepted)
+	stopDeadline := time.Now().Add(10 * time.Second)
+	for {
+		observed, err := readInstance()
+		if err == nil && observed.State == "stopped" {
+			break
+		}
+		if time.Now().After(stopDeadline) {
+			t.Fatalf("worker did not confirm desired stop: %+v %v", observed, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if remaining := runtimeResourceName(second.ID); remaining != "" {
+		t.Fatalf("confirmed stop left a Docker resource: %s", remaining)
+	}
+	if output, err := exec.CommandContext(fixture.ctx, "docker", "stop", "--time", "10", workerNames[1]).CombinedOutput(); err != nil {
+		t.Fatalf("graceful worker shutdown: %v %s", err, output)
+	}
+	// The database observation alone cannot prove termination: the Docker check
+	// above establishes that independently before checking session release.
+	query := exec.CommandContext(fixture.ctx, "php", "-r", `$db=new PDO("sqlite:".$argv[1]);$q=$db->prepare("SELECT session_id FROM nodes WHERE id=?");$q->execute([$argv[2]]);echo json_encode($q->fetchColumn(),JSON_THROW_ON_ERROR);`, fixture.database, nodeID)
+	if output, err := query.CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "null" {
+		t.Fatalf("worker did not release confirmed cleanup: %v %s", err, output)
+	}
 }
