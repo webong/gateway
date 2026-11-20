@@ -3,6 +3,7 @@ package provision
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -80,13 +81,14 @@ func TestClaimWorkerSessionWaitsForExpiredPredecessor(t *testing.T) {
 			writer.WriteHeader(http.StatusLocked)
 			return
 		}
-		_ = json.NewEncoder(writer).Encode(map[string]any{"data": []ServerSpec{}, "meta": map[string]string{"leader_id": "node-a", "session_id": session}})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": []ServerSpec{}, "meta": map[string]any{"leader_id": "node-a", "session_id": session, "owner_id": "persistent-owner", "execution_protocol": "workload/v1", "issued_at_ms": 1000000, "permission_expires_at_ms": 1002000}})
 	}))
 	defer backend.Close()
 	control, err := NewHTTPControlPlane(backend.URL, "internal-token", backend.Client())
 	if err != nil {
 		t.Fatal(err)
 	}
+	control.ownerID = "persistent-owner"
 	config := Config{NodeID: "node-a", CoordinationLease: 2 * time.Second, StopTimeout: time.Second}
 	if err := claimWorkerSession(config, control, []string{DriverLocal}); err != nil {
 		t.Fatal(err)
@@ -95,3 +97,36 @@ func TestClaimWorkerSessionWaitsForExpiredPredecessor(t *testing.T) {
 		t.Fatalf("expected retry after two fenced claims, got %d attempts", attempts)
 	}
 }
+
+// A failed release must retain the local fence and remain retryable.
+func TestRuntimeRetriesUnconfirmedRelease(t *testing.T) {
+	_, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	close(done)
+	attempts := 0
+	owner := &countingOwner{}
+	runtime := &Runtime{cancel: cancel, done: done, stopped: make(chan struct{}), owner: owner,
+		release: func(context.Context) error {
+			attempts++
+			if attempts == 1 {
+				return errors.New("planner unavailable")
+			}
+			return nil
+		}}
+	if err := runtime.StopContext(t.Context()); err == nil {
+		t.Fatal("failed release was hidden")
+	}
+	if owner.closed != 0 {
+		t.Fatal("local ownership released before Planner acknowledged cleanup")
+	}
+	if err := runtime.StopContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || owner.closed != 1 {
+		t.Fatalf("release retry: attempts=%d closes=%d", attempts, owner.closed)
+	}
+}
+
+type countingOwner struct{ closed int }
+
+func (o *countingOwner) Close() error { o.closed++; return nil }

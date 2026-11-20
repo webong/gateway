@@ -224,14 +224,16 @@ func TestProvisionWorkerImageRecoversCentrifugo(t *testing.T) {
 
 	nodeID := "gateway-image-recovery-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	workerNames := []string{nodeID + "-first", nodeID + "-second"}
+	stateVolume := nodeID + "-state"
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
 		for _, name := range workerNames {
 			_ = exec.CommandContext(cleanupCtx, "docker", "rm", "--force", name).Run()
 		}
+		_ = exec.CommandContext(cleanupCtx, "docker", "volume", "rm", stateVolume).Run()
 		output, err := exec.CommandContext(cleanupCtx, "docker", "ps", "--all", "--quiet", "--filter",
-			"label=gateway.provisioning.node="+runtimeLabelValue(nodeID)).CombinedOutput()
+			"label=workload.provisioning.node="+runtimeLabelValue(nodeID)).CombinedOutput()
 		if err != nil {
 			t.Errorf("list disposable workload containers: %v: %s", err, output)
 			return
@@ -245,6 +247,7 @@ func TestProvisionWorkerImageRecoversCentrifugo(t *testing.T) {
 	startWorker := func(name string) {
 		command := exec.CommandContext(fixture.ctx, "docker", "run", "--detach", "--rm", "--pull", "never",
 			"--name", name, "--network", "host", "--user", "0:0",
+			"--mount", "type=volume,source="+stateVolume+",target=/data",
 			"--mount", "type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock",
 			"--env", "GATEWAY_PLANNER_URL="+fixture.backend,
 			"--env", "GATEWAY_PROVISIONING_TARGET_ID="+fixture.targetID,

@@ -75,6 +75,8 @@ it('adopts an existing Laravel-managed schema without replaying destructive migr
         $pdo = new PDO('sqlite:'.$database);
         $pdo->exec("INSERT INTO accounts (id, token_hash) VALUES ('existing-account', '".str_repeat('b', 64)."')");
         $pdo->exec('DROP TABLE gateway_migrations');
+        $pdo->exec('ALTER TABLE nodes DROP COLUMN owner_id');
+        $pdo->exec('ALTER TABLE instances DROP COLUMN endpoints');
 
         $result = $runner->adoptExistingSchema();
 
@@ -83,6 +85,8 @@ it('adopts an existing Laravel-managed schema without replaying destructive migr
             ->toBe(str_repeat('b', 64))
             ->and((int) $pdo->query('SELECT COUNT(*) FROM gateway_migrations')->fetchColumn())
             ->toBe(count($result->applied))
+            ->and(array_column($pdo->query('PRAGMA table_info(nodes)')->fetchAll(PDO::FETCH_ASSOC), 'name'))->toContain('owner_id')
+            ->and(array_column($pdo->query('PRAGMA table_info(instances)')->fetchAll(PDO::FETCH_ASSOC), 'name'))->toContain('endpoints')
             ->and($runner->migrate()->applied)->toBe([]);
     } finally {
         if (is_string($database) && file_exists($database)) {
@@ -231,7 +235,7 @@ it('provides the same migration runner through Symfony Console', function (): vo
         $tester = new CommandTester($command);
 
         expect($tester->execute([]))->toBe(0)
-            ->and($tester->getDisplay())->toContain('Applied 1 Gateway migration.')
+            ->and($tester->getDisplay())->toContain('Applied 2 Gateway migrations.')
             ->and($tester->execute([]))->toBe(0)
             ->and($tester->getDisplay())->toContain('already current');
     } finally {

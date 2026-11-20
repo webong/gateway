@@ -8,7 +8,8 @@ COPY . /src/gateway
 WORKDIR /src/gateway/pkg/spinner/cmd/gateway
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -mod=readonly -trimpath -ldflags="-s -w" -o /tmp/gateway .
+    CGO_ENABLED=1 go build -mod=readonly -trimpath -ldflags="-s -w" -o /tmp/gateway . \
+    && CGO_ENABLED=0 go build -mod=readonly -trimpath -o /tmp/gateway-workload-supervisor ../workload-supervisor
 
 FROM debian:bookworm-slim AS runtime
 
@@ -22,8 +23,9 @@ RUN groupadd -g 10001 gateway \
 
 WORKDIR /app
 COPY --from=host-builder /tmp/gateway /app/gateway
+COPY --from=host-builder /tmp/gateway-workload-supervisor /app/gateway-workload-supervisor
 
-ENV GATEWAY_PLUGIN_DIR=/data/extensions
+ENV GATEWAY_PLUGIN_DIR=/data/extensions GATEWAY_PROVISIONING_STATE_DIR=/data/workload
 VOLUME /data
 
 USER 10001:10001

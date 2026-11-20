@@ -57,7 +57,17 @@ func handleProvision(extension Provisioner, request ProvisionRequest) ProvisionR
 		if request.Spec == nil {
 			response.Error = "server specification is required"
 		} else {
-			launch, err := extension.Launch(*request.Spec, request.Runtime, request.Host, request.Port)
+			var launch LaunchSpec
+			var err error
+			if placed, ok := extension.(PlacementProvisioner); ok {
+				ports := request.Ports
+				if ports == nil {
+					ports = map[string]int{"default": request.Port}
+				}
+				launch, err = placed.LaunchPlacement(*request.Spec, Placement{Driver: request.Runtime, BindHost: request.Host, Ports: ports})
+			} else {
+				launch, err = extension.Launch(*request.Spec, request.Runtime, request.Host, request.Port)
+			}
 			if err != nil {
 				response.Error = err.Error()
 			} else {

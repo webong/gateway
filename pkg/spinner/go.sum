@@ -117,6 +117,8 @@ github.com/webong/ext/pkg/ext-go/engine v0.3.0 h1:BSsdKtqiWKLkhXLQc2dKAPl5fFlQMb
 github.com/webong/ext/pkg/ext-go/engine v0.3.0/go.mod h1:lnYoMIb5lKAnz60k2oG47rhxxFqOLA5MT3IaU5rlU4s=
 github.com/webong/proxy/go v0.4.0 h1:xk8+YtGgIYiBuheJuieHbeN4O44TvOexog8Bqs8tajk=
 github.com/webong/proxy/go v0.4.0/go.mod h1:1m2Gu2QU0abOaaq2dYW0Ug8e9zRHi7KEDg55yt4PsfI=
+github.com/webong/workload v0.2.1 h1:37km+UpZ9hWKghxCanqhhppcJ7gLH7ezSEBXRguKb00=
+github.com/webong/workload v0.2.1/go.mod h1:lC/bADOvSWVFF6YFmbyTlmE5SVPn8qTafFx+t5lG2tA=
 github.com/zenazn/goji v0.9.0/go.mod h1:7S9M489iMyHBNxwZnk9/EHS098H4/F6TATF2mIxtB1Q=
 go.uber.org/atomic v1.3.2/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=
 go.uber.org/atomic v1.4.0/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=

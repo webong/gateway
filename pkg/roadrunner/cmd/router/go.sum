@@ -570,6 +570,8 @@ github.com/webong/ext/pkg/ext-go/engine v0.3.0 h1:BSsdKtqiWKLkhXLQc2dKAPl5fFlQMb
 github.com/webong/ext/pkg/ext-go/engine v0.3.0/go.mod h1:lnYoMIb5lKAnz60k2oG47rhxxFqOLA5MT3IaU5rlU4s=
 github.com/webong/proxy/go v0.4.0 h1:xk8+YtGgIYiBuheJuieHbeN4O44TvOexog8Bqs8tajk=
 github.com/webong/proxy/go v0.4.0/go.mod h1:1m2Gu2QU0abOaaq2dYW0Ug8e9zRHi7KEDg55yt4PsfI=
+github.com/webong/workload v0.2.1 h1:37km+UpZ9hWKghxCanqhhppcJ7gLH7ezSEBXRguKb00=
+github.com/webong/workload v0.2.1/go.mod h1:lC/bADOvSWVFF6YFmbyTlmE5SVPn8qTafFx+t5lG2tA=
 github.com/xyproto/randomstring v1.0.5 h1:YtlWPoRdgMu3NZtP45drfy1GKoojuR7hmRcnhZqKjWU=
 github.com/xyproto/randomstring v1.0.5/go.mod h1:rgmS5DeNXLivK7YprL0pY+lTuhNQW3iGxZ18UQApw/E=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=

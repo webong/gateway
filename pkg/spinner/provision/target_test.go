@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestTargetControlPlaneIsScopedAndFailsClosed(t *testing.T) {
@@ -87,48 +86,6 @@ func TestTargetChecksAreReadOnlyAndExplicit(t *testing.T) {
 	target.Connection.Kubeconfig = "relative"
 	if err := target.Check(t.Context(), cfg, &recordingCommandRunner{}); err == nil {
 		t.Fatal("accepted ambient kubeconfig")
-	}
-}
-
-func TestRemoteDriversKeepContextForCleanupAndProcessStop(t *testing.T) {
-	runner := &recordingCommandRunner{outputs: []string{
-		"container-1",
-		`{"Id":"container-1","Name":"/gateway-old","Config":{"Labels":{"gateway.provisioning.node":"node","gateway.provisioning.instance":"old"}},"State":{"Running":true}}`,
-		"", "",
-	}}
-	docker, err := newDockerDriver(DockerDriverConfig{Context: "ssh-host", Binary: "docker", NodeID: "node", PublishHost: "10.0.0.4", StartTimeout: time.Second, StopTimeout: time.Second}, runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := docker.PrepareDesired(t.Context(), nil); err != nil {
-		t.Fatal(err)
-	}
-	process := &dockerProcess{runner: docker.runner, binary: "docker", containerID: "container-1", stopTimeout: time.Second, done: make(chan struct{})}
-	if err := process.Stop(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	for _, call := range runner.calls {
-		if !strings.HasPrefix(call, "docker --context ssh-host ") {
-			t.Fatalf("lost Docker context: %s", call)
-		}
-	}
-	runner = &recordingCommandRunner{outputs: []string{`{"items":[]}`}}
-	kube, err := newKubernetesDriver(KubernetesDriverConfig{Context: "cluster-b", Kubeconfig: "/run/kubeconfig", KubectlBinary: "kubectl", NodeID: "node", Namespace: "events", ImagePullPolicy: "IfNotPresent", RouteMode: "pod-ip", StartTimeout: time.Second, StopTimeout: time.Second}, runner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := kube.PrepareDesired(t.Context(), nil); err != nil {
-		t.Fatal(err)
-	}
-	kube.remove("pod-1")
-	kp := &kubernetesProcess{runner: kube.runner, binary: "kubectl", namespace: "events", name: "pod-1", done: make(chan struct{}), stopTimeout: time.Second}
-	if err := kp.Stop(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	for _, call := range runner.calls {
-		if !strings.HasPrefix(call, "kubectl --kubeconfig /run/kubeconfig --context cluster-b --namespace events ") {
-			t.Fatalf("lost Kubernetes context: %s", call)
-		}
 	}
 }
 

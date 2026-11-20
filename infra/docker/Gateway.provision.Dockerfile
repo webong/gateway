@@ -7,6 +7,7 @@ RUN GOWORK=off go -C pkg/spinner mod download
 
 # The worker and workload integrations do not embed PHP or script runtimes.
 RUN CGO_ENABLED=0 GOWORK=off go -C pkg/spinner build -mod=readonly -trimpath -o /out/gateway-provision ./cmd/provision \
+    && CGO_ENABLED=0 GOWORK=off go -C pkg/spinner build -mod=readonly -trimpath -o /out/gateway-workload-supervisor ./cmd/workload-supervisor \
     && for integration in centrifugo mercure reverb; do \
         CGO_ENABLED=0 GOWORK=off go -C "pkg/$integration" build -mod=readonly -trimpath \
             -o "/out/gateway-$integration" ./cmd/integration; \
@@ -18,10 +19,15 @@ RUN apk add --no-cache ca-certificates \
     && addgroup -g 10001 -S gateway \
     && adduser -u 10001 -S -G gateway -h /home/gateway gateway
 
+COPY --from=builder /out/gateway-workload-supervisor /usr/local/bin/gateway-workload-supervisor
 COPY --from=builder /out/gateway-provision /usr/local/bin/gateway-provision
 COPY --from=builder /out/gateway-centrifugo /usr/local/libexec/gateway/integrations/gateway-centrifugo
 COPY --from=builder /out/gateway-mercure /usr/local/libexec/gateway/integrations/gateway-mercure
 COPY --from=builder /out/gateway-reverb /usr/local/libexec/gateway/integrations/gateway-reverb
+
+ENV GATEWAY_PROVISIONING_STATE_DIR=/data/workload
+RUN mkdir -p /data/workload && chown -R gateway:gateway /data
+VOLUME /data
 
 ENV GATEWAY_INTEGRATION_PATHS=/usr/local/libexec/gateway/integrations/gateway-centrifugo:/usr/local/libexec/gateway/integrations/gateway-mercure:/usr/local/libexec/gateway/integrations/gateway-reverb
 USER 10001:10001

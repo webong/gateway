@@ -26,7 +26,10 @@ final readonly class InternalAssignmentController
             'node_id' => ['required', 'string', 'max:255'],
             'drivers' => ['required', 'array', 'min:1'],
             'drivers.*' => ['string', 'in:local,docker,kubernetes'],
-            'session_id' => ['sometimes', 'string', 'regex:/\A[0-9a-f]{32}\z/D'],
+            'execution_protocol' => ['required', 'in:workload/v1'],
+            'owner_id' => ['required', 'string', 'regex:/\A[0-9a-f]{32}\z/D'],
+            'legacy_drained' => ['sometimes', 'boolean'],
+            'session_id' => ['required', 'string', 'regex:/\A[0-9a-f]{32}\z/D'],
         ]);
         if ($validator->fails()) {
             return response()->json(['message' => 'The provisioning node heartbeat is invalid.', 'errors' => $validator->errors()->toArray()], Response::HTTP_UNPROCESSABLE_ENTITY);
@@ -36,10 +39,14 @@ final readonly class InternalAssignmentController
         if ($target !== null && $drivers !== [$target->driver]) {
             return response()->json(['message' => 'Worker drivers must match its target.'], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-        $assignment = $this->coordinator->assignments($node, $drivers, $target?->getKey(), $validator->validated()['session_id'] ?? 'legacy');
+        $assignment = $this->coordinator->assignments($node, $drivers, $target?->getKey(), $validator->validated()['session_id'], $validator->validated()['owner_id'], $validator->validated()['legacy_drained'] ?? false);
 
         return response()->json(['data' => $assignment['data'], 'meta' => [
             'leader_id' => $assignment['leader_id'],
+            'execution_protocol' => 'workload/v1',
+            'owner_id' => $validator->validated()['owner_id'],
+            'issued_at_ms' => $assignment['issued_at_ms'],
+            'permission_expires_at_ms' => $assignment['permission_expires_at_ms'],
             'session_id' => $validator->validated()['session_id'] ?? 'legacy',
         ]]);
     }
@@ -48,12 +55,13 @@ final readonly class InternalAssignmentController
     {
         $target = $this->authenticator->target($request);
         $validator = $this->validator->make($request->json()->all(), [
+            'cleanup_confirmed' => ['required', 'accepted'],
             'session_id' => ['required', 'string', 'regex:/\A[0-9a-f]{32}\z/D'],
         ]);
         if ($validator->fails()) {
             return response()->json(['message' => 'The worker session is invalid.', 'errors' => $validator->errors()->toArray()], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
-        abort_unless($this->coordinator->release($node, $validator->validated()['session_id'], $target?->getKey()), Response::HTTP_CONFLICT);
+        abort_unless($this->coordinator->release($node, $validator->validated()['session_id'], $target?->getKey(), $request->header('X-Gateway-Worker-Owner')), Response::HTTP_CONFLICT);
 
         return response()->noContent();
     }

@@ -58,7 +58,22 @@ func (s ServerSpec) Validate() error {
 	return nil
 }
 
+// EndpointSpec declares an application port without coupling authoring to a runtime.
+type EndpointSpec struct {
+	Name string
+	Port int
+}
+
+// ResourceLimits are enforced by the selected driver; unsupported limits fail closed.
+type ResourceLimits struct {
+	MemoryBytes int64
+	MilliCPU    int64
+	PIDs        int64
+}
+
 type LaunchSpec struct {
+	Endpoints        []EndpointSpec
+	Limits           ResourceLimits
 	Image            string
 	Executable       string
 	Arguments        []string
@@ -76,4 +91,17 @@ type Provisioner interface {
 	Supports(runtime string) bool
 	Validate(spec ServerSpec) error
 	Launch(spec ServerSpec, runtime, host string, port int) (LaunchSpec, error)
+}
+
+// Placement supplies reusable named ports when a local service is recovered.
+// Definitions describe a launch; they never bind listeners or start processes.
+type Placement struct {
+	Driver   string
+	BindHost string
+	Ports    map[string]int
+}
+
+// PlacementProvisioner is optional. Legacy single-port definitions keep using Launch.
+type PlacementProvisioner interface {
+	LaunchPlacement(ServerSpec, Placement) (LaunchSpec, error)
 }

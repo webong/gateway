@@ -13,7 +13,9 @@ WORKDIR /src/gateway/pkg/roadrunner/cmd/router
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 go build -mod=readonly -trimpath -ldflags="-s -w" \
-        -tags="${GATEWAY_BUILD_TAGS}" -o /tmp/gateway-router-roadrunner .
+        -tags="${GATEWAY_BUILD_TAGS}" -o /tmp/gateway-router-roadrunner . \
+    && CGO_ENABLED=0 GOWORK=off go -C /src/gateway/pkg/spinner build -mod=readonly -trimpath \
+        -o /tmp/gateway-workload-supervisor ./cmd/workload-supervisor
 
 # RoadRunner uses ordinary PHP CLI workers; no ZTS or embed SAPI is required.
 FROM php:8.4-cli-alpine AS roadrunner-php-base
@@ -41,6 +43,7 @@ RUN --mount=type=cache,target=/tmp/composer-cache \
         composer dump-autoload --no-dev --no-interaction --optimize
 
 FROM roadrunner-php-base AS roadrunner
+COPY --from=roadrunner-builder /tmp/gateway-workload-supervisor /usr/local/bin/gateway-workload-supervisor
 COPY --from=roadrunner-builder /tmp/gateway-router-roadrunner /usr/local/bin/gateway-router-roadrunner
 COPY --from=roadrunner-planner-builder /src/gateway/app /gateway/app
 COPY --from=roadrunner-planner-builder /src/gateway/pkg /gateway/pkg
@@ -119,7 +122,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_CFLAGS="$(php-config --includes)" \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     go build -mod=readonly -tags="nobrotli,nowatcher,nomercure,${GATEWAY_BUILD_TAGS}" \
-    -o /tmp/gateway-router-library .
+    -o /tmp/gateway-router-library . \
+    && CGO_ENABLED=0 GOWORK=off go -C /src/gateway/pkg/spinner build -mod=readonly -trimpath \
+        -o /tmp/gateway-workload-supervisor ./cmd/workload-supervisor
 
 FROM debian:bookworm-slim AS frankenphp-php-base
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -144,6 +149,7 @@ RUN --mount=type=cache,target=/tmp/composer-cache \
         composer dump-autoload --no-dev --no-interaction --optimize
 
 FROM frankenphp-php-base AS frankenphp
+COPY --from=frankenphp-router-builder /tmp/gateway-workload-supervisor /usr/local/bin/gateway-workload-supervisor
 COPY --from=frankenphp-router-builder /tmp/gateway-router-library /usr/local/bin/gateway-router-library
 COPY --from=frankenphp-planner-builder /src/gateway /gateway
 WORKDIR /gateway

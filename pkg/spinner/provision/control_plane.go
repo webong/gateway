@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 )
 
 const maxControlResponseSize = 4 * 1024 * 1024
@@ -26,11 +27,13 @@ type ControlPlane interface {
 }
 
 type HTTPControlPlane struct {
-	client    *http.Client
-	base      *url.URL
-	token     string
-	targetID  string
-	sessionID string
+	client        *http.Client
+	base          *url.URL
+	token         string
+	targetID      string
+	sessionID     string
+	ownerID       string
+	legacyDrained bool
 }
 
 func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPControlPlane, error) {
@@ -55,52 +58,96 @@ func NewHTTPControlPlane(backendURL, token string, client *http.Client) (*HTTPCo
 	return &HTTPControlPlane{client: client, base: backend, token: token, sessionID: hex.EncodeToString(random[:])}, nil
 }
 
+type assignmentDocument struct {
+	Data []ServerSpec `json:"data"`
+	Meta struct {
+		LeaderID  string `json:"leader_id"`
+		SessionID string `json:"session_id"`
+		OwnerID   string `json:"owner_id"`
+		Protocol  string `json:"execution_protocol"`
+		IssuedAt  int64  `json:"issued_at_ms"`
+		ExpiresAt int64  `json:"permission_expires_at_ms"`
+	} `json:"meta"`
+}
+type executionSnapshot struct {
+	specs    []ServerSpec
+	deadline time.Time
+}
+
 func (c *HTTPControlPlane) Assignments(ctx context.Context, nodeID string, drivers []string) ([]ServerSpec, string, error) {
-	payload, err := json.Marshal(map[string]any{"drivers": drivers, "session_id": c.sessionID})
+	document, err := c.loadAssignments(ctx, nodeID, drivers)
 	if err != nil {
-		return nil, "", fmt.Errorf("encode provisioning node heartbeat: %w", err)
+		return nil, "", err
+	}
+	return document.Data, document.Meta.LeaderID, nil
+}
+
+func (c *HTTPControlPlane) executionAssignments(ctx context.Context, nodeID string, drivers []string, maxLease time.Duration) (executionSnapshot, string, error) {
+	started := time.Now()
+	document, err := c.loadAssignments(ctx, nodeID, drivers)
+	if err != nil {
+		return executionSnapshot{}, "", err
+	}
+	meta := document.Meta
+	if meta.Protocol != "workload/v1" || c.ownerID == "" || meta.OwnerID != c.ownerID || meta.IssuedAt <= 0 || meta.ExpiresAt <= meta.IssuedAt || maxLease <= 0 {
+		return executionSnapshot{}, "", fmt.Errorf("Planner lacks the Workload ownership/deadline protocol; upgrade Planner before starting this worker")
+	}
+	// Subtract timestamps before converting to Duration to reject overflow.
+	millis := meta.ExpiresAt - meta.IssuedAt
+	if millis > int64((24*time.Hour)/time.Millisecond) {
+		return executionSnapshot{}, "", fmt.Errorf("invalid execution permission interval")
+	}
+	budget := min(time.Duration(millis)*time.Millisecond, maxLease)
+	deadline := started.Add(budget - 100*time.Millisecond)
+	if !time.Now().Before(deadline) {
+		return executionSnapshot{}, "", fmt.Errorf("execution permission expired in transit")
+	}
+	return executionSnapshot{specs: document.Data, deadline: deadline}, meta.LeaderID, nil
+}
+
+func (c *HTTPControlPlane) loadAssignments(ctx context.Context, nodeID string, drivers []string) (*assignmentDocument, error) {
+	payload, err := json.Marshal(map[string]any{"drivers": drivers, "session_id": c.sessionID, "owner_id": c.ownerID, "execution_protocol": "workload/v1", "legacy_drained": c.legacyDrained})
+	if err != nil {
+		return nil, fmt.Errorf("encode provisioning node heartbeat: %w", err)
 	}
 	request, err := c.request(ctx, http.MethodPut, "/_internal/provisioning/nodes/"+url.PathEscape(nodeID)+"/assignments", bytes.NewReader(payload))
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := c.client.Do(request)
 	if err != nil {
-		return nil, "", fmt.Errorf("load provisioned assignments: %w", err)
+		return nil, fmt.Errorf("load provisioned assignments: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		if response.StatusCode == http.StatusLocked {
-			return nil, "", ErrNodeSessionActive
+			return nil, ErrNodeSessionActive
 		}
-		return nil, "", fmt.Errorf("load provisioned assignments: status %d", response.StatusCode)
+		return nil, fmt.Errorf("load provisioned assignments: status %d", response.StatusCode)
 	}
 
-	var document struct {
-		Data []ServerSpec `json:"data"`
-		Meta struct {
-			LeaderID  string `json:"leader_id"`
-			SessionID string `json:"session_id"`
-		} `json:"meta"`
-	}
+	var document assignmentDocument
 	if err := decodeResponse(response.Body, &document); err != nil {
-		return nil, "", fmt.Errorf("decode provisioned assignments: %w", err)
+		return nil, fmt.Errorf("decode provisioned assignments: %w", err)
+	}
+	if document.Data == nil {
+		return nil, fmt.Errorf("Planner response must contain a complete assignment array")
 	}
 	if document.Meta.SessionID != c.sessionID {
-		return nil, "", fmt.Errorf("Planner did not confirm provisioning worker session; upgrade Planner before using this Spinner")
+		return nil, fmt.Errorf("Planner did not confirm provisioning worker session; upgrade Planner before using this Spinner")
 	}
 	for _, spec := range document.Data {
 		if spec.TargetID != c.targetID {
-			return nil, "", fmt.Errorf("received assignment for a different deployment target")
+			return nil, fmt.Errorf("received assignment for a different deployment target")
 		}
 		if err := spec.Validate(); err != nil {
-			return nil, "", err
+			return nil, err
 		}
 	}
 
-	return document.Data, document.Meta.LeaderID, nil
+	return &document, nil
 }
 
 func (c *HTTPControlPlane) Report(ctx context.Context, serverID, instanceID string, report InstanceReport) error {
@@ -154,7 +201,7 @@ func (c *HTTPControlPlane) ResetNode(ctx context.Context, nodeID string) error {
 // release; its session remains fenced until the Planner coordination lease
 // expires.
 func (c *HTTPControlPlane) ReleaseNode(ctx context.Context, nodeID string) error {
-	payload, err := json.Marshal(map[string]string{"session_id": c.sessionID})
+	payload, err := json.Marshal(map[string]any{"session_id": c.sessionID, "cleanup_confirmed": true})
 	if err != nil {
 		return err
 	}
@@ -187,6 +234,7 @@ func (c *HTTPControlPlane) request(ctx context.Context, method, endpoint string,
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-Gateway-Internal", c.token)
 	request.Header.Set("X-Gateway-Worker-Session", c.sessionID)
+	request.Header.Set("X-Gateway-Worker-Owner", c.ownerID)
 	if c.targetID != "" {
 		request.Header.Set("X-Gateway-Target", c.targetID)
 	}

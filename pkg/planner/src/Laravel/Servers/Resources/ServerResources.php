@@ -96,6 +96,7 @@ final class ServerResources
             'server_id' => $instance->server_id,
             'node_id' => $instance->node_id,
             'runtime' => $instance->runtime,
+            'endpoints' => $instance->endpoints ?? [],
             'pid' => $instance->pid,
             'host' => $instance->host,
             'port' => $instance->port,
