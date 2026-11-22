@@ -17,11 +17,13 @@ final readonly class SubscribeEndpoint
         private WebProxyRegistryManager $registryManager,
         private WebProxyChannelManager $channelManager,
         private SubscriptionTargetExtensionRegistry $targetExtensions,
+        private RequestMatcher $conditions,
         private ?RegistryRouteCache $routeCache = null,
     ) {}
 
     public function handle(string $endpointKey, SubscriptionDefinition $subscription): DestinationRecord
     {
+        $this->conditions->validate($subscription->match);
         $extension = $this->targetExtensions->forKind($subscription->targetKind);
         $extension->assertDefinition($subscription);
         $resolved = $this->registryManager->resolveByKey($endpointKey, $this->channelManager->registries($subscription->channel));

@@ -88,6 +88,12 @@ final class GatewayServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->singleton(\Webong\WorkFlow\Conditions\ConditionCompiler::class, fn ($app) => new \Webong\WorkFlow\Conditions\ConditionCompiler([
+            new \Webong\WorkFlow\Jq\JqConditionDriver(),
+            new \Webong\WorkFlow\Illuminate\RuleConditionDriver(new \Webong\WorkFlow\Illuminate\RuleMatcher($app->make(\Illuminate\Contracts\Validation\Factory::class))),
+        ]));
+        $this->app->singleton(\Webong\WorkFlow\Conditions\ConditionAuthoringValidator::class);
+
         $this->app->singleton(\Webong\Gateway\Migrations\MigrationRegistry::class);
         $this->app->register(ProxyMigrationServiceProvider::class);
         $this->mergeConfigFrom(dirname(__DIR__, 2).'/config/gateway.php', 'gateway');
@@ -388,6 +394,8 @@ final class GatewayServiceProvider extends ServiceProvider
                     SubscriptionMatchController::class,
                 )
                 ->name('registry.subscriptions.match.patch');
+            $this->app['router']->put('/registry/endpoints/{endpointKey}/subscriptions/{destinationId}/match', SubscriptionMatchController::class)
+                ->name('registry.subscriptions.match.replace');
         });
     }
 }

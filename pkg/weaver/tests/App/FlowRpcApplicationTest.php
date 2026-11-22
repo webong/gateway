@@ -14,7 +14,8 @@ use Webong\WorkFlow\Contracts\FlowStepExecutor;
 use Webong\WorkFlow\Contracts\ForgettableFlowStateStore;
 use Webong\Gateway\Weaver\FlowRpcApplication;
 use Webong\Gateway\Weaver\RpcFailure;
-use Webong\WorkFlow\OpenWorkflow\OpenWorkflow;
+use Webong\WorkFlow\OpenWorkflow\OwsDefinitionDriver;
+use Webong\WorkFlow\Services\FlowDefinitionImporter;
 use Webong\WorkFlow\Services\FlowExecutionDispatcher;
 use Webong\WorkFlow\Services\FlowRunner;
 use Webong\WorkFlow\Services\InMemoryFlowStateStore;
@@ -365,7 +366,7 @@ final class FlowRpcApplicationTest extends TestCase
             $definitions,
             $stores,
             new FlowExecutionDispatcher([new InlineFlowExecutionDriver(new FlowRunner(), [$executor]), ...$drivers]),
-            ows: $ows ? new OpenWorkflow() : null,
+            ows: $ows ? new FlowDefinitionImporter([new OwsDefinitionDriver()]) : null,
             operationProviders: $operations ? [$executor] : [],
         );
     }

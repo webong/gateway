@@ -4,8 +4,8 @@
     "projections": {
         "webong/workflow": {
             "format": 1,
-            "reference": "278861082e00537fe7e759eb7c8bee3e7a3f0bf4",
-            "version": "v0.1.0-rc.2",
+            "reference": "54e7502b89ac4debd31942b929e9812b0c5aa9cf",
+            "version": "v0.1.0-rc.4",
             "surfaces": [
                 "core"
             ],
@@ -14,19 +14,19 @@
                 "CONTEXT.md",
                 "LICENSE",
                 "README.md",
-                "app/src/FlowAuthoringCli.php",
                 "bin/workflow",
                 "composer.json",
-                "docs/authoring.md",
-                "docs/composer-surfaces.md",
-                "docs/php-library.md",
-                "docs/run-lifecycle.md",
-                "ext/Laravel/WorkFlowServiceProvider.php",
+                "composer.surface.json",
+                "docs",
+                "docs/composer.json",
+                "src",
                 "src/**",
-                "types/**"
+                "src/composer.json",
+                "types",
+                "types/composer.json"
             ],
-            "patterns_digest": "53733b18d05f93d139a21f65091878fd8c7dc651d495c03c906f91a276cbe620",
-            "definition_digest": "59f7f524d3591503e9d9929ffd5904ada3ca8f168494af84d57af794e5252f47"
+            "patterns_digest": "f6434434c09fc7ffed69457d2feba7d05945b9637a0a35583d631437398be85b",
+            "definition_digest": "8b0824a6be75c928e5dc3a907db9a100fa4b2109d64332bc9ab12d962da06375"
         }
     }
 }

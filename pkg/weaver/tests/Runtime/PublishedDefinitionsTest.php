@@ -34,4 +34,12 @@ final class PublishedDefinitionsTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         new PublishedDefinitions([self::DOCUMENT,[...self::DOCUMENT,'version'=>2]],new ApprovedOperations(ApprovedOperations::KEYS));
     }
+    public function testInstallingCoreDoesNotSilentlyEnableStepConditionDrivers(): void
+    {
+        $document=self::DOCUMENT;
+        $document['steps'][0]['metadata']['when']=['syntax'=>'jq','expression'=>'true'];
+        $this->expectException(\InvalidArgumentException::class);
+        new PublishedDefinitions([$document],new ApprovedOperations(ApprovedOperations::KEYS));
+    }
+
 }

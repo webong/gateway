@@ -6,6 +6,7 @@
 .gateway-router-data
 dist
 vendor
+**/vendor
 bin
 node_modules
 app/vendor

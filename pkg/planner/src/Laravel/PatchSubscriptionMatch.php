@@ -12,6 +12,7 @@ final readonly class PatchSubscriptionMatch
 {
     public function __construct(
         private SubscriptionRegistry $subscriptions,
+        private RequestMatcher $conditions,
     ) {
     }
 
@@ -26,7 +27,7 @@ final readonly class PatchSubscriptionMatch
             $endpointKey,
             $destinationId,
             $expectedRevision,
-            static function (ResolvedSubscription $resolved) use ($patch): array {
+            function (ResolvedSubscription $resolved) use ($patch): array {
                 $stored = $resolved->destination->metadata[MatchRules::METADATA_KEY] ?? null;
                 if ($stored === null) {
                     $current = MatchRules::any();
@@ -37,6 +38,7 @@ final readonly class PatchSubscriptionMatch
                 }
 
                 $updated = $patch->apply($current);
+                $this->conditions->validate($updated);
 
                 return ['metadata' => [
                     ...$resolved->destination->metadata,
@@ -46,4 +48,14 @@ final readonly class PatchSubscriptionMatch
             $channel,
         );
     }
+    public function replace(string $endpointKey, string $destinationId, MatchRules $condition, string $expectedRevision, ?string $channel = null): SubscriptionResource
+    {
+        $this->conditions->validate($condition);
+        return $this->subscriptions->mutate($endpointKey, $destinationId, $expectedRevision,
+            static fn (ResolvedSubscription $resolved): array => ['metadata' => [
+                ...$resolved->destination->metadata,
+                MatchRules::METADATA_KEY => $condition->toArray(),
+            ]], $channel);
+    }
+
 }

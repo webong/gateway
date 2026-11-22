@@ -31,14 +31,14 @@ with tempfile.TemporaryDirectory(prefix='weaver-package-') as temporary:
     manifest=json.loads((package/'plugin.json').read_text());identity=manifest['descriptor']['identity']
     assert identity['id']=='webong/gateway-weaver'
     planner=manifest['metadata']['gateway.planner/v1'];assert planner['composer']==identity['id'] and planner['version']==identity['version']
-    assert manifest['metadata']['gateway.weaver/v1']['source']=='278861082e00537fe7e759eb7c8bee3e7a3f0bf4'
+    assert manifest['metadata']['gateway.weaver/v1']['source']=='54e7502b89ac4debd31942b929e9812b0c5aa9cf'
     assert manifest['metadata']['gateway.weaver/v1']['surfaces']==['core']
     arch=manifest['metadata']['gateway.spinner/v1']['platform']['arch'];assert arch in ('amd64','arm64')
     if args.release:
         assert args.asset_base and args.asset_base.startswith('https://'),'Release requires a reviewed HTTPS asset base'
         assert subprocess.check_output(['git','rev-parse','HEAD'],cwd=source,text=True).strip()==identity['revision']
         assert not subprocess.check_output(['git','status','--porcelain'],cwd=source,text=True).strip(),'Release source must be clean'
-        assert manifest['metadata']['gateway.weaver/v1']['runtimeImage']=='ghcr.io/webong/workflow@sha256:dc876bfa06d295e4049a5658ef813d56a536db22c069da674633151664813d9e','Reviewed runtime digest required'
+        assert manifest['metadata']['gateway.weaver/v1']['runtimeImage']=='ghcr.io/webong/workflow@sha256:ec4463a8af08c0eb197aee4839945c248d913415dc1366c66e2431ba59196cc6','Reviewed runtime digest required'
         assert re.fullmatch(r'[a-f0-9]{40}',identity['revision']),'Release requires a clean source commit'
         assert re.fullmatch(r'\d+\.\d+\.\d+(?:-rc\.\d+)?',identity['version']),'Release version required'
     expected={'plugin.json'};names={}

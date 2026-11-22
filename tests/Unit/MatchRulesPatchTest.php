@@ -61,7 +61,7 @@ it('rejects unsafe rules and malformed operations', function (array $payload, st
             'field' => 'body.account.id',
             'rules' => ['exists:accounts,id'],
         ]],
-    ], 'Match rule [exists] is not allowed.'],
+    ], 'Rule is not allowed.'],
     'missing add rules' => [[
         'version' => 'v1',
         'operations' => [[

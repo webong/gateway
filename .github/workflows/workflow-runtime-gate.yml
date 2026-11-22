@@ -61,6 +61,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/checkout@v4
         with:
+          # Retain the original standalone host as the rollback baseline.
+          # Weaver itself installs the separately pinned rc.4 runtime/core.
           repository: webong/workflow
           ref: 00e0bbcdd61c2c6ed96af55865d0ef2e77557adb
           path: .workflow-gate-source

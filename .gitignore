@@ -9,3 +9,5 @@
 /.workflow-gate-source/
 
 /app/ext/proxy/
+/pkg/weaver/tests/consumer/vendor/
+/pkg/weaver/.phpunit.result.cache

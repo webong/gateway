@@ -19,6 +19,7 @@ use Webong\Gateway\Laravel\PatchSubscriptionMatch;
 use Webong\Gateway\Laravel\RegistryRequestAuthenticator;
 use Webong\Gateway\Laravel\SubscriptionTargetExtensionRegistry;
 use Webong\Gateway\Protocols\MatchRulesPatch;
+use Webong\Gateway\Protocols\MatchRules;
 use Webong\Gateway\Protocols\SubscriptionState;
 
 final readonly class SubscriptionMatchController
@@ -39,10 +40,11 @@ final readonly class SubscriptionMatchController
         if ($principal instanceof JsonResponse) {
             return $principal;
         }
+        $replacement = $request->isMethod('PUT');
         $input = $request->json()->all();
         $validator = $this->validator->make($input, [
             'version' => ['required', 'string'],
-            'operations' => ['required', 'array', 'min:1', 'max:128'],
+            ...($replacement ? [] : ['operations' => ['required', 'array', 'min:1', 'max:128']]),
             'channel' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -74,14 +76,9 @@ final readonly class SubscriptionMatchController
             $expectedRevision = SubscriptionState::parseEtag($request->header('If-Match'));
             $patchPayload = $input;
             unset($patchPayload['channel']);
-            $patch = MatchRulesPatch::fromArray($patchPayload);
-            $resource = $this->subscriptions->handle(
-                endpointKey: $endpointKey,
-                destinationId: $destinationId,
-                patch: $patch,
-                expectedRevision: $expectedRevision,
-                channel: $input['channel'] ?? null,
-            );
+            $resource = $replacement
+                ? $this->subscriptions->replace($endpointKey, $destinationId, MatchRules::fromArray($patchPayload), $expectedRevision, $input['channel'] ?? null)
+                : $this->subscriptions->handle($endpointKey, $destinationId, MatchRulesPatch::fromArray($patchPayload), $expectedRevision, $input['channel'] ?? null);
         } catch (EndpointNotFoundException|SubscriptionNotFoundException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
