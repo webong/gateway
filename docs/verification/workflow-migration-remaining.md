@@ -10,8 +10,8 @@ name on 2026-11-14. The engine stays `webong/workflow`.
 
 The production Spinner entrypoint, bridge, worker, application stores, explicit
 schema installer and account-scoped runtime authorization have been extracted.
-The dependency now uses released WorkFlow v0.1.0-rc.2 at
-`278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, installed as a dist with a root-owned
+The dependency now uses released WorkFlow v0.1.0-rc.4 at
+`54e7502b89ac4debd31942b929e9812b0c5aa9cf`, installed as a dist with a root-owned
 core projection. The installed Planner provider and resource tests pass, including exact Composer
 TAR installation.
 PR #24 was merged into main at `543e8d500195625d802125177790a2f8ffad8fd0`.
@@ -27,8 +27,8 @@ This does not authorize publishing, deployment or old-app removal.
 
 ## Dependency and extraction (gate 3)
 
-- Completed: compatible independent core v0.1.0-rc.2, tagged dist consumption,
-  production `core` projection and separate compatibility-test surface union.
+- Completed: independent core v0.1.0-rc.4, tagged dist consumption,
+  production `core` projection and explicitly installed optional compatibility-test packages.
   Both consumer lockfiles and projection locks are committed with the consumer.
 - Completed: extracted application RPC facade, account/subject identity, PDO stores,
   worker, bridge and tests live under Weaver, separate from the engine.
@@ -131,7 +131,7 @@ This does not authorize publishing, deployment or old-app removal.
   The active WorkFlow checkout includes that commit; the primary local checkout
   previously inspected was stale. The new source namespace/path has no legacy
   aliases; this is not an in-place upgrade contract. Existing rc.2 releases remain
-  immutable, Weaver stays pinned to rc.2, and rollback rehearsal retains its
+  immutable. Weaver now uses rc.4, while rollback rehearsal retains its
   original `00e0bbcdd61c2c6ed96af55865d0ef2e77557adb` source. See WorkFlow's
   [source-layout guidance](https://github.com/webong/workflow/blob/main/docs/standalone-example.md).
 - Production retirement still requires accepted replacement installation/cutover
