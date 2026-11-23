@@ -8,8 +8,8 @@ logical run IDs are preserved.
 
 **Development status:** Weaver owns the Spinner runtime, bridge, worker, queue/RPC
 stores, explicit operational installer, account grants and Planner resource
-provider. Production uses the released `webong/workflow:0.1.0-rc.2` dist at
-`278861082e00537fe7e759eb7c8bee3e7a3f0bf4`, projected to the `core` surface.
+provider. Production uses the released `webong/workflow:0.1.0-rc.4` dist at
+`54e7502b89ac4debd31942b929e9812b0c5aa9cf`, projected to the `core` surface.
 The native host and SQL acceptance passed. Offline copied-data cutover/rollback
 is implemented and rehearsed on all three SQL engines and real RPC endpoints.
 PR #24 is merged into main. Private, empty-cache HTTPS download/installation
@@ -86,8 +86,9 @@ WorkFlow VCS repository, trust `webong/composer-source-plugin` and select the
 `core` projection. Keep both `composer.lock` and `composer-source.lock`.
 The root-owned policy and two-pass locked installation are demonstrated in
 `planner-test.Dockerfile`; production artifact installation is in `Dockerfile`.
-The test consumer selects `core`, `open-workflow` and `temporal` for compatibility
-coverage, without widening the production closure.
+The test consumer keeps the `core` projection and explicitly installs the rc.4
+OpenWorkflow, Temporal and jq adapter packages for compatibility coverage, without
+widening the production closure.
 
 Composer's `register.php` entrypoint registers `WeaverServiceProvider` when a
 Gateway Planner is present. Operator-authenticated routes publish immutable
@@ -146,9 +147,10 @@ worker claims and leaves uncertain work to fenced leases and reconciliation.
 ## Standalone app retirement
 
 WorkFlow moved its source host to `examples/standalone` at `ab517494`, as testing
-and reference code. The new source namespace/path has no legacy aliases; existing
-rc.2 releases remain immutable. Weaver still consumes rc.2 and rehearses rollback
-against its original pinned standalone source. See WorkFlow's
+and reference code. The new source namespace/path has no legacy aliases.
+Existing releases remain immutable. Weaver now consumes rc.4 and rehearses rollback
+against the original pinned rc.2 standalone source. Planner and Weaver use the same
+core release; their native/host acceptance gates remain separate. See WorkFlow's
 [source-layout guide](https://github.com/webong/workflow/blob/main/docs/standalone-example.md).
 
 Retiring an existing production host still requires replacement installation,
@@ -176,3 +178,18 @@ the runtime archives with runtime-only checksum and Gateway metadata entries;
 do not upload the complete candidate directory or its Composer fixtures. See
 `docs/verification/weaver-release.md` in the Gateway repository for the asset list.
 The core-release publication exception does not publish Weaver.
+
+
+## Workflow rc.4 and driver boundaries
+
+Planner and Weaver pin `webong/workflow:0.1.0-rc.4`. The native worker uses the
+reviewed immutable rc.4 image and its own verified core projection. The original
+rc.2 standalone source remains a rollback fixture; it is not Weaver's dependency.
+
+Planner explicitly enables the Illuminate rules and jq drivers for subscription
+matching. Installing the same core in Weaver does not enable workflow step guards,
+OWS, Temporal or any other execution engine automatically. The compatibility test
+consumer explicitly installs rc.4 adapter packages; production remains core-only.
+Optional OWS RPC composition supplies `FlowDefinitionImporter([new OwsDefinitionDriver()])`.
+Native execution, queue ownership, database compatibility and all three Gateway
+hosts must pass the acceptance gates before this upgrade is accepted.

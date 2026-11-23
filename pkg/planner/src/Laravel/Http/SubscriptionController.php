@@ -27,6 +27,7 @@ final readonly class SubscriptionController
         private RegistryRequestAuthenticator $authenticator,
         private EndpointAccountAccessStore $endpointAccess,
         private SubscriptionTargetExtensionRegistry $targetExtensions,
+        private \Webong\Gateway\Laravel\RequestMatcher $conditions,
     ) {}
 
     public function __invoke(Request $request, string $endpointKey): JsonResponse
@@ -66,7 +67,6 @@ final readonly class SubscriptionController
             'metadata' => ['sometimes', 'array'],
             'match' => ['sometimes', 'array'],
             'match.version' => ['required_with:match', 'string'],
-            'match.rules' => ['required_with:match', 'array'],
             ...$targetRules,
         ];
         $validator = $this->validator->make($input, $rules);
@@ -89,6 +89,7 @@ final readonly class SubscriptionController
 
         try {
             $match = array_key_exists('match', $input) ? MatchRules::fromArray($input['match']) : MatchRules::any();
+            $this->conditions->validate($match);
         } catch (InvalidArgumentException $exception) { return $this->invalid(['match' => [$exception->getMessage()]]); }
 
         try {

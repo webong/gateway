@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Webong\Gateway\Laravel;
 
-use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use InvalidArgumentException;
+use Psr\Log\LoggerInterface;
 use Webong\Gateway\Protocols\IngressRequest;
 use Webong\Gateway\Protocols\MatchRules;
-use Webong\WorkFlow\Conditions\RuleMatcher;
+use Webong\WorkFlow\Conditions\ConditionAuthoringValidator;
+use Webong\WorkFlow\Conditions\ConditionCompiler;
+use Webong\WorkFlow\Conditions\ConditionDefinitionException;
 
 final readonly class RequestMatcher
 {
@@ -20,32 +23,34 @@ final readonly class RequestMatcher
         'body' => true,
     ];
 
-    private RuleMatcher $matcher;
+    public function __construct(private ConditionCompiler $compiler, private ?LoggerInterface $logger = null) {}
 
-    public function __construct(ValidationFactory $validator)
+    public function validate(MatchRules $match): void
     {
-        $this->matcher = new RuleMatcher($validator);
+        $diagnostics = (new ConditionAuthoringValidator($this->compiler))->validate($match->toArray());
+        if ($diagnostics !== []) { throw new InvalidArgumentException($diagnostics[0]->message); }
     }
 
     public function matches(IngressRequest $request, MatchRules $match): bool
     {
-        if ($match->matchesEverything()) {
-            return true;
-        }
-
+        if ($match->matchesEverything()) { return true; }
         if ($request->protocol !== 'http') {
-            foreach (array_keys($match->rules) as $field) {
-                $root = explode('.', $field, 2)[0];
-                if (isset(self::HTTP_ONLY_FIELDS[$root])) {
-                    return false;
+            foreach ($match->ruleLeaves() as $rules) {
+                foreach (array_keys($rules) as $field) {
+                    if (isset(self::HTTP_ONLY_FIELDS[explode('.', $field, 2)[0]])) { return false; }
                 }
             }
         }
-
-        return $this->matcher->matches(
-            $this->matchingDocument($request),
-            $match->toRuleSet(),
-        );
+        try {
+            $result = $this->compiler->compile($match->toArray())->evaluate($this->matchingDocument($request));
+            if ($result->isError()) {
+                $this->logger?->warning('Gateway subscription condition did not evaluate.', ['code' => 'condition_evaluation_failed']);
+            }
+            return $result->matched();
+        } catch (ConditionDefinitionException $exception) {
+            $this->logger?->warning('Gateway subscription condition is invalid.', ['code' => $exception->diagnosticCode]);
+            return false;
+        }
     }
 
     /** @return array<string, mixed> */

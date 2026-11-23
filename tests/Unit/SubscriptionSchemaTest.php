@@ -16,13 +16,13 @@ it('keeps the subscription JSON schema aligned with match-rules v1', function ()
     );
     $matchRules = new ReflectionClass(RuleSet::class);
 
-    expect($schema['$defs']['match']['properties']['version']['const'])
+    expect($schema['$defs']['condition']['properties']['version']['const'])
         ->toBe(MatchRules::VERSION)
-        ->and($schema['$defs']['match']['properties']['rules']['maxProperties'])
+        ->and($schema['$defs']['condition']['properties']['rules']['maxProperties'])
         ->toBe($matchRules->getConstant('MAX_FIELDS'))
         ->and($schema['$defs']['fieldName']['maxLength'])
         ->toBe($matchRules->getConstant('MAX_FIELD_LENGTH'))
-        ->and($schema['$defs']['match']['properties']['rules']['additionalProperties']['oneOf'][0]['maxItems'])
+        ->and($schema['$defs']['condition']['properties']['rules']['additionalProperties']['oneOf'][0]['maxItems'])
         ->toBe($matchRules->getConstant('MAX_RULES_PER_FIELD'))
         ->and($schema['$defs']['rule']['maxLength'])
         ->toBe($matchRules->getConstant('MAX_RULE_LENGTH'))

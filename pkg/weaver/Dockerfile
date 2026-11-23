@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG WORKFLOW_IMAGE=ghcr.io/webong/workflow@sha256:dc876bfa06d295e4049a5658ef813d56a536db22c069da674633151664813d9e
+ARG WORKFLOW_IMAGE=ghcr.io/webong/workflow@sha256:ec4463a8af08c0eb197aee4839945c248d913415dc1366c66e2431ba59196cc6
 FROM dunglas/frankenphp:1.12.7-builder-php8.3-bookworm@sha256:668b927010b6ce7a623e70c9cd6a4ba91a4763184e3c506596c828a07d0560db AS bridge
 ARG TARGETARCH
 COPY pkg/weaver /extension

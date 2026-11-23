@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c0b052242ad09dd1a7c92d9f798749d3",
+    "content-hash": "e2e0dc75abf76792a164c43ee1590a3a",
     "packages": [],
     "packages-dev": [
         {
@@ -14091,7 +14091,7 @@
             "dist": {
                 "type": "path",
                 "url": "pkg/planner",
-                "reference": "4b4a7ea6ad0bb61da6acd5fd1e30e2a0c3f72452"
+                "reference": "3afda3f6d7aa146d0d68c33ec744881d841153b4"
             },
             "require": {
                 "php": "^8.3",
@@ -14104,7 +14104,9 @@
                 "symfony/process": "^7.3 || ^8.0",
                 "symfony/routing": "^7.3 || ^8.0",
                 "webong/gateway-adapter": "dev-main",
-                "webong/workflow-conditions": "^0.1.0-rc.3"
+                "webong/workflow": "0.1.0-rc.4",
+                "webong/workflow-illuminate": "0.1.0-rc.4",
+                "webong/workflow-jq": "0.1.0-rc.4"
             },
             "suggest": {
                 "laravel/framework": "Required for the Laravel Planner management and registry implementation (^12.0).",
@@ -14140,11 +14142,11 @@
             "dist": {
                 "type": "path",
                 "url": "mod/adapter",
-                "reference": "6370fc11680cef6505f697ab86a181c9559846dc"
+                "reference": "fa54a201eee19b62dd595021589898231094594e"
             },
             "require": {
                 "php": "^8.3",
-                "webong/workflow-rules": "^0.1.0-rc.3"
+                "webong/workflow": "0.1.0-rc.4"
             },
             "type": "library",
             "autoload": {
@@ -14811,20 +14813,24 @@
         },
         {
             "name": "webong/workflow",
-            "version": "v0.1.0-rc.3",
+            "version": "v0.1.0-rc.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/workflow",
-                "reference": "29623ff51cfd071f65ea2231b8a72d73c663da76"
+                "reference": "54e7502b89ac4debd31942b929e9812b0c5aa9cf"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/workflow/zipball/29623ff51cfd071f65ea2231b8a72d73c663da76",
-                "reference": "29623ff51cfd071f65ea2231b8a72d73c663da76",
+                "url": "https://api.github.com/repos/webong/workflow/zipball/54e7502b89ac4debd31942b929e9812b0c5aa9cf",
+                "reference": "54e7502b89ac4debd31942b929e9812b0c5aa9cf",
                 "shasum": ""
             },
             "require": {
                 "php": "^8.3 || ^8.4 || ^8.5"
+            },
+            "conflict": {
+                "webong/workflow-conditions": "*",
+                "webong/workflow-rules": "*"
             },
             "require-dev": {
                 "guzzlehttp/psr7": "^3.2",
@@ -14834,11 +14840,10 @@
                 "phpstan/phpstan": "^2.0",
                 "phpunit/phpunit": "^12.0",
                 "webong/composer-source-plugin": "^0.5",
-                "webong/workflow-conditions": "@dev",
+                "webong/workflow-illuminate": "@dev",
                 "webong/workflow-jq": "@dev",
                 "webong/workflow-laravel": "@dev",
                 "webong/workflow-open-workflow": "@dev",
-                "webong/workflow-rules": "@dev",
                 "webong/workflow-temporal": "@dev"
             },
             "bin": [
@@ -14862,11 +14867,10 @@
                     "catalog": {
                         "url": "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json",
                         "packages": [
-                            "webong/workflow-conditions",
+                            "webong/workflow-illuminate",
                             "webong/workflow-jq",
                             "webong/workflow-laravel",
                             "webong/workflow-open-workflow",
-                            "webong/workflow-rules",
                             "webong/workflow-temporal"
                         ]
                     }
@@ -14908,29 +14912,28 @@
                 "MIT"
             ],
             "description": "Framework-agnostic workflow definitions, state evaluation, presentations, and actions.",
-            "time": "2026-11-19T01:29:58+00:00"
+            "time": "2026-11-22T10:34:27+00:00"
         },
         {
-            "name": "webong/workflow-conditions",
-            "version": "0.1.0-rc.3",
+            "name": "webong/workflow-illuminate",
+            "version": "0.1.0-rc.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/workflow.git",
-                "reference": "666957dc3c211a9b27bd13f9dfaf49b098eac146"
+                "reference": "509c9bcb42860f41541fa4522bf7beef774f7f43"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/workflow/zipball/666957dc3c211a9b27bd13f9dfaf49b098eac146",
-                "reference": "666957dc3c211a9b27bd13f9dfaf49b098eac146",
+                "url": "https://api.github.com/repos/webong/workflow/zipball/509c9bcb42860f41541fa4522bf7beef774f7f43",
+                "reference": "509c9bcb42860f41541fa4522bf7beef774f7f43",
                 "shasum": ""
             },
             "require": {
+                "illuminate/contracts": "^12.0",
                 "illuminate/translation": "^12.0",
                 "illuminate/validation": "^12.0",
                 "php": "^8.3 || ^8.4 || ^8.5",
-                "webong/workflow": "^0.1.0-rc.2",
-                "webong/workflow-jq": "^0.1.0-rc.3",
-                "webong/workflow-rules": "^0.1.0-rc.3"
+                "webong/workflow": "^0.1.0-rc.4"
             },
             "type": "library",
             "extra": {
@@ -14940,32 +14943,38 @@
             },
             "autoload": {
                 "psr-4": {
-                    "Webong\\WorkFlow\\Conditions\\": "./"
+                    "Webong\\WorkFlow\\Illuminate\\": "./"
                 }
             },
             "license": [
                 "MIT"
             ],
-            "description": "Compiled rule/jq conditions, boolean composition and opt-in flow guards.",
-            "time": "2026-11-19T02:27:36+01:00"
+            "description": "Illuminate component adapter supplying the WorkFlow rules condition driver without a Laravel application.",
+            "time": "2026-11-20T17:17:06+01:00"
         },
         {
             "name": "webong/workflow-jq",
-            "version": "0.1.0-rc.3",
+            "version": "0.1.0-rc.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webong/workflow.git",
-                "reference": "8902f6f9a8453527d1d1fd19540672454ee4367f"
+                "reference": "2a8eb973f6a419dac91bf370d39189a51086ad4c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webong/workflow/zipball/8902f6f9a8453527d1d1fd19540672454ee4367f",
-                "reference": "8902f6f9a8453527d1d1fd19540672454ee4367f",
+                "url": "https://api.github.com/repos/webong/workflow/zipball/2a8eb973f6a419dac91bf370d39189a51086ad4c",
+                "reference": "2a8eb973f6a419dac91bf370d39189a51086ad4c",
                 "shasum": ""
             },
             "require": {
                 "php": "^8.3 || ^8.4 || ^8.5",
                 "wikimedia/zest-jq": "^1.1"
+            },
+            "conflict": {
+                "webong/workflow": "<0.1.0-rc.4"
+            },
+            "suggest": {
+                "webong/workflow": "Required only for the optional JqConditionDriver integration (^0.1.0-rc.4); raw jq evaluation remains standalone."
             },
             "type": "library",
             "extra": {
@@ -14982,41 +14991,7 @@
                 "MIT"
             ],
             "description": "Standalone JSON query evaluation and backend selection, independent of WorkFlow and OpenWorkflow.",
-            "time": "2026-11-19T02:09:18+01:00"
-        },
-        {
-            "name": "webong/workflow-rules",
-            "version": "0.1.0-rc.3",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/webong/workflow.git",
-                "reference": "ce210568a31379eaf98333a1648552c19142b7c7"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/webong/workflow/zipball/ce210568a31379eaf98333a1648552c19142b7c7",
-                "reference": "ce210568a31379eaf98333a1648552c19142b7c7",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^8.3 || ^8.4 || ^8.5"
-            },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-main": "0.1.x-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Webong\\WorkFlow\\Rules\\": "./"
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Portable bounded Laravel-shaped rule documents, independent of transport and frameworks.",
-            "time": "2026-11-19T02:24:31+01:00"
+            "time": "2026-11-20T16:56:11+01:00"
         },
         {
             "name": "wikimedia/wikipeg",

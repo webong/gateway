@@ -121,6 +121,7 @@ final readonly class MatchRulesPatch
 
     public function apply(MatchRules $current): MatchRules
     {
+        if (! $current->isRules()) { throw new InvalidArgumentException("Replace jq/composite conditions instead of patching rule fields."); }
         if ($this->operations === []) {
             throw new InvalidArgumentException('Match patch requires at least one operation.');
         }

@@ -51,3 +51,37 @@ bash docs/examples/subscriptions/remote-http.sh
 The script requires `curl`. Set `PROFILE_DESTINATION_ID` and `PROFILE_ETAG` to
 also run its profile update examples. Use the `id` and `ETag` returned by the
 profiled subscription creation response.
+
+
+## Conditions: rules, jq and compositions
+
+Existing `match: {"version":"v1","rules":{...}}` documents remain accepted.
+Planner explicitly registers Workflow's Illuminate rules driver and jq driver.
+`all`, `any` and `not` compose their leaves, for example:
+
+```json
+{
+  "version": "v1",
+  "all": [
+    {"rules": {"headers.X-Event": "required|in:created"}},
+    {"syntax": "jq", "expression": ".payload.account.id == \"account-42\""}
+  ]
+}
+```
+
+jq reads Gateway's normalized matching document directly: `protocol`, `event`,
+`session_id`, `host`, `route`, normalized lowercase `headers`, decoded `payload`
+and `attributes`. HTTP also supplies `method`, `scheme`, `path`, `query` and `body`.
+There is no workflow `context`/`input` wrapper. A jq result must be one boolean.
+
+Every rules leaf retains Gateway's allowed fields and bounded validation rules.
+Header field names are normalized before storage. Any rules leaf referring to
+HTTP-only fields makes the condition HTTP-only, including inside `not`; absent
+protocol fields cannot be used to bypass that policy. Invalid stored conditions
+and evaluation failures are nonmatches with redacted diagnostic codes.
+
+`PATCH .../subscriptions/{id}/match` remains a rules-field patch. It rejects jq
+and composed conditions. Replace a whole condition using `PUT` on the same URL,
+with the new match document as its body and the current `If-Match` ETag. Replacement
+uses the same owner/route permissions, revision checks and cache invalidation as
+rule patches. `channel` remains an optional transport field outside the condition.

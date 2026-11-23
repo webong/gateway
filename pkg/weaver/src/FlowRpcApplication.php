@@ -6,7 +6,7 @@ namespace Webong\Gateway\Weaver;
 
 use Webong\WorkFlow\Contracts\FlowDefinitionProvider;
 use Webong\WorkFlow\Contracts\FlowStateStoreFactory;
-use Webong\WorkFlow\OpenWorkflow\OpenWorkflow;
+use Webong\WorkFlow\Services\FlowDefinitionImporter;
 use Webong\WorkFlow\Enums\FlowStatus;
 use Webong\WorkFlow\Enums\FlowStepStatus;
 use Webong\WorkFlow\Services\FlowDefinitionValidator;
@@ -43,7 +43,7 @@ final readonly class FlowRpcApplication
         private FlowStateStoreFactory $stores,
         private FlowExecutionDispatcher $execution,
         private FlowStateTransition $transitions = new FlowStateTransition(),
-        private ?OpenWorkflow $ows = null,
+        private ?FlowDefinitionImporter $ows = null,
         iterable $operationProviders = [],
         private ?array $grantedCapabilities = null,
         private ?QueueRpcRuntime $queue = null,
@@ -326,9 +326,11 @@ final readonly class FlowRpcApplication
      */
     private function owsValidate(array $params): array
     {
-        $report = $this->ows()->validateOnly($this->document($params));
-
-        return ['report' => $report->toArray()];
+        $report = $this->ows()->import('ows', $this->document($params));
+        $document = $report->toArray();
+        $document['version'] = $report->metadata['specification_version'] ?? null;
+        $document['flow_definition'] = null;
+        return ['report' => $document];
     }
 
     /**
@@ -341,12 +343,13 @@ final readonly class FlowRpcApplication
      */
     private function owsRegister(array $params): array
     {
-        $report = $this->ows()->registerOwsDefinition($this->document($params));
-
-        return ['report' => $report->toArray()];
+        $report = $this->ows()->import('ows', $this->document($params));
+        $document = $report->toArray();
+        $document['version'] = $report->metadata['specification_version'] ?? null;
+        return ['report' => $document];
     }
 
-    private function ows(): OpenWorkflow
+    private function ows(): FlowDefinitionImporter
     {
         return $this->ows ?? throw new RpcFailure(
             -32601,

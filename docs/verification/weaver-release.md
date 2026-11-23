@@ -100,7 +100,9 @@ WorkFlow's source host moved to `examples/standalone` at signed `ab517494`, with
 [passing CI](https://github.com/webong/workflow/actions/runs/43790467576). Its new
 source layout removes legacy paths/namespaces without aliases; do not treat it as
 an in-place compatibility upgrade. Existing rc.2 releases and Weaver's pinned
-legacy rollback source remain unchanged. See the upstream source-layout guide.
+legacy rollback source remain unchanged. Weaver now consumes rc.4, matching
+Planner; this does not change the legacy rollback fixture. See the upstream
+source-layout guide.
 
 Production retirement still requires compatible published replacement acceptance
 and versioned deprecation/upgrade guidance. Retain matching old release images

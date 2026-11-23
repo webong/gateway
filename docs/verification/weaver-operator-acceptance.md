@@ -10,8 +10,8 @@ published or deployed. This does not certify a production provider or move a
 production endpoint.
 
 The original standalone source remains pinned to
-`00e0bbcdd61c2c6ed96af55865d0ef2e77557adb`. Weaver continues consuming released
-WorkFlow core `v0.1.0-rc.2`; the prepared example move is not a new dependency.
+`00e0bbcdd61c2c6ed96af55865d0ef2e77557adb`. Weaver consumes released WorkFlow core `v0.1.0-rc.4`, matching Planner. The
+legacy source remains a separate rollback fixture; it is not the runtime dependency.
 
 ## Acceptance sequence
 

@@ -590,4 +590,19 @@ $definition = WebSubscriptionDefinition::matching(
 
 ## Shared rule implementation
 
-Gateway delegates the bounded rule definition to `webong/workflow-rules` and validation to `webong/workflow-conditions`, distributed through WorkFlow's Composer Source Plugin index. Gateway retains event-field restrictions, header normalization, protocol-specific matching policy, subscription ownership and delivery. The version-v1 subscription JSON contract is unchanged; the reusable condition compiler's jq/composition features do not extend Gateway's subscription wire format.
+Gateway uses `webong/workflow:0.1.0-rc.4` for bounded definitions and condition
+compilation, `webong/workflow-illuminate` for Laravel-style validation, and
+`webong/workflow-jq` for jq. The adapter packages are resolved through WorkFlow's
+Composer Source Plugin index; core uses its ordinary VCS repository. The retired
+`workflow-rules` and `workflow-conditions` packages are no longer required.
+
+Gateway retains event-field restrictions, header normalization, protocol policy,
+subscription ownership and delivery. Legacy v1 rules documents remain valid;
+v1 now also accepts jq leaves and `all`/`any`/`not` compositions. See the
+[condition examples and replacement API](examples/subscriptions/README.md#conditions-rules-jq-and-compositions).
+
+Use `PUT /registry/endpoints/{endpointKey}/subscriptions/{destinationId}/match`
+with the current `If-Match` ETag to replace a whole match document. The existing
+`PATCH` endpoint continues to edit fields in plain rules documents and rejects
+jq/compositions. Invalid stored conditions and evaluation errors never match;
+diagnostics contain codes rather than request data or expression contents.

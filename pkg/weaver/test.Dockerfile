@@ -13,6 +13,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ${WORKFLOW_TEST_BASE}
 WORKDIR /extension
 ENV COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_ROOT_VERSION=0.1.0-dev
+# The explicit Temporal compatibility adapter requires the SDK socket transport.
+RUN install-php-extensions sockets
 COPY pkg/weaver/tests/consumer/composer.json pkg/weaver/tests/consumer/composer.lock pkg/weaver/tests/consumer/composer-source.lock ./
 COPY pkg/weaver/register.php ./
 RUN composer install --no-plugins --no-interaction --prefer-dist --no-scripts \

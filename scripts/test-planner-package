@@ -15,7 +15,7 @@ $manifest = [
         "type" => "path", "url" => $root."/".$path,
         "options" => ["symlink" => false, "versions" => ["webong/gateway" => "dev-main", "webong/gateway-adapter" => "dev-main"]],
     ], ["pkg/planner", "mod/adapter"]), [
-        ["type" => "composer", "url" => "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json", "only" => ["webong/workflow-conditions", "webong/workflow-jq", "webong/workflow-rules"]],
+        ["type" => "composer", "url" => "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json", "only" => ["webong/workflow-illuminate", "webong/workflow-jq"]],
         ["type" => "vcs", "url" => "https://github.com/webong/workflow", "no-api" => true, "only" => ["webong/workflow"]],
     ]),
     "minimum-stability" => "dev", "prefer-stable" => true,

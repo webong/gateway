@@ -4,7 +4,7 @@ arch=${1:?Pass amd64 or arm64}
 case "$arch" in amd64|arm64) ;; *) exit 2 ;; esac
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$root"
-pinned_runtime=ghcr.io/webong/workflow@sha256:dc876bfa06d295e4049a5658ef813d56a536db22c069da674633151664813d9e
+pinned_runtime=ghcr.io/webong/workflow@sha256:ec4463a8af08c0eb197aee4839945c248d913415dc1366c66e2431ba59196cc6
 source_image=${WEAVER_SOURCE_IMAGE:-$pinned_runtime}
 if [[ ${WEAVER_VERSION:-0.1.0-dev} != *dev* && "$source_image" != "$pinned_runtime" ]]; then
     echo "Release candidates require the reviewed immutable runtime image." >&2; exit 2

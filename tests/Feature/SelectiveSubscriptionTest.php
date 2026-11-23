@@ -411,7 +411,7 @@ it('rejects unsafe incremental match rules', function (): void {
             ]],
         ],
     )->assertUnprocessable()
-        ->assertJsonPath('errors.match.0', 'Match rule [exists] is not allowed.');
+        ->assertJsonPath('errors.match.0', 'Rule is not allowed.');
 
     $this->withToken('registry-secret')
         ->withHeader('If-Match', subscriptionEtag(WebProxyDestination::query()->findOrFail($destination->id)))
@@ -840,7 +840,7 @@ it('rejects unsafe rules from a remote subscriber', function (): void {
             ],
         ],
     )->assertUnprocessable()
-        ->assertJsonPath('errors.match.0', 'Match rule [exists] is not allowed.');
+        ->assertJsonPath('errors.match.0', 'Rule is not allowed.');
 
     $this->withToken('registry-secret')->postJson(
         '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions',
@@ -1181,4 +1181,46 @@ it('rejects unsafe Shell reply registrations and hook changes', function (): voi
         $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
             ->patchJson($url, $change)->assertUnprocessable();
     }
+});
+
+it('creates and replaces composed conditions while preserving revisions and rules-only patches', function (): void {
+    $endpoint = relayEndpoint();
+    $route = '/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions';
+    $condition = ['version' => 'v1', 'all' => [
+        ['rules' => ['headers.X-Event' => 'required|in:created']],
+        ['syntax' => 'jq', 'expression' => '.payload.account.id == "account-42"'],
+    ]];
+    $created = $this->withToken('registry-secret')->postJson($route, [
+        'subscriber_id' => 'condition-owner', 'group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'url' => 'https://subscriber.example.test/events', 'match' => $condition,
+    ])->assertCreated()->assertJsonPath('match.all.0.rules', ['headers.x-event' => ['required', 'in:created']]);
+    $url = $route.'/'.$created->json('id').'/match';
+    $request = static fn (string $account): IngressRequest => new IngressRequest(
+        deliveryId: 'condition-route', method: 'POST', host: 'relay.example.test', path: '/provider/events/app-123',
+        rawQuery: '', headers: ['X-Event' => ['created']], body: json_encode(['account' => ['id' => $account]], JSON_THROW_ON_ERROR),
+    );
+    $planner = app(RegistryRoutePlanner::class);
+    expect($planner->plan($request('account-42'))->relays)->toHaveCount(1);
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->patchJson($url, ['version' => 'v1', 'operations' => [['op' => 'add', 'field' => 'host', 'rules' => ['required']]]])
+        ->assertUnprocessable();
+    $replacement = ['version' => 'v1', 'syntax' => 'jq', 'expression' => '.payload.account.id == "account-99"'];
+    $this->withToken('registry-secret')->withHeader('If-Match', '')->putJson($url, $replacement)->assertStatus(428);
+    $updated = $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->putJson($url, $replacement)->assertOk()->assertJsonPath('match', $replacement);
+    $this->withToken('registry-secret')->withHeader('If-Match', $created->headers->get('ETag'))
+        ->putJson($url, $condition)->assertStatus(412);
+    expect($updated->headers->get('ETag'))->not->toBe($created->headers->get('ETag'))
+        ->and($planner->plan($request('account-42'))->immediateResponse?->statusCode)->toBe(204)
+        ->and($planner->plan($request('account-99'))->relays)->toHaveCount(1);
+});
+
+it('rejects invalid condition drivers before persisting a subscription', function (): void {
+    $endpoint = relayEndpoint();
+    $this->withToken('registry-secret')->postJson('/registry/endpoints/'.$endpoint->record->endpoint_key.'/subscriptions', [
+        'subscriber_id' => 'bad-condition', 'group' => 'meta', 'routing_scope' => 'application', 'routing_key' => 'app-123',
+        'url' => 'https://subscriber.example.test/events',
+        'match' => ['version' => 'v1', 'syntax' => 'jq', 'expression' => '.payload['],
+    ])->assertUnprocessable();
+    expect(WebProxyDestination::query()->where('owner_id', 'bad-condition')->exists())->toBeFalse();
 });
