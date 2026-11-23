@@ -17,6 +17,14 @@
             "options": {
                 "symlink": false
             }
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/webong/workflow",
+            "no-api": true,
+            "only": [
+                "webong/workflow"
+            ]
         }
     ],
     "minimum-stability": "dev",

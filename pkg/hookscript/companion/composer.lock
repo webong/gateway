@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b6c068b88d03486538e27390f66c061b",
+    "content-hash": "e9d921b32b9f944e2547e662de161620",
     "packages": [
         {
             "name": "smuuf/php-peg",
@@ -126,10 +126,11 @@
             "dist": {
                 "type": "path",
                 "url": "../../../mod/adapter",
-                "reference": "1753afbafef13d5d26c8676452d10c5f1298b87e"
+                "reference": "fa54a201eee19b62dd595021589898231094594e"
             },
             "require": {
-                "php": "^8.3"
+                "php": "^8.3",
+                "webong/workflow": "0.1.0-rc.4"
             },
             "type": "library",
             "autoload": {
@@ -147,6 +148,109 @@
                 "symlink": false,
                 "relative": true
             }
+        },
+        {
+            "name": "webong/workflow",
+            "version": "v0.1.0-rc.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/webong/workflow",
+                "reference": "54e7502b89ac4debd31942b929e9812b0c5aa9cf"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/webong/workflow/zipball/54e7502b89ac4debd31942b929e9812b0c5aa9cf",
+                "reference": "54e7502b89ac4debd31942b929e9812b0c5aa9cf",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.3 || ^8.4 || ^8.5"
+            },
+            "conflict": {
+                "webong/workflow-conditions": "*",
+                "webong/workflow-rules": "*"
+            },
+            "require-dev": {
+                "guzzlehttp/psr7": "^3.2",
+                "illuminate/redis": "^12.0",
+                "justinrainbow/json-schema": "^5.2",
+                "paneon/php-to-typescript": "^2.3",
+                "phpstan/phpstan": "^2.0",
+                "phpunit/phpunit": "^12.0",
+                "webong/composer-source-plugin": "^0.5",
+                "webong/workflow-illuminate": "@dev",
+                "webong/workflow-jq": "@dev",
+                "webong/workflow-laravel": "@dev",
+                "webong/workflow-open-workflow": "@dev",
+                "webong/workflow-temporal": "@dev"
+            },
+            "bin": [
+                "bin/workflow"
+            ],
+            "type": "library",
+            "extra": {
+                "source-plugin": {
+                    "surfaces": [
+                        "composer.surface.json",
+                        "src/composer.json",
+                        "types/composer.json",
+                        "docs/composer.json"
+                    ],
+                    "workspaces": {
+                        "include": [
+                            "pkg/*"
+                        ],
+                        "symlink": false
+                    },
+                    "catalog": {
+                        "url": "https://raw.githubusercontent.com/webong/workflow/main/composer/composer-packages.json",
+                        "packages": [
+                            "webong/workflow-illuminate",
+                            "webong/workflow-jq",
+                            "webong/workflow-laravel",
+                            "webong/workflow-open-workflow",
+                            "webong/workflow-temporal"
+                        ]
+                    }
+                },
+                "branch-alias": {
+                    "dev-main": "0.1.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Webong\\WorkFlow\\": "src/",
+                    "Webong\\WorkFlow\\Examples\\Standalone\\": "examples/standalone/src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Webong\\WorkFlow\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "vendor/bin/phpunit --testdox"
+                ],
+                "types": [
+                    "php tools/generate-types.php",
+                    "php tools/generate-clients.php"
+                ],
+                "analyse": [
+                    "vendor/bin/phpstan analyse --no-progress --memory-limit=512M"
+                ],
+                "test:projections": [
+                    "bash tests/integration/composer-surfaces.sh"
+                ],
+                "package:composer": [
+                    "php tools/package-composer.php"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Framework-agnostic workflow definitions, state evaluation, presentations, and actions.",
+            "time": "2026-11-22T10:34:27+00:00"
         }
     ],
     "packages-dev": [],
